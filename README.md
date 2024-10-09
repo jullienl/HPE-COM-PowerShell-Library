@@ -115,11 +115,12 @@ To find cmdlets related to a specific resource, use:
 Get-Command -Module HPEGreenLakeForCOM | Where-Object { $_.Name -match "<ResourceName>" }
 ```
 
+
 ## Support
 
-If you encounter any issues or unexpected behavior, you can open a [new issue][new-issue-link] on the tracker for assistance.
+If you encounter any issues or unexpected behavior, please open a [new issue][new-issue-link] on our issue tracker for assistance.
 
-For general questions or discussions that don't need to be tracked in the issue tracker, join the GitHub Discussions for the project: [Join the discussion][github-chat-link]
+For general questions or discussions that don't require tracking, join our GitHub Discussions: [Join the discussion][github-chat-link]
 
 ## Want more?
 
