@@ -55,10 +55,10 @@ There could be several issues you may encounter while using the **Install-Module
     
 * **Blocked security protocols**: Sometimes, the security protocols built into PowerShell can prevent the installation process. This usually happens when the PowerShell execution policy is set to "Restricted". If Get-ExecutionPolicy shows Restricted, you may need to run **Set-ExecutionPolicy RemoteSigned**
 
-If you have previously installed the module and wish to update it to the newest version, you can use:
+If you have previously installed the module and wish to update it to the latest version, you can use the following commands:
 
-```powerShell
-Get-Module -Name HPEGreenLakeForCOM -ListAvailable | Uninstall-Module  
+```PowerShell
+Get-Module -Name HPEGreenLakeForCOM -ListAvailable | Uninstall-Module
 Install-Module HPEGreenLakeForCOM
 ```
 
@@ -79,7 +79,7 @@ If you don't have a workspace yet, use:
 Connect-HPEGL -Credential $credentials 
 ```
 
-After successfully authenticating to HPE GreenLake, the [HPEGreenLake.Connection] object is returned to the caller and added to the global session tracker **$HPEGreenLakeSession**. 
+After successfully authenticating to HPE GreenLake, the `[HPEGreenLake.Connection]` object is returned to the caller and added to the global session tracker `$HPEGreenLakeSession`. 
 To learn more about this object, refer to the help documentation of `Connect-HPEGL`.
 
 
@@ -108,6 +108,8 @@ To find cmdlets related to a specific resource, use:
 Get-Command -Module HPEGreenLakeForCOM | Where-Object { $_.Name -match "<ResourceName>" }
 ```
 
+## Support
+
 If you encounter any issues or unexpected behavior, you can open a [new issue][new-issue-link] on the tracker for assistance.
 
 For general questions or discussions that don't need to be tracked in the issue tracker, join the GitHub Discussions for the project: [Join the discussion][github-chat-link]
@@ -130,3 +132,9 @@ For general questions or discussions that don't need to be tracked in the issue 
 [github-chat-badge-url]: https://img.shields.io/badge/chat-on%20github%20discussions-green?style=flat&logo=gitter
 [github-chat-link]: https://github.com/jullienl/HPE-COM-PowerShell-library/discussions
 
+
+## License
+This library is provided under the MIT License. See the full license text in the module manifest for more details.
+
+## Author
+Lionel Jullien, Hewlett-Packard Enterprise
