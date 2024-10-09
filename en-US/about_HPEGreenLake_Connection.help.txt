@@ -1,0 +1,65 @@
+TOPIC
+
+    about_HPEGreenLake_Connection
+
+SHORT DESCRIPTION
+
+    Explains how HPE GreenLake connection information is store in a global variable.
+
+LONG DESCRIPTION
+
+    The library utilizes three features:
+
+    -- When using Connect-HPEGL, an [HPEGreenLake.Connection] object is returned to the caller
+
+    -- The [HPEGreenLake.Connection] object is stored in a global variable accessible by any caller: $HPEGreenLakeSession
+
+    -- When using New-HPEGLAPIcredential, a new apiCredentials object is created during the session and is stored in a collection of 
+       application API credentials in $HPEGreenLakeSession.apiCredentials. An application API credential can be subsequently used to 
+       execute API calls with an application instance 
+
+
+GLOBAL CONNECTION TRACKING OBJECT
+
+    After successfully authenticating to the HPE GreenLake platform, the [HPEGreenLake.Connection] object is added to 
+    the global session tracker, $HPEGreenLakeSession.
+
+    This object contains the following properties:
+
+        -- session - Web session object containing information about the HPE GreenLake session, including cookies and credentials
+        
+        -- oauth2AccessToken - OAuth2 access token string returned by the API after successful authentication 
+        
+        -- oauth2IdToken - OAuth2 ID Token string returned by the API after successful authentication 
+        
+        -- oauth2RefreshToken - OAuth2 refresh token string returned by the API after successful authentication 
+        
+        -- userName - Email address that was authenticated with HPE GreenLake
+        
+        -- workspaceId - ID of the HPE GreenLake workspace 
+        
+        -- workspace - Name of the HPE GreenLake workspace   
+        
+        -- oauth2TokenCreation - OAuth2 token creation datetime value
+        
+        -- oauth2TokenCreationEpoch - Unix time since creation of the OAuth2 token
+        
+        -- userSessionIdleTimeout - HPE GreenLake user session timeout in minutes
+        
+        -- apiCredentials - Collection of application API credentials created during the session. Each API credential object contains 
+           the following properties:
+            -- credential_name - Name of the API credential
+            -- application_name - Name of the application using this credential
+            -- ccs_region - Region of the application using this credential
+            -- application_instance_id - Instance ID of the application using this credential
+            -- client_id - Client ID of the API credential
+            -- client_secret - Client Secret of the API credential
+            -- connectivity_endpoint - Connectivity endpoint of the application instance
+
+          
+
+SEE ALSO
+
+  https://github.com/HewlettPackard/POSH-HPEGreenLake
+  
+
