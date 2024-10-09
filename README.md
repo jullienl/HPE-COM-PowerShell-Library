@@ -122,6 +122,12 @@ If you encounter any issues or unexpected behavior, please open a [new issue][ne
 
 For general questions or discussions that don't require tracking, join our GitHub Discussions: [Join the discussion][github-chat-link]
 
+
+## Disclaimer
+
+Please note that the HPE GreenLake APIs are subject to change. Such changes can impact the functionality of this library. We recommend keeping the library updated to the latest version to ensure compatibility with the latest API changes.
+
+
 ## Want more?
 
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
