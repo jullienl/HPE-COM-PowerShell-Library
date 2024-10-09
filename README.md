@@ -9,7 +9,14 @@ The HPE GreenLake for Compute Ops Management PowerShell library provides a set o
 - **Workspace Management**: Create and manage HPE GreenLake workspaces.
 - **Session Tracking**: Automatically track sessions with the global session tracker `$HPEGreenLakeSession`.
 - **User Management**: Invite and manage users within your HPE GreenLake environment.
+- **Resource Management**: Manage resources such as servers, storage, and networking within your HPE GreenLake environment.
+- **Monitoring and Alerts**: Set up monitoring and alerts for your resources to ensure optimal performance and uptime.
+- **Reporting**: Generate detailed reports on resource usage, performance, and other metrics.
+- **Automation**: Automate repetitive tasks and workflows using PowerShell scripts and cmdlets.
+- **Integration**: Seamlessly integrate with other tools and platforms using REST APIs and webhooks.
+- **Security**: Implement security best practices and manage access control for your HPE GreenLake environment.
 
+The HPE GreenLake for Compute Ops Management PowerShell library includes a comprehensive set of cmdlets to manage various aspects of your HPE GreenLake environment and Compute Ops Management services. For a complete list of cmdlets and their detailed usage, refer to the module's help documentation using the `Get-Help` cmdlet.
 
 
 ## Latest release
@@ -116,7 +123,6 @@ For general questions or discussions that don't need to be tracked in the issue 
 
 ## Want more?
 
-* [New HPE GreenLake for Compute Ops Management PowerShell library ](https://developer.hpe.com/blog/new-powershell-library-for-the-hpe-greenlake-cloud-platform/)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 * To learn more about HPE GreenLake, see the [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us)
 
