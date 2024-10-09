@@ -1,4 +1,4 @@
-## HPE GreenLake for Compute Ops Management PowerShell library 
+# HPE GreenLake for Compute Ops Management PowerShell library 
 
 The HPE GreenLake for Compute Ops Management PowerShell library provides a set of cmdlets to manage and automate your HPE GreenLake environment. Developed by Hewlett-Packard Enterprise, this library allows users to interact with HPE GreenLake and Compute Ops Management services directly from the PowerShell command line, enabling seamless integration into your existing automation workflows.
 
@@ -23,15 +23,15 @@ The HPE GreenLake for Compute Ops Management PowerShell library provides a set o
 
 - **PowerShell Version**: 5.1 or higher
 - **Supported PSEditions**: Desktop, Core
-- **An HPE account**: See [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
+- **HPE Account**: See [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
 
-> **Note**: To interact with the HPE GreenLake platform through this library, you must possess at least the ***Observer*** built-in role in the ***HPE GreenLake platform*** application. This role only grants view privileges. However, if you need to make modifications, then either the ***Operator*** (with view and edit privileges) or the ***Administrator*** (with view, edit, and delete privileges) built-in roles are necessary. If none of these built-in roles are suitable, you can also create your own custom role that meets your role-based access control requirements.
+    > **Note**: To interact with the HPE GreenLake platform using this library, you must have at least the ***Observer*** role in the ***HPE GreenLake platform*** application. This role grants view-only privileges. For modification capabilities, you need either the ***Operator*** (view and edit privileges) or the ***Administrator*** (view, edit, and delete privileges) role. Alternatively, you can create a custom role that meets your specific access requirements.
 
-> **Note**: An HPE GreenLake workspace is not a prerequisite, as it can be created after the first connection using `New-HPEGLWorkspace`.
+    > **Note**: You do not need an existing HPE GreenLake workspace to connect. You can create a new workspace after your first connection using the `New-HPEGLWorkspace` cmdlet.
 
-> **Note**: The library supports only single-factor authentication. Multi-factor authentication (MFA) and SAML Single Sign-On are not supported.
+    > **Note**: The library supports only single-factor authentication. Multi-factor authentication (MFA) and SAML Single Sign-On are not supported.
 
-> **Note**: Users who use SAML Single Sign-On with HPE GreenLake cannot use their corporate email credentials when logging in via the `Connect-HPEGL` cmdlet. The workaround is to create a specific user in HPE GreenLake for this library. To do this, go to the HPE GreenLake GUI and use the **Invite Users** card in **Manage** / **Identity & Access** to send an invitation to a non-corporate email address. Once you receive the email, accept the invitation, and you will be directed to the HPE GreenLake interface to set a password. You can then use this email address and password to log in with `Connect-HPEGL`.
+    > **Note**: Users who use SAML Single Sign-On with HPE GreenLake cannot use their corporate email credentials when logging in via the `Connect-HPEGL` cmdlet. The workaround is to create a specific user in HPE GreenLake for this library. To do this, go to the HPE GreenLake GUI and use the **Invite Users** card in **Manage** / **Identity & Access** to send an invitation to a non-corporate email address. Once you receive the email, accept the invitation, and you will be directed to the HPE GreenLake interface to set a password. You can then use this email address and password to log in with `Connect-HPEGL`.
 
 
 
