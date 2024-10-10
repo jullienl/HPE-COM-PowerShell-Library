@@ -2472,17 +2472,27 @@ Function Connect-HPEGL {
 Initiates a connection to the HPE GreenLake platform.
 
 .DESCRIPTION
-This cmdlet initiates and manages your connection to the HPE GreenLake platform. Upon successful connection, it establishes a persistent session for all subsequent module cmdlet requests. 
-Additionally, the cmdlet generates temporary API client credentials for both HPE GreenLake and any COM service instances provisioned in the workspace.
+This cmdlet initiates and manages your connection to the HPE GreenLake platform. Upon successful connection, it creates a persistent session for all subsequent module cmdlet requests through the 
+`${Global:HPEGreenLakeSession}` connection tracker variable. Additionally, the cmdlet generates temporary API client credentials for both HPE GreenLake and any Compute Ops Management service instances provisioned in the workspace.
 
-A global variable `${Global:HPEGreenLakeSession}` is used to store OAuth2 information (access token, ID token, and refresh token), session cookies, all API credentials (clientId/ClientSecret)
-and additional relevant details as described below.
+The global variable `$HPEGreenLakeSession` stores session information, API client credentials, API access tokens, and other relevant details for both HPE GreenLake and Compute Ops Management APIs.
 
-Required User Privileges: 
-- The user must belong to the 'HPE GreenLake Platform' group.
-- Within the group, the user's role should be at least a 'Workspace Observer'.
+To use this cmdlet, you need an HPE Account. If you do not have an HPE Account, you can create one at https://common.cloud.hpe.com.
 
-This cmdlet does not support SAML Single Sign-On and Multi-factor authentication (MFA). 
+Note: To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html
+
+Note: To interact with an HPE GreenLake workspace and a Compute Ops Management instance using this library, you must have at least the 'Observer' role for both 'HPE GreenLake Platform' and 'Compute Ops Management' service managers. 
+      This role grants view-only privileges. For modification capabilities, you need either the 'Operator' (view and edit privileges) or the 'Administrator' (view, edit, and delete privileges) role. 
+      Alternatively, you can create a custom role that meets your specific access requirements.
+
+Note: The library supports only single-factor authentication. Multi-factor authentication (MFA) and SAML Single Sign-On are not supported. 
+      Users who use SAML Single Sign-On with HPE GreenLake cannot use their corporate email credentials when logging in via the 'Connect-HPEGL' cmdlet. 
+      The workaround is to create a specific user in HPE GreenLake for this library. To do this, go to the HPE GreenLake GUI, click on 'User Management' in the quick links panel 
+      and press the 'Invite Users' button to send an invitation to a non-corporate email address. Once you receive the email, accept the invitation, 
+      and you will be directed to the HPE GreenLake interface to set a password. You can then use this email address and password to log in with 'Connect-HPEGL'.
+
+Note: You do not need an existing HPE GreenLake workspace to connect. You can create a new workspace after your first connection using the 'New-HPEGLWorkspace' cmdlet.
+
 
 .PARAMETER Credential 
 Set of security credentials such as a username and password to establish a connection to the HPE GreenLake platform.
@@ -2625,6 +2635,10 @@ and follows best practices for secure coding. It also reduces the risk of human 
 
 To generate an encrypted password, you can use:
 ConvertTo-SecureString -String "<Your_HPE_GreenLake_Password>" -AsPlainText -Force |  ConvertFrom-SecureString 
+
+.LINK
+If you do not have an HPE Account, you can create one at https://common.cloud.hpe.com.
+To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html
 
 #>
 

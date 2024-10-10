@@ -16,7 +16,7 @@ The HPE GreenLake for Compute Ops Management PowerShell library provides a set o
 - **Integration**: Seamlessly integrate with other tools and platforms using REST APIs and webhooks.
 - **Security**: Implement security best practices and manage access control for your HPE GreenLake environment.
 
-The HPE GreenLake for Compute Ops Management PowerShell library includes a comprehensive set of cmdlets to manage various aspects of your HPE GreenLake environment and Compute Ops Management services. For a complete list of cmdlets and their detailed usage, refer to the module's help documentation using the `Get-Help` cmdlet.
+The HPE GreenLake for Compute Ops Management PowerShell library includes a comprehensive set of cmdlets to manage various aspects of your HPE GreenLake environment and any existing Compute Ops Management service instances. For a complete list of cmdlets and their detailed usage, refer to the module's help documentation using the `Get-Help` cmdlet.
 
 
 ## Latest release
@@ -30,7 +30,7 @@ The HPE GreenLake for Compute Ops Management PowerShell library includes a compr
 
 - **PowerShell Version**: 5.1 or higher
 - **Supported PSEditions**: Desktop, Core
-- **HPE Account**
+- **HPE Account**: If you do not have an HPE Account, you can create one at https://common.cloud.hpe.com.
      
 
     > **Note**: To learn how to create an HPE account, see [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
@@ -86,10 +86,9 @@ If you don't have a workspace yet, use:
 Connect-HPEGL -Credential $credentials 
 ```
 
-This cmdlet initiates and manages your connection to the HPE GreenLake platform. Upon successful connection, it establishes a persistent session for all subsequent module cmdlet requests.
-Additionally, the cmdlet generates temporary API client credentials for both HPE GreenLake and any Compute Ops Management service instances provisioned in the workspace.
+This cmdlet establishes and manages your connection to the HPE GreenLake platform. Upon successful connection, it creates a persistent session for all subsequent module cmdlet requests. Additionally, the cmdlet generates temporary API client credentials for both HPE GreenLake and any Compute Ops Management service instances provisioned in the workspace.
 
-A global variable `$HPEGreenLakeSession` is used to store OAuth2 information (access token, ID token, and refresh token), session cookies, all API credentials (clientId/SecureClientSecret) and additional relevant details.
+The global variable `$HPEGreenLakeSession` stores session information, API client credentials, API access tokens, and other relevant details for both HPE GreenLake and Compute Ops Management APIs.
 
 To learn more about this object, refer to the help documentation of `Connect-HPEGL`.
 
