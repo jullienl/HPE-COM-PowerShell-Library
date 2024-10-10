@@ -21,7 +21,7 @@ The HPE GreenLake for Compute Ops Management PowerShell library includes a compr
 
 ## Latest release
 
-1.0.1 |
+1.0.0 |
 ------------ |
 [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] |
 
