@@ -285,18 +285,34 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 #Region ---------------------------- CLASS DEFINITIONS -------------------------------------------------------------------------------------------------------------------------------------------
 
 # Custom exception class HtmlContentDetectedException to handle HTML content detection errors
-Add-Type @"
-using System;
 
-public class HtmlContentDetectedException : Exception
-{
-    public HtmlContentDetectedException() : base("HTML content detected in response.") { }
-    
-    public HtmlContentDetectedException(string message) : base(message) { }
-
-    public HtmlContentDetectedException(string message, Exception innerException) : base(message, innerException) { }
+function Test-TypeExists {
+    param (
+        [string]$TypeName
+    )
+    return [AppDomain]::CurrentDomain.GetAssemblies() |
+           ForEach-Object { $_.GetType($TypeName, $false, $false) } |
+           Where-Object { $_ -ne $null }
 }
+
+
+if (-not (Test-TypeExists -TypeName 'HtmlContentDetectedException')) {
+    
+    Add-Type @"
+    using System;
+
+    public class HtmlContentDetectedException : Exception
+    {
+        public HtmlContentDetectedException() : base("HTML content detected in response.") { }
+        
+        public HtmlContentDetectedException(string message) : base(message) { }
+
+        public HtmlContentDetectedException(string message, Exception innerException) : base(message, innerException) { }
+    }
 "@
+}
+
+
 
 #EndRegion
 
