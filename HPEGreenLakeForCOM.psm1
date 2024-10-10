@@ -26,8 +26,8 @@ THE SOFTWARE.
 
 #>
 
-# Set HPE GreenLake PowerShell Library Version
-[Version]$ModuleVersion = '1.0.0'
+# Set PowerShell library version
+[Version]$ModuleVersion = '1.0.1'
 
 
 
