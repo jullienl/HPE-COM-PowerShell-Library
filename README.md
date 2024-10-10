@@ -56,9 +56,9 @@ This will download and install the module from the official PowerShell Gallery r
 
 >**Note**: This library has no dependencies, so it does not require the installation of any other software or modules to function properly.
 
->**Note**: There could be several issues you may encounter while using the `Install-Module` cmdlet in PowerShell, some of which are:
->    * **Insufficient permissions**: You may need administrative privileges to install modules. If you do not have sufficient privileges, you can run your PowerShell client as an administrator or use: `Install-Module HPEGreenLakeForCOM -Scope CurrentUser`
->    * **Blocked security protocols**: Sometimes, the security protocols built into PowerShell can prevent the installation process. This usually happens when the PowerShell execution policy is set to `Restricted`. If `Get-ExecutionPolicy` shows `Restricted`, you may need to run `Set-ExecutionPolicy RemoteSigned`
+>**Note**: You may encounter several issues while using the `Install-Module` cmdlet in PowerShell, including:
+>    * **Insufficient Permissions**: You might need administrative privileges to install modules. If you lack these privileges, run your PowerShell client as an administrator or use: `Install-Module HPEGreenLakeForCOM -Scope CurrentUser`.
+>    * **Blocked Security Protocols**: PowerShell's security settings can sometimes block the installation process, especially if the execution policy is set to `Restricted`. If `Get-ExecutionPolicy` returns `Restricted`, run `Set-ExecutionPolicy RemoteSigned` to change it.
 
 If you have previously installed the module and wish to update it to the latest version, you can use the following commands:
 
