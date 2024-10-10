@@ -30,15 +30,18 @@ The HPE GreenLake for Compute Ops Management PowerShell library includes a compr
 
 - **PowerShell Version**: 5.1 or higher
 - **Supported PSEditions**: Desktop, Core
-- **HPE Account**: See [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
+- **HPE Account**
+     
 
-    > **Note**: To interact with the HPE GreenLake platform using this library, you must have at least the ***Observer*** role in the ***HPE GreenLake platform*** application. This role grants view-only privileges. For modification capabilities, you need either the ***Operator*** (view and edit privileges) or the ***Administrator*** (view, edit, and delete privileges) role. Alternatively, you can create a custom role that meets your specific access requirements.
+    > **Note**: To learn how to create an HPE account, see [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
+
+    > **Note**: To interact with the HPE GreenLake platform using this library, you must have at least the ***Observer*** role in the ***HPE GreenLake platform*** application. This role grants view-only privileges in the workspace. For modification capabilities, you need either the ***Operator*** (view and edit privileges) or the ***Administrator*** (view, edit, and delete privileges) role. Alternatively, you can create a custom role that meets your specific access requirements.
 
     > **Note**: You do not need an existing HPE GreenLake workspace to connect. You can create a new workspace after your first connection using the `New-HPEGLWorkspace` cmdlet.
 
     > **Note**: The library supports only single-factor authentication. Multi-factor authentication (MFA) and SAML Single Sign-On are not supported.
 
-    > **Note**: Users who use SAML Single Sign-On with HPE GreenLake cannot use their corporate email credentials when logging in via the `Connect-HPEGL` cmdlet. The workaround is to create a specific user in HPE GreenLake for this library. To do this, go to the HPE GreenLake GUI and use the **Invite Users** card in **Manage** / **Identity & Access** to send an invitation to a non-corporate email address. Once you receive the email, accept the invitation, and you will be directed to the HPE GreenLake interface to set a password. You can then use this email address and password to log in with `Connect-HPEGL`.
+    > **Note**: Users who use SAML Single Sign-On with HPE GreenLake cannot use their corporate email credentials when logging in via the `Connect-HPEGL` cmdlet. The workaround is to create a specific user in HPE GreenLake for this library. To do this, go to the HPE GreenLake GUI, click on `User Management` in the quick links panel and press the `Invite Users` button to send an invitation to a non-corporate email address. Once you receive the email, accept the invitation, and you will be directed to the HPE GreenLake interface to set a password. You can then use this email address and password to log in with `Connect-HPEGL`.
 
 
 
@@ -50,17 +53,17 @@ To install the HPE GreenLake for Compute Ops Management PowerShell library, down
 Install-Module HPEGreenLakeForCOM
 ```
 
-This will download and install the module from the official PowerShell Gallery repository. If this is your first time installing a module from the PowerShell Gallery, it will ask you to confirm whether you trust the repository or not. You can type **Y** and press **Enter** to continue with the installation.
+This will download and install the module from the official PowerShell Gallery repository. If this is your first time installing a module from the PowerShell Gallery, it will ask you to confirm whether you trust the repository or not. You can type `Y` and press **Enter** to continue with the installation.
 
 >**Note**: You must have an internet connection to install the module from the PowerShell Gallery. 
 
 >**Note**: This library has no dependencies, so it does not require the installation of any other software or modules to function properly.
 
-There could be several issues you may encounter while using the **Install-Module** cmdlet in PowerShell, some of which are:
+There could be several issues you may encounter while using the `Install-Module` cmdlet in PowerShell, some of which are:
 
-* **Insufficient permissions**: You may need administrative privileges to install modules. If you do not have sufficient privileges, you can run your PowerShell client as an administrator or use: **Install-Module HPEGreenLakeForCOM -Scope CurrentUser**
+* **Insufficient permissions**: You may need administrative privileges to install modules. If you do not have sufficient privileges, you can run your PowerShell client as an administrator or use: `Install-Module HPEGreenLakeForCOM -Scope CurrentUser`
     
-* **Blocked security protocols**: Sometimes, the security protocols built into PowerShell can prevent the installation process. This usually happens when the PowerShell execution policy is set to "Restricted". If Get-ExecutionPolicy shows Restricted, you may need to run **Set-ExecutionPolicy RemoteSigned**
+* **Blocked security protocols**: Sometimes, the security protocols built into PowerShell can prevent the installation process. This usually happens when the PowerShell execution policy is set to `Restricted`. If `Get-ExecutionPolicy` shows `Restricted`, you may need to run `Set-ExecutionPolicy RemoteSigned`
 
 If you have previously installed the module and wish to update it to the latest version, you can use the following commands:
 
