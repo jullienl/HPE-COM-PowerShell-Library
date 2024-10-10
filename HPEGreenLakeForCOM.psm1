@@ -27,20 +27,24 @@ THE SOFTWARE.
 #>
 
 # Set HPE GreenLake PowerShell Library Version
-[Version]$ModuleVersion = '1.0.0'
+[Version]$ModuleVersion = '1.0.1'
 
 
-# Load format files
+
+#Region ---------------------------- OBJECT FORMATTING DEFINITIONS -------------------------------------------------------------------------------------------------------------------------------------------  
+
+# Load *.Format.PS1XML format files
 Get-ChildItem -path $PSScriptRoot -recurse -include *.Format.PS1XML | Foreach-Object {
     Update-FormatData -AppendPath $_.FullName
 }
 
-
-#---------------------------------------------------------
-#Region Argument completer
+#EndRegion
 
 
-# Define the list of HTTP methods commonly used in Invoke-HPEGLWebRequest
+
+#Region ---------------------------- ARGUMENT COMPLETER -------------------------------------------------------------------------------------------------------------------------------------------  
+
+# Define the list of HTTP methods used in Invoke-HPEGLWebRequest
 $httpMethods = 'GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS', 'PATCH', 'TRACE', 'CONNECT'
 
 # Register an argument completer for Invoke-WebRequest and Invoke-RestMethod methods
@@ -55,7 +59,7 @@ Register-ArgumentCompleter -CommandName Invoke-HPEGLWebRequest, Invoke-HPECOMWeb
     }
 }
 
-# Define the list of HPE GreenLake languages commonly used in Set-HPEGLUserAccountDetails and Set-HPEGLUserPreference
+# Define the list of HPE GreenLake languages used in Set-HPEGLUserAccountDetails and Set-HPEGLUserPreference
 
 # Fetch the supported HPE GreenLake languages details
 $languageUrl = 'https://auth.hpe.com/messages/supportedLanguagesList.json'
@@ -87,6 +91,7 @@ Register-ArgumentCompleter -CommandName Set-HPEGLUserAccountDetails, Set-HPEGLUs
             $completionText = "'$_'"
         }
         else {
+            
             $completionText = $_
         }
 
@@ -97,8 +102,8 @@ Register-ArgumentCompleter -CommandName Set-HPEGLUserAccountDetails, Set-HPEGLUs
 #EndRegion
 
 
-#---------------------------------------------------------
-#Region Variables
+
+#Region ---------------------------- VARIABLES -------------------------------------------------------------------------------------------------------------------------------------------  
 
 $HPEGLAPIbaseURL = 'https://global.api.greenlake.hpe.com'
 
@@ -112,8 +117,90 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 # New-Variable -Name DefaultTimeout -Value (New-Timespan -Minutes 20) -Option Constant
 
 
+#Region ---------------------------- HPE COM -------------------------------------------------------------------------------------------------------------------------------------------  
+[uri]$COMSidebarUrl = 'https://developer.greenlake.hpe.com/_auth/sidebar/__alternative-sidebar__-data-glcp-doc-portal-docs-greenlake-services-compute-ops-mgmt-sidebars.yaml'
 
-#Region ------- HPE GLP -------
+#  Job-Templates 
+
+[String]$COMJobTemplatesUri = '/compute-ops-mgmt/v1beta2/job-templates'
+
+#  Activities
+
+[String]$COMActivitiesUri = '/compute-ops-mgmt/v1beta2/activities'
+
+
+#  Appliance Firmware Bundles
+
+[String]$COMApplianceFirmwareBundlesUri = '/compute-ops-mgmt/v1beta1/appliance-firmware-bundles'
+
+
+#   External Services
+
+[String]$COMExternalServicesUri = '/compute-ops-mgmt/v1beta1/external-services'
+
+# Filters
+
+[String]$COMFiltersUri = '/compute-ops-mgmt/v1beta1/filters'
+
+# Firmware bundles
+
+[String]$COMFirmwareBundlesUri = '/compute-ops-mgmt/v1beta2/firmware-bundles'
+
+# Groups
+
+[String]$COMGroupsUri = '/compute-ops-mgmt/v1beta3/groups'
+# [String]$COMGroupsUri = '/compute-ops-mgmt/v1/groups'
+# [String]$COMGroupsUri = '/compute-ops-mgmt/v1beta2/groups'
+
+# Job templates
+
+[String]$COMJobTemplatesUri = '/compute-ops-mgmt/v1beta2/job-templates'
+
+# Jobs
+
+[String]$COMJobsUri = '/compute-ops-mgmt/v1beta3/jobs'
+
+# Metrics Configurations
+
+[String]$COMMetricsConfigurationsUri = '/compute-ops-mgmt/v1beta1/metrics-configurations'
+
+# OneView appliances
+
+[String]$COMOneViewAppliancesUri = '/compute-ops-mgmt/v1beta1/oneview-appliances'
+
+# Reports
+
+[String]$COMReportsUri = '/compute-ops-mgmt/v1beta2/reports'
+
+# Schedules
+
+[String]$COMSchedulesUri = '/compute-ops-mgmt/v1beta2/schedules'
+
+# Server locations
+
+[String]$COMServerLocationsUri = '/compute-ops-mgmt/v1beta1/server-locations'
+
+# Settings
+
+[String]$COMSettingsUri = '/compute-ops-mgmt/v1beta1/settings'
+
+#  Servers
+
+[String]$COMServersUri = '/compute-ops-mgmt/v1beta2/servers'
+[String]$COMServersUIDoorwayUri = '/ui-doorway/compute/v2/servers'
+
+# User preferences
+
+[String]$COMUserPreferencesUri = '/compute-ops-mgmt/v1beta1/user-preferences'
+
+# Webhooks
+
+[String]$COMWebhooksUri = '/compute-ops-mgmt/v1beta1/webhooks'
+
+
+#EndRegion
+
+#Region ---------------------------- HPE GLP -------------------------------------------------------------------------------------------------------------------------------------------  
 
 [uri]$ccsSettingsUrl = 'https://common.cloud.hpe.com/settings.json'
 [uri]$ccsRedirecturi = 'https://common.cloud.hpe.com/authentication/callback'
@@ -190,100 +277,20 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 
 #EndRegion
 
-#Region ------- HPE COM -------  
-[uri]$COMSidebarUrl = 'https://developer.greenlake.hpe.com/_auth/sidebar/__alternative-sidebar__-data-glcp-doc-portal-docs-greenlake-services-compute-ops-mgmt-sidebars.yaml'
-
-#  Job-Templates 
-
-[String]$COMJobTemplatesUri = '/compute-ops-mgmt/v1beta2/job-templates'
-
-#  Activities
-
-[String]$COMActivitiesUri = '/compute-ops-mgmt/v1beta2/activities'
-
-
-#  Appliance Firmware Bundles
-
-[String]$COMApplianceFirmwareBundlesUri = '/compute-ops-mgmt/v1beta1/appliance-firmware-bundles'
-
-
-#   External Services
-
-[String]$COMExternalServicesUri = '/compute-ops-mgmt/v1beta1/external-services'
-
-# Filters
-
-[String]$COMFiltersUri = '/compute-ops-mgmt/v1beta1/filters'
-
-# Firmware bundles
-
-[String]$COMFirmwareBundlesUri = '/compute-ops-mgmt/v1beta2/firmware-bundles'
-
-# Groups
-
-# [String]$COMGroupsUri = '/compute-ops-mgmt/v1/groups'
-[String]$COMGroupsUri = '/compute-ops-mgmt/v1beta3/groups'
-# [String]$COMGroupsUri = '/compute-ops-mgmt/v1beta2/groups'
-
-# Job templates
-
-[String]$COMJobTemplatesUri = '/compute-ops-mgmt/v1beta2/job-templates'
-
-# Jobs
-
-[String]$COMJobsUri = '/compute-ops-mgmt/v1beta3/jobs'
-
-# Metrics Configurations
-
-[String]$COMMetricsConfigurationsUri = '/compute-ops-mgmt/v1beta1/metrics-configurations'
-
-# OneView appliances
-
-[String]$COMOneViewAppliancesUri = '/compute-ops-mgmt/v1beta1/oneview-appliances'
-
-# Reports
-
-[String]$COMReportsUri = '/compute-ops-mgmt/v1beta2/reports'
-
-# Schedules
-
-[String]$COMSchedulesUri = '/compute-ops-mgmt/v1beta2/schedules'
-
-# Server locations
-
-[String]$COMServerLocationsUri = '/compute-ops-mgmt/v1beta1/server-locations'
-
-# Settings
-
-[String]$COMSettingsUri = '/compute-ops-mgmt/v1beta1/settings'
-# [String]$COMSettingsUri = '/compute-ops-mgmt/v1beta1/server-settings'
-
-#  Servers
-
-[String]$COMServersUri = '/compute-ops-mgmt/v1beta2/servers'
-[String]$COMServersUIDoorwayUri = '/ui-doorway/compute/v2/servers'
-
-# User preferences
-
-[String]$COMUserPreferencesUri = '/compute-ops-mgmt/v1beta1/user-preferences'
-
-# Webhooks
-
-[String]$COMWebhooksUri = '/compute-ops-mgmt/v1beta1/webhooks'
-
 
 #EndRegion
-#EndRegion
 
 
-#Region Class definitions
 
+#Region ---------------------------- CLASS DEFINITIONS -------------------------------------------------------------------------------------------------------------------------------------------
+
+# Custom exception class HtmlContentDetectedException to handle HTML content detection errors
 Add-Type @"
 using System;
 
 public class HtmlContentDetectedException : Exception
 {
-    public HtmlContentDetectedException() : base() { }
+    public HtmlContentDetectedException() : base("HTML content detected in response.") { }
     
     public HtmlContentDetectedException(string message) : base(message) { }
 
@@ -294,8 +301,8 @@ public class HtmlContentDetectedException : Exception
 #EndRegion
 
 
-#---------------------------------------------------------
-#Region Private functions
+
+#Region ---------------------------- PRIVATE FUNCTIONS -------------------------------------------------------------------------------------------------------------------------------------------  
 
 
 function NewObject {
@@ -540,7 +547,6 @@ function Invoke-RepackageObjectWithType {
         }
     }   
 }
-
 
 
 function Invoke-RestMethodWhatIf {   
@@ -842,8 +848,8 @@ function Set-HPECOMJobTemplatesVariable {
 }
 
 
-# Function to get the current time difference between GMT and the local computer time zone
 function Get-GMTTimeDifferenceInHours {
+    # Function to get the current time difference between GMT and the local computer time zone
 
     [CmdletBinding()]
     Param(
@@ -884,16 +890,490 @@ function Get-GMTTimeDifferenceInHours {
 }
 
 
+function New-ErrorRecord {
+    <#
+        .Synopsis
+        Creates an custom ErrorRecord that can be used to report a terminating or non-terminating error.
 
+        .Description
+        Creates an custom ErrorRecord that can be used to report a terminating or non-terminating error.
+
+        .Parameter Exception
+        The Exception that will be associated with the ErrorRecord. Uses RuntimeException by default.
+
+        .Parameter ErrorID
+        A scripter-defined identifier of the error. This identifier must be a non-localized string for a specific error type.
+
+        .Parameter ErrorCategory
+        An ErrorCategory enumeration that defines the category of the error.  The supported Category Members are (from: http://msdn.microsoft.com/en-us/library/system.management.automation.errorcategory(v=vs.85).aspx) :
+
+            * AuthenticationError - An error that occurs when the user cannot be authenticated by the service. This could mean that the credentials are invalid or that the authentication system is not functioning properly.
+            * CloseError - An error that occurs during closing.
+            * ConnectionError - An error that occurs when a network connection that the operation depEnds on cannot be established or maintained.
+            * DeadlockDetected - An error that occurs when a deadlock is detected.
+            * DeviceError - An error that occurs when a device reports an error.
+            * FromStdErr - An error that occurs when a non-Windows PowerShell command reports an error to its STDERR pipe.
+            * InvalidArgument - An error that occurs when an argument that is not valid is specified.
+            * InvalidData - An error that occurs when data that is not valid is specified.
+            * InvalidOperation - An error that occurs when an operation that is not valid is requested.
+            * InvalidResult - An error that occurs when a result that is not valid is returned.
+            * InvalidType - An error that occurs when a .NET Framework type that is not valid is specified.
+            * LimitsExceeded - An error that occurs when internal limits prevent the operation from being executed.
+            * MetadataError - An error that occurs when metadata contains an error.
+            * NotEnabled - An error that occurs when the operation attempts to use functionality that is currently disabled.
+            * NotImplemented - An error that occurs when a referenced application programming interface (API) is not implemented.
+            * NotInstalled - An error that occurs when an item is not installed.
+            * NotSpecified - An unspecified error. Use only when not enough is known about the error to assign it to another error category. Avoid using this category if you have any information about the error, even if that information is incomplete.
+            * ObjectNotFound - An error that occurs when an object cannot be found.
+            * OpenError - An error that occurs during opening.
+            * OperationStopped - An error that occurs when an operation has stopped. For example, the user interrupts the operation.
+            * OperationTimeout - An error that occurs when an operation has exceeded its timeout limit.
+            * ParserError - An error that occurs when a parser encounters an error.
+            * PermissionDenied - An error that occurs when an operation is not permitted.
+            * ProtocolError An error that occurs when the contract of a protocol is not being followed. This error should not happen with well-behaved components.
+            * QuotaExceeded An error that occurs when controls on the use of traffic or resources prevent the operation from being executed.
+            * ReadError An error that occurs during reading.
+            * ResourceBusy An error that occurs when a resource is busy.
+            * ResourceExists An error that occurs when a resource already exists.
+            * ResourceUnavailable An error that occurs when a resource is unavailable.
+            * SecurityError An error that occurs when a security violation occurs. This field is introduced in Windows PowerShell 2.0.
+            * SyntaxError An error that occurs when a command is syntactically incorrect.
+            * WriteError An error that occurs during writing.
+
+        .Parameter TargetObject
+        The object that was being Processed when the error took place.
+
+        .Parameter Message
+        Describes the Exception to the user.
+
+        .Parameter InnerException
+        The Exception instance that caused the Exception association with the ErrorRecord.
+
+        .Parameter TargetType
+        To customize the TargetType value, specify the appropriate Target object type.  Values can be "Array", "PSObject", "HashTable", etc.  Can be provided by ${ParameterName}.GetType().Name.
+
+        .Example
+        $errorMessage = "Timeout reached waiting for job to complete."
+        $errorRecord = New-ErrorRecord TimeoutError OperationTimeout -Message $ErrorMessage
+        $PSCmdlet.ThrowTerminatingError($ErrorRecord )
+
+        .EXAMPLE
+        $ErrorMessage = "Filter '{0}' cannot be found in the Compute Ops Management instance!" -f $Name
+        $ErrorRecord = New-ErrorRecord FilterNotFoundInCOM ObjectNotFound -TargetObject 'Filter' -Message $ErrorMessage -TargetType $Name.GetType().Name
+        $PSCmdlet.ThrowTerminatingError($ErrorRecord )
+
+    #>
+
+    [CmdletBinding ()]
+    Param
+    (        
+        
+        [Parameter (Mandatory, Position = 0)]
+        [Alias ('ID')]
+        [System.String]$ErrorId,
+        
+        [Parameter (Mandatory, Position = 1)]
+        [Alias ('Category')]
+        [ValidateSet ('AuthenticationError', 'ConnectionError', 'NotSpecified', 'OpenError', 'CloseError', 'DeviceError',
+            'DeadlockDetected', 'InvalidArgument', 'InvalidData', 'InvalidOperation',
+            'InvalidResult', 'InvalidType', 'MetadataError', 'NotImplemented',
+            'NotInstalled', 'ObjectNotFound', 'OperationStopped', 'OperationTimeout',
+            'SyntaxError', 'ParserError', 'PermissionDenied', 'ResourceBusy',
+            'ResourceExists', 'ResourceUnavailable', 'ReadError', 'WriteError',
+            'FromStdErr', 'SecurityError')]
+        [System.Management.Automation.ErrorCategory]$ErrorCategory,
+            
+        [Parameter (Position = 2)]
+        [System.Object]$TargetObject,
+            
+        [System.String]$Exception = "System.Management.Automation.RuntimeException",
+        
+        # [Parameter (Mandatory)]
+        [System.String]$Message,
+        
+        [System.Exception]$InnerException,
+        
+        [System.String]$TargetType = "String"
+
+    )
+
+    Process {
+
+        # ...build and save the new Exception depending on present arguments, if it...
+        $_exception = if ($Message -and $InnerException) {
+            # ...includes a custom message and an inner exception
+            New-Object $Exception $Message, $InnerException
+        }
+        elseif ($Message) {
+            # ...includes a custom message only
+            New-Object $Exception $Message
+        }
+        else {
+            # ...is just the exception full name
+            New-Object $Exception
+        }
+
+        # now build and output the new ErrorRecord
+        "[{0}] Building ErrorRecord object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+        $record = [Management.Automation.ErrorRecord]::new($_exception, $ErrorID, $ErrorCategory, $TargetObject)
+
+        $record.CategoryInfo.TargetType = $TargetType
+
+        Return $record
+    }
+
+
+}
+
+
+Function Invoke-HPEGLAutoReconnect { 
+    [CmdletBinding()]
+    Param(
+        # An access token is valid for 2 hours (120 minutes) - GLP Session idle timeout is 30 minutes by default 
+        # Default: reconnect 30 minutes before expiration
+        # Timeout in minutes, 
+        $Timeout = 30,
+        [switch]$Force
+    ) 
+
+    # Access_token expiration date
+    $AccessTokenExpirationDate = $HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
+    
+    # Number of minutes before expiration of the Access_token expiration date
+    $BeforeExpirationinMinutes = [math]::Round(((New-TimeSpan -Start (Get-Date) -End ($AccessTokenExpirationDate)).TotalHours ) * 60)
+    
+    if ( $BeforeExpirationinMinutes -gt 0) { $Expiration = $BeforeExpirationinMinutes }
+    else { $Expiration = 0 }
+        
+    if ( $Force ) {
+            
+        "[{0}] Forcing Access Token refresh ! $Expiration minute(s) before expiration - Token refresh in progress..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+        try {
+            Invoke-HPEGLRefreshtoken | out-null
+            
+        }
+        catch {
+            Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+            
+        "[{0}] Refresh token successful!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        # Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
+
+
+    }
+    elseif ($Expiration -eq 0) {
+
+        "[{0}] Expiration={1} - Access Tokens refresh required but session gets expired! Connect-HPEGL must be executed!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Expiration | Write-Verbose
+
+        Write-Warning "Access tokens refresh required, but the session has expired! Please reconnect using 'Connect-HPEGL'." 
+        Break
+
+    }
+    elseif ( $Expiration -le $Timeout ) {
+
+        # write-host "Access tokens refresh required ! $Expiration minute(s) before expiration - Tokens refresh in progress..."
+            
+        "[{0}] Access Tokens refresh required ! $Expiration minute(s) before expiration - Tokens refresh in progress..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        
+        try {
+            Invoke-HPEGLRefreshtoken | out-null
+            
+        }
+        catch {
+            Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+            
+            
+        "[{0}] Refresh tokens successful!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        # Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
+    }
+    else {
+        
+        "[{0}] No Access Tokens refresh required ! $Expiration minute(s) before expiration - Allowable time to refresh/reconnect is {1} minutes." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Timeout | Write-Verbose
+
+    }  
+}
+
+
+Function Invoke-HPEGLRefreshtoken { 
+    <#
+    .SYNOPSIS
+    Refreshes the HPE GreenLake OATH2 access token, refresh token, and ID token.
+    Create a new session with the HPE GreenLake workspace and capture session cookie value in the $HPEGreenLakeSession global variable.
+    Create new sessions with GLP and COM APIs at https://sso.common.cloud.hpe.com/as/token.oauth2 and capture access tokens in the $HPEGreenLakeSession global variable.
+
+    .DESCRIPTION
+    
+    #>
+    [CmdletBinding()]
+    Param() 
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Define the total number of operations/steps
+        $totalSteps = 3
+
+        # Initialize a counter for completed steps
+        $completedSteps = 0
+ 
+        function Update-ProgressBar {
+            param (
+                [int]$CompletedSteps,
+                [int]$TotalSteps,
+                [string]$CurrentActivity,
+                [int]$Id
+
+            )
+ 
+            $percentComplete = ($CompletedSteps / $TotalSteps) * 100
+            Write-Progress `
+                -Activity "Refreshing HPE GreenLake tokens, please wait..." `
+                -Status $CurrentActivity `
+                -PercentComplete $percentComplete `
+                -id $Id
+        }
+        
+        if (-not $HPEGreenLakeSession) {
+
+            Throw "Error - No HPE GreenLake session found!"
+    
+        }
+        else {   
+
+            #Region 1-Generate new access_token/refresh_token/id_token
+
+            "[{0}] ------------------------------------- STEP 1 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            "[{0}] Generate new access_token/refresh_token/id_token with '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
+
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 1 / 3" -Id 2
+
+    
+            $Body = @{
+                'grant_type'    = 'refresh_token'
+                'client_id'     = 'aquila-user-auth'
+                'refresh_token' = $HPEGreenLakeSession.oauth2RefreshToken
+            } 
+    
+            "[{0}] About to execute POST request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLtokenEndpoint | Write-Verbose
+    
+            try {
+
+                $InvokeReturnData = Invoke-webrequest -Uri $HPEGLtokenEndpoint -Method 'POST' -ContentType "application/x-www-form-urlencoded" -Body $Body -WebSession $HPEGreenLakeSession.session 
+         
+                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
+                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose
+                
+                $InvokeReturnData = $InvokeReturnData | ConvertFrom-Json
+
+                # Set new global variables
+
+                $NewAccessToken = $InvokeReturnData.access_token
+                "[{0}] New access token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewAccessToken | Write-verbose
+                $global:HPEGreenLakeSession.oauth2AccessToken = $NewAccessToken 
+
+                $NewRefreshToken = $InvokeReturnData.refresh_token
+                "[{0}] New refresh token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewRefreshToken | Write-verbose
+                $global:HPEGreenLakeSession.oauth2RefreshToken = $NewRefreshToken
+
+                $NewIdToken = $InvokeReturnData.id_token
+                "[{0}] New ID token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewIdToken | Write-verbose
+                $global:HPEGreenLakeSession.oauth2IdToken = $NewIdToken 
+
+                $global:HPEGreenLakeSession.oauth2TokenCreation = [datetime]$( Get-Date -Format g )
+                "[{0}] `$HPEGreenLakeSession has been updated with new token creation date!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                $global:HPEGreenLakeSession.oauth2TokenCreationEpoch = $( (New-TimeSpan -Start (Get-Date "01/01/1970") -End (Get-Date)).TotalSeconds ) 
+                "[{0}] `$HPEGreenLakeSession has been updated with new token creation epoch!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+    
+                "[{0}] `$HPEGreenLakeSession has been updated with new access_token/refresh_token/id_token!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                # Cookies?
+                $allCookies = $HPEGreenLakeSession.session.Cookies.GetCookies($HPEGLtokenEndpoint)
+                # Output all cookies
+                foreach ($cookie in $allCookies) {
+                    Write-Verbose "Session cookie content: `n$($cookie.Name) = $($cookie.Value)"
+                }
+
+            }
+            
+            catch {
+
+                "[{0}] Exception thrown!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                # Get Exception type
+                $exception = $_.Exception
+                do {
+                    "[{0}] Exception Type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exception.GetType().Name | Write-Verbose
+                    $exception = $exception.InnerException
+                } while ($exception)
+
+                # Get exception stream
+                $result = $_.Exception.Response.GetResponseStream()
+                $reader = New-Object System.IO.StreamReader($result)
+                $reader.BaseStream.Position = 0
+                $reader.DiscardBufferedData()
+                $responseBody = $reader.ReadToEnd() 
+
+
+                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseBody | Write-Verbose
+            
+                # $response = $responseBody | ConvertFrom-Json
+
+                    
+                    
+                if ($Body) {
+                    "[{0}] Request payload: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Body | Out-String) | Write-Verbose
+                }
+                if ($Headers) {
+                    "[{0}] Request headers: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | Out-String) | Write-Verbose
+                }
+
+                Write-Progress -Completed -Id 2
+                Write-Progress -Completed -Id 1 # progress bar from 'Connect-HPEGLWorkspace'
+                Throw "Error -  $responseBody"          
+             
+            }    
+
+            $completedSteps++
+
+            #endRegion
+
+
+            #Region 2-Create a session with workspace + capture CCS SID (ccs-session cookie value)
+            
+            "[{0}] ------------------------------------- STEP 2 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            "[{0}] Create new session with workspace '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
+
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 2 / 3" -Id 2
+
+            try {
+                
+                $CCSSession = Connect-HPEGLWorkspace -force 
+            }
+            catch {
+
+                # Write-Progress -Completed -Id 2
+                # Write-Progress -Completed -Id 1 # progress bar from 'Connect-HPEGLWorkspace'
+                $_
+                # $PSCmdlet.ThrowTerminatingError($_)
+                
+            }
+            
+            "[{0}] Connect to workspace response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CCSSession | Write-Verbose
+
+            $completedSteps++
+
+            #endRegion
+
+            
+            #Region 3- Create sessions with GLP and COM APIs at https://sso.common.cloud.hpe.com/as/token.oauth2 and capture access tokens, creation date, etc.
+        
+            if ($HPEGreenLakeSession.apiCredentials) {
+                "[{0}] ------------------------------------- STEP 3 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                "[{0}] Create sessions with HPE GreenLake and COM APIs to capture access tokens '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
+
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 3 / 3" -Id 2
+
+
+                $TemporaryCredentialsList = $HPEGreenLakeSession.apiCredentials | Where-Object name -match $APIClientCredentialTemplateName
+
+                "[{0}] Credentials found: '{1}' " -f $MyInvocation.InvocationName.ToString().ToUpper(), $TemporaryCredentialsList.length | Write-Verbose
+
+                foreach ($CurrentCredential in $TemporaryCredentialsList) {
+
+                    $SecureClientSecret = $CurrentCredential.secure_client_secret | ConvertTo-SecureString
+                    $Bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureClientSecret)
+                    $ClientSecret = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) 
+
+                    $Payload = @{
+                        'client_id'     = $CurrentCredential.client_id
+                        'client_secret' = $ClientSecret
+                        'grant_type'    = 'client_credentials'
+                    }
+
+                    "[{0}] About to execute POST request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLtokenEndpoint | Write-Verbose
+                    "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($payload | convertto-json) | Write-Verbose
+
+                    try {
+
+                        $response = Invoke-WebRequest -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded' 
+
+                        # Capturing API Access Token
+                        
+                        "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $response.StatusDescription | Write-Verbose
+                        "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
+                        
+                        $response = ($response.Content | Convertfrom-Json)
+                        
+                        if ($CurrentCredential.name -match "COM" -and $CurrentCredential.name -match $APIClientCredentialTemplateName) {
+
+                            ($global:HPEGreenLakeSession.comApiAccessToken | ? name -eq $CurrentCredential.name).access_token = $response.access_token
+                            ($global:HPEGreenLakeSession.comApiAccessToken | ? name -eq $CurrentCredential.name).creation_Time = Get-Date
+                            ($global:HPEGreenLakeSession.comApiAccessToken | ? name -eq $CurrentCredential.name).expires_in = $response.expires_in
+
+                            "[{0}] API access token for '{1}' has been set in `$HPEGreenLakeSession.comApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CurrentCredential.name | Write-Verbose
+
+                        }
+
+                        if ($CurrentCredential.name -match "GLP-$APIClientCredentialTemplateName") {
+
+                            $Global:HPEGreenLakeSession.glpApiAccessToken[0].access_token = $response.access_token 
+                            $Global:HPEGreenLakeSession.glpApiAccessToken[0].creation_Time = Get-Date 
+                            $Global:HPEGreenLakeSession.glpApiAccessToken[0].expires_in = $response.expires_in
+
+                            "[{0}] GLP API access token has been set in `$HPEGreenLakeSession.glpApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                        }
+                
+                    }
+                    catch {
+
+                        if ($_.ErrorDetails.Message) {
+                            Write-Warning $_.ErrorDetails
+                        }
+
+                        Write-Progress -Completed -Id 2
+                        Write-Progress -Completed -Id 1 # progress bar from 'Connect-HPEGLWorkspace'
+                   
+                        $PSCmdlet.ThrowTerminatingError($_).Exception.Message
+
+                    }
+                }
+
+            }
+    
+            $Global:HPEGreenLakeSession = Invoke-RepackageObjectWithType -RawObject $HPEGreenLakeSession -ObjectName 'Connection'
+
+            #endRegion
+
+            # Clear the progress bar upon completion
+            Write-Progress -Completed -Id 2 
+
+            # return $HPEGreenLakeSession 
+            return
+
+
+        }
+    }
+
+} 
 
 #EndRegion
 
 
-#---------------------------------------------------------
-#Region Public functions
- 
+
+#Region ---------------------------- PUBLIC FUNCTIONS -------------------------------------------------------------------------------------------------------------------------------------------  
+
+
   
-#Region ------------------- GENERICs -------------------
+#Region ------------------- GENERICs -------------------------------------------------------------------------------------------------------------------------------------------
+
 
 function Invoke-HPEGLWebRequest {  
     <#
@@ -2364,9 +2844,6 @@ function Invoke-HPECOMWebRequest {
 }
 
 
-# Thanks to Darren Robinson for this function!
-# https://github.com/darrenjrobinson/JWTDetails
-# https://blog.darrenjrobinson.com
 function Get-HPEGLJWTDetails {
     [cmdletbinding()]
     param(
@@ -2465,6 +2942,7 @@ function Get-HPEGLJWTDetails {
   
     return $decodedToken
 }
+
 
 Function Connect-HPEGL { 
 <#
@@ -4479,484 +4957,12 @@ updated with the new customer id, workspace name properties and API credentials 
 }
 
 
-Function Invoke-HPEGLAutoReconnect { 
-    [CmdletBinding()]
-    Param(
-        # An access token is valid for 2 hours (120 minutes) - GLP Session idle timeout is 30 minutes by default 
-        # Default: reconnect 30 minutes before expiration
-        # Timeout in minutes, 
-        $Timeout = 30,
-        [switch]$Force
-    ) 
-
-    # Access_token expiration date
-    $AccessTokenExpirationDate = $HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
-    
-    # Number of minutes before expiration of the Access_token expiration date
-    $BeforeExpirationinMinutes = [math]::Round(((New-TimeSpan -Start (Get-Date) -End ($AccessTokenExpirationDate)).TotalHours ) * 60)
-    
-    if ( $BeforeExpirationinMinutes -gt 0) { $Expiration = $BeforeExpirationinMinutes }
-    else { $Expiration = 0 }
-        
-    if ( $Force ) {
-            
-        "[{0}] Forcing Access Token refresh ! $Expiration minute(s) before expiration - Token refresh in progress..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-        try {
-            Invoke-HPEGLRefreshtoken | out-null
-            
-        }
-        catch {
-            Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
-            $PSCmdlet.ThrowTerminatingError($_)
-        }
-            
-        "[{0}] Refresh token successful!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-        # Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
-
-
-    }
-    elseif ($Expiration -eq 0) {
-
-        "[{0}] Expiration={1} - Access Tokens refresh required but session gets expired! Connect-HPEGL must be executed!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Expiration | Write-Verbose
-
-        Write-Warning "Access tokens refresh required, but the session has expired! Please reconnect using 'Connect-HPEGL'." 
-        Break
-
-    }
-    elseif ( $Expiration -le $Timeout ) {
-
-        # write-host "Access tokens refresh required ! $Expiration minute(s) before expiration - Tokens refresh in progress..."
-            
-        "[{0}] Access Tokens refresh required ! $Expiration minute(s) before expiration - Tokens refresh in progress..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-        
-        try {
-            Invoke-HPEGLRefreshtoken | out-null
-            
-        }
-        catch {
-            Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
-            $PSCmdlet.ThrowTerminatingError($_)
-        }
-            
-            
-        "[{0}] Refresh tokens successful!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-        # Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
-    }
-    else {
-        
-        "[{0}] No Access Tokens refresh required ! $Expiration minute(s) before expiration - Allowable time to refresh/reconnect is {1} minutes." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Timeout | Write-Verbose
-
-    }  
-}
-
-
-Function Invoke-HPEGLRefreshtoken { 
-    <#
-    .SYNOPSIS
-    Refreshes the HPE GreenLake OATH2 access token, refresh token, and ID token.
-    Create a new session with the HPE GreenLake workspace and capture session cookie value in the $HPEGreenLakeSession global variable.
-    Create new sessions with GLP and COM APIs at https://sso.common.cloud.hpe.com/as/token.oauth2 and capture access tokens in the $HPEGreenLakeSession global variable.
-
-    .DESCRIPTION
-    
-    #>
-    [CmdletBinding()]
-    Param() 
-
-    Process {
-
-        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-
-        # Define the total number of operations/steps
-        $totalSteps = 3
-
-        # Initialize a counter for completed steps
-        $completedSteps = 0
- 
-        function Update-ProgressBar {
-            param (
-                [int]$CompletedSteps,
-                [int]$TotalSteps,
-                [string]$CurrentActivity,
-                [int]$Id
-
-            )
- 
-            $percentComplete = ($CompletedSteps / $TotalSteps) * 100
-            Write-Progress `
-                -Activity "Refreshing HPE GreenLake tokens, please wait..." `
-                -Status $CurrentActivity `
-                -PercentComplete $percentComplete `
-                -id $Id
-        }
-        
-        if (-not $HPEGreenLakeSession) {
-
-            Throw "Error - No HPE GreenLake session found!"
-    
-        }
-        else {   
-
-            #Region 1-Generate new access_token/refresh_token/id_token
-
-            "[{0}] ------------------------------------- STEP 1 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            "[{0}] Generate new access_token/refresh_token/id_token with '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
-
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 1 / 3" -Id 2
-
-    
-            $Body = @{
-                'grant_type'    = 'refresh_token'
-                'client_id'     = 'aquila-user-auth'
-                'refresh_token' = $HPEGreenLakeSession.oauth2RefreshToken
-            } 
-    
-            "[{0}] About to execute POST request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLtokenEndpoint | Write-Verbose
-    
-            try {
-
-                $InvokeReturnData = Invoke-webrequest -Uri $HPEGLtokenEndpoint -Method 'POST' -ContentType "application/x-www-form-urlencoded" -Body $Body -WebSession $HPEGreenLakeSession.session 
-         
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
-                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose
-                
-                $InvokeReturnData = $InvokeReturnData | ConvertFrom-Json
-
-                # Set new global variables
-
-                $NewAccessToken = $InvokeReturnData.access_token
-                "[{0}] New access token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewAccessToken | Write-verbose
-                $global:HPEGreenLakeSession.oauth2AccessToken = $NewAccessToken 
-
-                $NewRefreshToken = $InvokeReturnData.refresh_token
-                "[{0}] New refresh token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewRefreshToken | Write-verbose
-                $global:HPEGreenLakeSession.oauth2RefreshToken = $NewRefreshToken
-
-                $NewIdToken = $InvokeReturnData.id_token
-                "[{0}] New ID token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewIdToken | Write-verbose
-                $global:HPEGreenLakeSession.oauth2IdToken = $NewIdToken 
-
-                $global:HPEGreenLakeSession.oauth2TokenCreation = [datetime]$( Get-Date -Format g )
-                "[{0}] `$HPEGreenLakeSession has been updated with new token creation date!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                $global:HPEGreenLakeSession.oauth2TokenCreationEpoch = $( (New-TimeSpan -Start (Get-Date "01/01/1970") -End (Get-Date)).TotalSeconds ) 
-                "[{0}] `$HPEGreenLakeSession has been updated with new token creation epoch!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-    
-                "[{0}] `$HPEGreenLakeSession has been updated with new access_token/refresh_token/id_token!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                # Cookies?
-                $allCookies = $HPEGreenLakeSession.session.Cookies.GetCookies($HPEGLtokenEndpoint)
-                # Output all cookies
-                foreach ($cookie in $allCookies) {
-                    Write-Verbose "Session cookie content: `n$($cookie.Name) = $($cookie.Value)"
-                }
-
-            }
-            
-            catch {
-
-                "[{0}] Exception thrown!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                # Get Exception type
-                $exception = $_.Exception
-                do {
-                    "[{0}] Exception Type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exception.GetType().Name | Write-Verbose
-                    $exception = $exception.InnerException
-                } while ($exception)
-
-                # Get exception stream
-                $result = $_.Exception.Response.GetResponseStream()
-                $reader = New-Object System.IO.StreamReader($result)
-                $reader.BaseStream.Position = 0
-                $reader.DiscardBufferedData()
-                $responseBody = $reader.ReadToEnd() 
-
-
-                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseBody | Write-Verbose
-            
-                # $response = $responseBody | ConvertFrom-Json
-
-                    
-                    
-                if ($Body) {
-                    "[{0}] Request payload: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Body | Out-String) | Write-Verbose
-                }
-                if ($Headers) {
-                    "[{0}] Request headers: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | Out-String) | Write-Verbose
-                }
-
-                Write-Progress -Completed -Id 2
-                Write-Progress -Completed -Id 1 # progress bar from 'Connect-HPEGLWorkspace'
-                Throw "Error -  $responseBody"          
-             
-            }    
-
-            $completedSteps++
-
-            #endRegion
-
-
-            #Region 2-Create a session with workspace + capture CCS SID (ccs-session cookie value)
-            
-            "[{0}] ------------------------------------- STEP 2 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            "[{0}] Create new session with workspace '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
-
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 2 / 3" -Id 2
-
-            try {
-                
-                $CCSSession = Connect-HPEGLWorkspace -force 
-            }
-            catch {
-
-                # Write-Progress -Completed -Id 2
-                # Write-Progress -Completed -Id 1 # progress bar from 'Connect-HPEGLWorkspace'
-                $_
-                # $PSCmdlet.ThrowTerminatingError($_)
-                
-            }
-            
-            "[{0}] Connect to workspace response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CCSSession | Write-Verbose
-
-            $completedSteps++
-
-            #endRegion
-
-            
-            #Region 3- Create sessions with GLP and COM APIs at https://sso.common.cloud.hpe.com/as/token.oauth2 and capture access tokens, creation date, etc.
-        
-            if ($HPEGreenLakeSession.apiCredentials) {
-                "[{0}] ------------------------------------- STEP 3 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                "[{0}] Create sessions with HPE GreenLake and COM APIs to capture access tokens '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
-
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 3 / 3" -Id 2
-
-
-                $TemporaryCredentialsList = $HPEGreenLakeSession.apiCredentials | Where-Object name -match $APIClientCredentialTemplateName
-
-                "[{0}] Credentials found: '{1}' " -f $MyInvocation.InvocationName.ToString().ToUpper(), $TemporaryCredentialsList.length | Write-Verbose
-
-                foreach ($CurrentCredential in $TemporaryCredentialsList) {
-
-                    $SecureClientSecret = $CurrentCredential.secure_client_secret | ConvertTo-SecureString
-                    $Bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureClientSecret)
-                    $ClientSecret = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) 
-
-                    $Payload = @{
-                        'client_id'     = $CurrentCredential.client_id
-                        'client_secret' = $ClientSecret
-                        'grant_type'    = 'client_credentials'
-                    }
-
-                    "[{0}] About to execute POST request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLtokenEndpoint | Write-Verbose
-                    "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($payload | convertto-json) | Write-Verbose
-
-                    try {
-
-                        $response = Invoke-WebRequest -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded' 
-
-                        # Capturing API Access Token
-                        
-                        "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $response.StatusDescription | Write-Verbose
-                        "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
-                        
-                        $response = ($response.Content | Convertfrom-Json)
-                        
-                        if ($CurrentCredential.name -match "COM" -and $CurrentCredential.name -match $APIClientCredentialTemplateName) {
-
-                            ($global:HPEGreenLakeSession.comApiAccessToken | ? name -eq $CurrentCredential.name).access_token = $response.access_token
-                            ($global:HPEGreenLakeSession.comApiAccessToken | ? name -eq $CurrentCredential.name).creation_Time = Get-Date
-                            ($global:HPEGreenLakeSession.comApiAccessToken | ? name -eq $CurrentCredential.name).expires_in = $response.expires_in
-
-                            "[{0}] API access token for '{1}' has been set in `$HPEGreenLakeSession.comApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CurrentCredential.name | Write-Verbose
-
-                        }
-
-                        if ($CurrentCredential.name -match "GLP-$APIClientCredentialTemplateName") {
-
-                            $Global:HPEGreenLakeSession.glpApiAccessToken[0].access_token = $response.access_token 
-                            $Global:HPEGreenLakeSession.glpApiAccessToken[0].creation_Time = Get-Date 
-                            $Global:HPEGreenLakeSession.glpApiAccessToken[0].expires_in = $response.expires_in
-
-                            "[{0}] GLP API access token has been set in `$HPEGreenLakeSession.glpApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                        }
-                
-                    }
-                    catch {
-
-                        if ($_.ErrorDetails.Message) {
-                            Write-Warning $_.ErrorDetails
-                        }
-
-                        Write-Progress -Completed -Id 2
-                        Write-Progress -Completed -Id 1 # progress bar from 'Connect-HPEGLWorkspace'
-                   
-                        $PSCmdlet.ThrowTerminatingError($_).Exception.Message
-
-                    }
-                }
-
-            }
-    
-            $Global:HPEGreenLakeSession = Invoke-RepackageObjectWithType -RawObject $HPEGreenLakeSession -ObjectName 'Connection'
-
-            # Clear the progress bar upon completion
-            Write-Progress -Completed -Id 2 
-
-            # return $HPEGreenLakeSession 
-            return
-
-
-        }
-    }
-
-} 
-
-
-function New-ErrorRecord {
-    <#
-        .Synopsis
-        Creates an custom ErrorRecord that can be used to report a terminating or non-terminating error.
-
-        .Description
-        Creates an custom ErrorRecord that can be used to report a terminating or non-terminating error.
-
-        .Parameter Exception
-        The Exception that will be associated with the ErrorRecord. Uses RuntimeException by default.
-
-        .Parameter ErrorID
-        A scripter-defined identifier of the error. This identifier must be a non-localized string for a specific error type.
-
-        .Parameter ErrorCategory
-        An ErrorCategory enumeration that defines the category of the error.  The supported Category Members are (from: http://msdn.microsoft.com/en-us/library/system.management.automation.errorcategory(v=vs.85).aspx) :
-
-            * AuthenticationError - An error that occurs when the user cannot be authenticated by the service. This could mean that the credentials are invalid or that the authentication system is not functioning properly.
-            * CloseError - An error that occurs during closing.
-            * ConnectionError - An error that occurs when a network connection that the operation depEnds on cannot be established or maintained.
-            * DeadlockDetected - An error that occurs when a deadlock is detected.
-            * DeviceError - An error that occurs when a device reports an error.
-            * FromStdErr - An error that occurs when a non-Windows PowerShell command reports an error to its STDERR pipe.
-            * InvalidArgument - An error that occurs when an argument that is not valid is specified.
-            * InvalidData - An error that occurs when data that is not valid is specified.
-            * InvalidOperation - An error that occurs when an operation that is not valid is requested.
-            * InvalidResult - An error that occurs when a result that is not valid is returned.
-            * InvalidType - An error that occurs when a .NET Framework type that is not valid is specified.
-            * LimitsExceeded - An error that occurs when internal limits prevent the operation from being executed.
-            * MetadataError - An error that occurs when metadata contains an error.
-            * NotEnabled - An error that occurs when the operation attempts to use functionality that is currently disabled.
-            * NotImplemented - An error that occurs when a referenced application programming interface (API) is not implemented.
-            * NotInstalled - An error that occurs when an item is not installed.
-            * NotSpecified - An unspecified error. Use only when not enough is known about the error to assign it to another error category. Avoid using this category if you have any information about the error, even if that information is incomplete.
-            * ObjectNotFound - An error that occurs when an object cannot be found.
-            * OpenError - An error that occurs during opening.
-            * OperationStopped - An error that occurs when an operation has stopped. For example, the user interrupts the operation.
-            * OperationTimeout - An error that occurs when an operation has exceeded its timeout limit.
-            * ParserError - An error that occurs when a parser encounters an error.
-            * PermissionDenied - An error that occurs when an operation is not permitted.
-            * ProtocolError An error that occurs when the contract of a protocol is not being followed. This error should not happen with well-behaved components.
-            * QuotaExceeded An error that occurs when controls on the use of traffic or resources prevent the operation from being executed.
-            * ReadError An error that occurs during reading.
-            * ResourceBusy An error that occurs when a resource is busy.
-            * ResourceExists An error that occurs when a resource already exists.
-            * ResourceUnavailable An error that occurs when a resource is unavailable.
-            * SecurityError An error that occurs when a security violation occurs. This field is introduced in Windows PowerShell 2.0.
-            * SyntaxError An error that occurs when a command is syntactically incorrect.
-            * WriteError An error that occurs during writing.
-
-        .Parameter TargetObject
-        The object that was being Processed when the error took place.
-
-        .Parameter Message
-        Describes the Exception to the user.
-
-        .Parameter InnerException
-        The Exception instance that caused the Exception association with the ErrorRecord.
-
-        .Parameter TargetType
-        To customize the TargetType value, specify the appropriate Target object type.  Values can be "Array", "PSObject", "HashTable", etc.  Can be provided by ${ParameterName}.GetType().Name.
-
-        .Example
-        $errorMessage = "Timeout reached waiting for job to complete."
-        $errorRecord = New-ErrorRecord TimeoutError OperationTimeout -Message $ErrorMessage
-        $PSCmdlet.ThrowTerminatingError($ErrorRecord )
-
-        .EXAMPLE
-        $ErrorMessage = "Filter '{0}' cannot be found in the Compute Ops Management instance!" -f $Name
-        $ErrorRecord = New-ErrorRecord FilterNotFoundInCOM ObjectNotFound -TargetObject 'Filter' -Message $ErrorMessage -TargetType $Name.GetType().Name
-        $PSCmdlet.ThrowTerminatingError($ErrorRecord )
-
-    #>
-
-    [CmdletBinding ()]
-    Param
-    (        
-        
-        [Parameter (Mandatory, Position = 0)]
-        [Alias ('ID')]
-        [System.String]$ErrorId,
-        
-        [Parameter (Mandatory, Position = 1)]
-        [Alias ('Category')]
-        [ValidateSet ('AuthenticationError', 'ConnectionError', 'NotSpecified', 'OpenError', 'CloseError', 'DeviceError',
-            'DeadlockDetected', 'InvalidArgument', 'InvalidData', 'InvalidOperation',
-            'InvalidResult', 'InvalidType', 'MetadataError', 'NotImplemented',
-            'NotInstalled', 'ObjectNotFound', 'OperationStopped', 'OperationTimeout',
-            'SyntaxError', 'ParserError', 'PermissionDenied', 'ResourceBusy',
-            'ResourceExists', 'ResourceUnavailable', 'ReadError', 'WriteError',
-            'FromStdErr', 'SecurityError')]
-        [System.Management.Automation.ErrorCategory]$ErrorCategory,
-            
-        [Parameter (Position = 2)]
-        [System.Object]$TargetObject,
-            
-        [System.String]$Exception = "System.Management.Automation.RuntimeException",
-        
-        # [Parameter (Mandatory)]
-        [System.String]$Message,
-        
-        [System.Exception]$InnerException,
-        
-        [System.String]$TargetType = "String"
-
-    )
-
-    Process {
-
-        # ...build and save the new Exception depending on present arguments, if it...
-        $_exception = if ($Message -and $InnerException) {
-            # ...includes a custom message and an inner exception
-            New-Object $Exception $Message, $InnerException
-        }
-        elseif ($Message) {
-            # ...includes a custom message only
-            New-Object $Exception $Message
-        }
-        else {
-            # ...is just the exception full name
-            New-Object $Exception
-        }
-
-        # now build and output the new ErrorRecord
-        "[{0}] Building ErrorRecord object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-        $record = [Management.Automation.ErrorRecord]::new($_exception, $ErrorID, $ErrorCategory, $TargetObject)
-
-        $record.CategoryInfo.TargetType = $TargetType
-
-        Return $record
-    }
-
-
-}
-
-#EndRegion
 #EndRegion
 
 
 
-#Region ------------------- COM -------------------
+#Region ------------------- COM ------------------------------------------------------------------------------------------------------------------------------------------------
+
 
 #Region --- ACTIVITIES ---
 
@@ -37590,7 +37596,8 @@ Function Remove-HPECOMWebhook {
 
 
 
-#Region ------------------- GLP -------------------
+#Region ------------------- GLP -----------------------------------------------------------------------------------------------------------------------------------------------
+
 
 #Region --- DEVICE ---
 
@@ -54107,11 +54114,13 @@ Function Get-HPEGLAuditLog {
 
 #EndRegion
 #EndRegion
+#EndRegion
 
 
 
-#---------------------------------------------------------
-#Region Set $HPEGLLibraryVersion Global variable
+#Region ---------------------------- LIBRARY GLOBAL VARIABLE -------------------------------------------------------------------------------------------------------------------------------------------  
+
+# Set $HPEGLLibraryVersion global variable
 
 # $versionMajorMinorBuild = "{0}.{1}.{2}" -f $ModuleVersion.Major, $ModuleVersion.Minor, $ModuleVersion.Build
 

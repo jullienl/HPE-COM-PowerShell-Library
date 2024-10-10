@@ -87,8 +87,7 @@
         # NestedModules = @()
 
         # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-        FunctionsToExport = 
-                'Add-HPECOMApplianceOneView',
+        FunctionsToExport ='Add-HPECOMApplianceOneView',
                 'Add-HPECOMExternalService',
                 'Add-HPECOMServerToGroup',
                 'Add-HPEGLDeviceCompute',
@@ -129,7 +128,6 @@
                 'Get-HPECOMServer',
                 'Get-HPECOMServerBySerialNumber',
                 'Get-HPECOMServerInventory',
-                # 'Get-HPECOMServerLocation',
                 'Get-HPECOMSetting',
                 'Get-HPECOMSustainabilityReport',
                 'Get-HPECOMWebhook',
@@ -140,7 +138,7 @@
                 'Get-HPEGLDeviceSubscription',
                 'Get-HPEGLJWTDetails',
                 'Get-HPEGLLocation',
-                'Get-HPEGLRegion',
+                # 'Get-HPEGLRegion',
                 'Get-HPEGLResourceRestrictionPolicy',
                 'Get-HPEGLRole',
                 'Get-HPEGLservice',
@@ -158,10 +156,10 @@
                 'Invoke-HPECOMGroupInternalStorageConfiguration',
                 'Invoke-HPECOMGroupOSInstallation',
                 'Invoke-HPECOMWebRequest',
-                'Invoke-HPEGLAutoReconnect',
-                'Invoke-HPEGLRefreshtoken',
+                # 'Invoke-HPEGLAutoReconnect',
+                # 'Invoke-HPEGLRefreshtoken',
                 'Invoke-HPEGLWebRequest',
-                'New-ErrorRecord',
+                # 'New-ErrorRecord',
                 'New-HPECOMFilter',
                 'New-HPECOMGroup',
                 'New-HPECOMServerInventory',
@@ -203,7 +201,7 @@
                 'Set-HPECOMExternalService',
                 'Set-HPECOMFilter',
                 'Set-HPECOMGroup',
-                'Set-HPECOMJobTemplatesVariable',
+                # 'Set-HPECOMJobTemplatesVariable',
                 'Set-HPECOMOneViewServerLocation',
                 'Set-HPECOMSchedule',
                 'Set-HPECOMSettingServerBios',
@@ -280,13 +278,10 @@
 
                 } 
                 # End of PSData hashtable
-
         } 
         # End of PrivateData hashtable
-
         # HelpInfo URI of this module
         HelpInfoURI          = 'https://github.com/HewlettPackard/POSH-HPEGreenLake/blob/master/en-US/about_HPEGreenLake.help.txt'
-
         # Default prefix for commands exported from this module. Override the default prefix using Import-Module -Prefix.
         # DefaultCommandPrefix = ''
 
