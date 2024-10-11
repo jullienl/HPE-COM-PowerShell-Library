@@ -90,6 +90,11 @@ The global variable `$HPEGreenLakeSession` stores session information, API clien
 
 To learn more about this object, refer to the help documentation of `Connect-HPEGL`.
 
+## Script Samples
+
+To help you get started quickly, I have provided a sample script file named `sample.ps1`. This file contains examples of all the commands you can use with the HPE GreenLake for Compute Ops Management PowerShell library. You can find this file in the `Examples` directory of the module.
+
+Feel free to modify and expand upon these examples to suit your specific needs.
 
 ## Getting help
 
