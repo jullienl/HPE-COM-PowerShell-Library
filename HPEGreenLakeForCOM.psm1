@@ -27,7 +27,7 @@ THE SOFTWARE.
 #>
 
 # Set PowerShell library version
-[Version]$ModuleVersion = '1.0.3'
+[Version]$ModuleVersion = '1.0.4'
 
 
 
@@ -124,10 +124,13 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 
 [String]$COMJobTemplatesUri = '/compute-ops-mgmt/v1beta2/job-templates'
 
+#  Activation-Tokens
+
+[String]$COMActivationTokenUri = '/compute-ops-mgmt/v1beta1/activation-tokens'
+
 #  Activities
 
 [String]$COMActivitiesUri = '/compute-ops-mgmt/v1beta2/activities'
-
 
 #  Appliance Firmware Bundles
 
@@ -291,8 +294,8 @@ function Test-TypeExists {
         [string]$TypeName
     )
     return [AppDomain]::CurrentDomain.GetAssemblies() |
-           ForEach-Object { $_.GetType($TypeName, $false, $false) } |
-           Where-Object { $_ -ne $null }
+    ForEach-Object { $_.GetType($TypeName, $false, $false) } |
+    Where-Object { $_ -ne $null }
 }
 
 
@@ -1787,8 +1790,8 @@ function Invoke-HPEGLWebRequest {
                             "[{0}] Received 403. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                             Start-Sleep -Seconds $waitTime
                         }
-                         # When 'Internal Server Error' error 
-                         elseif ($_.Exception.Response.StatusCode -eq 500) {
+                        # When 'Internal Server Error' error 
+                        elseif ($_.Exception.Response.StatusCode -eq 500) {
                             $retries++
                             # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
                             $waitTime = 2
@@ -2962,7 +2965,7 @@ function Get-HPEGLJWTDetails {
 
 
 Function Connect-HPEGL { 
-<#
+    <#
 .SYNOPSIS
 Initiates a connection to the HPE GreenLake platform.
 
@@ -3922,7 +3925,7 @@ System.String
 
 Function Connect-HPEGLWorkspace { 
 
-<#
+    <#
 .SYNOPSIS
 Switch between HPE GreenLake workspaces.
 
@@ -4740,9 +4743,9 @@ updated with the new customer id, workspace name properties and API credentials 
                     if ($CurrentCredential.name -match "COM" -and $CurrentCredential.name -match $APIClientCredentialTemplateName) {
 
                         $ServiceAPICredential = [PSCustomObject]@{
-                            name         = $CurrentCredential.name
-                            access_token = $response.access_token 
-                            expires_in   = $response.expires_in
+                            name          = $CurrentCredential.name
+                            access_token  = $response.access_token 
+                            expires_in    = $response.expires_in
                             creation_time = (Get-Date)
 
                         }
@@ -4754,9 +4757,9 @@ updated with the new customer id, workspace name properties and API credentials 
                     if ($CurrentCredential.name -match "GLP-$APIClientCredentialTemplateName") {
 
                         $ServiceAPICredential = [PSCustomObject]@{
-                            name         = $CurrentCredential.name
-                            access_token = $response.access_token 
-                            expires_in   = $response.expires_in
+                            name          = $CurrentCredential.name
+                            access_token  = $response.access_token 
+                            expires_in    = $response.expires_in
                             creation_time = (Get-Date)
 
                         }
@@ -4860,13 +4863,13 @@ updated with the new customer id, workspace name properties and API credentials 
 
             $UserSessionTimeout = ((Get-HPEGLUserPreference).idle_timeout) / 60
 
-            if ( $UserSessionTimeout -lt '120'){
+            if ( $UserSessionTimeout -lt '120') {
 
                 Set-HPEGLUserPreference -SessionTimeoutInMinutes 120 
                 "[{0}] 120 minutes session idle timeout has been set in `$HPEGreenLakeSession global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
             }
-            else{
+            else {
 
                 $Global:HPEGreenLakeSession.userSessionIdleTimeout = $UserSessionTimeout
                 "[{0}] '{1}' minutes session idle timeout has been set in `$HPEGreenLakeSession global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $UserSessionTimeout | Write-Verbose
@@ -5242,7 +5245,7 @@ Function Get-HPECOMActivity {
             # Add region to object
             $CollectionList | Add-Member -type NoteProperty -name region -value $Region
             # Add job uri to object
-            $CollectionList | % {$_ | Add-Member -type NoteProperty -name sourceResourceUri -value $_.source.resourceUri}
+            $CollectionList | % { $_ | Add-Member -type NoteProperty -name sourceResourceUri -value $_.source.resourceUri }
 
             $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Activities"    
     
@@ -5424,7 +5427,6 @@ Function Get-HPECOMApplianceFirmwareBundle {
             }  
 
             if ($LatestVersion) {
-
 
                 $Latestversionitems = @()
                 $maxNumber = [int]::MinValue
@@ -7390,6 +7392,9 @@ Function Get-HPECOMFirmwareBundle {
 
     .PARAMETER ReleaseVersion 
     Optional parameter that can be used to specify the release version of firmware bundles to display such as '2024', '2023', '2023.10'.
+    
+    .PARAMETER LatestVersion 
+    Optional parameter that can be used to display the latest appliance firmware bundles version.
 
     .PARAMETER IsActive 
     Optional switch parameter that can be used to only get the supported firmware bundles.
@@ -7424,7 +7429,7 @@ Function Get-HPECOMFirmwareBundle {
    
     
    #>
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'ReleaseVersion')]
     Param( 
     
         [Parameter (Mandatory)] 
@@ -7445,7 +7450,11 @@ Function Get-HPECOMFirmwareBundle {
             })]
         [String]$Region,  
 
+        [Parameter (ParameterSetName = 'ReleaseVersion')]
         [String]$ReleaseVersion,
+        
+        [Parameter (ParameterSetName = 'Latest')]
+        [Switch]$LatestVersion,
 
         [Switch]$IsActive,
 
@@ -7519,7 +7528,7 @@ Function Get-HPECOMFirmwareBundle {
 
             if ($ReleaseVersion) {
 
-                $CollectionList = $CollectionList | Where-Object releaseVersion -eq $ReleaseVersion
+                $CollectionList = $CollectionList | Where-Object releaseVersion -match $ReleaseVersion
 
             }   
             if ($IsActive) {
@@ -7537,6 +7546,27 @@ Function Get-HPECOMFirmwareBundle {
                 $CollectionList = $CollectionList | Where-Object bundleType -match $BundleType
 
             }   
+
+            if ($LatestVersion) {
+
+                $Latestversionitems = @()
+                $maxNumber = [int]::MinValue
+
+                foreach ($item in $CollectionList) {
+                    if ($item.releaseVersion -gt $maxNumber) {
+                        $maxNumber = $item.releaseVersion
+                        $Latestversionitems.Clear()
+                        $Latestversionitems += $item
+                    } 
+                    elseif ($item.releaseVersion -eq $maxNumber) {
+                        # If current number matches the max number, add it to the list
+                        $Latestversionitems += $item
+                    }
+                }
+
+                $CollectionList = $Latestversionitems
+
+            }  
 
             # Add region to object
             $CollectionList | Add-Member -type NoteProperty -name region -value $Region
@@ -8209,13 +8239,13 @@ Function New-HPECOMGroup {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
-            if ($HPECOMAPICredentialRegions -contains $_) {
-                $true
-            }
-            else {
-                Throw "The COM region '$_' is not provisioned in this workspace!"
-            }
-        })]
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                }
+            })]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
@@ -8235,13 +8265,13 @@ Function New-HPECOMGroup {
 
         [Parameter (ValueFromPipelineByPropertyName)] 
         [ArgumentCompleter({
-            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-            $Items = @('Servers') #, 'OneView Synergy appliances', 'OneView VM appliances')
-            $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
-            return $filteredItems | ForEach-Object {
-               [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-            }
-        })]
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Items = @('Servers') #, 'OneView Synergy appliances', 'OneView VM appliances')
+                $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
+                return $filteredItems | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
         # [ValidateSet ('Servers')] # , 'OneView Synergy appliances', 'OneView VM appliances')]
         [String]$DeviceType = "Servers",
 
@@ -8596,19 +8626,19 @@ Function New-HPECOMGroup {
             
         If ($ListOfPoliciesFromGroup) {
 
-            $AutoBiosApplySettingsOnAdd                     = $ListOfPoliciesFromGroup.onDeviceAdd.biosApplySettings
-            $ResetBIOSConfigurationSettingsToDefaultsonAdd  = $ListOfPoliciesFromGroup.onDeviceAdd.biosFactoryReset
-            $AutoExternalStorageConfigurationOnAdd          = $ListOfPoliciesFromGroup.onDeviceAdd.externalStorageConfiguration
-            $PowerOffServerAfterFirmwareUpdate              = $ListOfPoliciesFromGroup.onDeviceAdd.firmwarePowerOff
-            $AutoFirmwareUpdateOnAdd                        = $ListOfPoliciesFromGroup.onDeviceAdd.firmwareUpdate
-            $AutoIloApplySettingsOnAdd                      = $ListOfPoliciesFromGroup.onDeviceAdd.iloApplySettings
-            $osCompletionTimeoutMin                         = $ListOfPoliciesFromGroup.onDeviceAdd.osCompletionTimeoutMin
-            $AutoOsImageInstallOnAdd                        = $ListOfPoliciesFromGroup.onDeviceAdd.osInstall
-            $AutoStorageVolumeCreationOnAdd                 = $ListOfPoliciesFromGroup.onDeviceAdd.storageConfiguration
-            $AutoStorageVolumeDeletionOnAdd                 = $ListOfPoliciesFromGroup.onDeviceAdd.storageVolumeDeletion
-            $storageVolumeName                              = $ListOfPoliciesFromGroup.onDeviceAdd.storageVolumeName
+            $AutoBiosApplySettingsOnAdd = $ListOfPoliciesFromGroup.onDeviceAdd.biosApplySettings
+            $ResetBIOSConfigurationSettingsToDefaultsonAdd = $ListOfPoliciesFromGroup.onDeviceAdd.biosFactoryReset
+            $AutoExternalStorageConfigurationOnAdd = $ListOfPoliciesFromGroup.onDeviceAdd.externalStorageConfiguration
+            $PowerOffServerAfterFirmwareUpdate = $ListOfPoliciesFromGroup.onDeviceAdd.firmwarePowerOff
+            $AutoFirmwareUpdateOnAdd = $ListOfPoliciesFromGroup.onDeviceAdd.firmwareUpdate
+            $AutoIloApplySettingsOnAdd = $ListOfPoliciesFromGroup.onDeviceAdd.iloApplySettings
+            $osCompletionTimeoutMin = $ListOfPoliciesFromGroup.onDeviceAdd.osCompletionTimeoutMin
+            $AutoOsImageInstallOnAdd = $ListOfPoliciesFromGroup.onDeviceAdd.osInstall
+            $AutoStorageVolumeCreationOnAdd = $ListOfPoliciesFromGroup.onDeviceAdd.storageConfiguration
+            $AutoStorageVolumeDeletionOnAdd = $ListOfPoliciesFromGroup.onDeviceAdd.storageVolumeDeletion
+            $storageVolumeName = $ListOfPoliciesFromGroup.onDeviceAdd.storageVolumeName
 
-            $firmwareDowngrade                              = $ListOfPoliciesFromGroup.onDeviceApply.firmwareDowngrade
+            $firmwareDowngrade = $ListOfPoliciesFromGroup.onDeviceApply.firmwareDowngrade
         }
 
 
@@ -8723,7 +8753,7 @@ Function New-HPECOMGroup {
 
 
 Function Remove-HPECOMGroup {
-<#
+    <#
     .SYNOPSIS
     Deletes a group from a specified region.
 
@@ -9127,13 +9157,13 @@ Function Set-HPECOMGroup {
         [String]$Description,
 
         [ArgumentCompleter({
-            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-            $Items = @('Servers') #, 'OneView Synergy appliances', 'OneView VM appliances')
-            $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
-            return $filteredItems | ForEach-Object {
-               [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-            }
-        })]
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Items = @('Servers') #, 'OneView Synergy appliances', 'OneView VM appliances')
+                $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
+                return $filteredItems | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
         [ValidateSet ('Servers')] # , 'OneView Synergy appliances', 'OneView VM appliances')]
         # [Parameter (ValueFromPipelineByPropertyName)] 
         [String]$DeviceType = "Servers",
@@ -9184,26 +9214,26 @@ Function Set-HPECOMGroup {
 
         # Tags settings  
         [ValidateScript({
-            # Allows empty strings to pass the validation when "" is provided to remove the tag or when group in the pipeline does not have a tag
-            if ($_ -eq '' -or $_ -eq $null) {
-                $True
-            }    
-            # Checks if the input string matches a specific pattern that starts with '@{' and ends with '}', 
-            # containing letters, digits, underscores, spaces, dots, colons, plus signs, hyphens, and at signs.
-            elseif ($_ -match '^@\{[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+\}$') {
-                $True
-            }
+                # Allows empty strings to pass the validation when "" is provided to remove the tag or when group in the pipeline does not have a tag
+                if ($_ -eq '' -or $_ -eq $null) {
+                    $True
+                }    
+                # Checks if the input string matches a specific pattern that starts with '@{' and ends with '}', 
+                # containing letters, digits, underscores, spaces, dots, colons, plus signs, hyphens, and at signs.
+                elseif ($_ -match '^@\{[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+\}$') {
+                    $True
+                }
             
-            elseif (($_ -split '=').Count -gt 2) {
-                throw "Input '$_' is not in a valid tag format. Only one tag is expected such as <Name>=<Value>"
-            }
-            # Checks if the input string matches a specific pattern <Name>=<Value> that starts with a letter, followed by letters, digits, underscores, spaces, dots, colons, plus signs, hyphens, and at signs,
-            elseif ($_ -match '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+$') { 
-                $True
-            }
-            elseif ($_ -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+$') {
-                throw "Input '$_' is not in a valid tag format. Expected format is <Name>=<Value> and can only contain alphanumeric characters, Unicode space separators, and the following: _ . : + - @"
-            }
+                elseif (($_ -split '=').Count -gt 2) {
+                    throw "Input '$_' is not in a valid tag format. Only one tag is expected such as <Name>=<Value>"
+                }
+                # Checks if the input string matches a specific pattern <Name>=<Value> that starts with a letter, followed by letters, digits, underscores, spaces, dots, colons, plus signs, hyphens, and at signs,
+                elseif ($_ -match '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+$') { 
+                    $True
+                }
+                elseif ($_ -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+$') {
+                    throw "Input '$_' is not in a valid tag format. Expected format is <Name>=<Value> and can only contain alphanumeric characters, Unicode space separators, and the following: _ . : + - @"
+                }
             })] 
         [String]$TagUsedForAutoAddServer,      
 
@@ -9949,13 +9979,13 @@ Function Add-HPECOMServerToGroup {
     Param( 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
-            if ($HPECOMAPICredentialRegions -contains $_) {
-                $true
-            }
-            else {
-                Throw "The COM region '$_' is not provisioned in this workspace!"
-            }
-        })]
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                }
+            })]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
@@ -10013,7 +10043,7 @@ Function Add-HPECOMServerToGroup {
         
         try {
             $Group = Get-HPECOMGroup -Region $Region -Name $GroupName
-            $GroupMembers =  $Group.devices 
+            $GroupMembers = $Group.devices 
 
             $Uri = $COMGroupsUri + "/" + $Group.ID + "/devices"
            
@@ -10248,13 +10278,13 @@ Function Remove-HPECOMServerFromGroup {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
-            if ($HPECOMAPICredentialRegions -contains $_) {
-                $true
-            }
-            else {
-                Throw "The COM region '$_' is not provisioned in this workspace!"
-            }
-        })]
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                }
+            })]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
@@ -10322,7 +10352,7 @@ Function Remove-HPECOMServerFromGroup {
 
         try {
             $Group = Get-HPECOMGroup -Region $Region -Name $GroupName
-            $GroupMembers =  $Group.devices 
+            $GroupMembers = $Group.devices 
 
         }
         catch {
@@ -15662,7 +15692,7 @@ function Invoke-HPECOMGroupExternalStorageComplianceCheck {
         # $JobTemplateUri = $HPECOMjobtemplatesUris | Where-Object name -eq $_JobTemplateName | ForEach-Object resourceuri    
         $JobTemplateUri = "/compute-ops-mgmt/v1beta2/job-templates/977139e0-f9d9-4940-9418-e0c321b5a458"
         # $JobTemplateId = $HPECOMjobtemplatesUris | Where-Object name -eq $_JobTemplateName | ForEach-Object id
-        $JobTemplateId =  $JobTemplateUri.split('/')[-1]
+        $JobTemplateId = $JobTemplateUri.split('/')[-1]
 
         $uri = $COMJobsUri
         $GroupFirmwareComplianceStatus = [System.Collections.ArrayList]::new()
@@ -33926,7 +33956,7 @@ Function Get-HPECOMServer {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
 
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.Alert"    
                 
@@ -33936,7 +33966,7 @@ Function Get-HPECOMServer {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
 
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.ExternalStorageDetails"    
                 
@@ -33945,7 +33975,7 @@ Function Get-HPECOMServer {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
 
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.NotificationStatus"    
                 
@@ -33954,7 +33984,7 @@ Function Get-HPECOMServer {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1] }
 
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.SecurityParameters"   
                 
@@ -33981,7 +34011,7 @@ Function Get-HPECOMServer {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1]}        
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }        
          
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.AdapterToSwitchPortMappings"    
                 
@@ -33996,7 +34026,7 @@ Function Get-HPECOMServer {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1] }
            
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Server.Location"    
                 
@@ -34005,7 +34035,7 @@ Function Get-HPECOMServer {
                 
                 $NewCollectionList = [System.Collections.ArrayList]::new()
 
-                if ($ShowLocation -and -not $Name){
+                if ($ShowLocation -and -not $Name) {
                     
                     try {
 
@@ -34062,7 +34092,7 @@ Function Get-HPECOMServer {
                                 
                             }
                         }
-                        elseif ($ShowGroupFirmwareDeviation){
+                        elseif ($ShowGroupFirmwareDeviation) {
     
                             try {
                                     
@@ -34087,7 +34117,7 @@ Function Get-HPECOMServer {
                             }
     
                         }
-                        elseif ($ShowSecurityParameters){
+                        elseif ($ShowSecurityParameters) {
     
                             try {
 
@@ -34924,7 +34954,7 @@ Function Get-HPECOMServerBySerialNumber {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
                 
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.Alert"    
                 
@@ -34934,7 +34964,7 @@ Function Get-HPECOMServerBySerialNumber {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
             
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.ExternalStorageDetails"    
                 
@@ -34944,7 +34974,7 @@ Function Get-HPECOMServerBySerialNumber {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
 
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.NotificationStatus"    
                 
@@ -34953,7 +34983,7 @@ Function Get-HPECOMServerBySerialNumber {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1] }
 
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.SecurityParameters"    
                 
@@ -34980,7 +35010,7 @@ Function Get-HPECOMServerBySerialNumber {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1]}        
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }        
          
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.AdapterToSwitchPortMappings"    
                 
@@ -34995,7 +35025,7 @@ Function Get-HPECOMServerBySerialNumber {
                 # Add serial number and servername to object
                 $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1]}
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1] }
            
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Server.Location"    
                 
@@ -35004,7 +35034,7 @@ Function Get-HPECOMServerBySerialNumber {
                 
                 $NewCollectionList = [System.Collections.ArrayList]::new()
 
-                if ($ShowLocation -and -not $SerialNumber){
+                if ($ShowLocation -and -not $SerialNumber) {
 
                     try {
 
@@ -35060,7 +35090,7 @@ Function Get-HPECOMServerBySerialNumber {
                                 
                             }
                         }
-                        elseif ($ShowGroupFirmwareDeviation){
+                        elseif ($ShowGroupFirmwareDeviation) {
     
                             try {
                                     
@@ -35085,7 +35115,7 @@ Function Get-HPECOMServerBySerialNumber {
                             }
     
                         }
-                        elseif ($ShowSecurityParameters){
+                        elseif ($ShowSecurityParameters) {
     
                             try {
 
@@ -35600,6 +35630,122 @@ Function Disable-HPECOMServerAutoiLOFirmwareUpdate {
 
 
     }
+}
+
+
+Function Get-HPECOMServerActivationKey {
+    <#
+    .SYNOPSIS
+    Retrieve the activation key required to add servers to a Compute Ops Management service instance.
+    
+    .DESCRIPTION   
+    This cmdlet retrieves the activation key required to add servers to a Compute Ops Management service instance using 'Connect-HPEGLDeviceComputeiLOtoCOM -ActivationKey'. 
+
+    .PARAMETER Region 
+    Specifies the name of the region where the server will be added.  
+
+    .PARAMETER SubscriptionKey
+    Specifies the device subscription key to use for the request. This key can be retrieved using 'Get-HPEGLDeviceSubscription -ShowWithAvailableQuantity -ShowValid -FilterByDeviceType SERVER'.
+
+    .PARAMETER ExpirationInHours
+    Specifies the expiration time of the activation key in hours. The default value is 1 hour.
+
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be made to COM instead of sending the request. Useful for understanding the native REST API calls used by COM.
+
+    .EXAMPLE
+    $Subscription_Key = Get-HPEGLDeviceSubscription -ShowWithAvailableQuantity -ShowValid -FilterByDeviceType SERVER | select -First 1 -ExpandProperty subscription_key
+    
+    $Activation_Key = Get-HPECOMServerActivationKey -Region eu-central -SubscriptionKey $Subscription_Key 
+
+   
+    The first command retrieves the first available server subscription key that is valid and with available quantity.
+
+    The second command retrieves the activation key required to add servers to a Compute Ops Management service instance in the "eu-central" region using the subscription key retrieved in the first command.
+        
+    The activation key will expire in 2 hours and can be used in:
+
+    .INPUTS
+    None - This cmdlet does not accept pipeline input.
+
+        
+    #>
+
+    [CmdletBinding()]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory)] 
+        [String]$SubscriptionKey,
+
+
+        [ValidateScript({
+                if ($_ -ge 0.5 -and $_ -le 168) {
+                    $true
+                }
+                else {
+                    Throw "ExpirationInHours must be between 0.5 and 168."
+                }
+            })]
+        [Int]$ExpirationInHours = 1,
+        
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $body = @{
+            expirationInHours = $ExpirationInHours
+            subscriptionKey   = $SubscriptionKey         
+        } | ConvertTo-Json
+
+
+       
+        $Uri = $COMActivationTokenUri
+
+        try {
+            [Array]$Collection = Invoke-HPECOMWebRequest -Method POST -Uri $Uri -Region $Region -Body $body -WhatIfBoolean $WhatIf
+
+            $ReturnData = $Collection.activationKey     
+            return $ReturnData
+
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+               
+        }
+
+
+
+       
+
+    }   
 }
 
 #EndRegion
@@ -38505,10 +38651,13 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     Connect the HPE iLO interface of HPE GreenLake compute device(s) to Compute Ops Management.
 
     .DESCRIPTION
-    This Cmdlet connects the iLO of a compute device to the assigned Compute Ops Management instance. 
-    Before utilizing this cmdlet, the compute device must be assigned to a Compute Ops Management instance and attached to a valid subscription key using `Add-HPEGLDeviceToService` and `Set-HPEGLDeviceSubscription`.
-    You can use 'Get-HPEGLDevice -ShowComputeReadyForCOMIloConnection' to get all compute devices ready to be connected to Compute Ops Management.
+    By default (when the `ActivationKeyFromCOM` parameter is not used), this Cmdlet connects the iLO of a compute device to the assigned Compute Ops Management instance. 
+     - Requirement: the compute device must be first assigned to a Compute Ops Management instance and attached to a valid subscription key using `Add-HPEGLDeviceToService` and `Set-HPEGLDeviceSubscription`.      
+     - You can use `Get-HPEGLDevice -ShowComputeReadyForCOMIloConnection` to get all compute devices ready to be connected to Compute Ops Management.
     
+    When the `ActivationKeyFromCOM` parameter is used, this Cmdlet connects the iLO of a compute device to the Compute Ops Management instance from which the provided activation key was generated.
+     - You can use `Get-HPECOMServerActivationKey` to get the activation key for the Compute Ops Management instance where you want the compute device to be connected.
+
     .PARAMETER SerialNumber
     Specifies the serial number of the device to be connected to Compute Ops Management.
 
@@ -38518,6 +38667,10 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     .PARAMETER IloCredential
     A PSCredential object comprising the username and password associated with the iLO of the device that is being added.
     
+    .PARAMETER ActivationKeyFromCOM
+    (Optional) Specifies the Compute Ops Management activation key to be used for the connection. This activation key is retrieved using 'Get-HPECOMServerActivationKey'. 
+    If not provided, the workspace account ID is used, and in this case, ensure the server is attached to a valid subscription key.
+
     .PARAMETER IloProxyServer
     (Optional) Enables iLO web proxy. Specifies the hostname or IP address of the web proxy server.
     
@@ -38561,8 +38714,18 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         DZ12312312, 192.188.2.151
         CZ12312312, 192.188.2.152
 
+    .EXAMPLE
+    $Subscription_Key = Get-HPEGLDeviceSubscription -ShowWithAvailableQuantity -ShowValid -FilterByDeviceType SERVER | select -First 1 -ExpandProperty subscription_key
+    $COM_Activation_Key = Get-HPECOMServerActivationKey -Region eu-central -SubscriptionKey $Subscription_Key 
+    
+    Import-Csv Private\iLOs-List-To-Connect-To-COM.csv | Connect-HPEGLDeviceComputeiLOtoCOM -IloCredential $iLO_credential -ActivationKeyFromCOM $COM_Activation_Key -IloProxyServer "web-proxy.domain.com" -IloProxyPort 8080
+     
+    Connect all compute device iLOs listed in the `iLOs-List-To-Connect-To-COM.csv` file to the Compute Ops Management instance associated with the provided activation key. 
+    The connection is made through a web proxy.
+
     .INPUTS
-    None. You cannot pipe objects to this Cmdlet directly.
+    System.Collections.ArrayList
+        List of Device(s) with serialnumber and iLO IP address.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -38578,11 +38741,10 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         * Exception - Information about any exceptions generated during the operation.
 #>
 
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'SerialNumber')]
     Param( 
  
-        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
-        [ValidateNotNullOrEmpty()]
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
         [Alias ('serial_number')]
         [String]$SerialNumber,
 
@@ -38595,6 +38757,9 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         [Parameter (Mandatory)]
         [ValidateNotNullOrEmpty()]
         [PSCredential]$iLOCredential,
+
+        [Parameter (Mandatory, ParameterSetName = 'ActivationKey')]
+        [string]$ActivationKeyfromCOM,
 
         [String]$IloProxyServer,
   
@@ -38619,12 +38784,13 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
 
         try {
             $devices = Get-HPEGLdevice 
-           
+            
         }
         catch {
             $PSCmdlet.ThrowTerminatingError($_)
             
         }
+
 
     
     }
@@ -38637,7 +38803,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         $objStatus = [pscustomobject]@{
   
             iLO                  = $IloIP
-            SerialNumber         = $SerialNumber
+            SerialNumber         = $Null
             Status               = $Null
             Details              = $Null
             iLOConnectionStatus  = $Null
@@ -38647,394 +38813,510 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             Exception            = $Null
         }
 
-        # Test if device present
-        $device = $devices | Where-Object serial_number -eq $SerialNumber
-        
-        if ( -not $device) {
-            # Must return a message if device is not found
-            $objStatus.Status = "Warning"
-            $objStatus.Details = "Device is not present in the HPE GreenLake workspace"
-    
-        }
-        elseif (-not $device.ccs_region) {
-            # Must return a message if device is not assigned to COM
-            $objStatus.Status = "Warning"
-            $objStatus.Details = "Device is not assigned to any service instance!"
-    
-        }
-        elseif (-not $device.subscription_key) {
-            # Must return a message if device has no subscription
-            $objStatus.Status = "Warning"
-            $objStatus.Details = "Device has not been attached to any subscription!"
-    
-        }
-        else {       
+        if ($SerialNumber ) {
 
-            # Connection to iLO
-  
-            If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
-
-                add-type -TypeDefinition  @"
-    using System.Net;
-    using System.Security.Cryptography.X509Certificates;
-    public class TrustAllCertsPolicy : ICertificatePolicy {
-        public bool CheckValidationResult(
-            ServicePoint srvPoint, X509Certificate certificate,
-            WebRequest request, int certificateProblem) {
-            return true;
+            $objStatus.SerialNumber = $SerialNumber 
+                        
+            # Test if device present
+            $device = $devices | Where-Object serial_number -eq $SerialNumber
+            
+            if ( -not $device) {
+                # Must return a message if device is not found
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Device is not present in the HPE GreenLake workspace"
+                [void] $iLOConnectionStatus.add($objStatus)
+                return
+                
+            }
+            elseif (-not $device.ccs_region) {
+                # Must return a message if device is not assigned to COM
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Device is not assigned to any service instance!"
+                [void] $iLOConnectionStatus.add($objStatus)
+                return
+                
+            }
+            elseif (-not $device.subscription_key) {
+                # Must return a message if device has no subscription
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Device has not been attached to any subscription!"
+                [void] $iLOConnectionStatus.add($objStatus)
+                return
+                
+            }
         }
+         
+
+        # Connection to iLO
+
+        If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+
+            add-type -TypeDefinition  @"
+using System.Net;
+using System.Security.Cryptography.X509Certificates;
+public class TrustAllCertsPolicy : ICertificatePolicy {
+    public bool CheckValidationResult(
+        ServicePoint srvPoint, X509Certificate certificate,
+        WebRequest request, int certificateProblem) {
+        return true;
     }
+}
 "@
 
-                [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+            [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
 
-            }
+        }
 
 
-            $iLOBaseURL = "https://$IloIP"
-                
-            $AddURI = "/redfish/v1/SessionService/Sessions/"
-                
-            $url = $iLOBaseURL + $AddURI
-
-            $IloUsername = $iLOCredential.UserName
-            $IlodecryptPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($iLOCredential.Password))
-                
-            $Body = [System.Collections.Hashtable]@{
-                UserName = $IloUserName
-                Password = $IlodecryptPassword
-            } | ConvertTo-Json 
-                
-            # Create iLO session     
-            "[{0}] '{1}' -- Attempting an iLO session creation!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
-            "[{0}] '{1}' -- Method: POST - URI: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $url | Write-Verbose
-            "[{0}] '{1}' -- Body content: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $Body | Write-Verbose
-
-            try {
-
-                If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
-        
-                    $response = Invoke-WebRequest -Method POST -Uri $url -Body $Body -Headers $Headers -ContentType "Application/json" -ErrorAction Stop
-
-                    
-                }
-                else {
-                    $response = Invoke-WebRequest -Method POST -Uri $url -Body $Body -Headers $Headers -ContentType "Application/json" -SkipCertificateCheck -ErrorAction Stop
-                    
-                }
-                
-                $XAuthToken = (($response.RawContent -split "[`r`n]" | select-string -Pattern 'X-Auth-Token' ) -split " ")[1]
-                
-                "[{0}] '{1}' -- Received status code response: '{2}' - Description: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $response.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose              
-                "[{0}] '{1}' -- Raw response: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $response | Write-Verbose
-
-                "[{0}] '{1}' -- iLO session created successfully!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
-    
-            }
-            catch {
-                $objStatus.iLOConnectionStatus = "Failed"
-                $objStatus.iLOConnectionDetails = "iLO connection error! Check your iLO IP or credential!"
-                $objStatus.Exception = $_.Exception.message 
-
-                "[{0}] '{1}' -- iLO session cannot be created!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
-                $objStatus.Status = "Failed"
-                [void] $OnboardingDevicesStatus.add($objStatus)
-                return
-            }
+        $iLOBaseURL = "https://$IloIP"
             
-            # Get System information
-                  
-            $Headers = [System.Collections.Hashtable]@{
-                'X-Auth-Token'  = $XAuthToken
-                'Content-Type'  = 'application/json'
-                'OData-Version' = '4.0'    
-            }
-    
-            "[{0}] '{1}' -- Getting iLO generation " -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
-              
-            $AddURI = "/redfish/v1/Managers/1/"
+        $AddURI = "/redfish/v1/SessionService/Sessions/"
+            
+        $url = $iLOBaseURL + $AddURI
+
+        $IloUsername = $iLOCredential.UserName
+        $IlodecryptPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($iLOCredential.Password))
+            
+        $Body = [System.Collections.Hashtable]@{
+            UserName = $IloUserName
+            Password = $IlodecryptPassword
+        } | ConvertTo-Json 
+            
+        # Create iLO session     
+        "[{0}] '{1}' -- Attempting an iLO session creation!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
+        "[{0}] '{1}' -- Method: POST - URI: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $url | Write-Verbose
+        "[{0}] '{1}' -- Body content: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $Body | Write-Verbose
+
+        try {
 
             If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
-                $iLOGeneration = (Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers).model
+    
+                $response = Invoke-WebRequest -Method POST -Uri $url -Body $Body -Headers $Headers -ContentType "Application/json" -ErrorAction Stop
+
+                
             }
             else {
-                $iLOGeneration = (Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers -SkipCertificateCheck).model
+                $response = Invoke-WebRequest -Method POST -Uri $url -Body $Body -Headers $Headers -ContentType "Application/json" -SkipCertificateCheck -ErrorAction Stop
                 
-            } 
-
-            if ($iLOGeneration -eq "iLO 5" -or $iLOGeneration -eq "iLO 6") {       
-
-                #-----------------------------------------------------------Enable iLO Proxy settings if needed-----------------------------------------------------------------------------
-
-                if ($IloProxyServer) {
-
-                    "[{0}] '{1}' -- iLO '{2}' attempting iLO proxy server settings" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
-
-                    $AddURI = "/redfish/v1/Managers/1/NetworkProtocol/"
-
-                    $url = ( $iLObaseURL + $AddURI)
-
-
-                    if ($IloProxyUserName -and $IloProxyPassword) {
-                        
-                        $Ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($IloProxyPassword)
-                        $IloProxyPasswordPlainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($Ptr)
-
-                        $Body = [System.Collections.Hashtable]@{
-                            Oem = @{
-                                Hpe = @{
-                                    WebProxyConfiguration = @{
-                                        ProxyServer   = $IloProxyServer
-                                        ProxyPort     = $IloProxyPort
-                                        ProxyUserName = $IloProxyUserName
-                                        ProxyPassword = $IloProxyPasswordPlainText
-                                    }
-                                }
-                            }
-                        } | ConvertTo-Json -d 9
-
-                    }
-                    else {
-
-                        $Body = [System.Collections.Hashtable]@{
-                            Oem = @{
-                                Hpe = @{
-                                    WebProxyConfiguration = @{
-                                        ProxyServer = $IloProxyServer
-                                        ProxyPort   = $IloProxyPort
-                                    }
-                                }
-                            }
-                        } | ConvertTo-Json -d 9
-
-                    }
-
-                    "[{0}] '{1}' -- iLO '{2}' - Method: POST - URI: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $url | Write-Verbose
-                    "[{0}] '{1}' -- iLO '{2}' - Hearders content: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($Headers | Out-String) | Write-Verbose
-                    "[{0}] '{1}' -- iLO '{2}' - Body content: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $Body | Write-Verbose
-
-                    try {
+            }
             
-                        If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
-                            $Response = Invoke-RestMethod -Method PATCH -Uri $url -Headers $Headers -Body $Body -ErrorAction Stop
-                        }
-                        else {
-                            $Response = Invoke-RestMethod -Method PATCH -Uri $url -Headers $Headers -Body $Body -ErrorAction Stop -SkipCertificateCheck
-                        }
+            $XAuthToken = (($response.RawContent -split "[`r`n]" | select-string -Pattern 'X-Auth-Token' ) -split " ")[1]
+            
+            "[{0}] '{1}' -- Received status code response: '{2}' - Description: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $response.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose              
+            "[{0}] '{1}' -- Raw response: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $response | Write-Verbose
 
-                        "[{0}] '{1}' -- iLO '{2}' - Raw response: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($Response | Out-String) | Write-Verbose
+            "[{0}] '{1}' -- iLO session created successfully!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
 
-                        $msg = $response.error.'@Message.ExtendedInfo'.MessageId
-                  
-                        "[{0}] '{1}' -- iLO '{2}' - Response: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
-       
-                        if ($msg -match "Success") {
-                            "[{0}] '{1}' -- iLO '{2}' proxy server settings modified successfully!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
-                            $objStatus.ProxySettingsStatus = "Complete"
-                            $objStatus.ProxySettingsDetails = "iLO proxy server settings modified successfully!"
-                        }
-                 
-  
-                    }
-                    catch {
+        }
+        catch {
+            $objStatus.iLOConnectionStatus = "Failed"
+            $objStatus.iLOConnectionDetails = "iLO connection error! Check your iLO IP or credential!"
+            $objStatus.Exception = $_.Exception.message 
 
-                        $err = (New-Object System.IO.StreamReader( $_.Exception.Response.GetResponseStream() )).ReadToEnd() 
-                        $msg = $err.error.'@Message.ExtendedInfo'.MessageId
+            "[{0}] '{1}' -- iLO session cannot be created!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
+            $objStatus.Status = "Failed"
+            [void] $iLOConnectionStatus.add($objStatus)
+            return
+        }
+        
+        # Get System information
+                
+        $Headers = [System.Collections.Hashtable]@{
+            'X-Auth-Token'  = $XAuthToken
+            'Content-Type'  = 'application/json'
+            'OData-Version' = '4.0'    
+        }
 
-                        "[{0}] '{1}' -- iLO '{2}' proxy server settings cannot be configured! Error: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
+        "[{0}] '{1}' -- Getting iLO generation " -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
+            
+        $AddURI = "/redfish/v1/Managers/1/"
 
+        try {
 
-                        $objStatus.ProxySettingsStatus = "Failed"
-                        $objStatus.ProxySettingsDetails = $_.Exception.message 
+            If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
 
-                    }
+                $Manager = Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers
+    
+            }
+            else {
+
+                $Manager = Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers -SkipCertificateCheck
+    
+            }
+            
+        }
+        catch {
+            
+            $objStatus.iLOConnectionStatus = "Failed"
+            $objStatus.iLOConnectionDetails = "iLO communication error!"
+            $objStatus.Exception = $_.Exception.message 
+
+            "[{0}] '{1}' -- iLO communication error!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
+            $objStatus.Status = "Failed"
+            [void] $iLOConnectionStatus.add($objStatus)
+            return
+        }
+            
+        $iLOGeneration = $Manager.model
+        $iLOFWVersion = ($Manager.firmwareVersion.split(" "))[2].TrimStart('v')  # "FirmwareVersion": "iLO 5 v3.06" or "iLO 6 v1.62"
+
+        "[{0}] '{1}' - iLO generation: {2} - Version: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $iLOGeneration, $iLOFWVersion | Write-Verbose
+        
+
+        # Servers running earlier versions of iLO 5 and iLO 6 can be activated by using the HPE GreenLake workspace ID.
+        # COM activation key is not supported if iLO5 lower than v3.09 and if iLO6 lower than v1.59.
+
+        if ($ActivationKeyfromCOM) {
+            # Need to retrieve serial number for $objStatus
+            $AddURI = "/redfish/v1/Systems/1/"
+
+            try {
+                
+                If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+    
+                    $System = Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers
+    
+                } else {
+    
+                    $System = Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers -SkipCertificateCheck
+    
                 }
 
-                
-                #----------------------------------------------------------Connect iLOs to Compute Ops Management -----------------------------------------------------------------------------
+            }
+            catch {
 
-                "{0} -- Attempting to connect iLO '{1}' to Compute Ops Management!" -f $SerialNumber, $IloIP | Write-Verbose
-            
-                # If -DisconnectiLOfromOneView switch used: disconnect iLO from Oneview
-                if ($DisconnectiLOfromOneView) { 
-                    $OverrideManager = $True 
-                } 
-                else {
-                    $OverrideManager = $False
-                }
-  
-  
-                $Body = [System.Collections.Hashtable]@{
-                    ActivationKey   = $HPEGreenLakeSession.workspaceId
-                    OverrideManager = $OverrideManager
-                } | ConvertTo-Json 
-                        
-                        
-                $AddURI = "/redfish/v1/Managers/1/Actions/Oem/Hpe/HpeiLO.EnableCloudConnect"
+                $objStatus.iLOConnectionStatus = "Failed"
+                $objStatus.iLOConnectionDetails = "iLO communication error!"
+                $objStatus.Exception = $_.Exception.message 
+    
+                "[{0}] '{1}' -- iLO communication error!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
+                $objStatus.Status = "Failed"
+                [void] $iLOConnectionStatus.add($objStatus)
+                return
+                
+            }
+
+            $SerialNumber = $System.serialnumber 
+
+            $objStatus.SerialNumber = $SerialNumber
+
+            if ($iLOGeneration -eq "iLO 5" -and [decimal]$iLOFWVersion -lt [decimal]3.09) {
+
+                
+                $objStatus.iLOConnectionStatus = "Failed"
+                $objStatus.iLOConnectionDetails = "Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v3.09. Please run the cmdlet without the 'ActivationKeyfromCOM' parameter."
+
+                "[{0}] '{1}' -- iLO '{2}' - iLO generation: {3} - Version: {4} -- Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v3.09" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $iLOGeneration, $iLOFWVersion | Write-Verbose
+
+                $objStatus.Status = "Failed"
+                [void] $iLOConnectionStatus.add($objStatus) 
+                return
+
+            }
+
+            if ($iLOGeneration -eq "iLO 6" -and [decimal]$iLOFWVersion -lt [decimal]1.59) {
+
+                
+                $objStatus.iLOConnectionStatus = "Failed"
+                $objStatus.iLOConnectionDetails = "Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v1.59. Please run the cmdlet without the 'ActivationKeyfromCOM' parameter."
+
+                "[{0}] '{1}' -- iLO '{2}' - iLO generation: {3} - Version: {4} -- Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v1.59" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $iLOGeneration, $iLOFWVersion | Write-Verbose
+
+                $objStatus.Status = "Failed"
+                [void] $iLOConnectionStatus.add($objStatus)
+                return
+            }
+
+        }
+        
+
+        "[{0}] '{1}' -- iLO '{2}' - iLO generation: {3} - Version: {4}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $iLOGeneration, $iLOFWVersion | Write-Verbose
+
+
+        if ($iLOGeneration -eq "iLO 5" -or $iLOGeneration -eq "iLO 6") {       
+
+            #Region-----------------------------------------------------------Enable iLO Proxy settings if needed-----------------------------------------------------------------------------
+
+            if ($IloProxyServer) {
+
+                "[{0}] '{1}' -- iLO '{2}' attempting iLO proxy server settings" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
+
+                $AddURI = "/redfish/v1/Managers/1/NetworkProtocol/"
 
                 $url = ( $iLObaseURL + $AddURI)
-        
-            
+
+
+                if ($IloProxyUserName -and $IloProxyPassword) {
+                    
+                    $Ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($IloProxyPassword)
+                    $IloProxyPasswordPlainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($Ptr)
+
+                    $Body = [System.Collections.Hashtable]@{
+                        Oem = @{
+                            Hpe = @{
+                                WebProxyConfiguration = @{
+                                    ProxyServer   = $IloProxyServer
+                                    ProxyPort     = $IloProxyPort
+                                    ProxyUserName = $IloProxyUserName
+                                    ProxyPassword = $IloProxyPasswordPlainText
+                                }
+                            }
+                        }
+                    } | ConvertTo-Json -d 9
+
+                }
+                else {
+
+                    $Body = [System.Collections.Hashtable]@{
+                        Oem = @{
+                            Hpe = @{
+                                WebProxyConfiguration = @{
+                                    ProxyServer = $IloProxyServer
+                                    ProxyPort   = $IloProxyPort
+                                }
+                            }
+                        }
+                    } | ConvertTo-Json -d 9
+
+                }
+
                 "[{0}] '{1}' -- iLO '{2}' - Method: POST - URI: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $url | Write-Verbose
                 "[{0}] '{1}' -- iLO '{2}' - Hearders content: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($Headers | Out-String) | Write-Verbose
                 "[{0}] '{1}' -- iLO '{2}' - Body content: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $Body | Write-Verbose
-       
-                
-                
+
                 try {
-                    
-                    $counter = 1
-
-                    # Define the spinning cursor characters
-                    $spinner = @('|', '/', '-', '\')
-                    
-                    # Use padding to ensure the entire line is overwritten
-                    $clearLine = " " * 150
-
+        
                     If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
 
-                        $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
+                        $Response = Invoke-RestMethod -Method PATCH -Uri $url -Headers $Headers -Body $Body -ErrorAction Stop
 
-                        if ($CloudConnectStatus -ne "Connected") {
-                            
-                            do {
-                                
-                                $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop 
-                                
-                                $subcounter = 0
-                                
-                                do {
-                                    
-                                    $subcounter++
-                                    
-                                    $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
-                                    "[{0}] '{1}' -- iLO '{2}' - Connection to COM status: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $CloudConnectStatus | Write-Verbose
-                                    
-                                    # Calculate the current spinner character
-                                    $spinnerChar = $spinner[$subcounter % $spinner.Length]
-                                    # Display the spinner character, replacing the previous content
-                                    "`r$clearLine`r[{0}] -- iLO '{1}' - Connection to COM status: '{2}'  $spinnerChar  " -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -NoNewline -ForegroundColor Yellow
-                                    
-                                    sleep -Milliseconds 500
-                                    
-                                } while ($CloudConnectStatus -eq "ConnectionInProgress")
-                                
-                                # Increment counter
-                                $counter++
-                                
-                            } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)
-                        }
-                        else {
-                            $msg = "AlreadyConnected"
-                        }
                     }
                     else {
 
-                        $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
+                        $Response = Invoke-RestMethod -Method PATCH -Uri $url -Headers $Headers -Body $Body -ErrorAction Stop -SkipCertificateCheck
 
-                        if ($CloudConnectStatus -ne "Connected") {
-                            
-                            do {
-                            
-                                $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop -SkipCertificateCheck
-                                
-                                $subcounter = 0
-                                
-                                do {
-                                    
-                                    $subcounter++
-                                    
-                                    $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
-                                    "[{0}] '{1}' -- iLO '{2}' - Connection to COM status: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $CloudConnectStatus | Write-Verbose
-                                    
-                                    # Calculate the current spinner character
-                                    $spinnerChar = $spinner[$subcounter % $spinner.Length]
-                                    # Display the spinner character, replacing the previous content
-                                    "`r$clearLine`r[{0}] -- iLO '{1}' - Connection to COM status: '{2}'  $spinnerChar  " -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -NoNewline -ForegroundColor Yellow
-                                    
-                                    sleep -Milliseconds 500
-                                    
-                                } while ($CloudConnectStatus -eq "ConnectionInProgress")
-                                
-                                # Increment counter
-                                $counter++
-                            
-                            } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)
-
-
-                        }
-                        else {
-                            $msg = "AlreadyConnected"
-                        }
                     }
-                    
-                    if ($iLOConnectiontoCOMRresponse) {
-                        "[{0}] '{1}' -- iLO '{2}' - Raw response: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($iLOConnectiontoCOMRresponse | Out-String) | Write-Verbose
-                        $msg = $iLOConnectiontoCOMRresponse.error.'@Message.ExtendedInfo'.MessageId
-                        "[{0}] '{1}' -- iLO '{2}' - Response: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
-                    }
-                    
-                    
+
+                    "[{0}] '{1}' -- iLO '{2}' - Raw response: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($Response | Out-String) | Write-Verbose
+
+                    $msg = $response.error.'@Message.ExtendedInfo'.MessageId
+                
+                    "[{0}] '{1}' -- iLO '{2}' - Response: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
+    
                     if ($msg -match "Success") {
-                        "`r$clearLine`r[{0}] -- iLO '{1}' - Connected!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
-                        "[{0}] '{1}' -- iLO '{2}' successfully connected to Compute Ops Management!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
-                        $objStatus.iLOConnectionStatus = "Complete"
-                        $objStatus.iLOConnectionDetails = "iLO successfully connected to Compute Ops Management!"
+                        "[{0}] '{1}' -- iLO '{2}' proxy server settings modified successfully!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
+                        $objStatus.ProxySettingsStatus = "Complete"
+                        $objStatus.ProxySettingsDetails = "iLO proxy server settings modified successfully!"
                     }
-                    elseif ($msg -eq "AlreadyConnected") {
-                        "[{0}] '{1}' -- iLO '{2}' already connected to Compute Ops Management!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
-                        $objStatus.iLOConnectionStatus = "Complete"
-                        $objStatus.iLOConnectionDetails = "iLO is already connected to Compute Ops Management!"
-                    }
-
-                    if ($counter -gt 10) {
-                        "`r$clearLine`r[{0}] -- iLO '{1}' - Failed!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
-                        $objStatus.iLOConnectionStatus = "Failed"
-                        $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! Check the iLO event log for more information."
-                        $objStatus.Status = "Failed"
-
-                    }
-
+                
 
                 }
                 catch {
-                         
-                    "`r$clearLine`r[{0}] -- iLO '{1}' - Failed!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
-                    
+
                     $err = (New-Object System.IO.StreamReader( $_.Exception.Response.GetResponseStream() )).ReadToEnd() 
                     $msg = $err.error.'@Message.ExtendedInfo'.MessageId
 
-                    "[{0}] '{1}' -- iLO '{2}' cannot be connected to Compute Ops Management! Error: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
-                
-                    $objStatus.iLOConnectionStatus = "Failed"
-                    $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! iLO seems to be under the control of HPE Oneview! To force the connection, use -DisconnectiLOfromOneView switch"
-                    $objStatus.Exception = "Error: '{0}'" -f $msg
-                    $objStatus.Status = "Failed"
-                    [void] $OnboardingDevicesStatus.add($objStatus)
+                    "[{0}] '{1}' -- iLO '{2}' proxy server settings cannot be configured! Error: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
+
+
+                    $objStatus.ProxySettingsStatus = "Failed"
+                    $objStatus.ProxySettingsDetails = $_.Exception.message 
+                    [void] $iLOConnectionStatus.add($objStatus)
                     return
+
                 }
-    
-            
             }
-            else {
-  
-                "[{0}] '{1}' -- iLO is not supported by HPE GreenLake! Skipping server..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
-      
-                $objStatus.OnboardingStatus = "Error" 
-                $objStatus.OnboardingDetails = "Only iLO5 and iLO6 are supported by HPE GreenLake"
-            }   
+            #EndRegion
             
-            if ($objStatus.PSobject.Properties.value -contains "Failed") {
-  
-                $objStatus.Status = "Failed"
-          
-            }
+            #----------------------------------------------------------Connect iLOs to Compute Ops Management -----------------------------------------------------------------------------
+
+            "{0} -- Attempting to connect iLO '{1}' to Compute Ops Management!" -f $SerialNumber, $IloIP | Write-Verbose
+        
+            # If -DisconnectiLOfromOneView switch used: disconnect iLO from Oneview
+            if ($DisconnectiLOfromOneView) { 
+                $OverrideManager = $True 
+            } 
             else {
-                $objStatus.Status = "Complete"
-    
+                $OverrideManager = $False
             }
 
+            if ($ActivationKeyfromCOM) {
+                $ActivationKey = $ActivationKeyfromCOM
+            }
+            else {
+                $ActivationKey = $HPEGreenLakeSession.workspaceId
+            }
+
+            $Body = [System.Collections.Hashtable]@{
+                ActivationKey   = $ActivationKey
+                OverrideManager = $OverrideManager
+            } | ConvertTo-Json 
+                    
+                    
+            $AddURI = "/redfish/v1/Managers/1/Actions/Oem/Hpe/HpeiLO.EnableCloudConnect"
+
+            $url = ( $iLObaseURL + $AddURI)
+    
+        
+            "[{0}] '{1}' -- iLO '{2}' - Method: POST - URI: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $url | Write-Verbose
+            "[{0}] '{1}' -- iLO '{2}' - Hearders content: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($Headers | Out-String) | Write-Verbose
+            "[{0}] '{1}' -- iLO '{2}' - Body content: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $Body | Write-Verbose
+    
+            
+            
+            try {
+                
+                $counter = 1
+
+                # Define the spinning cursor characters
+                $spinner = @('|', '/', '-', '\')
+                
+                # Use padding to ensure the entire line is overwritten
+                $clearLine = " " * 150
+
+                If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+
+                    $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
+
+                    if ($CloudConnectStatus -ne "Connected") {
+                        
+                        do {
+                            
+                            $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop 
+                            
+                            $subcounter = 0
+                            
+                            do {
+                                
+                                $subcounter++
+                                
+                                $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
+                                "[{0}] '{1}' -- iLO '{2}' - Connection to COM status: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $CloudConnectStatus | Write-Verbose
+                                
+                                # Calculate the current spinner character
+                                $spinnerChar = $spinner[$subcounter % $spinner.Length]
+                                # Display the spinner character, replacing the previous content
+                                "`r$clearLine`r[{0}] -- iLO '{1}' - Connection to COM status: '{2}'  $spinnerChar  " -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -NoNewline -ForegroundColor Yellow
+                                
+                                sleep -Milliseconds 500
+                                
+                            } while ($CloudConnectStatus -eq "ConnectionInProgress")
+                            
+                            # Increment counter
+                            $counter++
+                            
+                        } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)
+                    }
+                    else {
+                        $msg = "AlreadyConnected"
+                    }
+                }
+                else {
+
+                    $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
+
+                    if ($CloudConnectStatus -ne "Connected") {
+                        
+                        do {
+                        
+                            $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop -SkipCertificateCheck
+                            
+                            $subcounter = 0
+                            
+                            do {
+                                
+                                $subcounter++
+                                
+                                $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
+                                "[{0}] '{1}' -- iLO '{2}' - Connection to COM status: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $CloudConnectStatus | Write-Verbose
+                                
+                                # Calculate the current spinner character
+                                $spinnerChar = $spinner[$subcounter % $spinner.Length]
+                                # Display the spinner character, replacing the previous content
+                                "`r$clearLine`r[{0}] -- iLO '{1}' - Connection to COM status: '{2}'  $spinnerChar  " -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -NoNewline -ForegroundColor Yellow
+                                
+                                sleep -Milliseconds 500
+                                
+                            } while ($CloudConnectStatus -eq "ConnectionInProgress")
+                            
+                            # Increment counter
+                            $counter++
+                        
+                        } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)
+
+
+                    }
+                    else {
+                        $msg = "AlreadyConnected"
+                    }
+                }
+                
+                if ($iLOConnectiontoCOMRresponse) {
+                    "[{0}] '{1}' -- iLO '{2}' - Raw response: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($iLOConnectiontoCOMRresponse | Out-String) | Write-Verbose
+                    $msg = $iLOConnectiontoCOMRresponse.error.'@Message.ExtendedInfo'.MessageId
+                    "[{0}] '{1}' -- iLO '{2}' - Response: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
+                }
+                
+                
+                if ($msg -match "Success") {
+                    "`r$clearLine`r[{0}] -- iLO '{1}' - Connected!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
+                    "[{0}] '{1}' -- iLO '{2}' successfully connected to Compute Ops Management!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
+                    $objStatus.iLOConnectionStatus = "Complete"
+                    $objStatus.iLOConnectionDetails = "iLO successfully connected to Compute Ops Management!"
+                }
+                elseif ($msg -eq "AlreadyConnected") {
+                    "[{0}] '{1}' -- iLO '{2}' already connected to Compute Ops Management!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
+                    $objStatus.iLOConnectionStatus = "Complete"
+                    $objStatus.iLOConnectionDetails = "iLO is already connected to Compute Ops Management!"
+                }
+
+                if ($counter -gt 10) {
+                    "`r$clearLine`r[{0}] -- iLO '{1}' - Failed!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
+                    $objStatus.iLOConnectionStatus = "Failed"
+                    $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! Check the iLO event log for more information."
+                    $objStatus.Status = "Failed"
+
+                }
+
+
+            }
+            catch {
+                        
+                "`r$clearLine`r[{0}] -- iLO '{1}' - Failed!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
+                
+                $err = (New-Object System.IO.StreamReader( $_.Exception.Response.GetResponseStream() )).ReadToEnd() 
+                $msg = $err.error.'@Message.ExtendedInfo'.MessageId
+
+                "[{0}] '{1}' -- iLO '{2}' cannot be connected to Compute Ops Management! Error: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
+            
+                $objStatus.iLOConnectionStatus = "Failed"
+                $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! iLO seems to be under the control of HPE Oneview! To force the connection, use -DisconnectiLOfromOneView switch"
+                $objStatus.Exception = "Error: '{0}'" -f $msg
+                $objStatus.Status = "Failed"
+                [void] $iLOConnectionStatus.add($objStatus)
+                return
+            }
+
+        
         }
+        else {
+
+            "[{0}] '{1}' -- iLO is not supported by HPE GreenLake! Skipping server..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
+    
+            $objStatus.OnboardingStatus = "Error" 
+            $objStatus.OnboardingDetails = "Only iLO5 and iLO6 are supported by HPE GreenLake"
+        }   
+        
+        if ($objStatus.PSobject.Properties.value -contains "Failed") {
+
+            $objStatus.Status = "Failed"
+        
+        }
+        else {
+            $objStatus.Status = "Complete"
+
+        }
+        
 
         [void] $iLOConnectionStatus.add($objStatus)
       
@@ -44341,9 +44623,9 @@ Function New-HPEGLService {
                                 "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
     
                                 $comApiAccessToken = [PSCustomObject]@{
-                                    name         = $TemportaryCredential.name
-                                    access_token = $response.access_token 
-                                    expires_in   = $response.expires_in
+                                    name          = $TemportaryCredential.name
+                                    access_token  = $response.access_token 
+                                    expires_in    = $response.expires_in
                                     creation_time = (Get-Date)
                                 }
                             
@@ -54160,10 +54442,10 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 
 
 # SIG # Begin signature block
-# MIItlQYJKoZIhvcNAQcCoIIthjCCLYICAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItlAYJKoZIhvcNAQcCoIIthTCCLYECAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCEApd377agD+Kz
-# rkDVYu7roYb91iBy7dnzw956x/bC1KCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCmrw+UbxmmFlUJ
+# Vv1rOqlyHU4l2lN6DuC6t4EzWxw5uaCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -54256,152 +54538,152 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 # lLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQ
 # ZH3pwWvqURR8AgQdULUvrxjUYbHHj95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWU
 # H3fTv1Y8Wdho698YADR7TNx8X8z2Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63
-# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2Rwxght1MIIbcQIBATBpMFQx
+# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2Rwxght0MIIbcAIBATBpMFQx
 # CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNVBAMT
 # IlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYCEQDzfDeB/ajwfQYd
 # ZdJTJuKyMA0GCWCGSAFlAwQCAQUAoHwwEAYKKwYBBAGCNwIBDDECMAAwGQYJKoZI
 # hvcNAQkDMQwGCisGAQQBgjcCAQQwHAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcC
-# ARUwLwYJKoZIhvcNAQkEMSIEINsj6VItPluRPIidejwFUN+PJLKW1I4Ehfe4h5eb
-# vhKMMA0GCSqGSIb3DQEBAQUABIIBgFV85AhNF9x3bQaBMSqdo3sUCfqCvijHiQor
-# HuNaWBtToxYu+8s/+XwU+cuhgoON1lOF1kO95IUT/DdbZNo+yCGj0kcuaCyUj0UK
-# eUSqsp2TnDWRXypHTYMzMBs07ypp/InJENCGO4evMK6zTHbtlYDwBQPFNeUGnvuF
-# GhCf1c+3zmQE682lte3isQ8wWxmwNP/FrYXTdmJvklRZq/reh0LwI/I7Ph7x64VG
-# 0cXyDjCsMwt8Gmf5Hcf1w++vPVfPbeowthEs4s+fv9c+74jJkZZvoQNNJdrUlc9l
-# y30gEKrLRLIDlVhiWUCjWpYgxt6GifGXko+ffWxGrH726oiKwp8sE/YfBf3laVqa
-# t7/3ebPgJj7xjs0/kxVe6ClLb/4yG+auV5FE71+uvDy9PvxG0J91mb606j7tCmlb
-# 01yFehV8BN4IIo0ynPJJD/MeD0Bzf1CzIt/9x1ikHQ81W5EbpFmd9IZwavYiFMBy
-# o7idVb0iavrD+OuCe2POVMNsfj4/kaGCGN8wghjbBgorBgEEAYI3AwMBMYIYyzCC
-# GMcGCSqGSIb3DQEHAqCCGLgwghi0AgEDMQ8wDQYJYIZIAWUDBAICBQAwggEEBgsq
-# hkiG9w0BCRABBKCB9ASB8TCB7gIBAQYKKwYBBAGyMQIBATBBMA0GCWCGSAFlAwQC
-# AgUABDD/0ZaH8SLTYDOpgt3aA5K1eNcJ+/E6VME9WIsvR1GAT2EiCou1PgYPl2H8
-# +yAYuQQCFQCPCk3ofO+8/918xGdYIJx+edZ62xgPMjAyNDEwMTExNTUxMTlaoHKk
-# cDBuMQswCQYDVQQGEwJHQjETMBEGA1UECBMKTWFuY2hlc3RlcjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIFNpZ25lciBSMzWgghL/MIIGXTCCBMWgAwIBAgIQOlJqLITOVeYdZfzM
-# EtjpiTANBgkqhkiG9w0BAQwFADBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2Vj
-# dGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1w
-# aW5nIENBIFIzNjAeFw0yNDAxMTUwMDAwMDBaFw0zNTA0MTQyMzU5NTlaMG4xCzAJ
-# BgNVBAYTAkdCMRMwEQYDVQQIEwpNYW5jaGVzdGVyMRgwFgYDVQQKEw9TZWN0aWdv
-# IExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcg
-# U2lnbmVyIFIzNTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAI3RZ/TB
-# SJu9/ThJOk1hgZvD2NxFpWEENo0GnuOYloD11BlbmKCGtcY0xiMrsN7LlEgcyosh
-# tP3P2J/vneZhuiMmspY7hk/Q3l0FPZPBllo9vwT6GpoNnxXLZz7HU2ITBsTNOs9f
-# hbdAWr/Mm8MNtYov32osvjYYlDNfefnBajrQqSV8Wf5ZvbaY5lZhKqQJUaXxpi4T
-# XZKohLgxU7g9RrFd477j7jxilCU2ptz+d1OCzNFAsXgyPEM+NEMPUz2q+ktNlxMZ
-# XPF9WLIhOhE3E8/oNSJkNTqhcBGsbDI/1qCU9fBhuSojZ0u5/1+IjMG6AINyI6XL
-# xM8OAGQmaMB8gs2IZxUTOD7jTFR2HE1xoL7qvSO4+JHtvNceHu//dGeVm5Pdkay3
-# Et+YTt9EwAXBsd0PPmC0cuqNJNcOI0XnwjE+2+Zk8bauVz5ir7YHz7mlj5Bmf7W8
-# SJ8jQwO2IDoHHFC46ePg+eoNors0QrC0PWnOgDeMkW6gmLBtq3CEOSDU8iNicwNs
-# Nb7ABz0W1E3qlSw7jTmNoGCKCgVkLD2FaMs2qAVVOjuUxvmtWMn1pIFVUvZ1yrPI
-# VbYt1aTld2nrmh544Auh3tgggy/WluoLXlHtAJgvFwrVsKXj8ekFt0TmaPL0lHvQ
-# Ee5jHbufhc05lvCtdwbfBl/2ARSTuy1s8CgFAgMBAAGjggGOMIIBijAfBgNVHSME
-# GDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIymzAdBgNVHQ4EFgQUaO+kMklptlI4HepD
-# OSz0FGqeDIUwDgYDVR0PAQH/BAQDAgbAMAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/
-# BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMwQTA1BgwrBgEEAbIxAQIBAwgwJTAjBggr
-# BgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdvLmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1Ud
-# HwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1Ymxp
-# Y1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUH
-# MAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFt
-# cGluZ0NBUjM2LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5j
-# b20wDQYJKoZIhvcNAQEMBQADggGBALDcLsn6TzZMii/2yU/V7xhPH58Oxr/+EnrZ
-# jpIyvYTz2u/zbL+fzB7lbrPml8ERajOVbudan6x08J1RMXD9hByq+yEfpv1G+z2p
-# mnln5XucfA9MfzLMrCArNNMbUjVcRcsAr18eeZeloN5V4jwrovDeLOdZl0tB7fOX
-# 5F6N2rmXaNTuJR8yS2F+EWaL5VVg+RH8FelXtRvVDLJZ5uqSNIckdGa/eUFhtDKT
-# Tz9LtOUh46v2JD5Q3nt8mDhAjTKp2fo/KJ6FLWdKAvApGzjpPwDqFeJKf+kJdoBK
-# d2zQuwzk5Wgph9uA46VYK8p/BTJJahKCuGdyKFIFfEfakC4NXa+vwY4IRp49lzQP
-# Lo7WticqMaaqb8hE2QmCFIyLOvWIg4837bd+60FcCGbHwmL/g1ObIf0rRS9ceK4D
-# Y9rfBnHFH2v1d4hRVvZXyCVlrL7ZQuVzjjkLMK9VJlXTVkHpuC8K5S4HHTv2AJx6
-# mOdkMJwS4gLlJ7gXrIVpnxG+aIniGDCCBhQwggP8oAMCAQICEHojrtpTaZYPkcg+
-# XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1Nl
-# Y3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFt
-# cGluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUx
-# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMT
-# I1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG
-# 9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjYQ0GrboIr7PYzfiY05ImM0+8iEoBUPu8m
-# r4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hciN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXO
-# ls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl5y1EaGGc5LByM8wjcbSF52/Z42YaJRsP
-# XY545E3QAPN2mxDh0OLozhiGgYT1xtjXVfEzYBVmfQaI5QL35cTTAjsJAp85R+KA
-# sOfuL9Z7LFnjdcuPkZWjssMETFIueH69rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iG
-# DPGaR2nZlY24tz5fISYk1sPY4gir99aXAGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQr
-# pVavGacrIkmDYu/bcOUR1mVBIZ0X7P4bKf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7
-# TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4shoVWF/mwwz9xoRku05iphp22fTfjKRIV
-# pm4gFT24JKspEpM8mFa9eTgKWWCvAgMBAAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2
-# d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNVHQ4EFgQUX1jtTDF6omFCjVKAurNhlxmi
-# MpswDgYDVR0PAQH/BAQDAgGGMBIGA1UdEwEB/wQIMAYBAf8CAQAwEwYDVR0lBAww
-# CgYIKwYBBQUHAwgwEQYDVR0gBAowCDAGBgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2G
-# O2h0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGlu
-# Z1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEBBHAwbjBHBggrBgEFBQcwAoY7aHR0cDov
-# L2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1waW5nUm9vdFI0
-# Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqG
-# SIb3DQEBDAUAA4ICAQAS13sgrQ41WAyegR0lWP1MLWd0r8diJiH2VVRpxqFGhnZb
-# aF+IQ7JATGceTWOS+kgnMAzGYRzpm8jIcjlSQ8JtcqymKhgx1s6cFZBSfvfeoyig
-# F8iCGlH+SVSo3HHr98NepjSFJTU5KSRKK+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1
-# qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv6cM74Nvyo1xNsllECJJrOvsrJQkajVz4
-# xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpqNOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78m
-# n+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jbvnYuYRKxFVWjKklW3z83epDVzoWJttxF
-# pujdrNmRwh1YZVIB2guAAjEQoF42H0BA7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI
-# 1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7SlZIYfaildlgpgbgtu6SDsek2L8qomG5
-# 7Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBovRwmqWafH0cIPEX7cEttS5+tXrgRtMjj
-# TOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoH
-# LaO/Fwkj3xVr3lDkmeUqivebQTvGkx5hGuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCC
-# BoIwggRqoAMCAQICEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgx
-# CzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpOZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJz
-# ZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVTRVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQD
-# EyVVU0VSVHJ1c3QgUlNBIENlcnRpZmljYXRpb24gQXV0aG9yaXR5MB4XDTIxMDMy
-# MjAwMDAwMFoXDTM4MDExODIzNTk1OVowVzELMAkGA1UEBhMCR0IxGDAWBgNVBAoT
-# D1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGltZSBT
-# dGFtcGluZyBSb290IFI0NjCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIB
-# AIid2LlFZ50d3ei5JoGaVFTAfEkFm8xaFQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQ
-# kiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZzEbOOp6YiTx63ywTon434aXVydmhx7Dx
-# 4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4
-# vvyVDQGsd5KarLW5d73E3ThobSkob2SL48LpUR/O627pDchxll+bTSv1gASn/hp6
-# IuHJorEu6EopoB1CNFp/+HpTXeNARXUmdRMKbnXWflq+/g36NJXB35ZvxQw6zid6
-# 1qmrlD/IbKJA6COw/8lFSPQwBP1ityZdwuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR
-# 3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOcNzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM
-# 8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqYubNeKolzqUbCqhSqmr/UdUeb49zYHr7A
-# LL8bAJyPDmubNqMtuaobKASBqP84uhqcRY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6
-# tG9oj7liwPddXEcYGOUiWLm742st50jGwTzxbMpepmOP1mLnJskvZaN5e45NuzAH
-# teORlsSuDt5t4BBRCJL+5EZnnw0ezntk9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAf
-# BgNVHSMEGDAWgBRTeb9aqitKz1SA4dibwJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9
-# ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8w
-# EwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJ
-# MEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNlcnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FD
-# ZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNybDA1BggrBgEFBQcBAQQpMCcwJQYIKwYB
-# BQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0cnVzdC5jb20wDQYJKoZIhvcNAQEMBQAD
-# ggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzrftrIF5Ht2PFDxKKFOct/awAEWgHQMVHo
-# l9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/KbUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMni
-# IibJrPcgFp73WDnRDKtVutShPSZQZAdtFwXnuiWl8eFARK3PmLqEm9UsVX+55DbV
-# Iz33Mbhba0HUTEYv3yJ1fwKGxPBsP/MgTECimh7eXomvMm0/GPxX2uhwCcs/YLxD
-# nBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNbsdXUC2xBrq9fLrfe8IBsA4hopwsCj8hT
-# uwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJGlxZ5384OKm0r568Mo9TYrqzKeKZgFo0
-# fj2/0iHbj55hc20jfxvK3mQi+H7xpbzxZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOt
-# JinJmgGbBFZIThbqI+MHvAmMmkfb3fTxmSkop2mSJL1Y2x/955S29Gu0gSJIkc3z
-# 30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm86
-# 7eVeXED58LXd1Dk6UvaAhvmWYXoiLz4JA5gPBcz7J311uahxCweNxE+xxxR3kT0W
-# KzASo5G/PyDez6NHdIUKBeE3jDPs2ACc6CkJ1Sji4PKWVT0/MYIEkTCCBI0CAQEw
-# aTBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYD
-# VQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNgIQOlJqLITO
-# VeYdZfzMEtjpiTANBglghkgBZQMEAgIFAKCCAfkwGgYJKoZIhvcNAQkDMQ0GCyqG
-# SIb3DQEJEAEEMBwGCSqGSIb3DQEJBTEPFw0yNDEwMTExNTUxMTlaMD8GCSqGSIb3
-# DQEJBDEyBDAEQKX7DCjZfzU7x9iMcHuUzLs7VZHd/oXHX0p++XW3ACOARX7FxxmX
-# VwaeXgRq4VMwggF6BgsqhkiG9w0BCRACDDGCAWkwggFlMIIBYTAWBBT4YJgZpvuI
-# LPfoUpfyoRlSGhZ3XzCBhwQUxq5U5HiG8Xw9VRJIjGnDSnr5wt0wbzBbpFkwVzEL
-# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
-# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NgIQeiOu2lNplg+R
-# yD5c9MfjPzCBvAQUhT1jLZOCgmF80JA1xJHeksFC2scwgaMwgY6kgYswgYgxCzAJ
-# BgNVBAYTAlVTMRMwEQYDVQQIEwpOZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkg
-# Q2l0eTEeMBwGA1UEChMVVGhlIFVTRVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVV
-# U0VSVHJ1c3QgUlNBIENlcnRpZmljYXRpb24gQXV0aG9yaXR5AhA2wrC9fBs656Oz
-# 3TbLyXVoMA0GCSqGSIb3DQEBAQUABIICAA4Wjlq1Si/AOLB7VD9ZcDAmKJIcvwB5
-# DjiZlcEvm86l9y/4GTq6JmKhiXv8lEVcC23YI4uUiA6+tpiX1yUNseUZ2cmd+YY9
-# kn+mZZqZ1/1S2XE5N0TPK4K8rfK+EL9XmS2rn/4miG6jQ44zyXAHGxfUGA0v86jk
-# AFgdtiwtbgdXk1bGDeftdLuAUIA2aZ38ELiM9xI/h/hK5C/1HZ3KynhAImyot4mr
-# K2LkVFvt8A1pkJDThHhngYqgdurITLM0vB/LQqnlqaql0ZIjfvilsTlV5EO60Tg1
-# pIi66MLW9idg37lZe4P8v5lgicShn79sI+iQNTKQqv2NTloIJFinI0ieWSsDxu7a
-# Fn93JSQgoAmyBfpvxjVsf+22OI5Vxft7FzsMAb6Sv51TPFnwZXhN3kO0eQ6qZaJQ
-# /mZc8qzfcpFM0TGWdmVAPNQUkWwyhes3jj5WxNn+hyIRWshxPCsX381WG1/c8LcD
-# vYXx4JYGHuu4KyfETlhPReKfwgLnpIo8ByMzDqZjGqqT1RlZ74eCAm0np3Psj+5d
-# TQjHmtbselhQYDWOweY24tfqnMBGuMjdjZLYHd059pfohrmuoN29m/U0MfXlm3E2
-# urJSzVxi/M4AEEqtXlo+xsMgnl78FXzUw9Bo7pEL7JhFrP9O1R7e3ZXDT4vffdTO
-# JUE3FWWOkbR1
+# ARUwLwYJKoZIhvcNAQkEMSIEINAkto1/qKUx5sxfOM7MeGJbauRsfbONM81zrrgK
+# GZxDMA0GCSqGSIb3DQEBAQUABIIBgDgzsuhnUy1eOMGN79XGsBeRZfs1Hzlg5tLC
+# 01yDlZP+9Fu3IxZbyc0QTnNLDSdNRw+nV70VWTb4URTPbqWA69V62FlKSlKUQMrm
+# KkYEyY4KtyBNjZsm4GKcKenX2QyiVxcRt/I683kbEpyyn1TgdBdbwPyjlCR7UpRx
+# Qq2zWMLJjZPzYll4v+KkGhOH+gR2pTeP7q11zLwJR3PVALHftMYvvKpNdx/BCgRT
+# oE/1Rm3Sjw8pHatLh0WSUKbORSZ5zyYSMhqmeVU3BrDxGpvLDR0R+pNLfNULHM39
+# LHXnYQTn92Nj0lgjL59C4bpe9odZFvcZe06yC+CbZzClRq4V1Mtz4YdMUZ7TnfPk
+# PVdiKJMly75dYVo4xCLtaWegd4pXvxDfsKWLIiWzLkcTOS+dGk+C6lHWz0oe6k9t
+# KWr7ElwB/HtjQn8RNwa1/bs2r2LLV1+doxDL4y6dpBsqjLXDSCB+EeLTq7QpnwWb
+# DG3gViji1nkQhK4c9bmiDmWt8D9PpKGCGN4wghjaBgorBgEEAYI3AwMBMYIYyjCC
+# GMYGCSqGSIb3DQEHAqCCGLcwghizAgEDMQ8wDQYJYIZIAWUDBAICBQAwggEDBgsq
+# hkiG9w0BCRABBKCB8wSB8DCB7QIBAQYKKwYBBAGyMQIBATBBMA0GCWCGSAFlAwQC
+# AgUABDDynWSRtuJx7qMutLpOr+qw96mvitQf5ltc8tr1OKmVtwNoZB2TUlevWJob
+# o5jLnlMCFBgj91R86Bhwni913FzUawfFnfJBGA8yMDI0MTAxNTE2MzE1M1qgcqRw
+# MG4xCzAJBgNVBAYTAkdCMRMwEQYDVQQIEwpNYW5jaGVzdGVyMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgU2lnbmVyIFIzNaCCEv8wggZdMIIExaADAgECAhA6UmoshM5V5h1l/MwS
+# 2OmJMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0
+# aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBp
+# bmcgQ0EgUjM2MB4XDTI0MDExNTAwMDAwMFoXDTM1MDQxNDIzNTk1OVowbjELMAkG
+# A1UEBhMCR0IxEzARBgNVBAgTCk1hbmNoZXN0ZXIxGDAWBgNVBAoTD1NlY3RpZ28g
+# TGltaXRlZDEwMC4GA1UEAxMnU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBT
+# aWduZXIgUjM1MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAjdFn9MFI
+# m739OEk6TWGBm8PY3EWlYQQ2jQae45iWgPXUGVuYoIa1xjTGIyuw3suUSBzKiyG0
+# /c/Yn++d5mG6IyayljuGT9DeXQU9k8GWWj2/BPoamg2fFctnPsdTYhMGxM06z1+F
+# t0Bav8ybww21ii/faiy+NhiUM195+cFqOtCpJXxZ/lm9tpjmVmEqpAlRpfGmLhNd
+# kqiEuDFTuD1GsV3jvuPuPGKUJTam3P53U4LM0UCxeDI8Qz40Qw9TPar6S02XExlc
+# 8X1YsiE6ETcTz+g1ImQ1OqFwEaxsMj/WoJT18GG5KiNnS7n/X4iMwboAg3IjpcvE
+# zw4AZCZowHyCzYhnFRM4PuNMVHYcTXGgvuq9I7j4ke281x4e7/90Z5Wbk92RrLcS
+# 35hO30TABcGx3Q8+YLRy6o0k1w4jRefCMT7b5mTxtq5XPmKvtgfPuaWPkGZ/tbxI
+# nyNDA7YgOgccULjp4+D56g2iuzRCsLQ9ac6AN4yRbqCYsG2rcIQ5INTyI2JzA2w1
+# vsAHPRbUTeqVLDuNOY2gYIoKBWQsPYVoyzaoBVU6O5TG+a1YyfWkgVVS9nXKs8hV
+# ti3VpOV3aeuaHnjgC6He2CCDL9aW6gteUe0AmC8XCtWwpePx6QW3ROZo8vSUe9AR
+# 7mMdu5+FzTmW8K13Bt8GX/YBFJO7LWzwKAUCAwEAAaOCAY4wggGKMB8GA1UdIwQY
+# MBaAFF9Y7UwxeqJhQo1SgLqzYZcZojKbMB0GA1UdDgQWBBRo76QySWm2Ujgd6kM5
+# LPQUap4MhTAOBgNVHQ8BAf8EBAMCBsAwDAYDVR0TAQH/BAIwADAWBgNVHSUBAf8E
+# DDAKBggrBgEFBQcDCDBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDCDAlMCMGCCsG
+# AQUFBwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAIwSgYDVR0f
+# BEMwQTA/oD2gO4Y5aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGlj
+# VGltZVN0YW1waW5nQ0FSMzYuY3JsMHoGCCsGAQUFBwEBBG4wbDBFBggrBgEFBQcw
+# AoY5aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1w
+# aW5nQ0FSMzYuY3J0MCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0aWdvLmNv
+# bTANBgkqhkiG9w0BAQwFAAOCAYEAsNwuyfpPNkyKL/bJT9XvGE8fnw7Gv/4SetmO
+# kjK9hPPa7/Nsv5/MHuVus+aXwRFqM5Vu51qfrHTwnVExcP2EHKr7IR+m/Ub7Pama
+# eWfle5x8D0x/MsysICs00xtSNVxFywCvXx55l6Wg3lXiPCui8N4s51mXS0Ht85fk
+# Xo3auZdo1O4lHzJLYX4RZovlVWD5EfwV6Ve1G9UMslnm6pI0hyR0Zr95QWG0MpNP
+# P0u05SHjq/YkPlDee3yYOECNMqnZ+j8onoUtZ0oC8CkbOOk/AOoV4kp/6Ql2gEp3
+# bNC7DOTlaCmH24DjpVgryn8FMklqEoK4Z3IoUgV8R9qQLg1dr6/BjghGnj2XNA8u
+# jta2JyoxpqpvyETZCYIUjIs69YiDjzftt37rQVwIZsfCYv+DU5sh/StFL1x4rgNj
+# 2t8GccUfa/V3iFFW9lfIJWWsvtlC5XOOOQswr1UmVdNWQem4LwrlLgcdO/YAnHqY
+# 52QwnBLiAuUnuBeshWmfEb5oieIYMIIGFDCCA/ygAwIBAgIQeiOu2lNplg+RyD5c
+# 9MfjPzANBgkqhkiG9w0BAQwFADBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2Vj
+# dGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1w
+# aW5nIFJvb3QgUjQ2MB4XDTIxMDMyMjAwMDAwMFoXDTM2MDMyMTIzNTk1OVowVTEL
+# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMj
+# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBDQSBSMzYwggGiMA0GCSqGSIb3
+# DQEBAQUAA4IBjwAwggGKAoIBgQDNmNhDQatugivs9jN+JjTkiYzT7yISgFQ+7yav
+# jA6Bg+OiIjPm/N/t3nC7wYUrUlY3mFyI32t2o6Ft3EtxJXCc5MmZQZ8AxCbh5c6W
+# zeJDB9qkQVa46xiYEpc81KnBkAWgsaXnLURoYZzksHIzzCNxtIXnb9njZholGw9d
+# jnjkTdAA83abEOHQ4ujOGIaBhPXG2NdV8TNgFWZ9BojlAvflxNMCOwkCnzlH4oCw
+# 5+4v1nssWeN1y4+RlaOywwRMUi54fr2vFsU5QPrgb6tSjvEUh1EC4M29YGy/SIYM
+# 8ZpHadmVjbi3Pl8hJiTWw9jiCKv31pcAaeijS9fc6R7DgyyLIGflmdQMwrNRxCul
+# Vq8ZpysiSYNi79tw5RHWZUEhnRfs/hsp/fwkXsynu1jcsUX+HuG8FLa2BNheUPtO
+# cgw+vHJcJ8HnJCrcUWhdFczf8O+pDiyGhVYX+bDDP3GhGS7TmKmGnbZ9N+MpEhWm
+# biAVPbgkqykSkzyYVr15OApZYK8CAwEAAaOCAVwwggFYMB8GA1UdIwQYMBaAFPZ3
+# at0//QET/xahbIICL9AKPRQlMB0GA1UdDgQWBBRfWO1MMXqiYUKNUoC6s2GXGaIy
+# mzAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUEDDAK
+# BggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAwTAYDVR0fBEUwQzBBoD+gPYY7
+# aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1waW5n
+# Um9vdFI0Ni5jcmwwfAYIKwYBBQUHAQEEcDBuMEcGCCsGAQUFBzAChjtodHRwOi8v
+# Y3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2
+# LnA3YzAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZI
+# hvcNAQEMBQADggIBABLXeyCtDjVYDJ6BHSVY/UwtZ3Svx2ImIfZVVGnGoUaGdlto
+# X4hDskBMZx5NY5L6SCcwDMZhHOmbyMhyOVJDwm1yrKYqGDHWzpwVkFJ+996jKKAX
+# yIIaUf5JVKjccev3w16mNIUlNTkpJEor7edVJZiRJVCAmWAaHcw9zP0hY3gj+fWp
+# 8MbOocI9Zn78xvm9XKGBp6rEs9sEiq/pwzvg2/KjXE2yWUQIkms6+yslCRqNXPjE
+# nBnxuUB1fm6bPAV+Tsr/Qrd+mOCJemo06ldon4pJFbQd0TQVIMLv5koklInHvyaf
+# 6vATJP4DfPtKzSBPkKlOtyaFTAjD2Nu+di5hErEVVaMqSVbfPzd6kNXOhYm23EWm
+# 6N2s2ZHCHVhlUgHaC4ACMRCgXjYfQEDtYEK54dUwPJXV7icz0rgCzs9VI29DwsjV
+# ZFpO4ZIVR33LwXyPDbYFkLqYmgHjR3tKVkhh9qKV2WCmBuC27pIOx6TYvyqiYbnt
+# inmpOqh/QPAnhDgexKG9GX/n1PggkGi9HCapZp8fRwg8RftwS21Ln61euBG0yONM
+# 6noD2XQPrFwpm3GcuqJMf0o8LLrFkSLRQNwxPDDkWXhW+gZswbaiie5fd/W2ygct
+# o78XCSPfFWveUOSZ5SqK95tBO8aTHmEa4lpJVD7HrTEn9jb1EGvxOb1cnn0CMIIG
+# gjCCBGqgAwIBAgIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQwFADCBiDEL
+# MAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNl
+# eSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMT
+# JVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA
+# iJ3YuUVnnR3d6LkmgZpUVMB8SQWbzFoVD9mUEES0QUCBdxSZqdTkdizICFNeINCS
+# JS+lV1ipnW5ihkQyC0cRLWXUJzodqpnMRs46npiJPHrfLBOifjfhpdXJ2aHHsPHg
+# gGsCi7uE0awqKggE/LkYw3sqaBia67h/3awoqNvGqiFRJ+OTWYmUCO2GAXsePHi+
+# /JUNAax3kpqstbl3vcTdOGhtKShvZIvjwulRH87rbukNyHGWX5tNK/WABKf+Gnoi
+# 4cmisS7oSimgHUI0Wn/4elNd40BFdSZ1EwpuddZ+Wr7+Dfo0lcHflm/FDDrOJ3rW
+# qauUP8hsokDoI7D/yUVI9DAE/WK3Jl3C4LKwIpn1mNzMyptRwsXKrop06m7NUNHd
+# lTDEMovXAIDGAvYynPt5lutv8lZeI5w3MOlCybAZDpK3Dy1MKo+6aEtE9vtiTMzz
+# /o2dYfdP0KWZwZIXbYsTIlg1YIetCpi5s14qiXOpRsKqFKqav9R1R5vj3NgevsAs
+# vxsAnI8Oa5s2oy25qhsoBIGo/zi6GpxFj+mOdh35Xn91y72J4RGOJEoqzEIbW3q0
+# b2iPuWLA911cRxgY5SJYubvjay3nSMbBPPFsyl6mY4/WYucmyS9lo3l7jk27MAe1
+# 45GWxK4O3m3gEFEIkv7kRmefDR7Oe2T1HxAnICQvr9sCAwEAAaOCARYwggESMB8G
+# A1UdIwQYMBaAFFN5v1qqK0rPVIDh2JvAnfKyA2bLMB0GA1UdDgQWBBT2d2rdP/0B
+# E/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAT
+# BgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAwUAYDVR0fBEkw
+# RzBFoEOgQYY/aHR0cDovL2NybC51c2VydHJ1c3QuY29tL1VTRVJUcnVzdFJTQUNl
+# cnRpZmljYXRpb25BdXRob3JpdHkuY3JsMDUGCCsGAQUFBwEBBCkwJzAlBggrBgEF
+# BQcwAYYZaHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkqhkiG9w0BAQwFAAOC
+# AgEADr5lQe1oRLjlocXUEYfktzsljOt+2sgXke3Y8UPEooU5y39rAARaAdAxUeiX
+# 1ktLJ3+lgxtoLQhn5cFb3GF2SSZRX8ptQ6IvuD3wz/LNHKpQ5nX8hjsDLRhsyeIi
+# Jsms9yAWnvdYOdEMq1W61KE9JlBkB20XBee6JaXx4UBErc+YuoSb1SxVf7nkNtUj
+# PfcxuFtrQdRMRi/fInV/AobE8Gw/8yBMQKKaHt5eia8ybT8Y/Ffa6HAJyz9gvEOc
+# F1VWXG8OMeM7Vy7Bs6mSIkYeYtddU1ux1dQLbEGur18ut97wgGwDiGinCwKPyFO7
+# ApcmVJOtlw9FVJxw/mL1TbyBns4zOgkaXFnnfzg4qbSvnrwyj1NiurMp4pmAWjR+
+# Pb/SIduPnmFzbSN/G8reZCL4fvGlvPFk4Uab/JVCSmj59+/mB2Gn6G/UYOy8k60m
+# KcmaAZsEVkhOFuoj4we8CYyaR9vd9PGZKSinaZIkvVjbH/3nlLb0a7SBIkiRzfPf
+# S9T+JesylbHa1LtRV9U/7m0q7Ma2CQ/t392ioOssXW7oKLdOmMBl14suVFBmbzrt
+# 5V5cQPnwtd3UOTpS9oCG+ZZheiIvPgkDmA8FzPsnfXW5qHELB43ET7HHFHeRPRYr
+# MBKjkb8/IN7Po0d0hQoF4TeMM+zYAJzoKQnVKOLg8pZVPT8xggSRMIIEjQIBATBp
+# MFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNV
+# BAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2AhA6UmoshM5V
+# 5h1l/MwS2OmJMA0GCWCGSAFlAwQCAgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZI
+# hvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI0MTAxNTE2MzE1M1owPwYJKoZIhvcN
+# AQkEMTIEMAZOZ7Zw2om41MhJYRYe2kSF8j+ViVBdZuJ5udAXS7KA7Ste48g+B7DP
+# 9C1oFfZmxjCCAXoGCyqGSIb3DQEJEAIMMYIBaTCCAWUwggFhMBYEFPhgmBmm+4gs
+# 9+hSl/KhGVIaFndfMIGHBBTGrlTkeIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQsw
+# CQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVT
+# ZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HI
+# Plz0x+M/MIG8BBSFPWMtk4KCYXzQkDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkG
+# A1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBD
+# aXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVT
+# RVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7Pd
+# NsvJdWgwDQYJKoZIhvcNAQEBBQAEggIACSdVJgfcrW+CUtqWUbX9v1g/fPIPB/N3
+# G0Cmt0emyQn258BBI6PGSiM7Orux7nvNZnG1ngozy3srJ8FUFxZQobHuHCQnifuy
+# 6dxay1stmDWe4RM67mid8kkn35AshBOHjbZ4zfPsmbUlENiMvv2u26e9zAVesrep
+# 5X5ZG5ORNQzuyng9GubbjUb0pQhSAhWVd97Yb+7Pz5+Ixble/UqLsHdXqmyZ8SAJ
+# Xh7yseKqWsUy2s8R0e08/qvgs15j8XiCu8tktxZ3nlSPNJ83dexo+3OuFeEb/1/6
+# SIYyl7Luk7ZhjbBykx7TM6G1csTaNtyqFJ33qP6pk4JtkZppriim0teZgw/nZ3Pu
+# JLXoHi0MYLLlzQk4y25DBgMCwKhmE5J9ttWrd5JB7A6jvJlzNp8uIBdnuMWTcI8i
+# KaGwo7F7i6HBk5yzpbM7rcQlFgIywbFJfTda7MMjvzM8I0emWOU2mPDepURwGhDI
+# 6q47rT3puVNxzV4qfFc4HLqe0WajECgw6luBS+k7x24RcpwODg8H9maD9JfYYK3/
+# ttTBzY+vaQ0SL8+427iKLbnAWARH5FT/Z6E3vIw4CA23ONjGCHyJ2GfuHVV71Akm
+# IR3TvfpCsZIUkulJ6eSbBjFzntUphunSa3B27aDssT7WcVHnAVpDnTeYYqsey/O7
+# zMWWTLv/MOc=
 # SIG # End signature block
