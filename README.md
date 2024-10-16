@@ -50,7 +50,7 @@ The HPE Compute Ops Management PowerShell library includes a comprehensive set o
 To install the HPE Compute Ops Management PowerShell library, download the module and import it into your PowerShell session:
 
 ```powerShell
-Install-Module HPEGreenLakeForCOM
+Install-Module HPECOMCmdlets
 ```
 
 This will download and install the module from the official PowerShell Gallery repository. If this is your first time installing a module from the PowerShell Gallery, it will ask you to confirm whether you trust the repository or not. You can type `Y` and press **Enter** to continue with the installation.
@@ -60,14 +60,14 @@ This will download and install the module from the official PowerShell Gallery r
 >**Note**: This library has no dependencies, so it does not require the installation of any other software or modules to function properly.
 
 >**Note**: You may encounter several issues while using the `Install-Module` cmdlet in PowerShell, including:
->    * **Insufficient Permissions**: You might need administrative privileges to install modules. If you lack these privileges, run your PowerShell client as an administrator or use: `Install-Module HPEGreenLakeForCOM -Scope CurrentUser`.
+>    * **Insufficient Permissions**: You might need administrative privileges to install modules. If you lack these privileges, run your PowerShell client as an administrator or use: `Install-Module HPECOMCmdlets -Scope CurrentUser`.
 >    * **Blocked Security Protocols**: PowerShell's security settings can sometimes block the installation process, especially if the execution policy is set to `Restricted`. If `Get-ExecutionPolicy` returns `Restricted`, run `Set-ExecutionPolicy RemoteSigned` to change it.
 
 If you have previously installed the module and wish to update it to the latest version, you can use the following commands:
 
 ```PowerShell
-Get-Module -Name HPEGreenLakeForCOM -ListAvailable | Uninstall-Module
-Install-Module HPEGreenLakeForCOM
+Get-Module -Name HPECOMCmdlets -ListAvailable | Uninstall-Module
+Install-Module HPECOMCmdlets
 ```
 
 
@@ -115,13 +115,13 @@ Get-Help <CmdletName> -Examples
 To list all commands exported by the module, use:
 
 ```PowerShell
-Get-Command -Module HPEGreenLakeForCOM
+Get-Command -Module HPECOMCmdlets
 ```
 
 To find cmdlets related to a specific resource, use:
 
 ```PowerShell
-Get-Command -Module HPEGreenLakeForCOM | Where-Object { $_.Name -match "<ResourceName>" }
+Get-Command -Module HPECOMCmdlets | Where-Object { $_.Name -match "<ResourceName>" }
 ```
 
 
@@ -145,7 +145,7 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 <!-- markdown variables links -->
 
 [GL-master-psgallery-badge]: https://img.shields.io/powershellgallery/dt/HPEGreenLake?label=PSGallery
-[GL-master-psgallery-link]: https://www.powershellgallery.com/packages/HPEGreenLakeForCOM
+[GL-master-psgallery-link]: https://www.powershellgallery.com/packages/HPECOMCmdlets
 
 
 <!-- MISC DO NOT TOUCH -->
