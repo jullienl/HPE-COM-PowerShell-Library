@@ -24,7 +24,8 @@ $credentials = Get-Credential -UserName $MyEmail
   -City "<City>" `
   -PostalCode "<PostalCode>" `
   -Country "<Country>" `
-  -PhoneNumber "<phoneNumber>" 
+  -State "<State>" `
+  -PhoneNumber "<PhoneNumber>" 
   # -> Automatically disconnect the session after creating the workspace
 
   # Connect to the new created workspace
@@ -54,7 +55,7 @@ $credentials = Get-Credential -UserName $MyEmail
   Add-HPEGLRoleToUser -Email $NewUserEmail -HPEGreenLakeRole 'Workspace Observer' 
 
 
-##################### Provision the Compute Ops Management service manager in the central european region###########################################
+##################### Provision the Compute Ops Management service manager in the central european region ##########################################
 
   $Region = "eu-central"
   New-HPEGLService -Name "Compute Ops Management" -Region $Region
@@ -65,26 +66,26 @@ $credentials = Get-Credential -UserName $MyEmail
   Add-HPEGLRoleToUser -Email $MyEmail -ComputeOpsManagementRole Administrator
 
 
-##################### Add the Compute Ops Management role 'Administrator' to the new user###########################################################
+##################### Add the Compute Ops Management role 'Administrator' to the new user ##########################################################
 
   Add-HPEGLRoleToUser -Email $NewUserEmail -ComputeOpsManagementRole Administrator
 
 
-##################### Create a new location#########################################################################################################
+##################### Create a new location ########################################################################################################
   
-  $LocationName = "Mougins"
+  $LocationName = "<Name>"
   
-  New-HPEGLLocation -Name $LocationName -Description "My french location" `
-    -Country France -Street "790 Avenue du Docteur Donat" -Street2 "Marco Polo - Bat B" -City $LocationName -State "N/A" -PostalCode "06254" `
-    -PrimaryContactEmail $MyEmail -PrimaryContactPhone "+1234567890" 
+  New-HPEGLLocation -Name $LocationName -Description "<Description>" `
+    -Country France -Street "<StreetAddress>" -Street2 "<StreetAddress2>" -City $LocationName -State "<State>" -PostalCode "<PostalCode>" `
+    -PrimaryContactEmail $MyEmail -PrimaryContactPhone "<Phone number>" 
 
 
-##################### Add a device subscription key#################################################################################################
+##################### Add a device subscription key ################################################################################################
 
   New-HPEGLDeviceSubscription -SubscriptionKey "ABCDEFGH"
 
 
-##################### Set auto compute device subscription##########################################################################################
+##################### Set auto compute device subscription #########################################################################################
 
   Set-HPEGLDeviceAutoSubscription -ComputeSubscriptionTier ENHANCED
 
@@ -94,8 +95,8 @@ $credentials = Get-Credential -UserName $MyEmail
 
   # [Method 1] - Add devices one by one #################################################################
   
-    Add-HPEGLDeviceCompute -SerialNumber "CZ2311004G" -PartNumber "P28948-B21" -Tags "Country=FR, App=AI, Departement=IT" 
-    Add-HPEGLDeviceCompute -SerialNumber "CZ2311004H" -PartNumber "P28948-B21" -Tags "Country=FR, App=AI, Departement=IT" 
+    Add-HPEGLDeviceCompute -SerialNumber "CZ12345678" -PartNumber "P28948-B21" -Tags "Country=FR, App=AI, Departement=IT" 
+    Add-HPEGLDeviceCompute -SerialNumber "DZ12345678" -PartNumber "P28948-B21" -Tags "Country=FR, App=AI, Departement=IT" 
 
 
   # [Method 2] - Add devices using a CSV file and HPEiLOCmdlets module ##################################
@@ -174,7 +175,7 @@ $credentials = Get-Credential -UserName $MyEmail
   Get-HPEGLdevice | ? tags -like "*App=AI*" | Set-HPEGLDeviceLocation -LocationName $LocationName 
 
   # Or assign one device to the location
-  Set-HPEGLDeviceLocation -DeviceSerialNumber "CZ2311004G" -LocationName $LocationName 
+  Set-HPEGLDeviceLocation -DeviceSerialNumber "CZ12345678" -LocationName $LocationName 
 
  
 ##################### Attach devices to a COM instance - Not required if [Method 3] is used ########################################################
@@ -183,13 +184,13 @@ $credentials = Get-Credential -UserName $MyEmail
   Get-HPEGLDevice -ShowRequireAssignment | Add-HPEGLDeviceToService -ServiceName "Compute Ops Management" -ServiceRegion "$Region" 
 
   # Attach one device to a COM instance
-  Add-HPEGLDeviceToService -DeviceSerialNumber "CZ2311004G"  -ServiceName "Compute Ops Management" -ServiceRegion "$Region" 
+  Add-HPEGLDeviceToService -DeviceSerialNumber "CZ12345678"  -ServiceName "Compute Ops Management" -ServiceRegion "$Region" 
 
 
 ##################### Apply a device subscription key - Not required if auto-subscription is enabled or if [Method 3] is used ######################
 
   # Apply a subscription key to one device
-  Set-HPEGLDeviceSubscription -DeviceSerialNumber "CZ2311004G" -SubscriptionKey $SubscriptionKey 
+  Set-HPEGLDeviceSubscription -DeviceSerialNumber "CZ12345678" -SubscriptionKey $SubscriptionKey 
 
   # Apply a subscription key to all devices without a subscription
   Get-HPEGLdevice -ShowRequireAssignment | Set-HPEGLDeviceSubscription -SubscriptionKey $SubscriptionKey 
@@ -235,7 +236,7 @@ $credentials = Get-Credential -UserName $MyEmail
 
 ##################### Create a new server setting for the OS #######################################################################################
 
-  New-HPECOMSettingServerOSImage -Region  $Region  -Name "Rocky9.4" -Description "Unattended deployment for Rocky 9.4" -OperatingSystem VMWARE_ESXI -OSImageURL "https://liogw.lj.lab/deployment/rocky94-x64/images/install.img"
+  New-HPECOMSettingServerOSImage -Region  $Region  -Name "Rocky9.4" -Description "Unattended deployment of Rocky 9.4" -OperatingSystem CUSTOM -OSImageURL "https://webserver.lab/deployment/rocky94-x64/Rocky-9.4-x86_64-boot.iso"
 
 
 ##################### Create a new server setting for firmware #####################################################################################
