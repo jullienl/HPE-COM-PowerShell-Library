@@ -4,7 +4,7 @@ The HPE Compute Ops Management PowerShell library provides a set of cmdlets to m
 
 Development is ongoing, with the goal to add broad support for the entire API set.
 
-Review [examples](https://github.hpe.com/lionel-jullien/HPE-COM-PowerShell-library/blob/main/Examples/sample.ps1) to see how the module can be used to accomplish some of the tasks.
+Review `/Examples/sample.ps1` to see how the module can be used to accomplish some of the tasks.
 
 ## Key Features
 
