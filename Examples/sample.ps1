@@ -1,7 +1,7 @@
 
 
 # Import module from unzip file
-import-module .\HPEGreenLakeForCOM.psd1 -force  
+import-module .\HPECOMCmdlets.psd1 -force  
 
 # HPE Account 
 $MyEmail = "xxxx@xxx.xxr"

@@ -24,7 +24,7 @@ The HPE Compute Ops Management PowerShell library includes a comprehensive set o
 
 ## Latest release
 
-1.0.4 |
+1.0.5 |
 ------------ |
 [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] |
 
