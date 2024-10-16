@@ -1,6 +1,6 @@
-# HPE GreenLake for Compute Ops Management PowerShell library 
+# HPE Compute Ops Management PowerShell Library 
 
-The HPE GreenLake for Compute Ops Management PowerShell library provides a set of cmdlets to manage and automate your HPE GreenLake environment. This library allows users to interact with HPE GreenLake and Compute Ops Management services directly from the PowerShell command line, enabling seamless integration into your existing automation workflows.
+The HPE Compute Ops Management PowerShell library provides a set of cmdlets to manage and automate your HPE GreenLake environment. This library allows users to interact with HPE GreenLake and Compute Ops Management services directly from the PowerShell command line, enabling seamless integration into your existing automation workflows.
 
 Development is ongoing, with the goal to add broad support for the entire API set.
 
@@ -19,7 +19,7 @@ Review [examples](https://github.com/jullienl/HPE-COM-PowerShell-library/blob/ma
 - **Integration**: Seamlessly integrate with other tools and platforms using REST APIs and webhooks.
 - **Security**: Implement security best practices and manage access control for your HPE GreenLake environment.
 
-The HPE GreenLake for Compute Ops Management PowerShell library includes a comprehensive set of cmdlets to manage various aspects of your HPE GreenLake environment and any existing Compute Ops Management service instances. For a complete list of cmdlets and their detailed usage, refer to the module's help documentation using the `Get-Help` cmdlet.
+The HPE Compute Ops Management PowerShell library includes a comprehensive set of cmdlets to manage various aspects of your HPE GreenLake environment and any existing Compute Ops Management service instances. For a complete list of cmdlets and their detailed usage, refer to the module's help documentation using the `Get-Help` cmdlet.
 
 
 ## Latest release
@@ -47,7 +47,7 @@ The HPE GreenLake for Compute Ops Management PowerShell library includes a compr
 
 ## Installation 
 
-To install the HPE GreenLake for Compute Ops Management PowerShell library, download the module and import it into your PowerShell session:
+To install the HPE Compute Ops Management PowerShell library, download the module and import it into your PowerShell session:
 
 ```powerShell
 Install-Module HPEGreenLakeForCOM
@@ -95,7 +95,7 @@ To learn more about this object, refer to the help documentation of `Connect-HPE
 
 ## Script Samples
 
-To help you get started quickly, I have provided a sample script file named `sample.ps1`. This file contains examples of all the commands you can use with the HPE GreenLake for Compute Ops Management PowerShell library. You can find this file in the `Examples` directory of the module.
+To help you get started quickly, I have provided a sample script file named `sample.ps1`. This file contains examples of all the commands you can use with the HPE Compute Ops Management PowerShell library. You can find this file in the `Examples` directory of the module.
 
 Feel free to modify and expand upon these examples to suit your specific needs.
 
