@@ -1,7 +1,13 @@
 
+######## How to install the module as a beta tester ###############################################################
+# 1- Go to the release page: https://github.hpe.com/lionel-jullien/HPE-COM-PowerShell-Library/releases
+# 2- Download the latest source code (zip) release and extract it to a folder
+# 4- Rename the extracted folder, typically named 'HPE-COM-PowerShell-Library-1.0.x', to 'HPECOMCmdlets'
+# 4- Open a PowerShell console (5 or 7)
+# 5- Go to the 'HPECOMCmdlets' folder 
+# 6- Run the following commands:  import-module .\HPECOMCmdlets.psd1 -force  
+###################################################################################################################
 
-# Import module from unzip file
-import-module .\HPECOMCmdlets.psd1 -force  
 
 # HPE Account 
 $MyEmail = "xxxx@xxx.xxr"
