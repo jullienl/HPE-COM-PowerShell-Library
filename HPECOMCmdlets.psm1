@@ -27,7 +27,7 @@ THE SOFTWARE.
 #>
 
 # Set PowerShell library version
-[Version]$ModuleVersion = '1.0.5'
+[Version]$ModuleVersion = '1.0.6'
 
 
 
@@ -311,6 +311,9 @@ if (-not (Test-TypeExists -TypeName 'HtmlContentDetectedException')) {
         public HtmlContentDetectedException(string message) : base(message) { }
 
         public HtmlContentDetectedException(string message, Exception innerException) : base(message, innerException) { }
+
+        // Adding a public property to avoid the error in PowerShell 5
+        public string CustomMessage { get; set; }
     }
 "@
 }
@@ -611,101 +614,6 @@ function Invoke-RestMethodWhatIf {
 }
 
 
-Function Get-HPEGLRegion {
-    <#
-    .SYNOPSIS
-    Retrieve HPE GreenLake regions.
-
-    .DESCRIPTION
-    This Cmdlet returns a collection of regions to assign to services.    
-
-    .PARAMETER Name 
-    Optional parameter that can be used to display all regions instances by name.
-
-    .PARAMETER Code
-    Optional parameter that can be used to display all regions instances by code.
-
-    .PARAMETER WhatIf 
-    Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
-
-    .EXAMPLE
-    Get-HPEGLRegion
-
-    Return all available regions.
-
-    .EXAMPLE
-    Get-HPEGLRegion -Name "AP AusNZ" 
-
-    Return the region named "AP AusNZ".
-
-    .EXAMPLE
-    Get-HPEGLRegion -Code "us-central " 
-
-    Return the region whose code is "us-central".
-
-    
-   #>
-    [CmdletBinding(DefaultParameterSetName = 'Provisioned')]
-    Param( 
-        
-        [Parameter (ParameterSetName = 'Name')]
-        [String]$Name,   
-        
-        [Parameter (ParameterSetName = 'Code')]
-        [String]$Code,     
-
-        [Switch]$WhatIf
-
-    ) 
-    
-    Begin {
-    
-        $Uri = $RegionsUri
-  
-    }
-
-    Process {
-
-        try {
-            [array]$Collection = Invoke-HPEGLWebRequest -Method Get -Uri $Uri -whatifBoolean $WhatIf 
-        
-        }
-        catch {
-   
-            $PSCmdlet.ThrowTerminatingError($_)
-       
-        }
-       
-        
-
-        if ($Null -ne $Collection.regions) {
-              
-            $CollectionList = $Collection.regions 
-
-            if ($Name) {
-                $CollectionList = $CollectionList | Where-Object name -eq $name
-          
-            }
-
-            if ($Code) {
-                $CollectionList = $CollectionList | Where-Object code -eq $code
-          
-            }
-
-            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "Region"         
-                               
-            return $ReturnData 
-  
-        }
-        else {
-
-            return 
-            
-        }
-    }
-}
-
-
 function Set-HPECOMAPIversionsVariable {
     <#
     .SYNOPSIS
@@ -794,7 +702,7 @@ function Set-HPECOMJobTemplatesVariable {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -2366,7 +2274,10 @@ function Invoke-HPECOMWebRequest {
     The `Invoke-HPECOMWebRequest` cmdlet sends HTTPS requests to the Compute Ops Management API. It adds the required headers, parses the response and returns the response.
 
     .PARAMETER Region
-    Mandatory parameter that defines the Compute Ops Management region instance for the request.
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Uri
     The uri that identifies the required Compute Ops Management resource (eg. /compute-ops/v1beta2/job-templates').
@@ -2416,7 +2327,7 @@ function Invoke-HPECOMWebRequest {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -2965,7 +2876,7 @@ function Get-HPEGLJWTDetails {
 
 
 Function Connect-HPEGL { 
-    <#
+<#
 .SYNOPSIS
 Initiates a connection to the HPE GreenLake platform.
 
@@ -4090,6 +4001,19 @@ updated with the new customer id, workspace name properties and API credentials 
             # Set a variable to update/complete the Connect-HPEGL progress bar
             $Connect_HPEGL_ProgressBar = $True
 
+            # Check that the ID token is not expired (expires after 5 minutes)
+            $ID_Token_Details = (Get-HPEGLJWTDetails -token $HPEGreenLakeSession.oauth2IdToken)
+
+            if ($ID_Token_Details.expiryDateTime -lt (Get-Date)) {
+
+                "[{0}] Error ! The CCS session cannot be created as the ID token has expired! Expiration date: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ID_Token_Details.expiryDateTime | Write-Verbose
+                Write-Progress -Id 0 -Completed
+                Write-Progress -Id 1 -Completed
+                throw "The identification token, which is only valid for 5 minutes, has expired! Please reconnect to HPE GreenLake using Connect-HPEGL."
+
+            }
+            
+            "[{0}] The CCS session can be created because the identification token has not expired.! TimeToExpiry: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ID_Token_Details.timeToExpiry | Write-Verbose           
 
             $url = $AuthnSessionUri
 
@@ -4152,8 +4076,9 @@ updated with the new customer id, workspace name properties and API credentials 
 
             }
             else {
-                $Global:HPEGreenLakeSession.workspace = "<Need to be created>"
-
+                if ($HPEGLworkspaces.Count -eq 0) {
+                    $Global:HPEGreenLakeSession.workspace = "<Need to be created>"
+                }
             }
 
             
@@ -4994,9 +4919,12 @@ Function Get-HPECOMActivity {
     .DESCRIPTION
     This Cmdlet returns a collection of the last 50 activities that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
 
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+    
     .PARAMETER ServerName 
     Optional parameter that can be used to display the activities of a specific server name.
 
@@ -5087,13 +5015,13 @@ Function Get-HPECOMActivity {
     
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
-                if ($HPECOMAPICredentialRegions -contains $_) {
-                    $true
-                }
-                else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
-                }
-            })]
+            if ($HPECOMAPICredentialRegions -contains $_) {
+                $true
+            }
+            else {
+                Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+            }
+        })]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
@@ -5277,8 +5205,11 @@ Function Get-HPECOMApplianceFirmwareBundle {
     .DESCRIPTION
     This Cmdlet returns a collection of appliance firmware bundles that are available to update an appliance.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Version 
     Optional parameter that can be used to display the appliance firmware bundles of a specific version such as 8.6, 8.60 or 8.60.01.
@@ -5332,7 +5263,7 @@ Function Get-HPECOMApplianceFirmwareBundle {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -5487,8 +5418,11 @@ Function Get-HPECOMExternalService {
     .DESCRIPTION
     This Cmdlet returns a collection of external services configured that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Name of an external services resource.
@@ -5517,7 +5451,7 @@ Function Get-HPECOMExternalService {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -5602,8 +5536,11 @@ Function New-HPECOMExternalService {
     .PARAMETER Name 
     Name of the external web service to deploy. 
     
-    .PARAMETER Region 
-    Name of the region to deploy the external web service. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) to deploy the external web service. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER ServiceType
     Name of the service type to deploy. Currently only 'SERVICE_NOW' is supported
@@ -5660,7 +5597,7 @@ Function New-HPECOMExternalService {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -5831,8 +5768,11 @@ Function Remove-HPECOMExternalService {
     .PARAMETER Name 
     Name of the ServiceNow application to remove. 
     
-    .PARAMETER Region 
-    Name of the region where to remove ServiceNow. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to remove ServiceNow. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -5877,7 +5817,7 @@ Function Remove-HPECOMExternalService {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -6015,7 +5955,10 @@ Function Set-HPECOMExternalService {
     Specifies the new name for the external web service.
         
     .PARAMETER Region 
-    Specifies the name of the region where the external web service is located. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the external web service is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Description 
     Specifies a description for the external web service. 
@@ -6077,7 +6020,7 @@ Function Set-HPECOMExternalService {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -6295,8 +6238,11 @@ Function Test-HPECOMExternalService {
     .PARAMETER Name 
     Name of the external web service to update. 
     
-    .PARAMETER Region 
-    Name of the region to update the external web service. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) to update the external web service. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -6336,7 +6282,7 @@ Function Test-HPECOMExternalService {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -6466,8 +6412,11 @@ Function Get-HPECOMFilter {
     .DESCRIPTION
     This Cmdlet returns a collection of saved filters that have been saved in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name 
     Optional parameter that can be used to specify the name of a saved filter to display.
@@ -6516,7 +6465,7 @@ Function Get-HPECOMFilter {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -6653,8 +6602,11 @@ Function New-HPECOMFilter {
     .PARAMETER Name 
     Name of the external web service to deploy. 
     
-    .PARAMETER Region 
-    Name of the region to deploy the external web service. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) to deploy the external web service. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Filter  
     Parameter to specify a server filter expression such as "serverGeneration eq 'GEN_11'", "state/connected eq 'false"
@@ -6735,7 +6687,7 @@ Function New-HPECOMFilter {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -6905,7 +6857,10 @@ Function Remove-HPECOMFilter {
     The name of the saved filter to remove. 
 
     .PARAMETER Region 
-    The name of the region where the saved filter should be removed.
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the saved filter should be removed.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER WhatIf
     Displays the raw REST API call that would be made to COM instead of executing the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -6954,7 +6909,7 @@ Function Remove-HPECOMFilter {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -7089,8 +7044,11 @@ Function Set-HPECOMFilter {
     .PARAMETER Name 
     The name of the filter to update. 
 
-    .PARAMETER Region 
-    The name of the region where the filter will be updated.
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the filter will be updated.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER NewName 
     Specifies the new name of the filter.
@@ -7169,7 +7127,7 @@ Function Set-HPECOMFilter {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -7387,8 +7345,11 @@ Function Get-HPECOMFirmwareBundle {
     .DESCRIPTION
     This Cmdlet returns a collection of firmware bundles that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER ReleaseVersion 
     Optional parameter that can be used to specify the release version of firmware bundles to display such as '2024', '2023', '2023.10'.
@@ -7438,7 +7399,7 @@ Function Get-HPECOMFirmwareBundle {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -7601,8 +7562,11 @@ Function Get-HPECOMGroup {
     .DESCRIPTION
     This Cmdlet returns a collection of groups that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Optional parameter that can be used to specify the name of a group to display.
@@ -7665,7 +7629,7 @@ Function Get-HPECOMGroup {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -8072,8 +8036,11 @@ Function New-HPECOMGroup {
     .PARAMETER Name 
     Name of the group to create. 
     
-    .PARAMETER Region 
-    Name of the region where to create the group. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to create the group. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Description 
     Optional parameter to describe the group. 
@@ -8243,7 +8210,7 @@ Function New-HPECOMGroup {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -8768,8 +8735,11 @@ Function Remove-HPECOMGroup {
     .PARAMETER Name 
     The name of the group to remove. 
     
-    .PARAMETER Region 
-    The name of the region from which to remove the group. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) from which to remove the group. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Force
     A switch parameter to force the removal of the group even if servers are still assigned to it. With this parameter, all group policies and configurations on the servers will be removed.
@@ -8821,7 +8791,7 @@ Function Remove-HPECOMGroup {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -8966,7 +8936,10 @@ Function Set-HPECOMGroup {
     Specifies the name of the group to update. 
 
     .PARAMETER Region 
-    Specifies the name of the region where the group will be updated. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group will be updated. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER NewName 
     Specifies the new name for the group. 
@@ -9132,7 +9105,7 @@ Function Set-HPECOMGroup {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -9925,7 +9898,10 @@ Function Add-HPECOMServerToGroup {
     To transfer a server, first use `Remove-HPECOMServerFromGroup` to remove the server from its current group, and then use `Add-HPECOMServerToGroup` to add it to the new group.
 
     .PARAMETER Region 
-    Specifies the name of the region where the group is located.  
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group is located.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER ServerSerialNumber
     Specifies the serial number of the server to be assigned to the group.
@@ -9983,7 +9959,7 @@ Function Add-HPECOMServerToGroup {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -10206,8 +10182,11 @@ Function Remove-HPECOMServerFromGroup {
     .DESCRIPTION   
     This cmdlet removes a server from a specified group within a region. It can also remove all servers from the group and initiate a factory reset of the server BIOS once the removal is complete.
 
-    .PARAMETER Region 
-    The name of the region where the group is located.  
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group is located.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER ServerSerialNumber
     Specifies the serial number of the server to be removed from the group. Serial numbers can be found using 'Get-HPECOMGroup -Region $Region -Name $GroupName -ShowMembers'.
@@ -10282,7 +10261,7 @@ Function Remove-HPECOMServerFromGroup {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -10581,8 +10560,11 @@ Function Get-HPECOMJobTemplate {
     .DESCRIPTION
     This Cmdlet returns a collection of job templates that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Optional parameter that can be used to specify the name of a job template to display.
@@ -10615,7 +10597,7 @@ Function Get-HPECOMJobTemplate {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
 
                 }
             })]
@@ -10708,7 +10690,10 @@ function Wait-HPECOMJobComplete {
     The caller should examine the taskState property/key for the final task status.
     
     .PARAMETER Region
-    Name of the region. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER Job
     Job URI or resource object  
@@ -10745,7 +10730,7 @@ function Wait-HPECOMJobComplete {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -10901,8 +10886,11 @@ Function Get-HPECOMJob {
     .DESCRIPTION
     This Cmdlet returns a collection of the last 50 jobs that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER ShowRunning
     Optional switch parameter that can be used to display only running jobs.
@@ -10968,7 +10956,7 @@ Function Get-HPECOMJob {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -11113,7 +11101,10 @@ Function Start-HPECOMserver {
     It provides options for scheduling the execution at a specific time and setting recurring schedules.
 
     .PARAMETER Region 
-    Specifies the name of the region where the server is located. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER ServerSerialNumber 
     Specifies the serial number of the server to power on. 
@@ -11224,7 +11215,7 @@ Function Start-HPECOMserver {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -11463,8 +11454,11 @@ Function Restart-HPECOMserver {
     It provides options for scheduling the execution at a specific time and setting recurring schedules.
     Using this option circumvents the graceful shutdown features of the operating system.
             
-    .PARAMETER Region 
-    Specifies the name of the region where the server is located. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER ServerSerialNumber 
     Specifies the serial number of the server to restart. 
@@ -11580,7 +11574,7 @@ Function Restart-HPECOMserver {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -11820,8 +11814,11 @@ Function Stop-HPECOMserver {
 
     Note: If the OS does not shut down, this cmdlet will forcibly power off the server using the force-off option.
             
-    .PARAMETER Region 
-    Specifies the name of the region where the server is located. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER ServerSerialNumber 
     Specifies the serial number of the server to power off. 
@@ -11945,7 +11942,7 @@ Function Stop-HPECOMserver {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -12220,8 +12217,11 @@ function Update-HPECOMServerFirmware {
     .DESCRIPTION   
     This cmdlet updates the firmware on a specified server, identified by its serial number. It also provides an option to schedule the update at a specific time.
 
-    .PARAMETER Region
-    Specifies the name of the region where the server is located. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER ServerSerialNumber
     Specifies the serial number of the server on which the firmware update will be performed.
@@ -12339,7 +12339,7 @@ function Update-HPECOMServerFirmware {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -12630,8 +12630,11 @@ function Update-HPECOMServeriLOFirmware {
     Note: This cmdlet can ONLY be used when automatic iLO firmware updates are disabled in your workspace. 
           Refer to 'Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber -ShowAutoiLOFirmwareUpdateStatus', 'Enable-HPECOMServerAutoiLOFirmwareUpdate', and 'Disable-HPECOMServerAutoiLOFirmwareUpdate' for more information.
     
-    .PARAMETER Region
-    Specifies the name of the region where the server is located. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER ServerSerialNumber
     Specifies the serial number of the server on which the iLO firmware update will be performed.
@@ -12730,7 +12733,7 @@ function Update-HPECOMServeriLOFirmware {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -12955,7 +12958,10 @@ function Update-HPECOMGroupFirmware {
     This cmdlet initiates a server group firmware update that will affect some or all of the server group members. It also provides an option to schedule the update at a specific time.
     
     .PARAMETER Region
-    Name of the region where the group is located. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
         
     .PARAMETER GroupName
     Name of the group on which the firmware update will be performed.     
@@ -13097,7 +13103,7 @@ function Update-HPECOMGroupFirmware {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -13509,7 +13515,10 @@ function Stop-HPECOMGroupFirmware {
     This cmdlet can be used to cancel an ongoing serial firmware update job that is running.  
     
     .PARAMETER Region
-    Name of the region where the group/job is located.  
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group/job is located.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER InputJobObject 
     The server group firmware update job resource from 'Get-HPECOMJob'. 
@@ -13571,7 +13580,7 @@ function Stop-HPECOMGroupFirmware {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -13714,7 +13723,10 @@ function Invoke-HPECOMGroupFirmwareComplianceCheck {
           This feature does not monitor HPE driver and software versions.
 
     .PARAMETER Region
-    Name of the region where the group is located. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER GroupName
     Name of the group on which the firmware compliance check will be performed.    
@@ -13817,7 +13829,7 @@ function Invoke-HPECOMGroupFirmwareComplianceCheck {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -14068,8 +14080,11 @@ function Get-HPECOMGroupFirmwareCompliance {
     The `Get-HPECOMGroupFirmwareCompliance` cmdlet allows you to obtain detailed information about the firmware compliance of all servers in a designated group. 
     This cmdlet can be useful for identifying deviations from the group's firmware baseline, ensuring that all devices are up to date and compliant with organizational standards.
     
-    .PARAMETER Region
-    Specifies the name of the region where the server group is located. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server group is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER GroupName
     Specifies the name of the server group on which the firmware compliance details will be retrieved.
@@ -14119,7 +14134,7 @@ function Get-HPECOMGroupFirmwareCompliance {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -14260,7 +14275,10 @@ function Invoke-HPECOMGroupInternalStorageConfiguration {
     This cmdlet initiates a server group internal storage configuration that will affect some or all of the server group members.
     
     .PARAMETER Region
-    Name of the region where the group is located. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
         
     .PARAMETER GroupName
     Name of the group on which the internal storage configuration will be performed.     
@@ -14356,7 +14374,7 @@ function Invoke-HPECOMGroupInternalStorageConfiguration {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -14587,7 +14605,10 @@ function Invoke-HPECOMGroupOSInstallation {
     This cmdlet initiates a group operating system installation that will affect some or all of the server group members.
     
     .PARAMETER Region
-    Name of the region where the group is located. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
         
     .PARAMETER GroupName
     Name of the group on which the operating system installation will be performed.     
@@ -14700,7 +14721,7 @@ function Invoke-HPECOMGroupOSInstallation {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -15004,7 +15025,10 @@ function Invoke-HPECOMGroupBiosConfiguration {
     Note: A server reboot is necessary for the new BIOS settings to take effect. COM will attempt to restart the server automatically. If the server cannot be restarted by COM, you must manually reboot the server (or use 'Restart-HPECOMserver') to complete the configuration process.
     
     .PARAMETER Region
-    Name of the region where the group is located. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
         
     .PARAMETER GroupName
     Name of the group on which the bios configuration will be performed.     
@@ -15100,7 +15124,7 @@ function Invoke-HPECOMGroupBiosConfiguration {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -15362,7 +15386,10 @@ function Invoke-HPECOMGroupExternalStorageConfiguration {
     This cmdlet initiates a server group external storage configuration that will affect all server group members.
     
     .PARAMETER Region
-    Name of the region where the group is located. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
         
     .PARAMETER GroupName
     Name of the group on which the external storage configuration will be performed.     
@@ -15416,7 +15443,7 @@ function Invoke-HPECOMGroupExternalStorageConfiguration {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -15553,8 +15580,11 @@ function Invoke-HPECOMGroupExternalStorageComplianceCheck {
 
     Note: An external storage server setting must be configured in the server group for the compliance feature to be available.
         
-    .PARAMETER Region
-    Name of the region where the group is located. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the group is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER GroupName
     Name of the group on which the external storage compliance check will be performed.    
@@ -15632,7 +15662,7 @@ function Invoke-HPECOMGroupExternalStorageComplianceCheck {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -15877,7 +15907,10 @@ function Update-HPECOMApplianceFirmware {
     This cmdlet updates the firmware on an appliance using its IP address. It also provides an option to schedule the update at a specific time.
         
     .PARAMETER Region
-    Specifies the region where the appliance is located.
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the appliance is located.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER IPAddress
     Specifies the IP address of the appliance for the firmware update.
@@ -15987,7 +16020,7 @@ function Update-HPECOMApplianceFirmware {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -16230,8 +16263,11 @@ function Enable-HPECOMIloIgnoreSecuritySetting {
     .DESCRIPTION   
     This cmdlet can be used to enable ignore iLO security risk settings on a server.
         
-    .PARAMETER Region
-    Name of the region where the server is located. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
         
     .PARAMETER SerialNumber
     Serial number of the server on which the ignore iLO security risk will be enabled.
@@ -16344,7 +16380,7 @@ function Enable-HPECOMIloIgnoreSecuritySetting {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -16609,8 +16645,11 @@ function Disable-HPECOMIloIgnoreSecuritySetting {
     .DESCRIPTION   
     This cmdlet can be used to disable ignore iLO security risk settings on a server.
         
-    .PARAMETER Region
-    Name of the region where the server is located. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
         
     .PARAMETER SerialNumber
     Serial number of the server on which the ignore iLO security risk will be disabled.
@@ -16723,7 +16762,7 @@ function Disable-HPECOMIloIgnoreSecuritySetting {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -16993,8 +17032,11 @@ Function Get-HPECOMMetricsConfiguration {
     .DESCRIPTION
     This Cmdlet returns a collection of metrics data configuration that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -17018,7 +17060,7 @@ Function Get-HPECOMMetricsConfiguration {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -17095,8 +17137,11 @@ Function Get-HPECOMOneViewAppliance {
     .DESCRIPTION
     This Cmdlet returns a collection of HPE OneView appliance resources in the specified region. 
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.  
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.  
 
     .PARAMETER Hostname
     Specifies the name of the OneView appliance resource.      
@@ -17139,7 +17184,7 @@ Function Get-HPECOMOneViewAppliance {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -17289,8 +17334,11 @@ Function New-HPECOMApplianceOneView {
 
     Note: The appliance activation key required to enable Compute Ops Management in OneView can also be retrieved using 'Get-HPECOMOneViewAppliance -Hostname <OV hostname> -ShowActivationKey'.
 
-    .PARAMETER Region 
-    The name of the region where the appliance will be located.  
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the appliance will be located.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER ID
     The unique identifier of the OneView appliance to be added.
@@ -17350,7 +17398,7 @@ Function New-HPECOMApplianceOneView {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -17461,8 +17509,11 @@ Function Remove-HPECOMApplianceOneView {
    .DESCRIPTION   
     This cmdlet removes a OneView appliance from a specified region. 
 
-    .PARAMETER Region 
-    The name of the region where the appliance is located.  
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the appliance is located.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Hostname
     Specifies the name of the OneView appliance resource.      
@@ -17526,7 +17577,7 @@ Function Remove-HPECOMApplianceOneView {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -17684,8 +17735,11 @@ Function Get-HPECOMReport {
 
     Note: To get more information about report details, you can use Get-HPECOMServerInventory and Get-HPECOMSustainabilityReport.
     
-    .PARAMETER Region 
-    Specifies the region from which to retrieve the reports.
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) from which to retrieve the reports.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER ServerHardwareInventoryReport
     Optional switch parameter that can be used to display the server hardware inventory report.
@@ -17746,7 +17800,7 @@ Function Get-HPECOMReport {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -17918,8 +17972,11 @@ function New-HPECOMServerInventory {
     This cmdlet collects inventory data from all directly managed or OneView managed servers or from a specified server resource.
     It also provides options for scheduling execution at a specific time and setting recurring schedules.
     
-    .PARAMETER Region
-    Name of the region where the server is located. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER SerialNumber
     Serial number of the server on which server inventory data will be collected. 
@@ -18071,7 +18128,7 @@ function New-HPECOMServerInventory {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -18451,8 +18508,11 @@ Function Get-HPECOMServerInventory {
     A server hardware inventory report must be available or created with `New-HPECOMServerInventory` before using this cmdlet. 
     You can check reports using `Get-HPECOMReport`.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER Name 
     Parameter that can be used to specify a server's name in order to obtain its inventory.
@@ -18563,7 +18623,7 @@ Function Get-HPECOMServerInventory {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -18841,8 +18901,11 @@ function New-HPECOMSustainabilityReport {
     .DESCRIPTION   
     This cmdlet generates a Carbon Footprint Report for all managed servers. It also provides options to schedule the execution at a specific time and to set recurring schedules.
     
-    .PARAMETER Region
-    Specifies the name of the region.
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER ScheduleTime
     Indicates when to schedule the update operation.
@@ -18923,7 +18986,7 @@ function New-HPECOMSustainabilityReport {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -19156,8 +19219,11 @@ Function Get-HPECOMSustainabilityReport {
     An sustainability report must be available or created with `New-HPECOMSustainabilityReport` before using this cmdlet. 
     You can check reports using `Get-HPECOMReport`.
 
-    .PARAMETER Region 
-    Specifies the region from which to retrieve the sustainability report.
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) from which to retrieve the sustainability report.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER SerialNumber
     Optional parameter that can be used to get the report data of a specific server.
@@ -19250,7 +19316,7 @@ Function Get-HPECOMSustainabilityReport {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -19499,8 +19565,11 @@ Function Get-HPECOMSchedule {
     .DESCRIPTION
     This Cmdlet returns a collection of all schedules that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Optional parameter that can be used to specify the name of a schedule to display.
@@ -19546,7 +19615,7 @@ Function Get-HPECOMSchedule {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -19697,8 +19766,11 @@ Function Remove-HPECOMSchedule {
     .PARAMETER Name 
     Name of the schedule resource to remove. 
     
-    .PARAMETER Region 
-    Name of the region where to remove a schedule resource. 
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to remove a schedule resource. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -19749,7 +19821,7 @@ Function Remove-HPECOMSchedule {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -19892,8 +19964,11 @@ Function Set-HPECOMSchedule {
     .PARAMETER ID
     ID of the schedule to update.
 
-    .PARAMETER Region 
-    Name of the region where the schedule is located.
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the schedule is located.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER NewName 
     New name for the schedule.
@@ -19978,7 +20053,7 @@ Function Set-HPECOMSchedule {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -20239,8 +20314,11 @@ Function Set-HPECOMOneViewServerLocation {
 
     For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'.
     
-    .PARAMETER Region 
-    Specifies the region.
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.)
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER LocationName
     Specifies the name of the location to assign to the server.
@@ -20305,7 +20383,7 @@ Function Set-HPECOMOneViewServerLocation {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -20558,8 +20636,11 @@ Function Remove-HPECOMOneViewServerLocation {
 
     For non-HPE OneView servers, use `Remove-HPEGLDeviceLocation`.
     
-    .PARAMETER Region 
-    Specifies the region.
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.)
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER ServerName
     Specifies the name of the server.
@@ -20622,7 +20703,7 @@ Function Remove-HPECOMOneViewServerLocation {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -20868,8 +20949,11 @@ Function Get-HPECOMSetting {
     .DESCRIPTION
     This Cmdlet returns a collection of settings that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name 
     Optional parameter that can be used to specify the name of a setting to display.
@@ -20907,7 +20991,7 @@ Function Get-HPECOMSetting {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -21149,8 +21233,11 @@ Function New-HPECOMSettingServerBios {
     
     Note: If one or several unsupported parameters are selected, the other BIOS settings will still be applied successfully. Unsupported parameters will be ignored without affecting the application of the other settings.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Specifies the name of the bios server setting to set.
@@ -21211,7 +21298,7 @@ Function New-HPECOMSettingServerBios {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -25826,8 +25913,11 @@ Function Set-HPECOMSettingServerBios {
 
     Note: If one or several unsupported parameters are selected, the other BIOS settings will still be applied successfully. Unsupported parameters will be ignored without affecting the application of the other settings.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Specifies the name of the bios server setting to set.
@@ -25895,7 +25985,7 @@ Function Set-HPECOMSettingServerBios {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -30563,8 +30653,11 @@ Function New-HPECOMSettingServerInternalStorage {
     This Cmdlet is used to create a new internal storage server setting with specified RAID type and size.
     Internal storage server settings enable consistent storage configurations across servers in a group.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Specifies the name of the internal storage server setting.
@@ -30622,7 +30715,7 @@ Function New-HPECOMSettingServerInternalStorage {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -30789,8 +30882,11 @@ Function Set-HPECOMSettingServerInternalStorage {
     .PARAMETER Name
     Specifies the name of the internal storage server setting to update.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER NewName 
     Specifies the new name for the internal storage server setting.
@@ -30856,7 +30952,7 @@ Function Set-HPECOMSettingServerInternalStorage {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -31063,8 +31159,11 @@ Function New-HPECOMSettingServerOSImage {
     This Cmdlet is used to create a new operating system image configuration server setting.
     OS image configurations enable consistent OS installations across servers in a group.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Specifies the name of the OS image configuration server setting.
@@ -31135,7 +31234,7 @@ Function New-HPECOMSettingServerOSImage {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -31330,8 +31429,11 @@ Function Set-HPECOMSettingServerOSImage {
     .PARAMETER Name
     Specifies the name of the OS image configuration server setting to update.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER NewName 
     Specifies the new name for the OS image configuration server setting.
@@ -31414,7 +31516,7 @@ Function Set-HPECOMSettingServerOSImage {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -31659,8 +31761,11 @@ Function New-HPECOMSettingServerFirmware {
     This Cmdlet creates a new firmware baseline server setting with baseline and hotfix or patch settings.
     Firmware server settings enable you to apply consistent firmware configurations to servers in a group. 
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Specifies the name of the firmware server setting.
@@ -31713,7 +31818,7 @@ Function New-HPECOMSettingServerFirmware {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -31971,8 +32076,11 @@ Function Set-HPECOMSettingServerFirmware {
     .PARAMETER Name
     Specifies the name of the firmware server setting to update.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER NewName 
     Specifies the new name for the firmware server setting.
@@ -32032,7 +32140,7 @@ Function Set-HPECOMSettingServerFirmware {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -32304,8 +32412,11 @@ Function New-HPECOMSettingServerExternalStorage {
     This Cmdlet is used to create a new external storage server setting to utilize an external storage resource managed within Data Ops Manager.
     External storage server settings enable you to apply a consistent external storage configuration to servers in a group.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Specifies the name of the external storage server setting.
@@ -32369,7 +32480,7 @@ Function New-HPECOMSettingServerExternalStorage {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -32526,8 +32637,11 @@ Function Set-HPECOMSettingServerExternalStorage {
     .PARAMETER Name
     Specifies the name of the external storage server setting to update.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER NewName 
     Specifies the new name for the external storage server setting.
@@ -32580,7 +32694,7 @@ Function Set-HPECOMSettingServerExternalStorage {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -32780,7 +32894,10 @@ Function Set-HPECOMSettingServerExternalStorage {
 #     Appliance settings allow you to create a set of common configuration preferences that you can easily apply to one or more appliances in a Compute Ops Management group.
     
 #     .PARAMETER Region 
-#     Specifies the Compute Ops Management region.
+#     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+#     This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+#     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
 #     .PARAMETER Name
 #     Specifies the name of the external storage server setting.
@@ -32954,7 +33071,10 @@ Function Remove-HPECOMSetting {
     Name of the server setting to remove. 
     
     .PARAMETER Region 
-    Name of the region where to remove a server setting. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to remove a server setting. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Force
     Switch parameter to force the removal. 
@@ -33007,7 +33127,7 @@ Function Remove-HPECOMSetting {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -33172,8 +33292,11 @@ Function Get-HPECOMServer {
     
     For server inventory data, you must use 'Get-HPECOMServerInventory'.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER Name 
     Specifies the host name of the server to display. 
@@ -33378,7 +33501,7 @@ Function Get-HPECOMServer {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -34213,8 +34336,11 @@ Function Get-HPECOMServerBySerialNumber {
     
     For server inventory data, you must use 'Get-HPECOMServerInventory'.
 
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER SerialNumber 
     Specifies the serial number of the server to display. 
@@ -34415,7 +34541,7 @@ Function Get-HPECOMServerBySerialNumber {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -35212,7 +35338,10 @@ Function Enable-HPECOMServerAutoiLOFirmwareUpdate {
     This Cmdlet can be used to enable the iLO automatic firmware update for a specified server in a region.    
         
     .PARAMETER Region 
-    Name of the region where to enable the automatic iLO firmware update
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to enable the automatic iLO firmware update
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER SerialNumber
     Serial number of the server on which the iLO automatic firmware update preference will be enabled.
@@ -35270,7 +35399,7 @@ Function Enable-HPECOMServerAutoiLOFirmwareUpdate {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -35426,7 +35555,10 @@ Function Disable-HPECOMServerAutoiLOFirmwareUpdate {
     This Cmdlet can be used to disable the iLO automatic firmware update for a specified server in a region.    
         
     .PARAMETER Region 
-    Name of the region where to disable the automatic iLO firmware update
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to disable the automatic iLO firmware update.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER SerialNumber
     Serial number of the server on which the iLO automatic firmware update preference will be disabled.
@@ -35484,7 +35616,7 @@ Function Disable-HPECOMServerAutoiLOFirmwareUpdate {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -35642,7 +35774,10 @@ Function Get-HPECOMServerActivationKey {
     This cmdlet retrieves the activation key required to add servers to a Compute Ops Management service instance using 'Connect-HPEGLDeviceComputeiLOtoCOM -ActivationKey'. 
 
     .PARAMETER Region 
-    Specifies the name of the region where the server will be added.  
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server will be added.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER SubscriptionKey
     Specifies the device subscription key to use for the request. This key can be retrieved using 'Get-HPEGLDeviceSubscription -ShowWithAvailableQuantity -ShowValid -FilterByDeviceType SERVER'.
@@ -35679,7 +35814,7 @@ Function Get-HPECOMServerActivationKey {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -35761,8 +35896,11 @@ Function Get-HPECOMEmailNotificationPolicy {
     .DESCRIPTION
     This Cmdlet returns the user preferences for the current user that are available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER SerialNumber
     Specifies the serial number of the server on which the email notification preferences will be retrieved.
@@ -35794,7 +35932,7 @@ Function Get-HPECOMEmailNotificationPolicy {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -35919,8 +36057,11 @@ Function Enable-HPECOMEmailNotificationPolicy {
         
     Note: If a server you configure for automatic support case creation or integration with ServiceNow experiences a supported service event, the support case ID or ServiceNow incident ID is included in the server notification.   
     
-    .PARAMETER Region 
-    Name of the region where the email notification preferences will be enabled
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the email notification preferences will be enabled.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER ServerSerialNumber
     Specifies the serial number of the server on which the email notification preferences will be enabled.
@@ -36002,7 +36143,7 @@ Function Enable-HPECOMEmailNotificationPolicy {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -36274,7 +36415,10 @@ Function Disable-HPECOMEmailNotificationPolicy {
     This Cmdlet disables email notification policies for a specified service instance within a designated region.
     
     .PARAMETER Region 
-    The name of the region where the email notification preferences will be disabled.
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the email notification preferences will be disabled.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
         
     .PARAMETER SerialNumber
     Specifies the serial number of the server on which the email notification preferences will be disabled.
@@ -36345,7 +36489,7 @@ Function Disable-HPECOMEmailNotificationPolicy {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -36592,8 +36736,11 @@ Function Get-HPECOMWebhook {
     .DESCRIPTION
     This Cmdlet retrieves a collection of webhooks available in the specified region.
     
-    .PARAMETER Region 
-    Specifies the Compute Ops Management region.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name 
     An optional parameter to specify the name of a webhook to display.
@@ -36635,7 +36782,7 @@ Function Get-HPECOMWebhook {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -36749,8 +36896,11 @@ Function New-HPECOMWebhook {
     .DESCRIPTION
     This Cmdlet can be used to create a new webhook with a destination endpoint and an OData configuration for event filtering.
         
-    .PARAMETER Region 
-    Specifies the name of the region where the webhook will be created.
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the webhook will be created.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace. 
 
     .PARAMETER Name 
     Specifies the name of the webhook to create. 
@@ -36845,7 +36995,7 @@ Function New-HPECOMWebhook {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -36998,7 +37148,10 @@ Function Set-HPECOMWebhook {
     If a parameter is not provided, the cmdlet retains the current settings and only updates the provided parameters.
         
     .PARAMETER Region
-    Specifies the region where the webhook to be updated is located.
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the webhook to be updated is located.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
     Specifies the name of the webhook to update.
@@ -37109,7 +37262,7 @@ Function Set-HPECOMWebhook {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -37306,7 +37459,10 @@ Function Send-HPECOMWebhookTest {
     This test is useful for validating communication between COM and the webhook destination endpoint. It also helps capture data content and test the flow of your automation process.
 
     .PARAMETER Region 
-    The name of the region where the webhook is located. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the webhook is located. 
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name 
     The name of the webhook to be used for the sending test. 
@@ -37356,7 +37512,7 @@ Function Send-HPECOMWebhookTest {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -37576,7 +37732,10 @@ Function Remove-HPECOMWebhook {
     The name of the webhook to remove. 
 
     .PARAMETER Region 
-    The name of the region where the webhook should be removed.
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the webhook should be removed.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER WhatIf
     Displays the raw REST API call that would be made to COM instead of executing the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -37628,7 +37787,7 @@ Function Remove-HPECOMWebhook {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace!"
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
                 }
             })]
         [ArgumentCompleter({
@@ -43998,6 +44157,129 @@ Function Remove-HPEGLDeviceLocation {
         }
 
 
+    }
+}
+
+#EndRegion
+
+
+#Region --- REGION ---
+
+Function Get-HPEGLRegion {
+    <#
+    .SYNOPSIS
+    Retrieve HPE GreenLake regions.
+
+    .DESCRIPTION
+    This Cmdlet returns a collection of regions to assign to services.   
+
+    .PARAMETER Name 
+    Optional parameter that can be used to display all regions instances by name.
+
+    .PARAMETER ShowProvisioned
+    Optional parameter that can be used to display all provisioned regions instances associated with their service managers.
+
+    .PARAMETER Code
+    Optional parameter that can be used to display all regions instances by code.
+
+    .PARAMETER WhatIf 
+    Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    Get-HPEGLRegion
+
+    Return all available regions.
+
+    .EXAMPLE
+    Get-HPEGLRegion -ShowProvisioned
+
+    Return all provisioned regions associated with their service managers.
+
+    .EXAMPLE
+    Get-HPEGLRegion -Name "AP AusNZ" 
+
+    Return the region named "AP AusNZ".
+
+    .EXAMPLE
+    Get-HPEGLRegion -Code "us-central " 
+
+    Return the region whose code is "us-central".
+
+    
+   #>
+    [CmdletBinding(DefaultParameterSetName = 'Provisioned')]
+    Param( 
+        
+        [Parameter (ParameterSetName = 'Name')]
+        [String]$Name,  
+        
+        [Switch]$ShowProvisioned,
+        
+        [Parameter (ParameterSetName = 'Code')]
+        [String]$Code,     
+
+        [Switch]$WhatIf
+
+    ) 
+    
+    Begin {
+    
+        $Uri = $RegionsUri
+  
+    }
+
+    Process {
+
+        if ($ShowProvisioned) {
+
+            try {
+                
+                Get-HPEGLService -ShowProvisioned
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+        }
+        else {
+
+            
+            try {
+                [array]$Collection = Invoke-HPEGLWebRequest -Method Get -Uri $Uri -whatifBoolean $WhatIf 
+                
+            }
+            catch {
+                
+                $PSCmdlet.ThrowTerminatingError($_)
+                
+            }
+            
+            
+            
+            if ($Null -ne $Collection.regions) {
+                
+                $CollectionList = $Collection.regions 
+                
+                if ($Name) {
+                    $CollectionList = $CollectionList | Where-Object name -eq $name
+                    
+                }
+                
+                if ($Code) {
+                    $CollectionList = $CollectionList | Where-Object code -eq $code
+                    
+                }
+                
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "Region"         
+                
+                return $ReturnData 
+                
+            }
+            else {
+                
+                return 
+                
+            }
+        }
     }
 }
 
@@ -53261,43 +53543,45 @@ Function Get-HPEGLWorkspace {
             $AllCollection = $AllCollection.customers
         }
             
-        # GET CURRENT WORKSPACE
+        # GET CURRENT WORKSPACE (if any)
         
-        $uri = $CurrentWorkspaceUri    
-        # $Uri = $UserLoadAccountUri                                                    # gives nothing
-        # $Uri = $WorkspacesUri + "/" + $HPEGreenLakeSession.workspaceId + "/contact"   # gives not enought info
-        # $Uri = $WorkspacesUri + "/" + $HPEGreenLakeSession.workspaceId                # gives not enought info
+        if ($HPEGreenLakeSession.workspace) {
+        
+            $uri = $CurrentWorkspaceUri    
+            # $Uri = $UserLoadAccountUri                                                    # gives nothing
+            # $Uri = $WorkspacesUri + "/" + $HPEGreenLakeSession.workspaceId + "/contact"   # gives not enought info
+            # $Uri = $WorkspacesUri + "/" + $HPEGreenLakeSession.workspaceId                # gives not enought info
 
-        try {
-            [Array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf 
-            "[{0}] Content of current workspace: `n {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Collection | Out-String) | Write-Verbose
+            try {
+                [Array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf 
+                "[{0}] Content of current workspace: `n {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Collection | Out-String) | Write-Verbose
+                
+                # Add platform_customer_id property
+                $Collection | Add-Member -Type NoteProperty -Name "platform_customer_id" -Value $HPEGreenLakeSession.workspaceId
+
+                # Add account_type (MSP or SANDALONE) from $HPEGLworkspaces generated by 'Connect-HPEGLWorkspace'
+                $_AccountType = $HPEGLworkspaces | Where-Object platform_customer_id -eq $HPEGreenLakeSession.workspaceId | ForEach-Object account_type
+                $Collection | Add-Member -Type NoteProperty -Name "account_type" -Value $_AccountType
+
+                $AllCollection += $Collection
+                
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
             
-            # Add platform_customer_id property
-            $Collection | Add-Member -Type NoteProperty -Name "platform_customer_id" -Value $HPEGreenLakeSession.workspaceId
-
-            # Add account_type (MSP or SANDALONE) from $HPEGLworkspaces generated by 'Connect-HPEGLWorkspace'
-            $_AccountType = $HPEGLworkspaces | Where-Object platform_customer_id -eq $HPEGreenLakeSession.workspaceId | ForEach-Object account_type
-            $Collection | Add-Member -Type NoteProperty -Name "account_type" -Value $_AccountType
-
-            $AllCollection += $Collection
             
+            # Add name property
+            foreach ($_workspace in $AllCollection) {
+                $_workspace | Add-Member -Type NoteProperty -Name "name" -Value $_workspace.company_name
+            }
+
+
+            "[{0}] Content of all workspaces: `n {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($AllCollection | Out-String) | Write-Verbose
+
+
+            $CurrentWorkspace = $AllCollection | Where-Object platform_customer_id -eq $HPEGreenLakeSession.workspaceId
         }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)
-        }
-        
-        
-        # Add name property
-        foreach ($_workspace in $AllCollection) {
-            $_workspace | Add-Member -Type NoteProperty -Name "name" -Value $_workspace.company_name
-        }
-
-
-        "[{0}] Content of all workspaces: `n {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($AllCollection | Out-String) | Write-Verbose
-
-
-        $CurrentWorkspace = $AllCollection | Where-Object platform_customer_id -eq $HPEGreenLakeSession.workspaceId
-
 
         if ($ShowActivationKey) {
 
@@ -54442,10 +54726,10 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 
 
 # SIG # Begin signature block
-# MIIsEQYJKoZIhvcNAQcCoIIsAjCCK/4CAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIsEAYJKoZIhvcNAQcCoIIsATCCK/0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDkRl8Q8t22fFU4
-# esBhiTRqJhvRnBQdROyCiZAci5cNAaCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBwZlc/2m7CBkC/
+# m1p+0xta7DejDXgGh2ZdbN1El9CtLKCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -54538,144 +54822,144 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 # lLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQ
 # ZH3pwWvqURR8AgQdULUvrxjUYbHHj95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWU
 # H3fTv1Y8Wdho698YADR7TNx8X8z2Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63
-# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2RwxghnxMIIZ7QIBATBpMFQx
+# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2RwxghnwMIIZ7AIBATBpMFQx
 # CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNVBAMT
 # IlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYCEQDzfDeB/ajwfQYd
 # ZdJTJuKyMA0GCWCGSAFlAwQCAQUAoHwwEAYKKwYBBAGCNwIBDDECMAAwGQYJKoZI
 # hvcNAQkDMQwGCisGAQQBgjcCAQQwHAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcC
-# ARUwLwYJKoZIhvcNAQkEMSIEIDAuCS1OyAMlZO0xlXUiVcn2VojBaxGdcJaUyOHd
-# Mq1XMA0GCSqGSIb3DQEBAQUABIIBgBw9dipgx1cw+jJMipY7wRqxrj36EW8kI4Nx
-# Cv8j1cAZQorTPGus4z6gzF/1wlIgU6T8wX9ufwpXvuwpVQKjhjds/Z45aHcta8yt
-# VxZ9MV5zp8ZLoxhR6mK6kqJYAzJHfEpnkTSXGCtlH7R3dpzQ4nigbTRj+NnNSCeP
-# titT5YgJoXFZM0yxisjGrLF9umxJBEIcWV/OyrRRuJwbTh76/MAl4hjb4eE9PT3b
-# 6q2zKcgEGU6lUW4HJTY3JybqBuDN21f7myDpfxlHoB1ZXvBz0GkacJf/om+Yz09D
-# htbgm4cAY3RA9RI/I5aOcDEfenSGK6q6MKgTPerRb19T1lb7EHE8W//HN8VG4xtX
-# PWZrc7cCx65PeLQ4pj5lpQS4Nx2m47rZyknmJpsltGz9l65YfnKDUC7Qa/+b3s8J
-# GsHwebhlETedhs7fB6t7PM1GpVLPWsbS/v23FbqziC98QnrTOgp5+BmVHAr0jRbh
-# NShfECI4lIJ8zv/rUl6ugUHBsHEsAaGCF1swghdXBgorBgEEAYI3AwMBMYIXRzCC
-# F0MGCSqGSIb3DQEHAqCCFzQwghcwAgEDMQ8wDQYJYIZIAWUDBAICBQAwgYgGCyqG
-# SIb3DQEJEAEEoHkEdzB1AgEBBglghkgBhv1sBwEwQTANBglghkgBZQMEAgIFAAQw
-# RmIe3xLFHPv9cxsJ906JNukb8eRJ6FUGuuAqNqEMDG1ipGKTOUkT8OrDw7HTvue/
-# AhEAlwILwOaPyAQhvXMDnpNydxgPMjAyNDEwMTYxMDAzNDhaoIITAzCCBrwwggSk
-# oAMCAQICEAuuZrxaun+Vh8b56QTjMwQwDQYJKoZIhvcNAQELBQAwYzELMAkGA1UE
-# BhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2Vy
-# dCBUcnVzdGVkIEc0IFJTQTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQTAeFw0y
-# NDA5MjYwMDAwMDBaFw0zNTExMjUyMzU5NTlaMEIxCzAJBgNVBAYTAlVTMREwDwYD
-# VQQKEwhEaWdpQ2VydDEgMB4GA1UEAxMXRGlnaUNlcnQgVGltZXN0YW1wIDIwMjQw
-# ggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC+anOf9pUhq5Ywultt5lmj
-# tej9kR8YxIg7apnjpcH9CjAgQxK+CMR0Rne/i+utMeV5bUlYYSuuM4vQngvQepVH
-# VzNLO9RDnEXvPghCaft0djvKKO+hDu6ObS7rJcXa/UKvNminKQPTv/1+kBPgHGlP
-# 28mgmoCw/xi6FG9+Un1h4eN6zh926SxMe6We2r1Z6VFZj75MU/HNmtsgtFjKfITL
-# utLWUdAoWle+jYZ49+wxGE1/UXjWfISDmHuI5e/6+NfQrxGFSKx+rDdNMsePW6FL
-# rphfYtk/FLihp/feun0eV+pIF496OVh4R1TvjQYpAztJpVIfdNsEvxHofBf1BWka
-# dc+Up0Th8EifkEEWdX4rA/FE1Q0rqViTbLVZIqi6viEk3RIySho1XyHLIAOJfXG5
-# PEppc3XYeBH7xa6VTZ3rOHNeiYnY+V4j1XbJ+Z9dI8ZhqcaDHOoj5KGg4YuiYx3e
-# Ym33aebsyF6eD9MF5IDbPgjvwmnAalNEeJPvIeoGJXaeBQjIK13SlnzODdLtuThA
-# LhGtyconcVuPI8AaiCaiJnfdzUcb3dWnqUnjXkRFwLtsVAxFvGqsxUA2Jq/WTjbn
-# NjIUzIs3ITVC6VBKAOlb2u29Vwgfta8b2ypi6n2PzP0nVepsFk8nlcuWfyZLzBaZ
-# 0MucEdeBiXL+nUOGhCjl+QIDAQABo4IBizCCAYcwDgYDVR0PAQH/BAQDAgeAMAwG
-# A1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwIAYDVR0gBBkwFzAI
-# BgZngQwBBAIwCwYJYIZIAYb9bAcBMB8GA1UdIwQYMBaAFLoW2W1NhS9zKXaaL3WM
-# aiCPnshvMB0GA1UdDgQWBBSfVywDdw4oFZBmpWNe7k+SH3agWzBaBgNVHR8EUzBR
-# ME+gTaBLhklodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
-# RzRSU0E0MDk2U0hBMjU2VGltZVN0YW1waW5nQ0EuY3JsMIGQBggrBgEFBQcBAQSB
-# gzCBgDAkBggrBgEFBQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMFgGCCsG
-# AQUFBzAChkxodHRwOi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVz
-# dGVkRzRSU0E0MDk2U0hBMjU2VGltZVN0YW1waW5nQ0EuY3J0MA0GCSqGSIb3DQEB
-# CwUAA4ICAQA9rR4fdplb4ziEEkfZQ5H2EdubTggd0ShPz9Pce4FLJl6reNKLkZd5
-# Y/vEIqFWKt4oKcKz7wZmXa5VgW9B76k9NJxUl4JlKwyjUkKhk3aYx7D8vi2mpU1t
-# KlY71AYXB8wTLrQeh83pXnWwwsxc1Mt+FWqz57yFq6laICtKjPICYYf/qgxACHTv
-# ypGHrC8k1TqCeHk6u4I/VBQC9VK7iSpU5wlWjNlHlFFv/M93748YTeoXU/fFa9hW
-# JQkuzG2+B7+bMDvmgF8VlJt1qQcl7YFUMYgZU1WM6nyw23vT6QSgwX5Pq2m0xQ2V
-# 6FJHu8z4LXe/371k5QrN9FQBhLLISZi2yemW0P8ZZfx4zvSWzVXpAb9k4Hpvpi6b
-# Ue8iK6WonUSV6yPlMwerwJZP/Gtbu3CKldMnn+LmmRTkTXpFIEB06nXZrDwhCGED
-# +8RsWQSIXZpuG4WLFQOhtloDRWGoCwwc6ZpPddOFkM2LlTbMcqFSzm4cd0boGhBq
-# 7vkqI1uHRz6Fq1IX7TaRQuR+0BGOzISkcqwXu7nMpFu3mgrlgbAW+BzikRVQ3K2Y
-# HcGkiKjA4gi4OA/kz1YCsdhIBHXqBzR0/Zd2QwQ/l4Gxftt/8wY3grcc/nS//TVk
-# ej9nmUYu83BDtccHHXKibMs/yXHhDXNkoPIdynhVAku7aRZOwqw6pDCCBq4wggSW
-# oAMCAQICEAc2N7ckVHzYR6z9KGYqXlswDQYJKoZIhvcNAQELBQAwYjELMAkGA1UE
-# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
-# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MB4XDTIy
-# MDMyMzAwMDAwMFoXDTM3MDMyMjIzNTk1OVowYzELMAkGA1UEBhMCVVMxFzAVBgNV
-# BAoTDkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2VydCBUcnVzdGVkIEc0
-# IFJTQTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQTCCAiIwDQYJKoZIhvcNAQEB
-# BQADggIPADCCAgoCggIBAMaGNQZJs8E9cklRVcclA8TykTepl1Gh1tKD0Z5Mom2g
-# sMyD+Vr2EaFEFUJfpIjzaPp985yJC3+dH54PMx9QEwsmc5Zt+FeoAn39Q7SE2hHx
-# c7Gz7iuAhIoiGN/r2j3EF3+rGSs+QtxnjupRPfDWVtTnKC3r07G1decfBmWNlCnT
-# 2exp39mQh0YAe9tEQYncfGpXevA3eZ9drMvohGS0UvJ2R/dhgxndX7RUCyFobjch
-# u0CsX7LeSn3O9TkSZ+8OpWNs5KbFHc02DVzV5huowWR0QKfAcsW6Th+xtVhNef7X
-# j3OTrCw54qVI1vCwMROpVymWJy71h6aPTnYVVSZwmCZ/oBpHIEPjQ2OAe3VuJyWQ
-# mDo4EbP29p7mO1vsgd4iFNmCKseSv6De4z6ic/rnH1pslPJSlRErWHRAKKtzQ87f
-# SqEcazjFKfPKqpZzQmiftkaznTqj1QPgv/CiPMpC3BhIfxQ0z9JMq++bPf4OuGQq
-# +nUoJEHtQr8FnGZJUlD0UfM2SU2LINIsVzV5K6jzRWC8I41Y99xh3pP+OcD5sjCl
-# TNfpmEpYPtMDiP6zj9NeS3YSUZPJjAw7W4oiqMEmCPkUEBIDfV8ju2TjY+Cm4T72
-# wnSyPx4JduyrXUZ14mCjWAkBKAAOhFTuzuldyF4wEr1GnrXTdrnSDmuZDNIztM2x
-# AgMBAAGjggFdMIIBWTASBgNVHRMBAf8ECDAGAQH/AgEAMB0GA1UdDgQWBBS6Ftlt
-# TYUvcyl2mi91jGogj57IbzAfBgNVHSMEGDAWgBTs1+OC0nFdZEzfLmc/57qYrhwP
-# TzAOBgNVHQ8BAf8EBAMCAYYwEwYDVR0lBAwwCgYIKwYBBQUHAwgwdwYIKwYBBQUH
-# AQEEazBpMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdpY2VydC5jb20wQQYI
-# KwYBBQUHMAKGNWh0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRy
-# dXN0ZWRSb290RzQuY3J0MEMGA1UdHwQ8MDowOKA2oDSGMmh0dHA6Ly9jcmwzLmRp
-# Z2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRSb290RzQuY3JsMCAGA1UdIAQZMBcw
-# CAYGZ4EMAQQCMAsGCWCGSAGG/WwHATANBgkqhkiG9w0BAQsFAAOCAgEAfVmOwJO2
-# b5ipRCIBfmbW2CFC4bAYLhBNE88wU86/GPvHUF3iSyn7cIoNqilp/GnBzx0H6T5g
-# yNgL5Vxb122H+oQgJTQxZ822EpZvxFBMYh0MCIKoFr2pVs8Vc40BIiXOlWk/R3f7
-# cnQU1/+rT4osequFzUNf7WC2qk+RZp4snuCKrOX9jLxkJodskr2dfNBwCnzvqLx1
-# T7pa96kQsl3p/yhUifDVinF2ZdrM8HKjI/rAJ4JErpknG6skHibBt94q6/aesXmZ
-# gaNWhqsKRcnfxI2g55j7+6adcq/Ex8HBanHZxhOACcS2n82HhyS7T6NJuXdmkfFy
-# nOlLAlKnN36TU6w7HQhJD5TNOXrd/yVjmScsPT9rp/Fmw0HNT7ZAmyEhQNC3EyTN
-# 3B14OuSereU0cZLXJmvkOHOrpgFPvT87eK1MrfvElXvtCl8zOYdBeHo46Zzh3SP9
-# HSjTx/no8Zhf+yvYfvJGnXUsHicsJttvFXseGYs2uJPU5vIXmVnKcPA3v5gA3yAW
-# Tyf7YGcWoWa63VXAOimGsJigK+2VQbc61RWYMbRiCQ8KvYHZE/6/pNHzV9m8BPqC
-# 3jLfBInwAM1dwvnQI38AC+R2AibZ8GV2QqYphwlHK+Z/GqSFD/yYlvZVVCsfgPrA
-# 8g4r5db7qS9EFUrnEw4d2zc4GqEr9u3WfPwwggWNMIIEdaADAgECAhAOmxiO+dAt
-# 5+/bUOIIQBhaMA0GCSqGSIb3DQEBDAUAMGUxCzAJBgNVBAYTAlVTMRUwEwYDVQQK
-# EwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xJDAiBgNV
-# BAMTG0RpZ2lDZXJ0IEFzc3VyZWQgSUQgUm9vdCBDQTAeFw0yMjA4MDEwMDAwMDBa
-# Fw0zMTExMDkyMzU5NTlaMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2Vy
-# dCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lD
-# ZXJ0IFRydXN0ZWQgUm9vdCBHNDCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoC
-# ggIBAL/mkHNo3rvkXUo8MCIwaTPswqclLskhPfKK2FnC4SmnPVirdprNrnsbhA3E
-# MB/zG6Q4FutWxpdtHauyefLKEdLkX9YFPFIPUh/GnhWlfr6fqVcWWVVyr2iTcMKy
-# unWZanMylNEQRBAu34LzB4TmdDttceItDBvuINXJIB1jKS3O7F5OyJP4IWGbNOsF
-# xl7sWxq868nPzaw0QF+xembud8hIqGZXV59UWI4MK7dPpzDZVu7Ke13jrclPXuU1
-# 5zHL2pNe3I6PgNq2kZhAkHnDeMe2scS1ahg4AxCN2NQ3pC4FfYj1gj4QkXCrVYJB
-# MtfbBHMqbpEBfCFM1LyuGwN1XXhm2ToxRJozQL8I11pJpMLmqaBn3aQnvKFPObUR
-# WBf3JFxGj2T3wWmIdph2PVldQnaHiZdpekjw4KISG2aadMreSx7nDmOu5tTvkpI6
-# nj3cAORFJYm2mkQZK37AlLTSYW3rM9nF30sEAMx9HJXDj/chsrIRt7t/8tWMcCxB
-# YKqxYxhElRp2Yn72gLD76GSmM9GJB+G9t+ZDpBi4pncB4Q+UDCEdslQpJYls5Q5S
-# UUd0viastkF13nqsX40/ybzTQRESW+UQUOsxxcpyFiIJ33xMdT9j7CFfxCBRa2+x
-# q4aLT8LWRV+dIPyhHsXAj6KxfgommfXkaS+YHS312amyHeUbAgMBAAGjggE6MIIB
-# NjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBTs1+OC0nFdZEzfLmc/57qYrhwP
-# TzAfBgNVHSMEGDAWgBRF66Kv9JLLgjEtUYunpyGd823IDzAOBgNVHQ8BAf8EBAMC
-# AYYweQYIKwYBBQUHAQEEbTBrMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdp
-# Y2VydC5jb20wQwYIKwYBBQUHMAKGN2h0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNv
-# bS9EaWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcnQwRQYDVR0fBD4wPDA6oDigNoY0
-# aHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
-# LmNybDARBgNVHSAECjAIMAYGBFUdIAAwDQYJKoZIhvcNAQEMBQADggEBAHCgv0Nc
-# Vec4X6CjdBs9thbX979XB72arKGHLOyFXqkauyL4hxppVCLtpIh3bb0aFPQTSnov
-# Lbc47/T/gLn4offyct4kvFIDyE7QKt76LVbP+fT3rDB6mouyXtTP0UNEm0Mh65Zy
-# oUi0mcudT6cGAxN3J0TU53/oWajwvy8LpunyNDzs9wPHh6jSTEAZNUZqaVSwuKFW
-# juyk1T3osdz9HNj0d1pcVIxv76FQPfx2CWiEn2/K2yCNNWAcAgPLILCsWKAOQGPF
-# mCLBsln1VWvPJ6tsds5vIy30fnFqI2si/xK4VC0nftg62fC2h5b9W9FcrBjDTZ9z
-# twGpn1eqXijiuZQxggOGMIIDggIBATB3MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQK
-# Ew5EaWdpQ2VydCwgSW5jLjE7MDkGA1UEAxMyRGlnaUNlcnQgVHJ1c3RlZCBHNCBS
-# U0E0MDk2IFNIQTI1NiBUaW1lU3RhbXBpbmcgQ0ECEAuuZrxaun+Vh8b56QTjMwQw
-# DQYJYIZIAWUDBAICBQCggeEwGgYJKoZIhvcNAQkDMQ0GCyqGSIb3DQEJEAEEMBwG
-# CSqGSIb3DQEJBTEPFw0yNDEwMTYxMDAzNDhaMCsGCyqGSIb3DQEJEAIMMRwwGjAY
-# MBYEFNvThe5i29I+e+T2cUhQhyTVhltFMDcGCyqGSIb3DQEJEAIvMSgwJjAkMCIE
-# IHZ2n6jyYy8fQws6IzCu1lZ1/tdz2wXWZbkFk5hDj5rbMD8GCSqGSIb3DQEJBDEy
-# BDBK85siMLVwhZ5J9xpjJgEsRbpyKYJjxG273QDnSnUQkgbdlNDCCxqft/IHHsTO
-# XgEwDQYJKoZIhvcNAQEBBQAEggIAalwGfUWSgEI8QsrrpnpUGA91tyTcZIazyD+Z
-# JPdAefbokzDxAP4Yjh5P0OBgRAESCmVXOWAPNetRZAigvAxLHOgTkkPbXbBP43/f
-# L7tjcYfstBgp3QmKp203khH5eIx9uoz+6e6/RZ8qN71JwUFFauc7U4EL4XvhTz3A
-# ZISX0nk2bKpjwqfqAS8PfvLfoy0XY04ebosvEOseRzHa5fktkvKMhsf2ws7ljgJl
-# lxS/wyNvm68MQ3ZVYkGL2ZrOAYWUcYS/1Df9ZYTJD1WSJgfFh4w/E5YuLEASATU7
-# dgO/8GhCRnI5KYAjfLz5J49Mt9pj/IGE83UiLm00hXuoydiewQl95ZN2kYj4L0qz
-# t5K4g8Iw6ZX6LGdpyhYsT5LUbq5sabT2oyLGUNN31MbSH3pE3m+JvHPyHXGF5ALG
-# JlfWIF58B4YIP+1BLJuTZaNgjhyL7973290QBVL3z6H/lqQ07O8ixspBlKdYJf7g
-# S5Dad5p/by+alUE5ulymJC9nEtTubGD1u2eOpsz8DLllkatd5rnVqc1AUj1HOTdB
-# gWCO2UlGPT6IGi2ZjyoOHIZXEA2A7ei+Ll2EuoHRFovetkjd0khcbZqjLG5q2B/S
-# hiLqJxF4tEN6Tu3SusoVxgOegBQjTPW6Shi0ECBb6hoGP/mTGMhrOoMcjHP+3ENg
-# hSyPYQY=
+# ARUwLwYJKoZIhvcNAQkEMSIEIDNIwPFYuNrY1rWcGYIMNsB+reatyWezFysS4wAH
+# UEPvMA0GCSqGSIb3DQEBAQUABIIBgH1r1MPlE5YRdhNBu7zSTbylGxdejFMmnQSQ
+# nHitgUaW4VsUtD0wTyg0pWnaCbuS8w6fQsBcwnRZKzlGGA+Aap4sLfAG1CojpCJB
+# 76r6KGxkz+EA9+3HLUJCd7E29+ckI22VKAoFdNNuFn+ti+naZjSx02UlPxn7bYHC
+# k5JF6msyTVqYPBzwDRMIGRkudOHVyu+K1gxBVZGQjEJhAO3S7pdiRyfLUPFVc5if
+# Fh0+dy88LnEzmAOV4wkWHQzdSquiRKtvutI9ieR536tm+/t8DVZwvledTa4vvo7k
+# +j+aVxGarSJUix/geD2Om1lW60nqbID6G3QM2Xhg2pY7Eh7N7vz9twturaowQm0g
+# cNtBdFpL+xbg8n0MGF7MuwmjYVFEYTje0tQAiTb4Qmj+lYHbDFWSYcm/VdfezhvF
+# Z4D24ZPQ2wupUboWN+OFSCbTHiYdcXLR/TwQE4fyCFxZRkOkKkDd8CgkQZZZ6eM9
+# DkFQHVxdazM6ZsjZ3DJVKki/RpgKR6GCF1owghdWBgorBgEEAYI3AwMBMYIXRjCC
+# F0IGCSqGSIb3DQEHAqCCFzMwghcvAgEDMQ8wDQYJYIZIAWUDBAICBQAwgYcGCyqG
+# SIb3DQEJEAEEoHgEdjB0AgEBBglghkgBhv1sBwEwQTANBglghkgBZQMEAgIFAAQw
+# Dyol5YYY99/JYGb0Y/2f798O8vktZfXdWnKUMoSIFct2jKMNUxHXfpxj6sAs6UCj
+# AhBS9sWr7E+puJr/DVhkbPaKGA8yMDI0MTAxNzA5MTQwNlqgghMDMIIGvDCCBKSg
+# AwIBAgIQC65mvFq6f5WHxvnpBOMzBDANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQG
+# EwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0
+# IFRydXN0ZWQgRzQgUlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMB4XDTI0
+# MDkyNjAwMDAwMFoXDTM1MTEyNTIzNTk1OVowQjELMAkGA1UEBhMCVVMxETAPBgNV
+# BAoTCERpZ2lDZXJ0MSAwHgYDVQQDExdEaWdpQ2VydCBUaW1lc3RhbXAgMjAyNDCC
+# AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAL5qc5/2lSGrljC6W23mWaO1
+# 6P2RHxjEiDtqmeOlwf0KMCBDEr4IxHRGd7+L660x5XltSVhhK64zi9CeC9B6lUdX
+# M0s71EOcRe8+CEJp+3R2O8oo76EO7o5tLuslxdr9Qq82aKcpA9O//X6QE+AcaU/b
+# yaCagLD/GLoUb35SfWHh43rOH3bpLEx7pZ7avVnpUVmPvkxT8c2a2yC0WMp8hMu6
+# 0tZR0ChaV76Nhnj37DEYTX9ReNZ8hIOYe4jl7/r419CvEYVIrH6sN00yx49boUuu
+# mF9i2T8UuKGn9966fR5X6kgXj3o5WHhHVO+NBikDO0mlUh902wS/Eeh8F/UFaRp1
+# z5SnROHwSJ+QQRZ1fisD8UTVDSupWJNstVkiqLq+ISTdEjJKGjVfIcsgA4l9cbk8
+# Smlzddh4EfvFrpVNnes4c16Jidj5XiPVdsn5n10jxmGpxoMc6iPkoaDhi6JjHd5i
+# bfdp5uzIXp4P0wXkgNs+CO/CacBqU0R4k+8h6gYldp4FCMgrXdKWfM4N0u25OEAu
+# Ea3JyidxW48jwBqIJqImd93NRxvd1aepSeNeREXAu2xUDEW8aqzFQDYmr9ZONuc2
+# MhTMizchNULpUEoA6Vva7b1XCB+1rxvbKmLqfY/M/SdV6mwWTyeVy5Z/JkvMFpnQ
+# y5wR14GJcv6dQ4aEKOX5AgMBAAGjggGLMIIBhzAOBgNVHQ8BAf8EBAMCB4AwDAYD
+# VR0TAQH/BAIwADAWBgNVHSUBAf8EDDAKBggrBgEFBQcDCDAgBgNVHSAEGTAXMAgG
+# BmeBDAEEAjALBglghkgBhv1sBwEwHwYDVR0jBBgwFoAUuhbZbU2FL3MpdpovdYxq
+# II+eyG8wHQYDVR0OBBYEFJ9XLAN3DigVkGalY17uT5IfdqBbMFoGA1UdHwRTMFEw
+# T6BNoEuGSWh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRH
+# NFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcmwwgZAGCCsGAQUFBwEBBIGD
+# MIGAMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdpY2VydC5jb20wWAYIKwYB
+# BQUHMAKGTGh0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0
+# ZWRHNFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcnQwDQYJKoZIhvcNAQEL
+# BQADggIBAD2tHh92mVvjOIQSR9lDkfYR25tOCB3RKE/P09x7gUsmXqt40ouRl3lj
+# +8QioVYq3igpwrPvBmZdrlWBb0HvqT00nFSXgmUrDKNSQqGTdpjHsPy+LaalTW0q
+# VjvUBhcHzBMutB6HzeledbDCzFzUy34VarPnvIWrqVogK0qM8gJhh/+qDEAIdO/K
+# kYesLyTVOoJ4eTq7gj9UFAL1UruJKlTnCVaM2UeUUW/8z3fvjxhN6hdT98Vr2FYl
+# CS7Mbb4Hv5swO+aAXxWUm3WpByXtgVQxiBlTVYzqfLDbe9PpBKDBfk+rabTFDZXo
+# Uke7zPgtd7/fvWTlCs30VAGEsshJmLbJ6ZbQ/xll/HjO9JbNVekBv2Tgem+mLptR
+# 7yIrpaidRJXrI+UzB6vAlk/8a1u7cIqV0yef4uaZFORNekUgQHTqddmsPCEIYQP7
+# xGxZBIhdmm4bhYsVA6G2WgNFYagLDBzpmk9104WQzYuVNsxyoVLObhx3RugaEGru
+# +SojW4dHPoWrUhftNpFC5H7QEY7MhKRyrBe7ucykW7eaCuWBsBb4HOKRFVDcrZgd
+# waSIqMDiCLg4D+TPVgKx2EgEdeoHNHT9l3ZDBD+XgbF+23/zBjeCtxz+dL/9NWR6
+# P2eZRi7zcEO1xwcdcqJsyz/JceENc2Sg8h3KeFUCS7tpFk7CrDqkMIIGrjCCBJag
+# AwIBAgIQBzY3tyRUfNhHrP0oZipeWzANBgkqhkiG9w0BAQsFADBiMQswCQYDVQQG
+# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
+# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwHhcNMjIw
+# MzIzMDAwMDAwWhcNMzcwMzIyMjM1OTU5WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UE
+# ChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0IFRydXN0ZWQgRzQg
+# UlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMIICIjANBgkqhkiG9w0BAQEF
+# AAOCAg8AMIICCgKCAgEAxoY1BkmzwT1ySVFVxyUDxPKRN6mXUaHW0oPRnkyibaCw
+# zIP5WvYRoUQVQl+kiPNo+n3znIkLf50fng8zH1ATCyZzlm34V6gCff1DtITaEfFz
+# sbPuK4CEiiIY3+vaPcQXf6sZKz5C3GeO6lE98NZW1OcoLevTsbV15x8GZY2UKdPZ
+# 7Gnf2ZCHRgB720RBidx8ald68Dd5n12sy+iEZLRS8nZH92GDGd1ftFQLIWhuNyG7
+# QKxfst5Kfc71ORJn7w6lY2zkpsUdzTYNXNXmG6jBZHRAp8ByxbpOH7G1WE15/teP
+# c5OsLDnipUjW8LAxE6lXKZYnLvWHpo9OdhVVJnCYJn+gGkcgQ+NDY4B7dW4nJZCY
+# OjgRs/b2nuY7W+yB3iIU2YIqx5K/oN7jPqJz+ucfWmyU8lKVEStYdEAoq3NDzt9K
+# oRxrOMUp88qqlnNCaJ+2RrOdOqPVA+C/8KI8ykLcGEh/FDTP0kyr75s9/g64ZCr6
+# dSgkQe1CvwWcZklSUPRR8zZJTYsg0ixXNXkrqPNFYLwjjVj33GHek/45wPmyMKVM
+# 1+mYSlg+0wOI/rOP015LdhJRk8mMDDtbiiKowSYI+RQQEgN9XyO7ZONj4KbhPvbC
+# dLI/Hgl27KtdRnXiYKNYCQEoAA6EVO7O6V3IXjASvUaetdN2udIOa5kM0jO0zbEC
+# AwEAAaOCAV0wggFZMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFLoW2W1N
+# hS9zKXaaL3WMaiCPnshvMB8GA1UdIwQYMBaAFOzX44LScV1kTN8uZz/nupiuHA9P
+# MA4GA1UdDwEB/wQEAwIBhjATBgNVHSUEDDAKBggrBgEFBQcDCDB3BggrBgEFBQcB
+# AQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggr
+# BgEFBQcwAoY1aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1
+# c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybDMuZGln
+# aWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAI
+# BgZngQwBBAIwCwYJYIZIAYb9bAcBMA0GCSqGSIb3DQEBCwUAA4ICAQB9WY7Ak7Zv
+# mKlEIgF+ZtbYIULhsBguEE0TzzBTzr8Y+8dQXeJLKftwig2qKWn8acHPHQfpPmDI
+# 2AvlXFvXbYf6hCAlNDFnzbYSlm/EUExiHQwIgqgWvalWzxVzjQEiJc6VaT9Hd/ty
+# dBTX/6tPiix6q4XNQ1/tYLaqT5Fmniye4Iqs5f2MvGQmh2ySvZ180HAKfO+ovHVP
+# ulr3qRCyXen/KFSJ8NWKcXZl2szwcqMj+sAngkSumScbqyQeJsG33irr9p6xeZmB
+# o1aGqwpFyd/EjaDnmPv7pp1yr8THwcFqcdnGE4AJxLafzYeHJLtPo0m5d2aR8XKc
+# 6UsCUqc3fpNTrDsdCEkPlM05et3/JWOZJyw9P2un8WbDQc1PtkCbISFA0LcTJM3c
+# HXg65J6t5TRxktcma+Q4c6umAU+9Pzt4rUyt+8SVe+0KXzM5h0F4ejjpnOHdI/0d
+# KNPH+ejxmF/7K9h+8kaddSweJywm228Vex4Ziza4k9Tm8heZWcpw8De/mADfIBZP
+# J/tgZxahZrrdVcA6KYawmKAr7ZVBtzrVFZgxtGIJDwq9gdkT/r+k0fNX2bwE+oLe
+# Mt8EifAAzV3C+dAjfwAL5HYCJtnwZXZCpimHCUcr5n8apIUP/JiW9lVUKx+A+sDy
+# Divl1vupL0QVSucTDh3bNzgaoSv27dZ8/DCCBY0wggR1oAMCAQICEA6bGI750C3n
+# 79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAwZTELMAkGA1UEBhMCVVMxFTATBgNVBAoT
+# DERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UE
+# AxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBSb290IENBMB4XDTIyMDgwMTAwMDAwMFoX
+# DTMxMTEwOTIzNTk1OVowYjELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0
+# IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNl
+# cnQgVHJ1c3RlZCBSb290IEc0MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKC
+# AgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUuySE98orYWcLhKac9WKt2ms2uexuEDcQw
+# H/MbpDgW61bGl20dq7J58soR0uRf1gU8Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6
+# dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0MG+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXG
+# XuxbGrzryc/NrDRAX7F6Zu53yEioZldXn1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXn
+# Mcvak17cjo+A2raRmECQecN4x7axxLVqGDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy
+# 19sEcypukQF8IUzUvK4bA3VdeGbZOjFEmjNAvwjXWkmkwuapoGfdpCe8oU85tRFY
+# F/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6SPDgohIbZpp0yt5LHucOY67m1O+Skjqe
+# PdwA5EUlibaaRBkrfsCUtNJhbesz2cXfSwQAzH0clcOP9yGyshG3u3/y1YxwLEFg
+# qrFjGESVGnZifvaAsPvoZKYz0YkH4b235kOkGLimdwHhD5QMIR2yVCkliWzlDlJR
+# R3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ6zHFynIWIgnffEx1P2PsIV/EIFFrb7Gr
+# hotPwtZFX50g/KEexcCPorF+CiaZ9eRpL5gdLfXZqbId5RsCAwEAAaOCATowggE2
+# MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFOzX44LScV1kTN8uZz/nupiuHA9P
+# MB8GA1UdIwQYMBaAFEXroq/0ksuCMS1Ri6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIB
+# hjB5BggrBgEFBQcBAQRtMGswJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2lj
+# ZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29t
+# L0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENBLmNydDBFBgNVHR8EPjA8MDqgOKA2hjRo
+# dHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
+# Y3JsMBEGA1UdIAQKMAgwBgYEVR0gADANBgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV
+# 5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVeqRq7IviHGmlUIu2kiHdtvRoU9BNKei8t
+# tzjv9P+Aufih9/Jy3iS8UgPITtAq3votVs/59PesMHqai7Je1M/RQ0SbQyHrlnKh
+# SLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO
+# 7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJaISfb8rbII01YBwCA8sgsKxYoA5AY8WY
+# IsGyWfVVa88nq2x2zm8jLfR+cWojayL/ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3
+# AamfV6peKOK5lDGCA4YwggOCAgEBMHcwYzELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
+# DkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2VydCBUcnVzdGVkIEc0IFJT
+# QTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQQIQC65mvFq6f5WHxvnpBOMzBDAN
+# BglghkgBZQMEAgIFAKCB4TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJ
+# KoZIhvcNAQkFMQ8XDTI0MTAxNzA5MTQwNlowKwYLKoZIhvcNAQkQAgwxHDAaMBgw
+# FgQU29OF7mLb0j575PZxSFCHJNWGW0UwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQg
+# dnafqPJjLx9DCzojMK7WVnX+13PbBdZluQWTmEOPmtswPwYJKoZIhvcNAQkEMTIE
+# MP7yMTAR2o3gwU2KC0G608emcD7LswgqovImbLeN2NnGvmMb25r+e8e6PxSekGOW
+# njANBgkqhkiG9w0BAQEFAASCAgAIC0T1iDdgwLFxU3W7GwE1I09PssKPd3PIuXmu
+# I0Ui7/zjo6UceAz4ZyNT9fiTBHpy+dBfUR7NzvX4r01MZtkpvt3W/vS6zzT3wtLf
+# /CKRXYkzkDsKCj5wvnT8fv2+TqKMNQlwHZn3j1FaoCdGa5zb1bk9I89sKYXQP/Lm
+# TNJiSO8Sxr+SIG6zd/TDYcMCmu3c0cxgoWNNcA5du3ELwzvj6F6VmBMjO7WxsqgV
+# vKFXnDw3fIUTh77qGGvtQ9LODdZgWSd5qt5tgsfEQcLPdKr7peC1VnCWcZq9fHkr
+# u6jPMH9uM8RbKTBQTwRmKO5BViERSo2BwxRYtFrCQ+pnlEoCjfbzhlhT8RBOiy3U
+# JTfO0H7+qMsoXN0pb9+CvxQO8uGTAeAPbW+vgMVGhXc+BML2ggIBYHavmP9gFoUu
+# zQhMSCWWji7OlEeGYPLFIFBlRs4MynhmQccAfq0bYIA0zdbK1AvxL5ooopCzv6yo
+# oHKXedPsqjivMRuEvLkLcWJFoaS2UPECZOGMaiq1kxyb0QiKdENlRGDY9A+3A2Z/
+# qFxPycVgJ0vkeyb9CRVoja8dPeJm4wbcDHSSiygK0Nx7UGG30WQxbm3QAs+HvhYK
+# f7JfALpU4yLFpLYCBkkF6dSfximownb/aS0WE3CANeynnC6OWdOAyiiVfGAVCAMm
+# RbG7Bw==
 # SIG # End signature block
