@@ -27,7 +27,7 @@ THE SOFTWARE.
 #>
 
 # Set PowerShell library version
-[Version]$ModuleVersion = '1.0.6'
+[Version]$ModuleVersion = '1.0.7'
 
 
 
@@ -124,20 +124,28 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 
 [String]$COMJobTemplatesUri = '/compute-ops-mgmt/v1beta2/job-templates'
 
+#  Activation-Keys
+
+[String]$COMActivationKeysUri = '/compute-ops-mgmt/v1beta1/activation-keys'
+
 #  Activation-Tokens
 
-[String]$COMActivationTokenUri = '/compute-ops-mgmt/v1beta1/activation-tokens'
+[String]$COMActivationTokensUri = '/compute-ops-mgmt/v1beta1/activation-tokens'
 
 #  Activities
 
 [String]$COMActivitiesUri = '/compute-ops-mgmt/v1beta2/activities'
 
-#  Appliance Firmware Bundles
+# Appliances
+
+[String]$COMOneViewAppliancesUri = '/compute-ops-mgmt/v1beta1/oneview-appliances'
+
+# Appliance Firmware Bundles
 
 [String]$COMApplianceFirmwareBundlesUri = '/compute-ops-mgmt/v1beta1/appliance-firmware-bundles'
 
 
-#   External Services
+# External Services
 
 [String]$COMExternalServicesUri = '/compute-ops-mgmt/v1beta1/external-services'
 
@@ -166,10 +174,6 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 # Metrics Configurations
 
 [String]$COMMetricsConfigurationsUri = '/compute-ops-mgmt/v1beta1/metrics-configurations'
-
-# OneView appliances
-
-[String]$COMOneViewAppliancesUri = '/compute-ops-mgmt/v1beta1/oneview-appliances'
 
 # Reports
 
@@ -254,9 +258,11 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 
 [String]$LicenseDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/devices'
 [String]$AddLicenseDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/customers/license'
+[String]$AddLicenseServicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/'
 [String]$LicenseDevicesProductTypeDeviceUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license?product_type=DEVICE'
 [String]$ServiceSubscriptionsListUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/service-subscriptions'
 [String]$AutoLicenseDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/autolicense'
+[String]$AutoRenewalDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/auto-renewal'
 
 #  Services - Assignment 
 
@@ -385,140 +391,116 @@ function NewObject {
 }
 
 
-function Test-HPEGLConnection {   
+
+function Test-EndpointTCPConnection {
     [CmdletBinding()] 
-    Param   (     
+    param (
+
+        [uri]$URL,
+        [int]$Port = 443,
+        [int]$Timeout = 5000,  # 5000 milliseconds (5 seconds)
+        [int]$RetryCount = 3   # Number of retry attempts
     )
-    process {
-        
-        # Get progress bar actual settings 
-        $OriginalProgressPreference = $Global:ProgressPreference
-        # Disable progress bar
-        $Global:ProgressPreference = 'SilentlyContinue'
 
+    # Get progress bar actual settings 
+    $OriginalProgressPreference = $Global:ProgressPreference
+    # Disable progress bar
+    $Global:ProgressPreference = 'SilentlyContinue'
 
-        # 1 - Test DNS resolution
+    for ($i = 0; $i -lt $RetryCount; $i++) {
 
-        $CCServer = $ccsSettingsUrl.Authority
-        
         try {
-            ([System.Net.Dns]::GetHostAddresses($CCServer)) | Out-Null
-            "[{0}] '{1}' is DNS resolvable." -f $MyInvocation.InvocationName.ToString().ToUpper(), $CCServer | Write-Verbose
-        }
+
+            $tcpClient = New-Object System.Net.Sockets.TcpClient
+
+            if ($tcpClient.ConnectAsync($URL, $Port).Wait($Timeout)) {
+
+                "[{0}] '{1}' is reachable." -f $MyInvocation.InvocationName.ToString().ToUpper(), $URL | Write-Verbose
+                return
+            } 
+            else {
+
+                throw "Connection timed out."
+
+            }
+        } 
         catch {
-            
-            # Return to original progress bar global settings
-            $Global:ProgressPreference = $OriginalProgressPreference
-            Throw "$($CCServer) is not DNS resolvable. Fix your network environment and try again."
-        }
 
+            if ($i -eq $RetryCount - 1) {
 
-        # 1 - common.cloud.hpe.com
+                # Return to original progress bar global settings
+                $Global:ProgressPreference = $OriginalProgressPreference
+                "[{0}] {1} is currently unreachable after {2} attempts. Please ensure that you have an active internet connection and try again." -f $MyInvocation.InvocationName.ToString().ToUpper(), $url, $RetryCount | Write-Verbose
 
-        if ( (New-Object System.Net.Sockets.TcpClient).ConnectAsync($CCServer, 443).Wait(1000) ) {   
+                throw "$($URL) is currently unreachable after $RetryCount attempts. Please ensure that you have an active internet connection and try again."
+            } 
+            else {
 
-            "[{0}] '{1}' is reachable." -f $MyInvocation.InvocationName.ToString().ToUpper(), $CCServer | Write-Verbose
-     
-        }
-        else {
-            # Return to original progress bar global settings
-            $Global:ProgressPreference = $OriginalProgressPreference
-            throw "$($CCServer) is currently unreachable. Please ensure that you have an active internet connection and try again."
+                "[{0}] Attempt {1} failed to reach {2}. Retrying..." -f $MyInvocation.InvocationName.ToString().ToUpper(), ($i + 1), $URL | Write-Verbose
+                Start-Sleep -Seconds 2  # Wait for 2 seconds before retrying
+            }
+        } 
+        finally {
 
-
-        }
-
-
-        # 2 - sso.common.cloud.hpe.com
-
-        # Get HPE GreenLake Common Cloud Services Settings
-        $response = Invoke-RestMethod $ccsSettingsUrl -Method 'GET' 
-
-        "[{0}] Response content of GET '{1}' request: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ccsSettingsUrl, $response | Write-Verbose
-
-        [uri]$Global:HPEGLauthorityURL = $response.authorityURL
-        "[{0}] HPEGLauthorityURL variable set: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLauthorityURL | Write-Verbose
-
-        New-Variable -Name HPEGLoktaURL -Scope Global -Value $response.oktaURL -Option ReadOnly -ErrorAction SilentlyContinue -Force
-        "[{0}] HPEGLoktaURL variable set: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLoktaURL | Write-Verbose
-        New-Variable -Name HPEGLclient_id -Scope Global -Value $response.client_id -Option ReadOnly -ErrorAction SilentlyContinue -Force
-        "[{0}] HPEGLclient_id variable set: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLclient_id | Write-Verbose
-        $SsoServer = $HPEGLauthorityURL.Authority 
-
-
-        if (  (New-Object System.Net.Sockets.TcpClient).ConnectAsync($SsoServer, 443).Wait(1000) ) {   
-
-            "[{0}] '{1}' is reachable." -f $MyInvocation.InvocationName.ToString().ToUpper(), $SsoServer | Write-Verbose
-
-     
-        }
-        else {
-            # Return to original progress bar global settings
-            $Global:ProgressPreference = $OriginalProgressPreference
-            throw "$($SsoServer) is currently unreachable. Please ensure that you have an active internet connection and try again."
-
-        }
-      
-
-        # 3 - auth.hpe.com
-
-        $AuthServer = ([uri]$HPEGLoktaURL).Authority
-    
-        if (  (New-Object System.Net.Sockets.TcpClient).ConnectAsync($AuthServer, 443).Wait(1000)) {   
- 
-            "[{0}] '{1}' is reachable." -f $MyInvocation.InvocationName.ToString().ToUpper(), $AuthServer | Write-Verbose
-            
-
-        }
-        else {
-            # Return to original progress bar global settings
-            $Global:ProgressPreference = $OriginalProgressPreference
-            throw "$($AuthServer) is currently unreachable. Please ensure that you have an active internet connection and try again."
-
-        }
-
-
-        # 4 - aquila-user-api.common.cloud.hpe.com
-
-        $AquilaServer = ([uri]$HPEGLUIbaseURL).Authority
-        
-        if (  (New-Object System.Net.Sockets.TcpClient).ConnectAsync($AquilaServer, 443).Wait(1000) ) {   
- 
-            "[{0}] '{1}' is reachable." -f $MyInvocation.InvocationName.ToString().ToUpper(), $AquilaServer | Write-Verbose
-
-            
-        }
-        else {
+            $tcpClient.Dispose()
 
             # Return to original progress bar global settings
             $Global:ProgressPreference = $OriginalProgressPreference
-            throw "$($AquilaServer) is currently unreachable. Please ensure that you have an active internet connection and try again."
 
         }
-
-        # 5 -  onepass-enduserservice.it.hpe.com
-
-        $OnepassServer = ([uri]$SchemaMetadataURI).Authority
-        
-        if (  (New-Object System.Net.Sockets.TcpClient).ConnectAsync($OnepassServer, 443).Wait(2000) ) {   
- 
-            "[{0}] '{1}' is reachable." -f $MyInvocation.InvocationName.ToString().ToUpper(), $OnepassServer | Write-Verbose
-
-              
-        }
-        else {
-  
-            # Return to original progress bar global settings
-            $Global:ProgressPreference = $OriginalProgressPreference
-            throw "$($OnepassServer) is currently unreachable. Please ensure that you have an active internet connection and try again."
-  
-        }
-
-        
-        # Return to original progress bar global settings
-        $Global:ProgressPreference = $OriginalProgressPreference
-    }   
+    }
 }
+
+
+function Test-EndpointDNSResolution {
+    [CmdletBinding()] 
+    param (
+
+        [uri]$URL,
+        [int]$RetryCount = 3   # Number of retry attempts
+
+    )
+
+    # Get progress bar actual settings 
+    $OriginalProgressPreference = $Global:ProgressPreference
+    # Disable progress bar
+    $Global:ProgressPreference = 'SilentlyContinue'
+
+    for ($i = 0; $i -lt $RetryCount; $i++) {
+
+        try {
+            
+            ([System.Net.Dns]::GetHostAddresses($URL)) | Out-Null
+            
+            "[{0}] '{1}' is DNS resolvable." -f $MyInvocation.InvocationName.ToString().ToUpper(), $URL | Write-Verbose
+            return
+    
+        } 
+        catch {
+
+            if ($i -eq $RetryCount - 1) {
+                
+                # Return to original progress bar global settings
+                $Global:ProgressPreference = $OriginalProgressPreference
+                "[{0}] {1} is not DNS resolvable after {2} attempts. Fix your network environment and try again." -f $MyInvocation.InvocationName.ToString().ToUpper(), $url, $RetryCount | Write-Verbose
+
+                throw "$($URL) is not DNS resolvable after $RetryCount attempts. Fix your network environment and try again."
+            } 
+            else {
+    
+                "[{0}] Attempt {1} failed to resolve {2}. Retrying..." -f $MyInvocation.InvocationName.ToString().ToUpper(), ($i + 1), $URL | Write-Verbose
+                Start-Sleep -Seconds 2  # Wait for 2 seconds before retrying
+            }
+        }
+        finally {
+    
+            # Return to original progress bar global settings
+            $Global:ProgressPreference = $OriginalProgressPreference
+    
+        }
+    }
+} 
+
 
 
 function Invoke-RepackageObjectWithType {   
@@ -579,7 +561,7 @@ function Invoke-RestMethodWhatIf {
         $Websession,
         $ContentType,
         $Body,
-        [ValidateSet ('Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest', 'Invoke-RestMethod')]
+        [ValidateSet ('Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest', 'Invoke-RestMethod', 'Invoke-WebRequest')]
         $Cmdlet
     )
     process {
@@ -960,8 +942,7 @@ Function Invoke-HPEGLAutoReconnect {
         # An access token is valid for 2 hours (120 minutes) - GLP Session idle timeout is 30 minutes by default 
         # Default: reconnect 30 minutes before expiration
         # Timeout in minutes, 
-        $Timeout = 30,
-        [switch]$Force
+        $Timeout = 30
     ) 
 
     # Access_token expiration date
@@ -973,25 +954,8 @@ Function Invoke-HPEGLAutoReconnect {
     if ( $BeforeExpirationinMinutes -gt 0) { $Expiration = $BeforeExpirationinMinutes }
     else { $Expiration = 0 }
         
-    if ( $Force ) {
-            
-        "[{0}] Forcing Access Token refresh ! $Expiration minute(s) before expiration - Token refresh in progress..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-        try {
-            Invoke-HPEGLRefreshtoken | out-null
-            
-        }
-        catch {
-            Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
-            $PSCmdlet.ThrowTerminatingError($_)
-        }
-            
-        "[{0}] Refresh token successful!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-        # Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
-
-
-    }
-    elseif ($Expiration -eq 0) {
+    if ($Expiration -eq 0) {
 
         "[{0}] Expiration={1} - Access Tokens refresh required but session gets expired! Connect-HPEGL must be executed!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Expiration | Write-Verbose
 
@@ -1006,17 +970,16 @@ Function Invoke-HPEGLAutoReconnect {
         "[{0}] Access Tokens refresh required ! $Expiration minute(s) before expiration - Tokens refresh in progress..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
         
         try {
-            Invoke-HPEGLRefreshtoken | out-null
+            Connect-HPEGLWorkspace -Force | out-null
             
         }
         catch {
-            Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
+            Write-Progress -Id 1 -Completed # progress bar from 'Connect-HPEGLWorkspace'
             $PSCmdlet.ThrowTerminatingError($_)
         }
             
             
         "[{0}] Refresh tokens successful!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-        # Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshtoken'
     }
     else {
         
@@ -1025,271 +988,6 @@ Function Invoke-HPEGLAutoReconnect {
     }  
 }
 
-
-Function Invoke-HPEGLRefreshtoken { 
-    <#
-    .SYNOPSIS
-    Refreshes the HPE GreenLake OATH2 access token, refresh token, and ID token.
-    Create a new session with the HPE GreenLake workspace and capture session cookie value in the $HPEGreenLakeSession global variable.
-    Create new sessions with GLP and COM APIs at https://sso.common.cloud.hpe.com/as/token.oauth2 and capture access tokens in the $HPEGreenLakeSession global variable.
-
-    .DESCRIPTION
-    
-    #>
-    [CmdletBinding()]
-    Param() 
-
-    Process {
-
-        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-
-        # Define the total number of operations/steps
-        $totalSteps = 3
-
-        # Initialize a counter for completed steps
-        $completedSteps = 0
- 
-        function Update-ProgressBar {
-            param (
-                [int]$CompletedSteps,
-                [int]$TotalSteps,
-                [string]$CurrentActivity,
-                [int]$Id
-
-            )
- 
-            $percentComplete = ($CompletedSteps / $TotalSteps) * 100
-            Write-Progress `
-                -Activity "Refreshing HPE GreenLake tokens, please wait..." `
-                -Status $CurrentActivity `
-                -PercentComplete $percentComplete `
-                -id $Id
-        }
-        
-        if (-not $HPEGreenLakeSession) {
-
-            Throw "Error - No HPE GreenLake session found!"
-    
-        }
-        else {   
-
-            #Region 1-Generate new access_token/refresh_token/id_token
-
-            "[{0}] ------------------------------------- STEP 1 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            "[{0}] Generate new access_token/refresh_token/id_token with '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
-
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 1 / 3" -Id 2
-
-    
-            $Body = @{
-                'grant_type'    = 'refresh_token'
-                'client_id'     = 'aquila-user-auth'
-                'refresh_token' = $HPEGreenLakeSession.oauth2RefreshToken
-            } 
-    
-            "[{0}] About to execute POST request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLtokenEndpoint | Write-Verbose
-    
-            try {
-
-                $InvokeReturnData = Invoke-webrequest -Uri $HPEGLtokenEndpoint -Method 'POST' -ContentType "application/x-www-form-urlencoded" -Body $Body -WebSession $HPEGreenLakeSession.session 
-         
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
-                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose
-                
-                $InvokeReturnData = $InvokeReturnData | ConvertFrom-Json
-
-                # Set new global variables
-
-                $NewAccessToken = $InvokeReturnData.access_token
-                "[{0}] New access token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewAccessToken | Write-verbose
-                $global:HPEGreenLakeSession.oauth2AccessToken = $NewAccessToken 
-
-                $NewRefreshToken = $InvokeReturnData.refresh_token
-                "[{0}] New refresh token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewRefreshToken | Write-verbose
-                $global:HPEGreenLakeSession.oauth2RefreshToken = $NewRefreshToken
-
-                $NewIdToken = $InvokeReturnData.id_token
-                "[{0}] New ID token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewIdToken | Write-verbose
-                $global:HPEGreenLakeSession.oauth2IdToken = $NewIdToken 
-
-                $global:HPEGreenLakeSession.oauth2TokenCreation = [datetime]$( Get-Date -Format g )
-                "[{0}] `$HPEGreenLakeSession has been updated with new token creation date!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                $global:HPEGreenLakeSession.oauth2TokenCreationEpoch = $( (New-TimeSpan -Start (Get-Date "01/01/1970") -End (Get-Date)).TotalSeconds ) 
-                "[{0}] `$HPEGreenLakeSession has been updated with new token creation epoch!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-    
-                "[{0}] `$HPEGreenLakeSession has been updated with new access_token/refresh_token/id_token!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                # Cookies?
-                $allCookies = $HPEGreenLakeSession.session.Cookies.GetCookies($HPEGLtokenEndpoint)
-                # Output all cookies
-                foreach ($cookie in $allCookies) {
-                    Write-Verbose "Session cookie content: `n$($cookie.Name) = $($cookie.Value)"
-                }
-
-            }
-            
-            catch {
-
-                "[{0}] Exception thrown!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                # Get Exception type
-                $exception = $_.Exception
-                do {
-                    "[{0}] Exception Type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exception.GetType().Name | Write-Verbose
-                    $exception = $exception.InnerException
-                } while ($exception)
-
-                # Get exception stream
-                $result = $_.Exception.Response.GetResponseStream()
-                $reader = New-Object System.IO.StreamReader($result)
-                $reader.BaseStream.Position = 0
-                $reader.DiscardBufferedData()
-                $responseBody = $reader.ReadToEnd() 
-
-
-                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseBody | Write-Verbose
-            
-                # $response = $responseBody | ConvertFrom-Json
-
-                    
-                    
-                if ($Body) {
-                    "[{0}] Request payload: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Body | Out-String) | Write-Verbose
-                }
-                if ($Headers) {
-                    "[{0}] Request headers: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | Out-String) | Write-Verbose
-                }
-
-                Write-Progress -Completed -Id 2
-                Write-Progress -Completed -Id 1 # progress bar from 'Connect-HPEGLWorkspace'
-                Throw "Error -  $responseBody"          
-             
-            }    
-
-            $completedSteps++
-
-            #endRegion
-
-
-            #Region 2-Create a session with workspace + capture CCS SID (ccs-session cookie value)
-            
-            "[{0}] ------------------------------------- STEP 2 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            "[{0}] Create new session with workspace '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
-
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 2 / 3" -Id 2
-
-            try {
-                
-                $CCSSession = Connect-HPEGLWorkspace -force 
-            }
-            catch {
-
-                # Write-Progress -Completed -Id 2
-                # Write-Progress -Completed -Id 1 # progress bar from 'Connect-HPEGLWorkspace'
-                $_
-                # $PSCmdlet.ThrowTerminatingError($_)
-                
-            }
-            
-            "[{0}] Connect to workspace response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CCSSession | Write-Verbose
-
-            $completedSteps++
-
-            #endRegion
-
-            
-            #Region 3- Create sessions with GLP and COM APIs at https://sso.common.cloud.hpe.com/as/token.oauth2 and capture access tokens, creation date, etc.
-        
-            if ($HPEGreenLakeSession.apiCredentials) {
-                "[{0}] ------------------------------------- STEP 3 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                "[{0}] Create sessions with HPE GreenLake and COM APIs to capture access tokens '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
-
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 3 / 3" -Id 2
-
-
-                $TemporaryCredentialsList = $HPEGreenLakeSession.apiCredentials | Where-Object name -match $APIClientCredentialTemplateName
-
-                "[{0}] Credentials found: '{1}' " -f $MyInvocation.InvocationName.ToString().ToUpper(), $TemporaryCredentialsList.length | Write-Verbose
-
-                foreach ($CurrentCredential in $TemporaryCredentialsList) {
-
-                    $SecureClientSecret = $CurrentCredential.secure_client_secret | ConvertTo-SecureString
-                    $Bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureClientSecret)
-                    $ClientSecret = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) 
-
-                    $Payload = @{
-                        'client_id'     = $CurrentCredential.client_id
-                        'client_secret' = $ClientSecret
-                        'grant_type'    = 'client_credentials'
-                    }
-
-                    "[{0}] About to execute POST request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLtokenEndpoint | Write-Verbose
-                    "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($payload | convertto-json) | Write-Verbose
-
-                    try {
-
-                        $response = Invoke-WebRequest -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded' 
-
-                        # Capturing API Access Token
-                        
-                        "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $response.StatusDescription | Write-Verbose
-                        "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
-                        
-                        $response = ($response.Content | Convertfrom-Json)
-                        
-                        if ($CurrentCredential.name -match "COM" -and $CurrentCredential.name -match $APIClientCredentialTemplateName) {
-
-                            ($global:HPEGreenLakeSession.comApiAccessToken | ? name -eq $CurrentCredential.name).access_token = $response.access_token
-                            ($global:HPEGreenLakeSession.comApiAccessToken | ? name -eq $CurrentCredential.name).creation_Time = Get-Date
-                            ($global:HPEGreenLakeSession.comApiAccessToken | ? name -eq $CurrentCredential.name).expires_in = $response.expires_in
-
-                            "[{0}] API access token for '{1}' has been set in `$HPEGreenLakeSession.comApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CurrentCredential.name | Write-Verbose
-
-                        }
-
-                        if ($CurrentCredential.name -match "GLP-$APIClientCredentialTemplateName") {
-
-                            $Global:HPEGreenLakeSession.glpApiAccessToken[0].access_token = $response.access_token 
-                            $Global:HPEGreenLakeSession.glpApiAccessToken[0].creation_Time = Get-Date 
-                            $Global:HPEGreenLakeSession.glpApiAccessToken[0].expires_in = $response.expires_in
-
-                            "[{0}] GLP API access token has been set in `$HPEGreenLakeSession.glpApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                        }
-                
-                    }
-                    catch {
-
-                        if ($_.ErrorDetails.Message) {
-                            Write-Warning $_.ErrorDetails
-                        }
-
-                        Write-Progress -Completed -Id 2
-                        Write-Progress -Completed -Id 1 # progress bar from 'Connect-HPEGLWorkspace'
-                   
-                        $PSCmdlet.ThrowTerminatingError($_).Exception.Message
-
-                    }
-                }
-
-            }
-    
-            $Global:HPEGreenLakeSession = Invoke-RepackageObjectWithType -RawObject $HPEGreenLakeSession -ObjectName 'Connection'
-
-            #endRegion
-
-            # Clear the progress bar upon completion
-            Write-Progress -Completed -Id 2 
-
-            # return $HPEGreenLakeSession 
-            return
-
-
-        }
-    }
-
-} 
 
 #EndRegion
 
@@ -1775,41 +1473,39 @@ function Invoke-HPEGLWebRequest {
 
                             }
                         
-                            $StatusCode = [int]$_.Exception.Response.StatusCode
-        
-        
-                            if ($_ExceptionMessage) {
+                            if (-not $ExceptionCode ) {
 
-                                Throw "Error status Code: {0} ({1}) - {2}" -f $StatusCode, $ExceptionText, ($_ExceptionMessage -join " - ")
-
+                                $ExceptionCode = [int]$_.Exception.Response.StatusCode
                             }
-                            elseif ( $StatusCode -eq 400 ) {
+        
+        
+                            if ( $ExceptionCode -eq 400 ) {
                                 Throw "Error status Code: 400 (Bad Request)"
                             
                             } 
                 
-                            elseif ( $StatusCode -eq 401 ) {
-                                Throw "Error status Code: 401 (Unauthorized) - Your session with HPE GreenLake doorway API has expired, please log in again!"
+                            elseif ( $ExceptionCode -eq 401 ) {
+                                Throw "Error status Code: 401 (Unauthorized) - Your session with HPE GreenLake doorway API has expired, please log in again using 'Connect-HPEGL'!"
                                 
                             } 
                             
-                            elseif ( $StatusCode -eq 403 ) {
+                            elseif ( $ExceptionCode -eq 403 ) {
                                 Throw "Error status Code: 403 (Forbidden) - Your session with HPE GreenLake doorway API has expired or you do not have sufficient rights to perform this action!"
                                 
                             } 
                             
-                            elseif ( $StatusCode -eq 412 ) {
+                            elseif ( $ExceptionCode -eq 412 ) {
                                 Throw "Error status Code: 412 (Precondition failed) - Please verify the content of the payload request!"
                                 
                             } 
                             
-                            elseif ( $StatusCode -eq 408 ) {
+                            elseif ( $ExceptionCode -eq 408 ) {
                                 Throw "Error status Code: 408 (Request Timeout) - Please try again!"
                                 
                             }
                             
                             else {
-                                Throw "Error status Code: {0} ({1})" -f $StatusCode, $ExceptionText
+                                Throw "Error status Code: {0} ({1})" -f $ExceptionCode, $ExceptionText
 
                             }
                         }
@@ -2188,41 +1884,44 @@ function Invoke-HPEGLWebRequest {
                                             $InvokeReturnMoreData = ConvertFrom-Json $InvokeReturnData -ErrorAction Stop 
                                             "[{0}] Response detected as JSON content!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-                                            # Initialize an empty hashtable
-                                            $dictionary = @{}
+                                            If ($InvokeReturnData.pagination.count_per_page -gt 0) { # Adding this in case total count is wrong as it is the case for the workspace reource
 
-                                            # Iterate through the properties of the returned object
-                                            $InvokeReturnMoreData.PSObject.Properties | ForEach-Object {
-                                                $propertyName = $_.Name
-                                                $propertyValue = $_.Value
+                                                # Initialize an empty hashtable
+                                                $dictionary = @{}
+                                                
+                                                # Iterate through the properties of the returned object
+                                                $InvokeReturnMoreData.PSObject.Properties | ForEach-Object {
+                                                    $propertyName = $_.Name
+                                                    $propertyValue = $_.Value
 
-                                                # Check if the property value is a list of objects (array or collection) and not a hashtable
-                                                if ($propertyValue -is [System.Collections.IEnumerable] -and $propertyValue -ne $null -and $propertyValue.GetType().Name -ne "String" -and -not ($propertyValue -is [hashtable])) {
-                                                    $dictionary[$propertyName] = $propertyValue
+                                                    # Check if the property value is a list of objects (array or collection) and not a hashtable
+                                                    if ($propertyValue -is [System.Collections.IEnumerable] -and $propertyValue -ne $null -and $propertyValue.GetType().Name -ne "String" -and -not ($propertyValue -is [hashtable])) {
+                                                        $dictionary[$propertyName] = $propertyValue
+                                                    }
                                                 }
-                                            }
-
-                                            "[{0}] Content of the list property that needs to be added: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($dictionary | Out-String) | Write-Verbose
-
-                                            # "[{0}] `$dictionary: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($dictionary.GetEnumerator() | gm  | Out-String) | Write-Verbose
-
-                                            # Iterate through the dictionary entries
-                                            foreach ($entry in $dictionary.GetEnumerator()) {
-                                                $_Item = $entry.Key
-                                                $_Value = $entry.Value
-                                             
-                                            }
-                                            
-                                            # "[{0}] Adding item '{1}' with content: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Item, ($_Value | out-String)  | Write-Verbose
-                                            
-                                            if ($AllCollection.PSObject.Properties.Match('$_Item')) {
                                                 
-                                                "[{0}] Content of `$AllCollection matches with {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Item | Write-Verbose
-                                                
-                                                "[{0}] Adding page '{1}' to the result" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($i + 1) | Write-Verbose
-                                                $AllCollection.($_Item) += $_Value
-                                            }
+                                                "[{0}] Content of the list property that needs to be added: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($dictionary | Out-String) | Write-Verbose
 
+                                                # "[{0}] `$dictionary: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($dictionary.GetEnumerator() | gm  | Out-String) | Write-Verbose
+                                                
+                                                # Iterate through the dictionary entries
+                                                foreach ($entry in $dictionary.GetEnumerator()) {
+                                                    $_Item = $entry.Key
+                                                    $_Value = $entry.Value
+                                                
+                                                }
+                                                
+                                                # "[{0}] Adding item '{1}' with content: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Item, ($_Value | out-String)  | Write-Verbose
+                                                
+                                                if ($AllCollection.PSObject.Properties.Match('$_Item')) {
+                                                    
+                                                    "[{0}] Content of `$AllCollection matches with {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Item | Write-Verbose
+                                                    
+                                                    "[{0}] Adding page '{1}' to the result" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($i + 1) | Write-Verbose
+                                                    $AllCollection.($_Item) += $_Value
+                                                }
+                                                
+                                            }
                                         }
                                         catch {    
                                             $PSCmdlet.ThrowTerminatingError($_)
@@ -2878,11 +2577,11 @@ function Get-HPEGLJWTDetails {
 Function Connect-HPEGL { 
 <#
 .SYNOPSIS
-Initiates a connection to the HPE GreenLake platform.
+Initiates a connection to the HPE GreenLake platform and to all available Compute Ops Management instances within the specified workspace.
 
 .DESCRIPTION
-This cmdlet initiates and manages your connection to the HPE GreenLake platform. Upon successful connection, it creates a persistent session for all subsequent module cmdlet requests through the 
-`${Global:HPEGreenLakeSession}` connection tracker variable. Additionally, the cmdlet generates temporary API client credentials for both HPE GreenLake and any Compute Ops Management service instances provisioned in the workspace.
+This cmdlet initiates and manages your connection to the HPE GreenLake platform. Upon successful connection, it creates a persistent session for all subsequent module cmdlet requests through the ${Global:HPEGreenLakeSession}` connection tracker variable. 
+Additionally, the cmdlet generates temporary API client credentials for both HPE GreenLake and any Compute Ops Management service instances provisioned in the workspace.
 
 The global variable `$HPEGreenLakeSession` stores session information, API client credentials, API access tokens, and other relevant details for both HPE GreenLake and Compute Ops Management APIs.
 
@@ -2904,13 +2603,14 @@ Note: You do not need an existing HPE GreenLake workspace to connect. You can cr
 
 
 .PARAMETER Credential 
-Set of security credentials such as a username and password to establish a connection to the HPE GreenLake platform.
+Set of security credentials such as a username and password to establish a connection to HPE GreenLake.
 
 .PARAMETER Workspace 
-Name of a workspace available in HPE GreenLake (can be retrieved using 'Get-HPEGLWorkspace'). 
-        
-This parameter must be omitted if you have not yet created any workspace in HPE GreenLake.
-When you have more than one workspace, you can define the workspace name you want to connect to.
+Specifies the name of a workspace available in HPE GreenLake that you want to connect to.
+
+- Omit this parameter if you have not yet created any workspaces in HPE GreenLake.
+- You can omit this parameter if you only have one workspace in HPE GreenLake, as the cmdlet will automatically connect to the available workspace.
+- If you have more than one workspace and don't know or remember the name of the workspace you want to connect to, you can omit this parameter and use the 'Get-HPEGLWorkspace' cmdlet to retrieve the workspace names once connected to HPE GreenLake.
 
 .INPUTS
 None. You cannot pipe objects to this cmdlet.
@@ -2926,33 +2626,35 @@ When a valid connection is established with the HPE GreenLake platform, several 
      --------------------------------------------------------------------------------------------------------------------
      | session                   | WebrequestSession  | Web request session object                                      | 
      --------------------------------------------------------------------------------------------------------------------
-     | oauth2AccessToken         | String             | OAuth2 access token string returned from API                    | 
+     | oauth2AccessToken         | String             | OAuth2 access token                                             | 
      --------------------------------------------------------------------------------------------------------------------
-     | oauth2IdToken             | String             | OAuth2 ID Token string returned from API                        |
+     | oauth2IdToken             | String             | OAuth2 ID Token                                                 |
      --------------------------------------------------------------------------------------------------------------------
-     | oauth2RefreshToken        | String             | OAuth2 refresh token string returned from API                   |
+     | oauth2RefreshToken        | String             | OAuth2 refresh token                                            |
      --------------------------------------------------------------------------------------------------------------------
-     | userName                  | String             | Name of the user used for authentication                        |
+     | userName                  | String             | Username used for authentication                                |
      --------------------------------------------------------------------------------------------------------------------
-     | workspaceId               | String             | ID of the workspace                                             |
+     | workspaceId               | String             | Workspace ID                                                    |
      --------------------------------------------------------------------------------------------------------------------
-     | workspace                 | String             | Name of the workspace                                           |
+     | workspace                 | String             | Workspace name                                                  |
      --------------------------------------------------------------------------------------------------------------------
-     | oauth2TokenCreation       | Datetime           | OAuth2 token creation datetime value                            |
+     | workspacesCount           | Integer            | Number of available workspaces                                  |
      --------------------------------------------------------------------------------------------------------------------
-     | oauth2TokenCreationEpoch  | String             | Unix time since creation of the OAuth2 token                    |    
+     | oauth2TokenCreation       | Datetime           | OAuth2 token creation time                                      |
      --------------------------------------------------------------------------------------------------------------------
-     | userSessionIdleTimeout    | String             | User session timeout in minutes                                 |    
+     | oauth2TokenCreationEpoch  | String             | Unix timestamp of OAuth2 token creation                         |    
      --------------------------------------------------------------------------------------------------------------------
-     | apiCredentials            | ArrayList          | Collection of API client credentials created during the session |
+     | userSessionIdleTimeout    | String             | User session idle timeout in minutes                            |    
      --------------------------------------------------------------------------------------------------------------------
-     | glpApiAccessToken         | String             | Collection of GreenLake API access token for the bearer AuthN   |    
+     | apiCredentials            | ArrayList          | List of API client credentials created during the session       |
      --------------------------------------------------------------------------------------------------------------------
-     | comApiAccessToken         | ArrayList          | Collection of COM APIs access tokens for the bearer AuthN       |    
+     | glpApiAccessToken         | String             | GreenLake API access token                                      |    
      --------------------------------------------------------------------------------------------------------------------
-     | ccsSid                    | String             | Session ID of the CCS API AuthN                                 |    
+     | comApiAccessToken         | ArrayList          | List of COM API access tokens                                   |    
      --------------------------------------------------------------------------------------------------------------------
-     | onepassSid                | String             | Session ID of the HPE Onepass API AuthN                         |    
+     | ccsSid                    | String             | CCS API session ID                                              |    
+     --------------------------------------------------------------------------------------------------------------------
+     | onepassSid                | String             | HPE Onepass API session ID                                      |    
      ====================================================================================================================
 
 API client credentials are stored in `${Global:HPEGreenLakeSession.apiCredentials}` and contains the following properties:
@@ -2996,14 +2698,17 @@ API access tokens are stored in the following global variables:
      --------------------------------------------------------------------------------------------------------------------
      | creation_time              | Datetime           | Date and time of when the token was created                     |
      ====================================================================================================================
-
 .EXAMPLE
 Connect-HPEGL  
 
-Connect to HPE GreenLake when you have not yet created any workspace. The user will be prompted for username and password.
+Connect to HPE GreenLake when you have not yet created any workspace. The user will be prompted for their username and password.
 
-In this example, no parameters are passed to the `Connect-HPEGL` cmdlet, which will prompt the user for their HPE GreenLake 
-username and password. This is useful when connecting to HPE GreenLake when no workspace exists yet.
+In this example, no parameters are passed to the `Connect-HPEGL` cmdlet, which will prompt the user for their HPE GreenLake username and password. 
+This is useful when connecting to HPE GreenLake for the first time or when no workspace exists yet.
+
+If there is only one workspace available, the cmdlet will automatically connect to that workspace. 
+
+If multiple workspaces exist, the user can use the `Get-HPEGLWorkspace` cmdlet once connected to retrieve the workspace names and then specify the desired workspace to connect to using 'Connect-HPEGLWorkspace -Name <WorkspaceName>'.
 
 .EXAMPLE
 $Username = "Sean@gmail.com"
@@ -3013,8 +2718,7 @@ Connect-HPEGL -Credential $Credentials
 
 Connect the user Sean@gmail.com to HPE GreenLake using a PSCredential object. 
 
-In this example, the username and password are collected first, and then a PSCredential object is created. The credential 
-object is subsequently passed to the `Connect-HPEGL` cmdlet to establish the connection.
+In this example, the username and password are collected first, and then a PSCredential object is created. The credential object is subsequently passed to the `Connect-HPEGL` cmdlet to establish the connection.
 
 .EXAMPLE
 Connect-HPEGL -Credential $Credentials -Workspace "My_workspace_name" 
@@ -3023,8 +2727,7 @@ Connect the user Sean@gmail.com to an existing workspace named "My_workspace_nam
 Temporary HPE GreenLake and COM API client credentials are generated in the newly connected 'My_workspace_name' workspace.
 '$HPEGreenLakesession' is updated with the new API credentials and workspace details.
 
-Here, the previously created PSCredential object is used again, but this time with an additional `-Workspace` parameter 
-to specify which workspace in HPE GreenLake to connect to.
+Here, the previously created PSCredential object is used again, but this time with an additional `-Workspace` parameter to specify which workspace in HPE GreenLake to connect to.
 
 .EXAMPLE
 $GLP_Username = "lio@domain.com"
@@ -3036,17 +2739,27 @@ Connect-HPEGL -Credential $credentials -Workspace "HPE Workspace"
 
 Connect the user lio@domain.com to an existing workspace named "HPE Workspace" using an encrypted password.
 
-In this example, the secure password string is first converted to a SecureString, and then a PSCredential object is created 
-using an encrypted password and username. This credential object is then used to connect to a specific workspace named "HPE Workspace".
+In this example, the secure password string is first converted to a SecureString, and then a PSCredential object is created using an encrypted password and username. This credential object is then used to connect to a specific workspace named "HPE Workspace".
 
-Using an encrypted password like $GLP_EncryptedPassword in a script enhances security by preventing unauthorized access to plaintext credentials, 
-and follows best practices for secure coding. It also reduces the risk of human error and accidental exposure during code sharing or review processes.
+Using an encrypted password like $GLP_EncryptedPassword in a script enhances security by preventing unauthorized access to plaintext credentials, and follows best practices for secure coding. It also reduces the risk of human error and accidental exposure during code sharing or review processes.
 
 To generate an encrypted password, you can use:
 ConvertTo-SecureString -String "<Your_HPE_GreenLake_Password>" -AsPlainText -Force |  ConvertFrom-SecureString 
 
+.EXAMPLE
+Connect-HPEGL -Credential $credentials
+
+# Get the list of available workspaces
+Get-HPEGLWorkspace 
+
+# Connect to a specific workspace from the list of workspaces
+Connect-HPEGLWorkspace -Name "<WorkspaceName>"
+
+This example demonstrates how to connect to the HPE GreenLake platform using provided credentials, retrieve the list of available workspaces, and then connect to a specific workspace when the workspace name is unknown.
+
 .LINK
 If you do not have an HPE Account, you can create one at https://common.cloud.hpe.com.
+
 To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html
 
 #>
@@ -3074,22 +2787,63 @@ To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/
         # Changing default TLS to 1.2 from 1.0
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         
-        # Test connectivity with HPE GreenLake servers
-        try {
-            "About to test connection to HPE GreenLake resources" | Write-Verbose
+        "[{0}] About to test DNS resolution and TCP connection with all HPE GreenLake endpoints" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-            Test-HPEGLConnection
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)
-        }
- 
+        # 1 - Test DNS resolution
+
+        $CCServer = $ccsSettingsUrl.Authority
+    
+        Test-EndpointDNSResolution $CCServer
+
+        # 2 - Test TCP connection: common.cloud.hpe.com
+
+        Test-EndpointTCPConnection $CCServer
+        
+        # 3 - Retrieve HPE GreenLake Common Cloud Services Settings and set global variables
+        
+        $response = Invoke-RestMethod $ccsSettingsUrl -Method 'GET' 
+        "[{0}] Response content of GET '{1}' request: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ccsSettingsUrl, $response | Write-Verbose
+        
+        [uri]$Global:HPEGLauthorityURL = $response.authorityURL
+        "[{0}] HPEGLauthorityURL variable set: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLauthorityURL | Write-Verbose
+        
+        New-Variable -Name HPEGLoktaURL -Scope Global -Value $response.oktaURL -Option ReadOnly -ErrorAction SilentlyContinue -Force
+        "[{0}] HPEGLoktaURL variable set: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLoktaURL | Write-Verbose
+
+        New-Variable -Name HPEGLclient_id -Scope Global -Value $response.client_id -Option ReadOnly -ErrorAction SilentlyContinue -Force
+        "[{0}] HPEGLclient_id variable set: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLclient_id | Write-Verbose
+        
+        # 4 - Test TCP connection: sso.common.cloud.hpe.com
+
+        $SsoServer = $HPEGLauthorityURL.Authority 
+
+        Test-EndpointTCPConnection $SsoServer      
+
+        # 5 - Test TCP connection: auth.hpe.com
+
+        $AuthServer = ([uri]$HPEGLoktaURL).Authority
+
+        Test-EndpointTCPConnection $AuthServer
+    
+        # 6 - Test TCP connection: aquila-user-api.common.cloud.hpe.com
+
+        $AquilaServer = ([uri]$HPEGLUIbaseURL).Authority
+        
+        Test-EndpointTCPConnection $AquilaServer
+
+        # 7 - Test TCP connection: onepass-enduserservice.it.hpe.com
+
+        $OnepassServer = ([uri]$SchemaMetadataURI).Authority
+        
+        Test-EndpointTCPConnection $OnepassServer
+
+        # Credential decryption
         $Username = $Credential.UserName
         $decryptPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Password))
-
-
+        
         # Get Compute GMT time difference in hours
         $GMTTimeDifferenceInHour = Get-GMTTimeDifferenceInHours
+        
         # Set a global variable
         $Global:HPEGLGMTTimeDifferenceInHour = $GMTTimeDifferenceInHour 
 
@@ -3509,6 +3263,7 @@ To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/
             username                 = $UserName
             workspaceId              = $Null
             workspace                = $Null
+            workspacesCount          = $Null
             oauth2TokenCreation      = [datetime]$(Get-Date)
             oauth2TokenCreationEpoch = $((New-TimeSpan -Start (Get-Date "01/01/1970") -End (Get-Date)).TotalSeconds) 
             userSessionIdleTimeout   = $Null
@@ -3541,12 +3296,12 @@ To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/
             
             if ($Workspace) {
                 "[{0}] Create session with workspace '{1}' using Connect-HPEGLWorkspace" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Workspace | Write-Verbose
-                $CCSSession = Connect-HPEGLWorkspace -Name $Workspace -Oauth2IdToken  $oauth2IdToken -Oauth2AccessToken $oauth2AccessToken
+                $CCSSession = Connect-HPEGLWorkspace -Name $Workspace 
             }
             else {
 
                 "[{0}] Create session without workspace using Connect-HPEGLWorkspace" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                $CCSSession = Connect-HPEGLWorkspace -Oauth2IdToken  $oauth2IdToken -Oauth2AccessToken $oauth2AccessToken
+                $CCSSession = Connect-HPEGLWorkspace 
             }
 
                                    
@@ -3635,22 +3390,58 @@ System.String
                 -PercentComplete $percentComplete `
                 -Id $Id
         }
+
+
+        # Access_token expiration date
+        $AccessTokenExpirationDate = $HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
+
+        # Number of minutes before expiration of the Access_token expiration date
+        $BeforeExpirationinMinutes = [math]::Round(((New-TimeSpan -Start (Get-Date) -End ($AccessTokenExpirationDate)).TotalHours ) * 60)
+    
+        if ( $BeforeExpirationinMinutes -gt 0) { 
+            $Expiration = $BeforeExpirationinMinutes 
+            "[{0}] Session expiration in '{1}' minutes" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Expiration | Write-Verbose
+        }
+        else { 
+            $Expiration = 0 
+        }
+
+
+
       
         if (-not $HPEGreenLakeSession) {
-            Throw "Error - No HPE GreenLake session found!"
+            Write-Warning "Operation not required: No HPE GreenLake session found."
     
+        }
+        elseif ($Expiration -eq 0) {
+
+            "[{0}] The session has expired! Disconnection is not needed!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+            # Remove $HPEGreenLakeSession global variable
+            Remove-Variable HPEGreenLakeSession -Scope Global
+            "[{0}] Global variable `$HPEGreenLakeSession has been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            
+            # Clear all HPEGL global variables
+            Get-Variable -Scope global | Where-Object name -match HPEGL | Remove-Variable -Force -Scope Global
+            "[{0}] All global variable starting with HPEGL have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+            # Clear all HPECOM global variables
+            Get-Variable -Scope global | Where-Object name -match HPECOM | Remove-Variable -Force -Scope Global
+            "[{0}] All global variable starting with HPECOM have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+            Write-Warning "The session has already been disconnected due to expiration!"
+            return
+
         }
         else {       
 
-            #Region 1 - Remove library API client credentials    
-
+            #Region 1 - Remove library API client credentials   
             
             "[{0}] ------------------------------------- STEP 1 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 1 / 3 - Removing all library API Client credentials..." -Id 3
             "[{0}] About to remove all temporary API Client credentials using the template '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $APIClientCredentialTemplateName | Write-Verbose
             
             if ($HPEGreenLakeSession.apiCredentials) {
-
 
                 try {
 
@@ -3743,7 +3534,6 @@ System.String
                 $PSCmdlet.ThrowTerminatingError($_)
             }
 
-            "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $response.StatusDescription | Write-verbose
             "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
             
             $payload = @{
@@ -3835,72 +3625,72 @@ System.String
 
 
 Function Connect-HPEGLWorkspace { 
-
-    <#
+<#
 .SYNOPSIS
-Switch between HPE GreenLake workspaces.
+Connect to a workspace or switch between HPE GreenLake workspaces.
 
 .DESCRIPTION
-When you have multiple HPE GreenLake workspaces, you can use this cmdlet to switch between them and manage them independently.
+This cmdlet establishes a connection to an HPE GreenLake workspace. 
+When you are already connected to a workspace, you can use this cmdlet to switch between workspaces. 
 
-During the switching/connection process, the cmdlet removes the temporary HPE GreenLake and COM API client credentials from the departing workspace and generates the necessary new ones in the newly connected workspace. 
+During the switching process, the cmdlet removes the temporary HPE GreenLake and COM API client credentials from the departing workspace and generates the necessary new ones in the newly connected workspace. 
 These API credentials are required for this library to interact with the various service APIs. The credentials are updated in `$HPEGreenLakesession` and securely stored using encryption.
 API client credentials for COM are created for each provisioned COM instance found in the newly connected workspace.
 
 Note: This cmdlet is also used in the background by 'Connect-HPEGL' to initiate a session with an HPE GreenLake workspace and automatically generate the HPE GreenLake and COM API client credentials.
 
 .PARAMETER Name 
-Name of your workspace in HPE GreenLake. This is an optional parameter that can be used when you have more than one HPE GreenLake workspaces.
-By default, the cmdlet uses the first available workspace linked to your email address.
-
-.PARAMETER Oauth2IdToken 
-OAuth2 access token value.   
-
-.PARAMETER Oauth2AccessToken 
-OAuth2 access token value.   
+Specifies the name of a workspace available in HPE GreenLake. You can retrieve the workspace name using the 'Get-HPEGLWorkspace' cmdlet.
+This parameter is optional and should be used if you have more than one HPE GreenLake workspace.
+By default, the cmdlet uses the first available workspace associated with your email address.
 
 .PARAMETER Force
-Parameter to force reconnection to the current workspace and generate new temporary API credentials. 
-This option is commonly utilized by Invoke-HPEGLRefreshtoken during the OAuth2 refresh token process.
+Forces reconnection to the current workspace and re-establishes connections to the various GLP and COM APIs (if applicable).
+This option is commonly utilized by the library to automatically reconnect to the workspace and various APIs when tokens are about to expire.
+
+.EXAMPLE
+Connect-HPEGLWorkspace
+
+Connect to the HPE GreenLake workspace associated with your email address if there is only one workspace available in HPE GreenLake associated with your account.
+Temporary HPE GreenLake and COM API client credentials are generated and stored in the '$HPEGreenLakesession' tracking object environment variable.
 
 .EXAMPLE
 Connect-HPEGLWorkspace -Name 'DreamCompany' 
 
-Switch from the current workspace to the 'DreamCompany' HPE GreenLake workspace.
-Temporary HPE GreenLake and COM API client credentials are deleted from the departing workspace and regenerated in the newly connected 'DreamCompany' workspace.
-'$HPEGreenLakesession' is updated with the new API credentials and workspace details.
+Connect to the 'DreamCompany' HPE GreenLake workspace if no workspace session is found in the current environment, and generate all temporary HPE GreenLake and COM API client credentials.
+If the user is already connected to a workspace, the cmdlet will switch from the current workspace to the 'DreamCompany' workspace. In this case, temporary HPE GreenLake and COM API client credentials are deleted from the previous workspace and regenerated for the newly connected 'DreamCompany' workspace.
+The '$HPEGreenLakesession' object is updated with the new API credentials and workspace details.
+
+.EXAMPLE
+Connect-HPEGLWorkspace -Force
+
+Forces reconnection to the current workspace and re-establishes connections to the various GLP and COM APIs (if applicable).
+
+.EXAMPLE
+Get-HPEGLWorkspace -Name Workspace_2134168251 | Connect-HPEGLWorkspace
+
+This example retrieves the workspace object with the name 'Workspace_2134168251' using the Get-HPEGLWorkspace cmdlet and then pipes it to the Connect-HPEGLWorkspace cmdlet to establish a connection to the 'HPE_Workspace_2134168251' HPE GreenLake workspace.
 
 .INPUTS
-None. You cannot pipe objects to this Cmdlet.
+System.Object
+    A workspace object retrieved using 'Get-HPEGLWorkspace -name <workspacename>'.
 
 .OUTPUTS     
 System.Collections.ArrayList
     ${Global:HPEGreenLakeSession}
 
-When a new valid connection is established with a workspace, ${Global:HPEGreenLakeSession} connection tracker variable is
-updated with the new customer id, workspace name properties and API credentials and is returned by the cmdlet.
+When a new valid connection is established with a workspace, ${Global:HPEGreenLakeSession} connection tracker variable is updated with the new customer id, workspace name properties and API credentials and is returned by the cmdlet.
 
 #>
 
-    [CmdletBinding(DefaultParameterSetName = 'Name')]
+    [CmdletBinding()]
     Param(
 
-        [Parameter (ParameterSetName = 'Name')]
+        [Parameter(ValueFromPipelineByPropertyName)] 
         [ValidateNotNullOrEmpty()]
+        [Alias("company_name")]
         [String]$Name,
 
-        [Parameter (ParameterSetName = 'Name')]
-        [Parameter (ParameterSetName = 'Force')]
-        [ValidateNotNullOrEmpty()]
-        [String]$Oauth2IdToken = $HPEGreenLakeSession.oauth2IdToken,  
-
-        [Parameter (ParameterSetName = 'Name')]
-        [Parameter (ParameterSetName = 'Force')]
-        [ValidateNotNullOrEmpty()]
-        [String]$Oauth2AccessToken = $HPEGreenLakeSession.oauth2AccessToken,
-        
-        [Parameter (ParameterSetName = 'Force')]
-        [ValidateNotNullOrEmpty()]
         [Switch]$Force
         
     ) 
@@ -3910,8 +3700,10 @@ updated with the new customer id, workspace name properties and API credentials 
         $Caller = (Get-PSCallStack)[1].Command
         
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-      
-      
+        
+        $Oauth2AccessToken = $HPEGreenLakeSession.oauth2AccessToken
+        $Oauth2IdToken = $HPEGreenLakeSession.oauth2IdToken
+
     }
       
     Process {
@@ -3940,20 +3732,8 @@ updated with the new customer id, workspace name properties and API credentials 
                 -Id $Id 
         }
 
-        # Access_token expiration date
-        $AccessTokenExpirationDate = $HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
-    
-        # Number of minutes before expiration of the Access_token expiration date
-        $BeforeExpirationinMinutes = [math]::Round(((New-TimeSpan -Start (Get-Date) -End ($AccessTokenExpirationDate)).TotalHours ) * 60)
-    
-        if ( $BeforeExpirationinMinutes -gt 0) { 
-            $Expiration = $BeforeExpirationinMinutes 
-            "[{0}] Session expiration in '{1}' minutes" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Expiration | Write-Verbose
-        }
-        else { 
-            $Expiration = 0 
-        }
 
+        $Step = 1
         
         if (-not $HPEGreenLakeSession) {
 
@@ -3963,8 +3743,24 @@ updated with the new customer id, workspace name properties and API credentials 
             Return
 
         }  
+        # If already connected to the workspace $Name
+        elseif ($HPEGreenLakeSession.workspace -eq $Name -and -not $force) {
+
+            "[{0}] Warning, already connected to workspace {1}!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+
+            Write-Warning "You are already connected to workspace $Name!" 
+            Return
+        }
+
+
+        # Access_token expiration date
+        $AccessTokenExpirationDate = $HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
+
+        # Number of minutes before expiration of the Access_token expiration date
+        $BeforeExpirationinMinutes = [math]::Round(((New-TimeSpan -Start (Get-Date) -End ($AccessTokenExpirationDate)).TotalHours ) * 60)
+    
         # Return if session expired
-        elseif ($Expiration -eq 0) {
+        if ($BeforeExpirationinMinutes -le 0) {
 
             "[{0}] The session has expired! 'Connect-HPEGL' must be executed again!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
@@ -3972,31 +3768,31 @@ updated with the new customer id, workspace name properties and API credentials 
             Return 
 
         }    
-        # If already connected to the workspace $Name
-        elseif ($HPEGreenLakeSession.workspace -eq $Name -and -not $force) {
-            Return "You are already connected to this workspace!" 
-        }
 
-      
 
-        #Region - If not connected to GLP, create a session (condition is met when 'Connect-HPEGL' is executed)
+    
+        #Region - If not connected to GLP, create a session (condition is met when 'Connect-HPEGL' is executed or when the cmdlet is used on its own)
         # Steps:
         #  1- Create CCS session and capture ccs SID (session ID) cookie value 
         #  2- Load workspace
-        elseif (-not $HPEGreenLakeSession.workspaceId -and -not $force) {
+        if (-not $HPEGreenLakeSession.workspace -and -not $force) {
 
             #Region 1 - Create CCS session and capture ccs SID (session ID) cookie value 
+            "[{0}] ------------------------------------- STEP {1}  - Create CCS session -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Step | Write-Verbose
+            
             # ccs-session cookie value is used for CCS API authentication 
             
+
             if (-Not $Name) {
-                "[{0}] ------------------------------------- STEP 1 - Create CCS session -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 3 -CurrentActivity "Running Step  1 / 3 - Creating session" -Id 1
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 3 -CurrentActivity "Running Step  $Step / 3 - Creating session" -Id 1
     
             }
             else {
-                "[{0}] ------------------------------------- STEP 1 - Create CCS session -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step 1 / 7 - Creating session" -Id 1
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step $Step / 7 - Creating session" -Id 1
             }
+
+            $step++
+
 
             # Set a variable to update/complete the Connect-HPEGL progress bar
             $Connect_HPEGL_ProgressBar = $True
@@ -4034,7 +3830,6 @@ updated with the new customer id, workspace name properties and API credentials 
 
                 $response = Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $tokenParams -SessionVariable CCSSession
 
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $response.StatusDescription | Write-verbose
                 "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($response | convertto-json -Depth 10 ) | Write-verbose
 
                 # Set global variables for all workspaces if any
@@ -4067,46 +3862,91 @@ updated with the new customer id, workspace name properties and API credentials 
                 $PSCmdlet.ThrowTerminatingError($_)               
             }
 
-            # Capture workspace ID and name
-            if ($Name) {
-
-                $MyWorkspaceName = $HPEGLworkspaces | Where-Object company_name -eq $Name
-                $Global:HPEGreenLakeSession.workspaceId = $MyWorkspaceName.platform_customer_id
-                $Global:HPEGreenLakeSession.workspace = $Name
-
-            }
-            else {
-                if ($HPEGLworkspaces.Count -eq 0) {
-                    $Global:HPEGreenLakeSession.workspace = "<Need to be created>"
-                }
-            }
-
+            # Capture workspaces count
+            $Global:HPEGreenLakeSession.workspacesCount = [int]$HPEGLworkspaces.Count
+            "[{0}] Number of workspaces found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLworkspaces.Count | Write-Verbose
             
-            "[{0}] HPE GreenLake Workspace ID: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspaceId | Write-Verbose
-            "[{0}] HPE GreenLake Workspace: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
 
-            if ($Name -and $Null -eq $HPEGreenLakeSession.workspaceId) {
+            # When a workspace name is provided and workspaces are found, select the workspace
+            if ($Name -and $HPEGLWorkspaces.Count -gt 0) {
+                
+                $MyWorkspaceName = $HPEGLworkspaces | Where-Object company_name -eq $Name
+
+                "[{0}] Workspace name '{1}' found in HPE GreenLake" -f $MyInvocation.InvocationName.ToString().ToUpper(), $MyWorkspaceName.company_name | Write-Verbose
+
+
+                # When a workspace name is provided but no workspace exists, throw an error
+                if (-not $MyWorkspaceName) {
+
+                    Write-Progress -Id 1 -Completed
+                    Write-Progress -Id 0 -Completed
+
+                    $ErrorMsg = "Workspace '{0}' not found in HPE GreenLake for user '{1}'. Use 'Get-HPEGLWorkspace' to list available workspaces." -f $Name, $HPEGreenLakeSession.username
+                    Throw $ErrorMsg
+                }
+            
+            }
+            # When a workspace name is provided but no workspace exists, throw an error
+            elseif ($Name -and $HPEGLWorkspaces.Count -eq 0) {
 
                 Write-Progress -Id 1 -Completed
                 Write-Progress -Id 0 -Completed
 
-                $ErrorMsg = "Workspace name '{0}' cannot be found in HPE GreenLake with '{1}'" -f $HPEGreenLakeSession.workspace, $HPEGreenLakeSession.username
+                $ErrorMsg = "No workspaces found in HPE GreenLake. Please use 'New-HPEGLWorkspace' to create your first workspace."
                 Throw $ErrorMsg
             }
+            # When no workspace name is provided and there is only one workspace, connect to the workspace found
+            elseif (-not $Name -and $HPEGLWorkspaces.Count -eq 1) {
+                    
+                $MyWorkspaceName = $HPEGLworkspaces 
+                "[{0}] Workspace name found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $MyWorkspaceName.company_name | Write-Verbose
 
+                    
+            }
+              # When no workspace name is provided and there is several workspaces, send a warning
+              elseif (-not $Name -and $HPEGLWorkspaces.Count -gt 1) {
+                    
+                "[{0}] Multiple workspaces ({1}) found in HPE GreenLake. Use 'Connect-HPEGLWorkspace -Name <workspace name>' to connect to a specific workspace." -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLWorkspaces.Count | Write-Verbose
+                Write-Warning "Multiple workspaces ($($HPEGLWorkspaces.Count)) found in HPE GreenLake. Use 'Connect-HPEGLWorkspace -Name <workspace name>' to connect to a specific workspace."
+                
+                Write-Progress -Id 1 -Completed
+                Write-Progress -Id 0 -Completed
+
+                Return
+                    
+            }
+            # When no workspace name is provided and no workspace found, send a warning
+            elseif (-not $Name -and $HPEGLWorkspaces.Count -eq 0) {
+                
+                Write-Warning "No workspaces found in HPE GreenLake. Please use 'New-HPEGLWorkspace' to create your first workspace." 
+                Write-Progress -Id 1 -Completed
+                Write-Progress -Id 0 -Completed
+        
+                return
+                
+            }
+            
+            
             $completedSteps++
             #EndRegion
-
+            
             #Region 2 - Load workspace to capture ccs SID (session ID) cookie value       
             
-            if ($Name) {
+            if ($MyWorkspaceName) {
 
-                "[{0}] ------------------------------------- STEP 2 - Load workspace to capture CCS SID (session ID) cookie value ---------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step 2 / 7 - Loading workspace" -Id 1
+                "[{0}] ------------------------------------- STEP {1} - Load workspace to capture CCS SID (session ID) cookie value ---------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Step | Write-Verbose
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step $Step / 7 - Loading workspace" -Id 1
+                $Step++
+
+                # Capture workspace ID and name
+                $Global:HPEGreenLakeSession.workspaceId = $MyWorkspaceName.platform_customer_id
+                $Global:HPEGreenLakeSession.workspace = $MyWorkspaceName.company_name
+                
+                "[{0}] HPE GreenLake Workspace ID: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspaceId | Write-Verbose
+                "[{0}] HPE GreenLake Workspace: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
 
                 # ccs-session cookie value is used for CCS API authentication 
-
-                
+               
                 $url = $SessionLoadAccountUri + $HPEGreenLakeSession.workspaceId
 
                 try {         
@@ -4176,164 +4016,267 @@ updated with the new customer id, workspace name properties and API credentials 
         #EndRegion
 
 
-        #Region -  If -Force is used to enforce a reconnection to the current workspace (condition is met when 'Invoke-HPEGLRefreshToken' is executed).
+        #Region -  If -Force is used to enforce a reconnection to the current workspace (condition is met when 'Invoke-HPEGLAutoReconnect' is executed automatically by the library).
         # Steps:
         #  - Load workspace to get cookies session values for CCS API authentication 
         elseif ($Force) {
 
             #Region 1 - Load ccs-session cookie value
-            "[{0}] ------------------------------------- STEP 1 - Load workspace to capture CCS SID (ccs-session cookie value) -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            # Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step 1 / 6 - Loading workspace" -Id 1
-            $NoProgressBar = $True
-            # ccs-session cookie value is used for CCS API authentication 
-
-            if ($Null -eq $HPEGreenLakeSession.workspaceId) {
-                # Write-Progress -Id 1 -Completed
-                # Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshToken'
-                throw "Error ! Workspace ID not found !" 
-            }
-
-            $url = $SessionLoadAccountUri + $HPEGreenLakeSession.workspaceId
-
-            $headers = @{} 
-            $headers["Accept"] = "application/json"
-            $headers["Content-Type"] = "application/json"
-            $headers["Authorization"] = "Bearer $Oauth2AccessToken"
             
-            $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-            [void] $session.Cookies.Add((New-Object System.Net.Cookie("ccs-session", $HPEGreenLakeSession.ccsSid, "/", "aquila-user-api.common.cloud.hpe.com")))
-            
-            # $HPEGreenLakeSession.session.Cookies.getcookies("https://aquila-user-api.common.cloud.hpe.com")
+            $MyWorkspaceName = $HPEGreenLakeSession.workspace
 
-            try {         
-
-                "[{0}] About to execute GET request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $url | Write-Verbose
-                "[{0}] Headers content: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | out-String) | Write-Verbose
-                "[{0}] Session cookie content: `nccs-session = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.ccsSid | Write-Verbose
-
-                $Timeout = 1
-
-                do {
-                    $useraccount = Invoke-WebRequest -Method Get -Uri $url -Headers $headers -WebSession $session
-                    
-                    #  Check if the status code is 200 (HTTP OK)
-                    if ($useraccount.StatusCode -eq 200) {
-                        $success = $true
-                    }
-                    else {
-                        $success = $false
-                    }
-            
-
-                    if (-not $success) {
-                        Start-Sleep -Seconds 1
-                        $Timeout++
-
-                    }                                 
-
-                } until ($success -or $Timeout -eq 60)
+            if ($MyWorkspaceName){
                 
-                if ($Timeout -ge 60) {
-                    Write-Progress -Id 1 -Completed
-                    Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshToken'
-                    throw "Error ! Cannot load workspace at the current time!" 
-                }
+                "[{0}] ------------------------------------- STEP {1} - Load workspace to capture CCS SID (ccs-session cookie value) -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $step | Write-Verbose
+                # $NoProgressBar = $True
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 3 -CurrentActivity "Running Step $step / 3 - Loading workspace" -Id 1
+                $step++
 
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $useraccount.StatusCode, $useraccount.StatusDescription | Write-verbose
-                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $useraccount | Write-verbose                
 
-                $cookies = $session.Cookies.GetCookies($url)
+                # ccs-session cookie value is used for CCS API authentication            
+    
+                $url = $SessionLoadAccountUri + $HPEGreenLakeSession.workspaceId
+    
+                $headers = @{} 
+                $headers["Accept"] = "application/json"
+                $headers["Content-Type"] = "application/json"
+                $headers["Authorization"] = "Bearer $Oauth2AccessToken"
                 
-                "[{0}] Cookies content from response headers:" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+                [void] $session.Cookies.Add((New-Object System.Net.Cookie("ccs-session", $HPEGreenLakeSession.ccsSid, "/", "aquila-user-api.common.cloud.hpe.com")))
                 
-                # Check and keep only the first instance of 'ccs-session' cookie
-                $uniqueCookies = @{}
-
-                foreach ($cookie in $cookies) { 
-                    Write-Verbose "$($cookie.name) = $($cookie.value)"
-                    # Extract the 'ccs-session' cookie value
-                    if ($cookie.name -eq 'ccs-session') {
-                        # $ccsSessionValue = $cookie.Value 
-                        # Only add the ccs-session cookie if it hasn't been added before
+                # $HPEGreenLakeSession.session.Cookies.getcookies("https://aquila-user-api.common.cloud.hpe.com")
+    
+                try {         
+    
+                    "[{0}] About to execute GET request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $url | Write-Verbose
+                    "[{0}] Headers content: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | out-String) | Write-Verbose
+                    "[{0}] Session cookie content: `nccs-session = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.ccsSid | Write-Verbose
+    
+                    $Timeout = 1
+    
+                    do {
+                        $useraccount = Invoke-WebRequest -Method Get -Uri $url -Headers $headers -WebSession $session
                         
-                        #if (-not $uniqueCookies.ContainsKey($cookie.name)) {
-                        $uniqueCookies[$cookie.name] = $cookie
-                        #}
-                    } 
+                        #  Check if the status code is 200 (HTTP OK)
+                        if ($useraccount.StatusCode -eq 200) {
+                            $success = $true
+                        }
+                        else {
+                            $success = $false
+                        }
+                
+    
+                        if (-not $success) {
+                            Start-Sleep -Seconds 1
+                            $Timeout++
+    
+                        }                                 
+    
+                    } until ($success -or $Timeout -eq 60)
+                    
+                    if ($Timeout -ge 60) {
+                        Write-Progress -Id 1 -Completed
+                        throw "Error ! Cannot load workspace at the current time!" 
+                    }
+    
+                    "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $useraccount.StatusCode, $useraccount.StatusDescription | Write-verbose
+                    "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $useraccount | Write-verbose                
+    
+                    $cookies = $session.Cookies.GetCookies($url)
+                    
+                    "[{0}] Cookies content from response headers:" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    # Check and keep only the first instance of 'ccs-session' cookie
+                    $uniqueCookies = @{}
+    
+                    foreach ($cookie in $cookies) { 
+                        Write-Verbose "$($cookie.name) = $($cookie.value)"
+                        # Extract the 'ccs-session' cookie value
+                        if ($cookie.name -eq 'ccs-session') {
+                            # $ccsSessionValue = $cookie.Value 
+                            # Only add the ccs-session cookie if it hasn't been added before
+                            
+                            #if (-not $uniqueCookies.ContainsKey($cookie.name)) {
+                            $uniqueCookies[$cookie.name] = $cookie
+                            #}
+                        } 
+                        else {
+                            # For other cookies, just add or replace as necessary
+                            $uniqueCookies[$cookie.Name] = $cookie
+                        }
+                    }
+    
+                    "[{0}] CCS-session cookie to keep: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($uniqueCookies | Out-String) | Write-Verbose
+    
+                    # Create a cookie object with the new values
+                    $newCookieContainer = New-Object System.Net.CookieContainer
+    
+                    foreach ($cookieName in $uniqueCookies.Keys) {
+                        $originalCookie = $uniqueCookies[$cookieName]
+                        $newCookie = New-Object System.Net.Cookie
+                        $newCookie.Name = $originalCookie.Name
+                        $newCookie.Value = $originalCookie.Value
+                        $newCookie.Domain = $originalCookie.Domain
+                        $newCookie.Path = $originalCookie.Path
+                        $newCookie.Expires = $originalCookie.Expires
+                        $newCookie.Secure = $originalCookie.Secure
+                        $newCookie.HttpOnly = $originalCookie.HttpOnly
+                    
+                        [void]$newCookieContainer.Add($newCookie)
+                    }
+                    
+                    $Session.Cookies = $newCookieContainer
+    
+                    $cookies = $session.Cookies.GetCookies($url)
+                    
+                    "[{0}] New cookies content after cleaning up duplicates:" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+    
+                    foreach ($cookie in $cookies) { 
+                        Write-Verbose "$($cookie.name) = $($cookie.value)"
+                        if ($cookie.name -eq 'ccs-session') {
+                            $ccsSessionValue = $cookie.Value 
+                        }
+                    }
+    
+                    "[{0}] HPE GreenLake CCS final-session captured from response headers: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ccsSessionValue | Write-Verbose
+                    
+                    # Set HPEGreenLakeSession.session global variable
+                               
+                    $Global:HPEGreenLakeSession.session = $Session
+                    $Global:HPEGreenLakeSession.ccsSid = $ccsSessionValue
+    
+            
+                }
+                catch {       
+                    
+                    Write-Progress -id 1 -Completed   
+
+                    if ($_.Exception.Response.StatusCode -eq "Unauthorized") {
+    
+                        # $ErrorMsg = "Error: '{0}' - Error details: '{1}'" -f $_.Exception.Message, $_.Exception.Response.StatusDescription
+                        Write-Warning "GLP session refresh was unsuccessful. To use HPEGL cmdlets, you will need to reconnect using 'Connect-HPEGL'!"
+    
+                    }
+                    elseif ($_.ErrorDetails.Message) {
+                        $ErrorMsg = "Error: '{0}' - Error details: '{1}' - Code: '{2}'" -f $_.Exception.Message, $_.ErrorDetails , $_.Exception.Response.StatusCode
+                        Write-Warning $ErrorMsg 
+                    }
+                    
                     else {
-                        # For other cookies, just add or replace as necessary
-                        $uniqueCookies[$cookie.Name] = $cookie
+                        $ErrorMsg = "Error: '{0}'" -f $_.Exception.Message 
+                        Write-Warning $ErrorMsg 
                     }
+
+                    Return
+                  
+                   
                 }
 
-                "[{0}] CCS-session cookie to keep: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($uniqueCookies | Out-String) | Write-Verbose
-
-                # Create a cookie object with the new values
-                $newCookieContainer = New-Object System.Net.CookieContainer
-
-                foreach ($cookieName in $uniqueCookies.Keys) {
-                    $originalCookie = $uniqueCookies[$cookieName]
-                    $newCookie = New-Object System.Net.Cookie
-                    $newCookie.Name = $originalCookie.Name
-                    $newCookie.Value = $originalCookie.Value
-                    $newCookie.Domain = $originalCookie.Domain
-                    $newCookie.Path = $originalCookie.Path
-                    $newCookie.Expires = $originalCookie.Expires
-                    $newCookie.Secure = $originalCookie.Secure
-                    $newCookie.HttpOnly = $originalCookie.HttpOnly
-                
-                    [void]$newCookieContainer.Add($newCookie)
-                }
-                
-                $Session.Cookies = $newCookieContainer
-
-                $cookies = $session.Cookies.GetCookies($url)
-                
-                "[{0}] New cookies content after cleaning up duplicates:" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                foreach ($cookie in $cookies) { 
-                    Write-Verbose "$($cookie.name) = $($cookie.value)"
-                    if ($cookie.name -eq 'ccs-session') {
-                        $ccsSessionValue = $cookie.Value 
-                    }
-                }
-
-                "[{0}] HPE GreenLake CCS final-session captured from response headers: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ccsSessionValue | Write-Verbose
-                
-                # Set HPEGreenLakeSession.session global variable
-                           
-                $Global:HPEGreenLakeSession.session = $Session
-                $Global:HPEGreenLakeSession.ccsSid = $ccsSessionValue
-        
-            }
-            catch {       
-
-                if ($_.Exception.Response.StatusCode -eq "Unauthorized") {
-
-                    # $ErrorMsg = "Error: '{0}' - Error details: '{1}'" -f $_.Exception.Message, $_.Exception.Response.StatusDescription
-                    Write-Warning "GLP session refresh was unsuccessful. To use HPEGL cmdlets, you will need to reconnect using 'Connect-HPEGL'!"
-
-                }
-                elseif ($_.ErrorDetails.Message) {
-                    $ErrorMsg = "Error: '{0}' - Error details: '{1}' - Code: '{2}'" -f $_.Exception.Message, $_.ErrorDetails , $_.Exception.Response.StatusCode
-                    Write-Warning $ErrorMsg 
-                }
-                
-                else {
-                    $ErrorMsg = "Error: '{0}'" -f $_.Exception.Message 
-                    Write-Warning $ErrorMsg 
-                }
-              
-                # Write-Progress -Id 1 -Completed
-                # Write-Progress -Id 2 -Completed # progress bar from 'Invoke-HPEGLRefreshToken'
-                # Write-Progress -Id 3 -Completed # progress bar from 'Disconnect-HPEGL'
-                # break
-                # throw $ErrorMsg 
-                # $PSCmdlet.ThrowTerminatingError($PSitem)
             }
 
-            # $completedSteps++
+
+            $completedSteps++
             #EndRegion
+
+            #Region2 - Generate new access_token/refresh_token/id_token
+
+            if ($MyWorkspaceName){
+
+                "[{0}] ------------------------------------- STEP {1} - Generate new access_token/refresh_token/id_token -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $step | Write-Verbose
+                # $NoProgressBar = $True
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 3 -CurrentActivity "Running Step $step / 3 - Generating new Oauth2 tokens" -Id 1
+                $step++
+        
+                $Body = @{
+                    'grant_type'    = 'refresh_token'
+                    'client_id'     = 'aquila-user-auth'
+                    'refresh_token' = $HPEGreenLakeSession.oauth2RefreshToken
+                } 
+        
+                "[{0}] About to execute POST request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLtokenEndpoint | Write-Verbose
+        
+                try {
+
+                    $InvokeReturnData = Invoke-webrequest -Uri $HPEGLtokenEndpoint -Method 'POST' -ContentType "application/x-www-form-urlencoded" -Body $Body -WebSession $HPEGreenLakeSession.session 
+                
+                    "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
+                    "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose
+                    
+                    $InvokeReturnData = $InvokeReturnData | ConvertFrom-Json
+
+                    # Set new global variables
+
+                    $NewAccessToken = $InvokeReturnData.access_token
+                    "[{0}] New access token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewAccessToken | Write-verbose
+                    $global:HPEGreenLakeSession.oauth2AccessToken = $NewAccessToken 
+
+                    $NewRefreshToken = $InvokeReturnData.refresh_token
+                    "[{0}] New refresh token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewRefreshToken | Write-verbose
+                    $global:HPEGreenLakeSession.oauth2RefreshToken = $NewRefreshToken
+
+                    $NewIdToken = $InvokeReturnData.id_token
+                    "[{0}] New ID token = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NewIdToken | Write-verbose
+                    $global:HPEGreenLakeSession.oauth2IdToken = $NewIdToken 
+
+                    $global:HPEGreenLakeSession.oauth2TokenCreation = [datetime]$( Get-Date -Format g )
+                    "[{0}] `$HPEGreenLakeSession has been updated with new token creation date!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                    $global:HPEGreenLakeSession.oauth2TokenCreationEpoch = $( (New-TimeSpan -Start (Get-Date "01/01/1970") -End (Get-Date)).TotalSeconds ) 
+                    "[{0}] `$HPEGreenLakeSession has been updated with new token creation epoch!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        
+                    "[{0}] `$HPEGreenLakeSession has been updated with new access_token/refresh_token/id_token!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                    # Cookies?
+                    $allCookies = $HPEGreenLakeSession.session.Cookies.GetCookies($HPEGLtokenEndpoint)
+                    # Output all cookies
+                    foreach ($cookie in $allCookies) {
+                        Write-Verbose "Session cookie content: `n$($cookie.Name) = $($cookie.Value)"
+                    }
+
+                }
+                
+                catch {
+
+                    Write-Progress -id 1 -Completed   
+
+                    "[{0}] Exception thrown!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                    # Get Exception type
+                    $exception = $_.Exception
+                    do {
+                        "[{0}] Exception Type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exception.GetType().Name | Write-Verbose
+                        $exception = $exception.InnerException
+                    } while ($exception)
+
+                    # Get exception stream
+                    $result = $_.Exception.Response.GetResponseStream()
+                    $reader = New-Object System.IO.StreamReader($result)
+                    $reader.BaseStream.Position = 0
+                    $reader.DiscardBufferedData()
+                    $responseBody = $reader.ReadToEnd() 
+
+
+                    "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseBody | Write-Verbose
+                
+                    # $response = $responseBody | ConvertFrom-Json
+
+                        
+                        
+                    if ($Body) {
+                        "[{0}] Request payload: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Body | Out-String) | Write-Verbose
+                    }
+                    if ($Headers) {
+                        "[{0}] Request headers: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | Out-String) | Write-Verbose
+                    }
+
+                    Throw "Error -  $responseBody"          
+                    
+                }    
+            }
+    
+            $completedSteps++    
+            #endRegion
 
         }
         #EndRegion
@@ -4345,12 +4288,10 @@ updated with the new customer id, workspace name properties and API credentials 
         #  - Load workspace to get cookies session values for CCS API authentication 
         else {           
             
-            #Region 1 - Remove library API client credentials from the workspace being exited
-            "[{0}] ------------------------------------- STEP 1 - Remove library API client credentials from the workspace being exited -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step 1 / 7 - Removing library API credentials from current workspace" -Id 1
-
+            #Region 1 - Remove library API client credentials from the workspace being exited (if any)
+         
             # Set a variable to update/complete the Connect-HPEGL progress bar
-            $Another_Workspace_Connection_ProgressBar = $True
+            $ProgressBar_WhenConnectingToAnotherWorkspace = $True
 
 
             if (! $Name) {
@@ -4372,7 +4313,8 @@ updated with the new customer id, workspace name properties and API credentials 
 
                 Write-Progress -Id 1 -Completed
 
-                $ErrorMessage = "Workspace '{0}' cannot be found in HPE GreenLake!" -f $Name
+                $ErrorMessage = "Workspace '{0}' not found in HPE GreenLake for user '{1}'. Use 'Get-HPEGLWorkspace' to list available workspaces." -f $Name, $HPEGreenLakeSession.username
+
                 $ErrorRecord = New-ErrorRecord WorkspaceNotFoundInCOM ObjectNotFound -TargetObject 'Workspace' -Message $ErrorMessage -TargetType $Name.GetType().Name
                 $PSCmdlet.ThrowTerminatingError($ErrorRecord)
 
@@ -4382,16 +4324,7 @@ updated with the new customer id, workspace name properties and API credentials 
            
                 $WorkspaceId = $Workspace.platform_customer_id
 
-                if (-not $WorkspaceId) {
-
-                    Write-Progress -Id 1 -Completed
-                
-                    $ErrorMessage = "Workspace '{0}' ID cannot be found in HPE GreenLake!" -f $Name
-                    $ErrorRecord = New-ErrorRecord WorkspaceIDNotFoundInCOM ObjectNotFound -TargetObject 'Workspace' -Message $ErrorMessage -TargetType $Name.GetType().Name
-                    $PSCmdlet.ThrowTerminatingError($ErrorRecord)
-
-                }
-
+                $MyWorkspaceName = $Workspace.company_name
                 
                 try {
                     $APIcredentials = Get-HPEGLAPICredential | Where-Object name -match $APIClientCredentialTemplateName 
@@ -4408,6 +4341,10 @@ updated with the new customer id, workspace name properties and API credentials 
             
                 if ($APIcredentials) {
 
+                    "[{0}] ------------------------------------- STEP {1} - Remove library API client credentials from the workspace being exited -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Step | Write-Verbose
+                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step $Step / 7 - Removing library API credentials from current workspace" -Id 1       
+                    $step++
+
                     try {
                         $APIcredentials | Remove-HPEGLAPICredential | Out-Null
                         
@@ -4416,6 +4353,8 @@ updated with the new customer id, workspace name properties and API credentials 
                         Write-Progress -Id 1 -Completed
                         $PSCmdlet.ThrowTerminatingError($_)
                     }
+
+                    
                 }
 
                 $completedSteps++
@@ -4423,10 +4362,13 @@ updated with the new customer id, workspace name properties and API credentials 
 
                   
                 #Region 2 - Load ccs-session cookie value
-                "[{0}] ------------------------------------- STEP 2 - Load workspace to capture CCS SID (ccs-session cookie value) -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                "[{0}] ------------------------------------- STEP {1} - Load workspace to capture CCS SID (ccs-session cookie value) -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Step  | Write-Verbose
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step $Step / 7 - Loading workspace" -Id 1
+                $step++
+                
                 # ccs-session cookie value is used for CCS API authentication 
                 
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step 2 / 7 - Loading workspace" -Id 1
 
                 try {         
 
@@ -4492,20 +4434,23 @@ updated with the new customer id, workspace name properties and API credentials 
         #Region - Generate new temporary API client credentials (COM and GLP) for this library using template $APIClientCredentialTemplateName 
         "[{0}] Generate new API client credentials in '{1}' workspace" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
         
-        if ($Name) {
+        if ($MyWorkspaceName -and -not $Force) {
+
+            "[{0}] ------------------------------------- STEP {1} - Generate new API client credentials -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Step  | Write-Verbose
             
-            if ( $Connect_HPEGL_ProgressBar -or $Another_Workspace_Connection_ProgressBar) {
-                "[{0}] ------------------------------------- STEP 3 - Generate new API client credentials -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step 3 / 7 - Generating new library API credentials" -Id 1
+            if ( $Connect_HPEGL_ProgressBar -or $ProgressBar_WhenConnectingToAnotherWorkspace) {
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step $Step / 7 - Generating new library API credentials" -Id 1
                 
             }
             else {
-                "[{0}] ------------------------------------- STEP 2 - Generate new API client credentials -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step 2 / 6 - Generating new library API credentials" -Id 1
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step $Step / 6 - Generating new library API credentials" -Id 1
             }
+
+            $Step++ 
 
             # Clear $HPEGreenLakeSession.comApiAccessToken global variable
             $global:HPEGreenLakeSession.comApiAccessToken = [System.Collections.ArrayList]::new()
+
             # Clear $HPECOMAPICredentialRegions global variable
             $Global:HPECOMAPICredentialRegions = [System.Collections.ArrayList]::new()
 
@@ -4534,6 +4479,8 @@ updated with the new customer id, workspace name properties and API credentials 
             }
         
             if ($APIcredentials) {
+
+                "[{0}] Library API client credentials found, let's remove them..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
                 try {
                     
@@ -4626,23 +4573,32 @@ updated with the new customer id, workspace name properties and API credentials 
 
         #Region - Create sessions with GLP and COM APIs at https://sso.common.cloud.hpe.com/as/token.oauth2 and capture access tokens
         
-        if ($Name) {
+        if ($MyWorkspaceName) {
 
-            if ($Connect_HPEGL_ProgressBar) {
-                "[{0}] ------------------------------------- STEP 4 - Create sessions with HPE GreenLake and COM APIs to capture access tokens -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step  4 / 7 - Creating session" -Id 1
+            "[{0}] ------------------------------------- STEP {1} - Create sessions with HPE GreenLake and COM APIs to capture access tokens -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Step  | Write-Verbose
+            
+            
+            if ($Connect_HPEGL_ProgressBar -or $ProgressBar_WhenConnectingToAnotherWorkspace) {
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step $Step / 7 - Creating session" -Id 1
+                
+            }
+            elseif ($Force) {
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 3 -CurrentActivity "Running Step $step / 3 - Creating session" -Id 1
 
             }
             else {
-                "[{0}] ------------------------------------- STEP 3 - Create sessions with HPE GreenLake and COM APIs to capture access tokens -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step 3 / 6 - Creating session" -Id 1
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step $Step / 6 - Creating session" -Id 1
             }
+
+            $Step++
 
             $TemporaryCredentialsList = $HPEGreenLakeSession.apiCredentials | Where-Object name -match $APIClientCredentialTemplateName
 
             "[{0}] Credentials found: '{1}' " -f $MyInvocation.InvocationName.ToString().ToUpper(), $TemporaryCredentialsList.length | Write-Verbose
 
             foreach ($CurrentCredential in $TemporaryCredentialsList) {
+
+                "[{0}] Create session with '{1}' " -f $MyInvocation.InvocationName.ToString().ToUpper(), $CurrentCredential.name | Write-Verbose
 
                 $SecureClientSecret = $CurrentCredential.secure_client_secret | ConvertTo-SecureString
                 $Bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureClientSecret)
@@ -4661,7 +4617,7 @@ updated with the new customer id, workspace name properties and API credentials 
 
                     $response = Invoke-RestMethod -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded' 
 
-                    "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
+                    # "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
                     "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
 
 
@@ -4675,8 +4631,19 @@ updated with the new customer id, workspace name properties and API credentials 
 
                         }
                 
+                        # Check if the access token for the current credential already exists
+                        $existingCredential = $global:HPEGreenLakeSession.comApiAccessToken | Where-Object { $_.name -eq $CurrentCredential.name }
+                                
+                        if ($existingCredential) {
+                            # Remove the existing credential
+                            $global:HPEGreenLakeSession.comApiAccessToken.Remove($existingCredential)
+                            "[{0}] Previous access token for '{1}' removed!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CurrentCredential.name | Write-Verbose
+
+                        }
+                            
                         [void]$global:HPEGreenLakeSession.comApiAccessToken.add($ServiceAPICredential)
                         "[{0}] COM API access token has been set in `$HPEGreenLakeSession.comApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
                     }
 
                     if ($CurrentCredential.name -match "GLP-$APIClientCredentialTemplateName") {
@@ -4689,7 +4656,18 @@ updated with the new customer id, workspace name properties and API credentials 
 
                         }
 
-                        [void]$global:HPEGreenLakeSession.glpApiAccessToken.add($ServiceAPICredential)                        
+                        # Check if the access token for the current credential already exists
+                        $existingCredential = $global:HPEGreenLakeSession.glpApiAccessToken | Where-Object { $_.name -eq $CurrentCredential.name }
+                        
+                        if ($existingCredential) {
+                            # Remove the existing credential
+                            $global:HPEGreenLakeSession.glpApiAccessToken.Remove($existingCredential)
+                            "[{0}] Previous access token for '{1}' removed!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CurrentCredential.name | Write-Verbose
+
+                        }
+
+                        # Add the new credential
+                        [void]$global:HPEGreenLakeSession.glpApiAccessToken.add($ServiceAPICredential)
                         "[{0}] GLP API access token has been set in `$HPEGreenLakeSession.glpApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
                     }
@@ -4721,18 +4699,21 @@ updated with the new customer id, workspace name properties and API credentials 
         #endregion
 
         
-        #Region - Generate $HPECOMjobtemplatesUris if not available and if COM instance to store the URIs of each COM job templates 
+        #Region - Generate $HPECOMjobtemplatesUris if not available and if COM instance present (used to store the URIs of each COM job templates)
         if (-not $HPECOMjobtemplatesUris -and ($HPEGreenLakeSession.apiCredentials | Where-Object application_name -eq "COM" )) {
+
+            "[{0}] ------------------------------------- STEP {1} - Generate $HPECOMjobtemplatesUris if not available to store the URIs of each COM job templates  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Step  | Write-Verbose
+            
             
             if ($Connect_HPEGL_ProgressBar) {
-                "[{0}] ------------------------------------- STEP 5 - Generate $HPECOMjobtemplatesUris if not available to store the URIs of each COM job templates  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step  5 / 7 - Generating $HPECOMjobtemplatesUris" -Id 1
-
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step $Step / 7 - Generating $HPECOMjobtemplatesUris" -Id 1
+                
             }
             else {
-                "[{0}] ------------------------------------- STEP 4 - Generate $HPECOMjobtemplatesUris if not available to store the URIs of each COM job templates  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step 4 / 6 - Generating $HPECOMjobtemplatesUris" -Id 1
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step $Step / 6 - Generating $HPECOMjobtemplatesUris" -Id 1
             }
+
+            $Step++
 
             $FirstProvisionedCOMRegion = $HPEGreenLakeSession.apicredentials | Where-Object application_name -eq COM | select -first 1 | ForEach-Object region
             "[{0}] About to retrieve the URIs of each COM job templates in '{1}' COM region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $FirstProvisionedCOMRegion | Write-Verbose
@@ -4760,134 +4741,132 @@ updated with the new customer id, workspace name properties and API credentials 
 
         #Region - Set the user session idle timeout to 2 hours to prevent disconnection due to inactivity, and save it in the global variable.
     
-        if (-Not $Name -and -not $NoProgressBar) {
-            "[{0}] ------------------------------------- STEP 2 - Set user session idle timeout in global variable  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 3 -CurrentActivity "Running Step  2 / 3 - Setting user session idle timeout" -Id 1
+        If (-Not $Force) {
 
-        }
-        elseif ($Connect_HPEGL_ProgressBar) {
-            "[{0}] ------------------------------------- STEP 6 - Set user session idle timeout in global variable  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step  6 / 7 - Setting user session idle timeout" -Id 1
-
-        }
-        elseif ($NoProgressBar) {
-            "[{0}] ------------------------------------- STEP 2 - Set user session idle timeout in global variable  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-        }
-        else {
-            "[{0}] ------------------------------------- STEP 5 - Set user session idle timeout in global variable  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step 5 / 6 - Setting user session idle timeout" -Id 1
-        }
-
-        "[{0}] Set user session idle timeout in `$HPEGLworkspaces" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-        
-        # Get user session idle timeout 
-        
-        try {
-            # Set the user session idle timeout to 2 hours (7200 seconds) to prevent disconnection due to inactivity if less than 2 hours
-
-            $UserSessionTimeout = ((Get-HPEGLUserPreference).idle_timeout) / 60
-
-            if ( $UserSessionTimeout -lt '120') {
-
-                Set-HPEGLUserPreference -SessionTimeoutInMinutes 120 
-                "[{0}] 120 minutes session idle timeout has been set in `$HPEGreenLakeSession global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-            }
-            else {
-
-                $Global:HPEGreenLakeSession.userSessionIdleTimeout = $UserSessionTimeout
-                "[{0}] '{1}' minutes session idle timeout has been set in `$HPEGreenLakeSession global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $UserSessionTimeout | Write-Verbose
-            }
-          
+            "[{0}] ------------------------------------- STEP {1} - Set user session idle timeout in global variable  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Step | Write-Verbose
             
-        }
-        catch {
-            Write-Progress -Id 1 -Completed 
-            
-            if ($Connect_HPEGL_ProgressBar) {
-                Write-Progress -id 0 -Completed # progress bar from 'Connect-HPEGL'
+            if (-Not $MyWorkspaceName -and -not $NoProgressBar) {
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 3 -CurrentActivity "Running Step $Step / 3 - Setting user session idle timeout" -Id 1
                 
             }
-            $PSCmdlet.ThrowTerminatingError($_)
+            elseif ($Connect_HPEGL_ProgressBar) {
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step $Step / 7 - Setting user session idle timeout" -Id 1
+                
+            }
+            else {
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step $Step / 6 - Setting user session idle timeout" -Id 1
+            }
+    
+            $Step++
+    
+            "[{0}] Set user session idle timeout in `$HPEGLworkspaces" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            
+            # Get user session idle timeout 
+            
+            try {
+                # Set the user session idle timeout to 2 hours (7200 seconds) to prevent disconnection due to inactivity if less than 2 hours
+    
+                $UserSessionTimeout = ((Get-HPEGLUserPreference).idle_timeout) / 60
+    
+                if ( $UserSessionTimeout -lt '120') {
+    
+                    Set-HPEGLUserPreference -SessionTimeoutInMinutes 120 
+                    "[{0}] 120 minutes session idle timeout has been set in `$HPEGreenLakeSession global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+    
+                }
+                else {
+    
+                    $Global:HPEGreenLakeSession.userSessionIdleTimeout = $UserSessionTimeout
+                    "[{0}] '{1}' minutes session idle timeout has been set in `$HPEGreenLakeSession global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $UserSessionTimeout | Write-Verbose
+                }
+              
+                
+            }
+            catch {
+                Write-Progress -Id 1 -Completed 
+                
+                if ($Connect_HPEGL_ProgressBar) {
+                    Write-Progress -id 0 -Completed # progress bar from 'Connect-HPEGL'
+                    
+                }
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+    
+            $completedSteps++ 
         }
-
-        $completedSteps++ 
         
         #endregion
 
 
         #Region - Get HPE GreenLake schema meta data to get HPE GL supported timezones and countries at https://onepass-enduserservice.it.hpe.com/v2-get-user-schema-metadata
 
-        if (-not $Name) {
-            "[{0}] ------------------------------------- STEP 3 - Get HPE GreenLake schema meta data to get HPE GL supported timezones and countries  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 3 -CurrentActivity "Running Step  3 / 3 - Getting HPE GreenLake schema meta data" -Id 1
-
-        }
-        elseif ($Connect_HPEGL_ProgressBar) {
-            "[{0}] ------------------------------------- STEP 7 - Get HPE GreenLake schema meta data to get HPE GL supported timezones and countries  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step  7 / 7 - Getting HPE GreenLake schema meta data" -Id 1
-
-        }
-        elseif ($NoProgressBar) {
-            "[{0}] ------------------------------------- STEP 3 - Get HPE GreenLake schema meta data to get HPE GL supported timezones and countries  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-        }
-        else {
-            "[{0}] ------------------------------------- STEP 6 - Get HPE GreenLake schema meta data to get HPE GL supported timezones and countries  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step 6 / 6 - Getting HPE GreenLake schema meta data" -Id 1
-        }
-
-        "[{0}] About to make call to fetch HPE GreenLake schema meta data at: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SchemaMetadataURI | Write-Verbose
-        
-        try {
-            $Global:HPEGLSchemaMetadata = Invoke-HPEGLWebRequest -Uri $SchemaMetadataURI -Method Post 
-           
-        }
-        catch {
-            Write-Progress -Id 0 -Completed
-            $PSCmdlet.ThrowTerminatingError($_)
-        }
-
-
-        # Register an argument completer for the TimeZone parameter
-        Register-ArgumentCompleter -CommandName 'Set-HPEGLUserAccountDetails' -ParameterName TimeZone -ScriptBlock {
-            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-
-            # Get all available time zone IDs
-            $timeZoneIds = $HPEGLSchemaMetadata.definitions.custom.properties.hpeTimezone.enum
-
-            # Filter time zone IDs based on input and create completions
-            $timeZoneIds | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+        if (-not $Force) {
+            
+            "[{0}] ------------------------------------- STEP {1} - Get HPE GreenLake schema meta data to get HPE GL supported timezones and countries  -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Step | Write-Verbose
+    
+            if (-not $MyWorkspaceName) {
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 3 -CurrentActivity "Running Step $Step / 3 - Getting HPE GreenLake schema meta data" -Id 1
+    
             }
-        }
-
-        # Register an argument completer for the Country parameter
-        Register-ArgumentCompleter -CommandName 'Set-HPEGLUserAccountDetails', 'New-HPEGLWorkspace', 'Set-HPEGLWorkspace', 'New-HPEGLLocation', 'Set-HPEGLLocation' -ParameterName Country -ScriptBlock {
-            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-
-            # Get all available country codes
-            $Countries = $HPEGLSchemaMetadata.definitions.custom.properties.hpeCountryCode.oneOf.title[1..($HPEGLSchemaMetadata.definitions.custom.properties.hpeCountryCode.oneOf.title.length - 1)]
-
-            # Filter country codes based on input and create completions
-            $Countries | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                $countryName = $_
-        
-                # Check if the country name contains spaces
-                if ($countryName -match "\s") {
-                    # Wrap the country name in single quotes
-                    $completionText = "'$countryName'"
-                }
-                else {
-                    $completionText = $countryName
-                }
-        
-                [System.Management.Automation.CompletionResult]::new($completionText, $completionText, 'ParameterValue', $countryName)
+            elseif ($Connect_HPEGL_ProgressBar) {
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 7 -CurrentActivity "Running Step $Step / 7 - Getting HPE GreenLake schema meta data" -Id 1
+    
             }
+            else {
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps 6 -CurrentActivity "Running Step $Step / 6 - Getting HPE GreenLake schema meta data" -Id 1
+            }
+    
+            "[{0}] About to make call to fetch HPE GreenLake schema meta data at: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SchemaMetadataURI | Write-Verbose
+            
+            try {
+                $Global:HPEGLSchemaMetadata = Invoke-HPEGLWebRequest -Uri $SchemaMetadataURI -Method Post 
+               
+            }
+            catch {
+                Write-Progress -Id 0 -Completed
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+    
+    
+            # Register an argument completer for the TimeZone parameter
+            Register-ArgumentCompleter -CommandName 'Set-HPEGLUserAccountDetails' -ParameterName TimeZone -ScriptBlock {
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    
+                # Get all available time zone IDs
+                $timeZoneIds = $HPEGLSchemaMetadata.definitions.custom.properties.hpeTimezone.enum
+    
+                # Filter time zone IDs based on input and create completions
+                $timeZoneIds | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            }
+    
+            # Register an argument completer for the Country parameter
+            Register-ArgumentCompleter -CommandName 'Set-HPEGLUserAccountDetails', 'New-HPEGLWorkspace', 'Set-HPEGLWorkspace', 'New-HPEGLLocation', 'Set-HPEGLLocation' -ParameterName Country -ScriptBlock {
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+    
+                # Get all available country codes
+                $Countries = $HPEGLSchemaMetadata.definitions.custom.properties.hpeCountryCode.oneOf.title[1..($HPEGLSchemaMetadata.definitions.custom.properties.hpeCountryCode.oneOf.title.length - 1)]
+    
+                # Filter country codes based on input and create completions
+                $Countries | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    $countryName = $_
+            
+                    # Check if the country name contains spaces
+                    if ($countryName -match "\s") {
+                        # Wrap the country name in single quotes
+                        $completionText = "'$countryName'"
+                    }
+                    else {
+                        $completionText = $countryName
+                    }
+            
+                    [System.Management.Automation.CompletionResult]::new($completionText, $completionText, 'ParameterValue', $countryName)
+                }
+            }
+    
+            $completedSteps++ 
         }
-
-        $completedSteps++ 
         
         #endregion
 
@@ -5195,6 +5174,772 @@ Function Get-HPECOMActivity {
 #EndRegion
 
 
+#Region --- APPLIANCES ---
+
+Function Get-HPECOMAppliance {
+    <#
+    .SYNOPSIS
+    Retrieve the list of appliances.
+    
+    .DESCRIPTION
+    This Cmdlet returns a collection of appliance resources in the specified region. 
+    
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.  
+
+    .PARAMETER Name
+    Specifies the name of the appliance resource.      
+
+    .PARAMETER IPAddress
+    Specifies the IP address of the appliance resource.      
+
+    .PARAMETER Limit 
+    This parameter allows you to define the number of appliances to be displayed. 
+   
+    .PARAMETER Type 
+    Optional parameter that can be used to get a certain type of appliances such as HPE Secure Gateway appliances, HPE OneView VM - VMware vSphere appliances, or HPE Synergy Composer appliances.
+
+    .PARAMETER ShowActivationKey
+    Optional switch parameter that can be used to display the activation key of the appliance.
+
+    .PARAMETER WhatIf 
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central
+
+    Return all appliances in the central european region. 
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Name oneview.hpelab.net
+
+    Return the OneView appliance named 'oneview.hpelab.net' in the central european region. 
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Name oneview.hpelab.net -ShowActivationKey
+
+    Return the activation key for the OneView appliance named 'oneview.hpelab.net' in the central european region.
+    
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Type OneViewVM
+
+    Return data for all HPE OneView VM - VMware vSphere appliances located in the central European region.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Type SynergyComposer
+
+    Return data for all HPE Synergy Composer appliances located in the central European region.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Type SecureGateway
+
+    Return data for all HPE Secure Gateway Appliance located in the central European region.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region us-west -name comgw.lab -ShowActivationKey 
+
+    Return the activation key for the Secure Gateway appliance named 'comgw.lab' in the "us-west" region.
+
+    
+   #>
+    [CmdletBinding(DefaultParameterSetName = 'Limit')]
+    Param( 
+    
+        [Parameter (Mandatory)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory, ParameterSetName = 'IP')]
+        [ValidateScript({ [String]::IsNullOrEmpty($_) -or $_ -match [Net.IPAddress]$_ })]
+        [string]$IPAddress,
+
+        [Parameter (Mandatory, ParameterSetName = 'Name')]
+        [String]$Name,
+
+        [Parameter (ParameterSetName = 'Limit')]
+        [ValidateScript({ $_ -le 1000 })]
+        [int]$Limit,
+
+        [Parameter (ParameterSetName = 'Limit')]
+        [Parameter (ParameterSetName = 'IP')]
+        [Parameter (ParameterSetName = 'Name')]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $environments = @('SynergyComposer', 'OneViewVM', 'SecureGateway')
+                $filteredEnvironments = $environments | Where-Object { $_ -like "$wordToComplete*" }
+                return $filteredEnvironments | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [ValidateScript({
+                $validOptions =  @('SynergyComposer', 'OneViewVM', 'SecureGateway')
+                
+                if ($validOptions -contains $_) {
+                    $True
+                }
+                else {
+                    throw "'$_' is not a valid option."
+                }
+                
+            })]                
+        [String]$Type,
+
+        [Parameter (ParameterSetName = 'Name')]
+        [Parameter (ParameterSetName = 'IP')]
+        [Switch]$ShowActivationKey,
+
+        [Switch]$WhatIf
+       
+    ) 
+
+    Begin {
+  
+        $Caller = (Get-PSCallStack)[1].Command
+        
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+      
+      
+    }
+      
+      
+    Process {
+      
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # No limit by default
+        if ($Limit) {
+
+            $Uri = $COMOneViewAppliancesUri + "?limit=$Limit"
+       
+        } 
+        else {
+            
+            $Uri = $COMOneViewAppliancesUri 
+        }           
+
+
+        try {
+            [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
+
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+               
+        }
+        
+
+        $ReturnData = @()
+       
+        if ($Null -ne $CollectionList) {      
+
+            # Add region to object
+            $CollectionList | Add-Member -type NoteProperty -name region -value $Region            
+            
+            if ($Type) {
+                
+                switch ($Type) {
+                    "SecureGateway" { $_applianceType = "GATEWAY" }
+                    "SynergyComposer" { $_applianceType = "SYNERGY" }
+                    "OneViewVM" { $_applianceType = "VM" }
+                }
+                
+                $CollectionList = $CollectionList | Where-Object applianceType -eq $_applianceType
+            }
+            
+            
+            if ($IPAddress) {
+            
+                $CollectionList = $CollectionList | Where-Object ipaddress -eq $IPAddress
+                  
+            } 
+            elseif ($Name) {
+                
+                $CollectionList = $CollectionList | Where-Object name -eq $Name 
+                
+            }       
+            
+            if ($CollectionList.applianceType -eq "GATEWAY" -and $ShowActivationKey) {
+
+               try {
+                   $ActivationKey = New-HPECOMAppliance -Region $Region -SecureGateway 
+                   Return $ActivationKey
+                
+               }
+               catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+               }
+            }
+            elseif ($ShowActivationKey) {
+                    
+                $CollectionList = $CollectionList.activationkey
+                return $CollectionList 
+                
+            }
+             
+
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Appliances"    
+    
+            $ReturnData = $ReturnData | Sort-Object name, ipaddress
+        
+            return $ReturnData 
+           
+        }
+        else {
+
+            return
+                
+        }     
+
+    
+    }
+}
+
+
+
+Function New-HPECOMAppliance {
+    <#
+    .SYNOPSIS
+    Adds an HPE OneView or Secure Gateway appliance for management to a specific region. 
+
+    .DESCRIPTION   
+    This cmdlet adds an HPE OneView or Secure Gateway appliance to the specified Compute Ops Management region for management. It generates an activation key that is used to connect the appliance to Compute Ops Management.
+    
+    For OneView appliances, the activation key can be retrieved using the 'Get-HPECOMAppliance -Name <OV hostname> -ShowActivationKey' cmdlet. 
+    This activation key is required to enable Compute Ops Management in OneView using the 'Enable-OVComputeOpsManagement -ActivationKey $ActivationKey' cmdlet from the HPE OneView PowerShell library.
+
+    For Secure Gateway appliances, the same activation key can be used to connect multiple Secure Gateway appliances to Compute Ops Management within 72 hours.
+
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the appliance will be located.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+    
+    .PARAMETER SecureGateway    
+    Specifies that the appliance to be added is an HPE Secure Gateway appliance. This parameter is mandatory when adding an HPE Secure Gateway appliance.
+    
+    .PARAMETER OneView    
+    Specifies that the appliance to be added is an HPE OneView appliance. This parameter is mandatory when adding an HPE OneView appliance.
+
+    .PARAMETER OneViewID
+    Specifies the ID of the OneView appliance to be added to the region. This parameter is mandatory when adding an HPE OneView appliance.
+
+    Note: The OneView ID can be retrieved using the 'Get-OVComputeOpsManagement' cmdlet from the HPE OneView PowerShell library.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    $credentials = Get-Credential
+    Connect-OVMgmt -Appliance OV.domain.com -Credential $credentials
+    $AddTask = Get-OVComputeOpsManagement | New-HPECOMAppliance -Region eu-central -OneView
+    Enable-OVComputeOpsManagement -ActivationKey $AddTask.activationkey
+    
+    In this example:
+    1. Prompts the user to enter their credentials and stores them in the $credentials variable.
+    2. Establishes a connection to the OV.domain.com appliance using the Connect-OVMgmt cmdlet, passing the appliance URL (OV.domain.com) and the credentials stored in the $credentials variable.
+    3. Retrieves the Compute Ops Management configuration from OneView using the HPE OneView PowerShell library, then pipes the output to add the OneView appliance to the 'eu-central' region.
+    4. Activates the Compute Ops Management configuration in OneView using the obtained activation key from the returned $AddTask object with the 'Enable-OVComputeOpsManagement' cmdlet. The activation key is required for enabling Compute Ops Management in OneView.
+
+    .EXAMPLE
+    $credentials = Get-Credential
+    Connect-OVMgmt -Appliance OV.domain.com -Credential $credentials
+    $ApplianceID = (Get-OVComputeOpsManagement).ApplianceID
+    $AddTask = New-HPECOMAppliance -Region eu-central -OneView -OneViewID $ApplianceID 
+    Enable-OVComputeOpsManagement -ActivationKey $AddTask.activationkey
+
+    In this example:
+    1. Prompts the user to enter their credentials and stores them in the $credentials variable.
+    2. Establishes a connection to the OV.domain.com appliance using the Connect-OVMgmt cmdlet, passing the appliance URL (OV.domain.com) and the credentials stored in the $credentials variable.
+    3. Retrieves the ApplianceID from 'Get-OVComputeOpsManagement'.
+    4. Adds the OneView appliance to the 'eu-central' region using the appliance ID.
+    5. Activates the Compute Ops Management configuration in OneView using the obtained activation key from the returned $AddTask object with the 'Enable-OVComputeOpsManagement' cmdlet. The activation key is required for enabling Compute Ops Management in OneView.
+
+    .EXAMPLE
+    New-HPECOMAppliance -Region us-west -SecureGateway 
+
+    Adds an HPE Secure Gateway appliance to the 'us-west' region and returns the activation key to use in the secure gateway console to connect the appliance to Compute Ops Management.
+
+    .INPUTS
+    System.Collections.ArrayList
+        OneView appliance details from 'Get-OVComputeOpsManagement' (HPE OneView PowerShell library).
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:  
+        * Region - Name of the region 
+        * ApplianceType - Type of the appliance (OneView or Secure Gateway)
+        * ID - ID of the OneView appliance attempted to be added to the region
+        * ActivationKey - The activation key to be used in the appliance for enabling Compute Ops Management
+        * ExpiresOn - The expiration date of the Secure Gateway activation key (72 hours from the time of appliance addition)
+        * Status - The status of the addition attempt (Failed for HTTP error return; Complete if addition is successful; Warning if no action is needed) 
+        * Details - More information about the status 
+        * Exception - Information about any exceptions generated during the operation.
+#>
+
+    [CmdletBinding(DefaultParameterSetName = 'OneView')]
+    Param( 
+
+        [Parameter (Mandatory)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory, ParameterSetName = 'SecureGateway')]
+        [Switch]$SecureGateway,
+
+        [Parameter (Mandatory, ParameterSetName = 'OneView')]
+        [Switch]$OneView,
+                
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'OneView')]
+        [alias('ApplianceID')]
+        [String]$OneViewID,
+                  
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $AddApplianceStatus = [System.Collections.ArrayList]::new()
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+
+        if ($OneView) {
+
+            # Build object for the output
+            $objStatus = [pscustomobject]@{
+  
+                Region        = $Region   
+                ApplianceType = "OneView"
+                ID            = $OneViewID
+                ActivationKey = $Null                         
+                Status        = $Null
+                Details       = $Null
+                Exception     = $Null
+            }
+
+            $Uri = $COMOneViewAppliancesUri           
+            
+            try {
+                $CurrentAppliances = Get-HPECOMAppliance -Region $Region 
+
+                $ApplianceSubscrition = Get-HPEGLServiceSubscription -ShowValid -ShowWithAvailableQuantity | Where-Object { $_.product_description -match "Compute Ops Management - OneView Edition" }
+              
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            # Alert if appliance already exists in the region
+            if ($CurrentAppliances | Where-Object { $_.ID -eq $OneViewID }) {
+
+                "[{0}] OneView appliance with ID '{1}' is already present in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $OneViewID | Write-Verbose
+            
+                if ($WhatIf) {
+                    $ErrorMessage = "OneView appliance with ID '{0}' is already present in the HPE GreenLake workspace! No action needed." -f $OneViewID
+                    Write-warning $ErrorMessage
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "OneView appliance with ID '$OneViewID' already exists in '$Region' region. No action needed."
+                }
+                
+
+
+            }
+            # Error if COM-OVE license is not available
+            elseif (-not $ApplianceSubscrition) {
+
+                "[{0}] No Compute Ops Management - OneView Edition license available in the workspace." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            
+                if ($WhatIf) {
+                    $ErrorMessage = "No Compute Ops Management - OneView Edition license available in the workspace. Please add a license first using 'New-HPEGLServiceSubscription' to add the appliance."
+                    Write-warning $ErrorMessage
+                    return
+                }
+                else {
+                  
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "No Compute Ops Management - OneView Edition license available in the workspace. Please add a license first using 'New-HPEGLServiceSubscription' to add the appliance."
+                }
+
+                
+            }
+            else {
+                
+                # Build payload
+                $payload = ConvertTo-Json @{
+                    id = $OneViewID
+                }          
+                      
+                # Add resource
+                try {
+                    $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf 
+                                
+                    if (-not $WhatIf) {
+        
+                        "[{0}] Add OneView appliance call response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
+                            
+                        "[{0}] OneView appliance '{1}' successfully added to '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $OneViewID, $Region | Write-Verbose
+                                
+                        $objStatus.Status = "Complete"
+                        $objStatus.Details = "Use 'Enable-OVComputeOpsManagement -ActivationKey <activation key>' from the OneView Powershell library to activate the appliance for Compute Ops Management"
+                        $objStatus.ActivationKey = $Response.ActivationKey
+            
+                    }
+            
+                }
+                catch {
+            
+                    if (-not $WhatIf) {
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details = "OneView appliance cannot be added to $Region region!"
+                        $objStatus.Exception = $_.Exception.message 
+            
+                    }
+                }   
+            }
+    
+                    
+            [void] $AddApplianceStatus.add($objStatus)
+
+        }
+        elseif ($SecureGateway) {
+
+              # Build object for the output
+              $objStatus = [pscustomobject]@{
+  
+                Region        = $Region   
+                ApplianceType = "Secure Gateway"
+                ActivationKey = $Null   
+                ExpiresOn     = (get-date).AddHours(72)
+                Status        = $Null
+                Details       = $Null
+                Exception     = $Null
+            }
+
+            $Uri = $COMActivationKeysUri
+
+            
+            # Build payload
+            $payload = ConvertTo-Json @{
+                expirationInHours = 72
+                targetDevice = "SECURE_GATEWAY"
+            }          
+                  
+  
+            # Add resource
+            try {
+                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf 
+                            
+                if (-not $WhatIf) {
+    
+                    "[{0}] Add Secure gateway appliance call response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
+                        
+                    "[{0}] Secure gateway appliance activation key successfully generated for '{1}' region: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, $Response.activationKey	 | Write-Verbose
+                            
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "Enter the activation key in the secure gateway console to connect the appliance(s) to Compute Ops Management."
+                    $objStatus.ActivationKey = $Response.ActivationKey
+        
+                }
+        
+            }
+            catch {
+        
+                if (-not $WhatIf) {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Secure gateway appliance activation key cannot be generated!"
+                    $objStatus.Exception = $_.Exception.message 
+        
+                }
+            }   
+                    
+            [void] $AddApplianceStatus.add($objStatus)
+
+        }          
+    }
+
+    end {
+
+        if (-not $WhatIf) {
+
+            if ($AddApplianceStatus | Where-Object { $_.Status -eq "Failed" }) {
+  
+                write-error "One or more appliances failed to be added to $Region!"
+          
+            }
+            
+            Return $AddApplianceStatus
+        }
+
+
+    }
+}
+
+
+
+Function Remove-HPECOMAppliance {
+    <#
+    .SYNOPSIS
+    Remove an appliance from management.
+
+   .DESCRIPTION   
+    This cmdlet removes an appliance from a specified Compute Ops Management region. 
+
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the appliance is located.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the appliance resource.      
+
+    .PARAMETER IPAddress
+    Specifies the IP address of the appliance resource.    
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+   .EXAMPLE
+    Remove-HPECOMAppliance -Region eu-central -Name oneview.lab
+    
+    This example removes the appliance named 'oneview.lab' from the eu-central region.
+        
+    .EXAMPLE
+    Remove-HPECOMAppliance -Region eu-central -IPAddress 192.168.1.22
+
+    This example removes the appliance with the IP address '192.168.1.22' from the eu-central region.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Type SynergyComposer | Remove-HPECOMAppliance 
+
+    This example removes all Synergy Composer appliances from the eu-central region.
+
+    .EXAMPLE
+    "192.168.1.10", "192.168.1.20" | Remove-HPECOMAppliance -Region eu-central 
+
+    This example removes the appliances with the IP addresses '192.168.1.10' and '192.168.1.20' from the eu-central region.
+
+    .EXAMPLE
+    $ApplianceID = (Get-OVComputeOpsManagement ).ApplianceID
+    Remove-HPECOMAppliance -Region eu-central -Hostname $ApplianceID 
+
+    This example removes a OneView appliance from the 'eu-central' region using the appliance ID returned by the 'Get-OVComputeOpsManagement' cmdlet from the HPE OneView PowerShell library. This is typically done for appliances that have not been activated.
+    
+    .INPUTS
+    System.String, System.String[]
+        A single string object or a list of string objects representing the appliance's IP addresses.
+
+    System.Collections.ArrayList
+        A list of OneView appliances from 'Get-HPECOMAppliance'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:  
+        * Name - Name of the appliance attempted to be removed from the region
+        * Region - Name of the region 
+        * Status - The status of the removal attempt (Failed for http error return; Complete if removal is successful; Warning if no action is needed) 
+        * Details - Additional information about the status.
+        * Exception: Information about any exceptions generated during the operation.
+
+   #>
+
+    [CmdletBinding(DefaultParameterSetName = 'Name')]
+    Param( 
+
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'Name')]
+        [String]$Name,
+
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'IP')]
+        [ValidateScript({ [String]::IsNullOrEmpty($_) -or $_ -match [Net.IPAddress]$_ })]
+        [string]$IPAddress,
+                  
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $RemoveApplianceStatus = [System.Collections.ArrayList]::new()
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            Name      = $Null
+            Region    = $Region   
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        try {
+
+            if ($Name) {
+    
+                $ParamUsed = $Name
+    
+                $_Appliance = Get-HPECOMAppliance -Region $Region -Name $Name
+            }
+            else {
+    
+                $ParamUsed = $IPAddress
+    
+                $_Appliance = Get-HPECOMAppliance -Region $Region -IPAddress $IPAddress
+    
+            }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+            
+        }
+        
+
+        $objStatus.name = $ParamUsed
+
+        if (-not $_Appliance) {
+                
+            # Must return a message if not found
+
+            if ($WhatIf) {
+
+                $ErrorMessage = "Appliance '{0}' cannot be found in the Compute Ops Management instance!" -f $ParamUsed
+                Write-warning $ErrorMessage
+                return
+            
+            }
+            else {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Appliance '$ParamUsed' cannot be found in the Compute Ops Management instance!"
+              
+            }
+
+        }
+        else {   
+            
+            $Uri = $_Appliance.resourceUri                    
+              
+            # Add resource
+            try {
+                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method DELETE -WhatIfBoolean $WhatIf 
+                        
+                if (-not $WhatIf) {
+
+                    "[{0}] Remove appliance call response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
+                    
+                    "[{0}] Appliance '{1}' successfully removed from '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ParamUsed, $Region | Write-Verbose
+                        
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "Appliance successfully removed from $Region region"
+    
+                }
+    
+            }
+            catch {
+    
+                if (-not $WhatIf) {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Appliance cannot be removed from $Region region!"
+                    $objStatus.Exception = $_.Exception.message 
+    
+                }
+            }   
+            
+        }
+
+        [void] $RemoveApplianceStatus.add($objStatus)
+
+    }
+
+    end {
+
+        if (-not $WhatIf) {
+
+            if ($RemoveApplianceStatus | Where-Object { $_.Status -eq "Failed" }) {
+  
+                write-error "One or more appliances failed to be removed from $Region!"
+          
+            }
+            
+            Return $RemoveApplianceStatus
+        }
+
+
+    }
+}
+
+
+#EndRegion
+
+
 #Region --- APPLIANCE-FIRMWARE-BUNDLES ---
 
 Function Get-HPECOMApplianceFirmwareBundle {
@@ -5404,6 +6149,846 @@ Function Get-HPECOMApplianceFirmwareBundle {
     
     }
 }
+
+#EndRegion
+
+
+#Region --- EMAIL NOTIFICATION POLICY ---
+
+Function Get-HPECOMEmailNotificationPolicy {
+    <#
+    .SYNOPSIS
+    Get the email notification policy preference that is applied when servers are activated for management.
+
+    .DESCRIPTION
+    This Cmdlet returns the user preferences for the current user that are available in the specified region.
+    
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER SerialNumber
+    Specifies the serial number of the server on which the email notification preferences will be retrieved.
+
+    .PARAMETER WhatIf 
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Get-HPECOMUserPreference -Region us-west
+
+    Return the user preferences for the current user. 
+
+    .EXAMPLE
+    Get-HPECOMUserPreference -Region  eu-central -SerialNumber CZ12312312 
+
+
+    .INPUTS
+    None. You cannot pipe objects to this Cmdlet.
+
+    
+    
+   #>
+    [CmdletBinding()]
+    Param( 
+
+        [Parameter (Mandatory)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [String]$SerialNumber,
+
+
+        [Switch]$WhatIf
+       
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+    
+    }
+
+    Process {
+        
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+        
+        if ($SerialNumber) {
+            
+            try {
+
+                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber
+
+            }
+            catch {
+                
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+            
+            if (-not $_server) {
+
+                Return
+
+            }
+            else {
+                
+                $_serverId = $_server.id
+
+                "[{0}] Server ID found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_serverId | Write-Verbose
+
+                $Uri = $COMServersUri + "/" + $_serverId + "/notifications"  
+                
+            }
+
+        }
+        else {
+            
+            $Uri = $COMUserPreferencesUri            
+        }
+
+
+        try {
+            [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -ErrorAction Stop
+    
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+                   
+        }           
+        
+
+        $ReturnData = @()
+       
+        if ($Null -ne $CollectionList) {   
+
+            # Add region to object
+            $CollectionList | Add-Member -type NoteProperty -name region -value $Region
+
+            if ($SerialNumber) {
+                
+                $CollectionList | Add-Member -type NoteProperty -name serialNumber -value $SerialNumber
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.NotificationStatus"    
+
+
+            }
+            else {
+
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.User.Preferences"    
+            }
+
+    
+            # $ReturnData = $ReturnData #| Sort-Object { $_.updatedAt }
+        
+            return $ReturnData 
+                
+        }
+        else {
+
+            Write-Warning "Looks like email notification policy preference has not been configured. See Set-HPECOMUserEmailNotification"
+            return
+                
+        }     
+
+    
+    }
+}
+
+
+
+Function Enable-HPECOMEmailNotificationPolicy {
+    <#
+    .SYNOPSIS
+    Enable a service instance email notification policy in a region.
+
+    .DESCRIPTION   
+    Compute Ops Management supports email notification policies that users can enable for each service instance. When enabled, the email notification policy preference settings are applied when a server is assigned to a service instance.
+
+    HPE GreenLake user account holders can configure an email notification policy for each service instance in a workspace. Notifications are sent to the email address that is associated with the user account that is used to configure the policy.
+        
+    Note: If a server you configure for automatic support case creation or integration with ServiceNow experiences a supported service event, the support case ID or ServiceNow incident ID is included in the server notification.   
+    
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the email notification preferences will be enabled.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+    
+    .PARAMETER ServerSerialNumber
+    Specifies the serial number of the server on which the email notification preferences will be enabled.
+    
+    Note: Changing the email notification preferences at the individual server level does not reapply the service instance email notification policy.
+
+    Note: Servers managed by HPE OneView are not supported.
+        
+    .PARAMETER ServiceEventIssues 
+    Enables notifications for service events. A service event is a failure requiring an HPE support case and possibly a service repair.
+    
+    .PARAMETER ServiceEventAndCriticalIssues
+    Enables notifications for service events and other critical severity events.
+
+    .PARAMETER ServiceEventAndCriticalAndWarningIssues
+    Enables notifications for service events and events of critical or warning severity.
+
+    .PARAMETER DailySummary
+    Enables a daily email summarizing the health of all servers configured for daily notifications. This email includes a summary of server health status values and potential actions such as activating or connecting servers, resolving subscription issues, and available firmware updates.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+   
+    .EXAMPLE
+    Enable-HPECOMEmailNotificationPolicy -Region eu-central -ServiceEventIssues -DailySummary
+
+    Subscribe the user account, used with 'Connect-HPEGL', to server notifications (service event issues) and daily summary notifications.
+    
+    .EXAMPLE
+    Enable-HPECOMEmailNotificationPolicy -Region eu-central -ServiceEventAndCriticalIssues
+
+    Subscribe the user account, used with 'Connect-HPEGL', to server notifications for service events and critical issues, without daily summary notifications.
+
+    .EXAMPLE
+    Enable-HPECOMEmailNotificationPolicy -Region eu-central -ServerSerialNumber CZ12312312 -ServiceEventAndCriticalAndWarningIssues 
+
+    Subscribe the user account, used with 'Connect-HPEGL', to server notifications for service events and critical issues for the server with serial number 'CZ12312312'.    
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -Name 'ESX-2.lab' | Enable-HPECOMEmailNotificationPolicy -ServiceEventAndCriticalIssues
+
+    Subscribe the user account, used with 'Connect-HPEGL', to server notifications for service events and critical issues for the server with the name 'ESX-2.lab'.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -ConnectedState True -Model "ProLiant DL360 Gen10 Plus" | Enable-HPECOMEmailNotificationPolicy -DailySummary 
+
+    Subscribe the user account, used with 'Connect-HPEGL', to daily summary notifications for all servers with the model 'ProLiant DL360 Gen10 Plus' that are connected.
+
+    .EXAMPLE
+    "CZ12312312", "DZ12312312" | Enable-HPECOMEmailNotificationPolicy -Region eu-central -ServiceEventIssues
+
+    Subscribe the user account, used with 'Connect-HPEGL', to server notifications for service events for the servers with serial numbers 'CZ12312312' and 'DZ12312312'.
+
+    .INPUTS
+    System.String, System.String[]
+        A single string object or a list of string objects representing the server's serial numbers.
+
+    System.Collections.ArrayList
+        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:  
+        * User - Email address of the current user
+        * Server - Serial number of the server on which the email notification preferences will be enabled
+        * Region - Name of the region where the email notification preferences will be enabled
+        * Status - Status of the modification attempt (Failed for http error return; Complete if modification is successful; Warning if no action is needed) 
+        * Details - More information about the status 
+        * Exception: Information about any exceptions generated during the operation.
+
+   #>
+
+    [CmdletBinding(DefaultParameterSetName = 'ServiceEvent')]
+    Param( 
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
+        [alias('serialnumber')]
+        [String]$ServerSerialNumber,
+        
+        [Parameter (ParameterSetName = 'ServiceEvent')]       
+        [Switch]$ServiceEventIssues,
+
+        [Parameter (ParameterSetName = 'ServiceEventAndCriticalIssues')]       
+        [Switch]$ServiceEventAndCriticalIssues,
+
+        [Parameter (ParameterSetName = 'ServiceEventAndCriticalAndWarningIssues')]       
+        [Switch]$ServiceEventAndCriticalAndWarningIssues,
+
+        [Switch]$DailySummary,
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+  
+
+        $EnableEmailPreferencesStatus = [System.Collections.ArrayList]::new()
+
+        if ($ServiceEventIssues) {
+            $criticalNotification = $true
+            $warningNotification = $false
+            $criticalNonServiceNotification = $false
+        }
+        elseif ($ServiceEventAndCriticalIssues) {
+            $criticalNotification = $true
+            $warningNotification = $false
+            $criticalNonServiceNotification = $True
+        } 
+        elseif ($ServiceEventAndCriticalAndWarningIssues) {
+            $criticalNotification = $true
+            $warningNotification = $true
+            $criticalNonServiceNotification = $True
+        
+        }
+        else {
+            $criticalNotification = $false
+            $warningNotification = $false
+            $criticalNonServiceNotification = $false
+        }
+
+
+        if ($DailySummary) {
+            $healthNotification = $True
+
+        }
+        else {
+            $healthNotification = $False
+
+        }
+
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+       
+
+        # Check if at least one of the switches is used
+        if (-not $DailySummary -and -not ($ServiceEventIssues -or $ServiceEventAndCriticalIssues -or $ServiceEventAndCriticalAndWarningIssues)) {
+            Write-Error "You must specify either a service event notification or -DailySummary, or both."
+            return
+        }
+                
+        if ($ServerSerialNumber) {
+            
+            try {
+
+                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
+
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+            
+            if (-not $_server) {
+
+                # Must return a message if not found                    
+                $ErrorMessage = "Server '{0}' cannot be found in the Compute Ops Management instance!" -f $ServerSerialNumber
+                Write-Warning $ErrorMessage
+
+            }
+            else {
+
+                $_serverId = $_server.id
+
+                "[{0}] Server ID found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_serverId | Write-Verbose
+
+                try {
+
+                    $_serverNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -SerialNumber $ServerSerialNumber
+        
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+                    
+        
+                if ($_serverNotifications) {
+    
+                    $Uri = $COMServersUri + "/" + $_serverId + "/notifications"
+
+                    $Method = "PUT"
+    
+                    # Build object for the output
+                    $objStatus = [pscustomobject]@{
+            
+                        Email     = $HPEGreenLakeSession.username
+                        Server    = $ServerSerialNumber
+                        Region    = $Region                            
+                        Status    = $Null
+                        Details   = $Null
+                        Exception = $Null
+                    }
+
+    
+                    if (-not $ServiceEventIssues -and -not $ServiceEventAndCriticalIssues -and -not $ServiceEventAndCriticalAndWarningIssues ) {
+    
+                        $criticalNotification = $_serverNotifications.criticalNotification  
+                        $warningNotification = $_serverNotifications.warningNotification
+                        $criticalNonServiceNotification = $_serverNotifications.criticalNonServiceNotification
+                    }
+                  
+                    if (-not $DailySummary) {
+                        $healthNotification = $_serverNotifications.healthNotification  
+                    }
+    
+                }
+                else {
+    
+                    Write-Error "You cannot specify a server serial number at this time as no user email notification policy exists yet!"
+                    return
+        
+                }
+            }
+        }
+        else {
+
+            try {
+
+                $_userNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region
+    
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+                
+    
+            if ($_userNotifications) {
+
+                $Uri = $COMUserPreferencesUri + "/" + $_userNotifications.id
+                $Method = "PUT"
+
+                if (-not $ServiceEventIssues -and -not $ServiceEventAndCriticalIssues -and -not $ServiceEventAndCriticalAndWarningIssues ) {
+
+                    $criticalNotification = $_userNotifications.criticalNotification  
+                    $warningNotification = $_userNotifications.warningNotification
+                    $criticalNonServiceNotification = $_userNotifications.criticalNonServiceNotification
+                }
+              
+                if (-not $DailySummary) {
+                    $healthNotification = $_userNotifications.healthNotification  
+                }
+
+            }
+            else {
+
+                $Uri = $COMUserPreferencesUri
+                $Method = "POST"
+    
+            }
+
+            # Build object for the output
+            $objStatus = [pscustomobject]@{
+
+                Email     = $HPEGreenLakeSession.username
+                Server    = "All unless an individual definition has been configured"
+                Region    = $Region                            
+                Status    = $Null
+                Details   = $Null
+                Exception = $Null
+            }
+        }
+        
+        $Payload = @{
+            criticalNotification           = $criticalNotification
+            criticalNonServiceNotification = $criticalNonServiceNotification 
+            warningNotification            = $warningNotification
+            healthNotification             = $healthNotification
+        }   
+
+
+
+
+        # Convert the hashtable to JSON
+        $jsonPayload = $Payload | ConvertTo-Json
+
+
+        # Set resource
+        try {
+            $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method $Method -body $jsonPayload -ContentType "application/json" -WhatIfBoolean $WhatIf 
+
+                
+            if (-not $WhatIf) {
+
+                "[{0}] Email notification policy modification raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
+                
+                "[{0}] Email notification policy successfully modified in '{1}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                    
+                $objStatus.Status = "Complete"
+                $objStatus.Details = "Email notification policy successfully modified in $Region region"
+
+            }
+
+        }
+        catch {
+
+            if (-not $WhatIf) {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Email notification policy cannot be modified!"
+                $objStatus.Exception = $_.Exception.message 
+            }
+        }           
+        
+
+        [void] $EnableEmailPreferencesStatus.add($objStatus)
+
+    }
+
+    end {
+
+        if (-not $WhatIf) {
+           
+            Return $EnableEmailPreferencesStatus
+        }
+
+
+    }
+}
+
+
+
+Function Disable-HPECOMEmailNotificationPolicy {
+    <#
+    .SYNOPSIS
+    Disable a service instance email notification policy in a region.
+
+    .DESCRIPTION   
+    This Cmdlet disables email notification policies for a specified service instance within a designated region.
+    
+    .PARAMETER Region 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the email notification preferences will be disabled.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+        
+    .PARAMETER SerialNumber
+    Specifies the serial number of the server on which the email notification preferences will be disabled.
+    
+    Note: Changing the email notification preferences at the individual server level does not reapply the service instance email notification policy.
+
+    Note: Servers managed by HPE OneView are not supported.
+        
+    .PARAMETER AllServiceEvents
+    Disables all notifications for service events and issues. 
+    
+    .PARAMETER DailySummary
+    Disables the daily email summary.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+   
+    .EXAMPLE
+    Disable-HPECOMEmailNotificationPolicy -Region eu-central  -AllServiceEvents -DailySummary
+
+    Unsubscribe the user account, used with 'Connect-HPEGL', from all server notifications and the daily summary notifications.
+
+    .EXAMPLE
+    Disable-HPECOMEmailNotificationPolicy -Region eu-central -SerialNumber CZ12312312 -AllServiceEvents
+
+    Unsubscribe the user account, used with 'Connect-HPEGL', from all server notifications for the server with serial number 'CZ12312312'.    
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -Name 'ESX-2.lab' | Disable-HPECOMEmailNotificationPolicy -DailySummary
+
+    Unsubscribe the user account, used with 'Connect-HPEGL', from the daily summary notifications for the server with the name 'ESX-2.lab'.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -ConnectedState True -Model "ProLiant DL360 Gen10 Plus" | Disable-HPECOMEmailNotificationPolicy -DailySummary 
+
+    Unsubscribe the user account, used with 'Connect-HPEGL', from the daily summary notifications for all servers with the model 'ProLiant DL360 Gen10 Plus' that are connected.
+
+    .EXAMPLE
+    "CZ12312312", "DZ12312312" | Disable-HPECOMEmailNotificationPolicy -Region eu-central -AllServiceEvents
+
+    Unsubscribe the user account, used with 'Connect-HPEGL', from all server notifications for the servers with serial numbers 'CZ12312312' and 'DZ12312312'.
+
+    .INPUTS
+    System.String, System.String[]
+        A single string object or a list of string objects representing the server's serial numbers.
+
+    System.Collections.ArrayList
+        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:  
+        * User - Email address of the current user
+        * Server - Serial number of the server on which the email notification preferences will be disabled
+        * Region - Name of the region where the email notification preferences will be disabled
+        * Status - Status of the modification attempt (Failed for http error return; Complete if modification is successful; Warning if no action is needed) 
+        * Details - More information about the status 
+        * Exception: Information about any exceptions generated during the operation.
+
+   #>
+
+    [CmdletBinding()]
+    Param( 
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
+        [alias('serialnumber')]
+        [String]$ServerSerialNumber,
+        
+        [Switch]$AllServiceEvents,
+        
+        [Switch]$DailySummary,
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $DisableEmailPreferencesStatus = [System.Collections.ArrayList]::new()
+
+        if ($AllServiceEvents) {
+            $criticalNotification = $false
+            $warningNotification = $false
+            $criticalNonServiceNotification = $false
+        }
+
+       
+        if ($DailySummary) {
+            $healthNotification = $False
+
+        }
+
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+       
+        # Check if at least one of the switches is used
+        if (-not $AllServiceEvents -and -not $DailySummary) {
+            Write-Error "You must specify either -AllServiceEvents, -DailySummary, or both."
+            return
+        }
+    
+        if ($ServerSerialNumber) {
+            
+            try {
+
+                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
+
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+            
+            if (-not $_server) {
+
+                # Must return a message if not found
+                $ErrorMessage = "Server '{0}' cannot be found in the Compute Ops Management instance!" -f $ServerSerialNumber
+                Write-Warning $ErrorMessage
+
+            }
+            else {
+
+                $_serverId = $_server.id
+
+                "[{0}] Server ID found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_serverId | Write-Verbose
+
+
+                try {
+
+                    $_serverNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -SerialNumber $ServerSerialNumber
+        
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+                    
+        
+                if ($_serverNotifications) {
+    
+                    $Uri = $COMServersUri + "/" + $_serverId + "/notifications"
+
+                    $Method = "PUT"
+    
+                    # Build object for the output
+                    $objStatus = [pscustomobject]@{
+            
+                        Email     = $HPEGreenLakeSession.username
+                        Server    = $ServerSerialNumber
+                        Region    = $Region                            
+                        Status    = $Null
+                        Details   = $Null
+                        Exception = $Null
+                    }
+
+    
+                    if (-not $ServiceEventIssues -and -not $ServiceEventAndCriticalIssues -and -not $ServiceEventAndCriticalAndWarningIssues ) {
+    
+                        $criticalNotification = $_serverNotifications.criticalNotification  
+                        $warningNotification = $_serverNotifications.warningNotification
+                        $criticalNonServiceNotification = $_serverNotifications.criticalNonServiceNotification
+                    }
+                  
+                    if (-not $DailySummary) {
+                        $healthNotification = $_serverNotifications.healthNotification  
+                    }
+    
+                }
+                else {
+    
+                    Write-Error "You cannot specify a server serial number at this time as no user email notification policy exists yet!"
+                    return
+        
+                }
+               
+            }
+        }
+        else {
+
+            try {
+
+                $_userNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region
+    
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+                
+    
+            if ($_userNotifications) {
+
+                $Uri = $COMUserPreferencesUri + "/" + $_userNotifications.id
+                $Method = "PUT"
+
+                if (-not $AllServiceEvents) {
+
+                    $criticalNotification = $_userNotifications.criticalNotification  
+                    $warningNotification = $_userNotifications.warningNotification
+                    $criticalNonServiceNotification = $_userNotifications.criticalNonServiceNotification
+                }
+
+                if (-not $DailySummary) {
+                    $healthNotification = $_userNotifications.healthNotification  
+                }
+
+            }
+            else {
+
+                $Uri = $COMUserPreferencesUri
+                $Method = "POST"
+
+    
+            }
+
+            # Build object for the output
+            $objStatus = [pscustomobject]@{
+
+                Email     = $HPEGreenLakeSession.username
+                Server    = "All unless an individual definition has been configured"
+                Region    = $Region                            
+                Status    = $Null
+                Details   = $Null
+                Exception = $Null
+            }
+        }
+        
+        $Payload = @{
+            criticalNotification           = $criticalNotification
+            criticalNonServiceNotification = $criticalNonServiceNotification 
+            warningNotification            = $warningNotification
+            healthNotification             = $healthNotification
+        }   
+
+
+        # Convert the hashtable to JSON
+        $jsonPayload = $Payload | ConvertTo-Json
+
+
+        # Set resource
+        try {
+            $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method $Method -body $jsonPayload -ContentType "application/json" -WhatIfBoolean $WhatIf 
+
+                
+            if (-not $WhatIf) {
+
+                "[{0}] Email notification policy modification raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
+                
+                "[{0}] Email notification policy successfully modified in '{1}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                    
+                $objStatus.Status = "Complete"
+                $objStatus.Details = "Email notification policy successfully modified in $Region region"
+
+            }
+
+        }
+        catch {
+
+            if (-not $WhatIf) {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Email notification policy cannot be modified!"
+                $objStatus.Exception = $_.Exception.message 
+            }
+        }           
+        
+
+        [void] $DisableEmailPreferencesStatus.add($objStatus)
+
+    }
+
+    end {
+
+        if (-not $WhatIf) {
+           
+            Return $DisableEmailPreferencesStatus
+        }
+
+
+    }
+}
+
 
 #EndRegion
 
@@ -15941,13 +17526,13 @@ function Update-HPECOMApplianceFirmware {
     This command updates the firmware on a OneView appliance with the IP address `192.168.7.59` located in the `eu-central` region using firmware bundle release version `9.00.00`. 
     
     .EXAMPLE
-    Get-HPECOMOneViewAppliance -Region eu-central -Hostname composer.lab | Update-HPECOMApplianceFirmware -ApplianceFirmwareBundleReleaseVersion 9.00.00
+    Get-HPECOMAppliance -Region eu-central -Name composer.lab | Update-HPECOMApplianceFirmware -ApplianceFirmwareBundleReleaseVersion 9.00.00
 
     This command retrieves OneView appliances with the hostname 'composer.lab' in the `eu-central` region.
     It then updates the firmware on these appliances using firmware bundle release version `9.00.00`.
 
     .EXAMPLE
-    Get-HPECOMOneViewAppliance -Region eu-central | Update-HPECOMApplianceFirmware -ApplianceFirmwareBundleReleaseVersion 9.00.00 
+    Get-HPECOMAppliance -Region eu-central | Update-HPECOMApplianceFirmware -ApplianceFirmwareBundleReleaseVersion 9.00.00 
     
     This command updates all OneView appliances in the 'eu-central' region with the specified firmware bundle release version.
     First, it retrieves a list of all OneView appliances in the "eu-central" region.
@@ -15965,13 +17550,13 @@ function Update-HPECOMApplianceFirmware {
     This command schedules a firmware update for the appliance with the IP address `192.168.7.59` in the `eu-central` region using firmware bundle release version `9.00.00`, starting 10 minutes from now. 
 
     .EXAMPLE
-    Get-HPECOMOneViewAppliance -Region eu-central -Hostname composer.domain.net | Update-HPECOMApplianceFirmware -ApplianceFirmwareBundleReleaseVersion 9.00.00 -ScheduleTime ((Get-Date).AddHours(2))  
+    Get-HPECOMAppliance -Region eu-central -Name composer.domain.net | Update-HPECOMApplianceFirmware -ApplianceFirmwareBundleReleaseVersion 9.00.00 -ScheduleTime ((Get-Date).AddHours(2))  
 
     This command first retrieves OneView appliances with the hostname 'composer.domain.net' in the `eu-central` region.
     It then schedules a firmware update for this appliance using firmware bundle release version `9.00.00`, starting 2 hours from now.
 
     .EXAMPLE
-    Get-HPECOMOneViewAppliance -Region eu-central | Update-HPECOMApplianceFirmware -ApplianceFirmwareBundleReleaseVersion 9.00.00 -ScheduleTime ((Get-Date).AddDays(5))  
+    Get-HPECOMAppliance -Region eu-central | Update-HPECOMApplianceFirmware -ApplianceFirmwareBundleReleaseVersion 9.00.00 -ScheduleTime ((Get-Date).AddDays(5))  
 
     This command first retrieves all OneView appliances in the `eu-central` region.
     It then schedules a firmware update for these appliances using firmware bundle release version `9.00.00`, starting 5 days from now.
@@ -15981,7 +17566,7 @@ function Update-HPECOMApplianceFirmware {
         A single string object or a list of string objects representing the appliance's IP addresses.
 
     System.Collections.ArrayList
-        List of appliances from 'Get-HPECOMOneViewAppliance'.
+        List of appliances from 'Get-HPECOMAppliance'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -16080,7 +17665,7 @@ function Update-HPECOMApplianceFirmware {
 
         try {
 
-            $_appliance = Get-HPECOMOneViewAppliance -Region $Region -IPAddress $IPAddress                 
+            $_appliance = Get-HPECOMAppliance -Region $Region -IPAddress $IPAddress                 
 
         }
         catch {
@@ -17123,602 +18708,6 @@ Function Get-HPECOMMetricsConfiguration {
     
     }
 }
-
-#EndRegion
-
-
-#Region --- ONEVIEW APPLIANCES ---
-
-Function Get-HPECOMOneViewAppliance {
-    <#
-    .SYNOPSIS
-    Retrieve the list of HPE OneView appliances.
-    
-    .DESCRIPTION
-    This Cmdlet returns a collection of HPE OneView appliance resources in the specified region. 
-    
-    .PARAMETER Region
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
-    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
-
-    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.  
-
-    .PARAMETER Hostname
-    Specifies the name of the OneView appliance resource.      
-
-    .PARAMETER IPAddress
-    Specifies the IP address of the OneView appliance resource.      
-
-    .PARAMETER Limit 
-    This parameter allows you to define the number of HPE OneView appliances to be displayed. 
-   
-    .PARAMETER Type 
-    Optional parameter that can be used to get a certain type of OneView appliances such as 'VM' or 'Synergy'.
-
-    .PARAMETER WhatIf 
-    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
-
-    .EXAMPLE
-    Get-HPECOMOneViewAppliance -Region eu-central
-
-    Return all HPE OneView appliances in the central european region. 
-
-    .EXAMPLE
-    Get-HPECOMOneViewAppliance -Region eu-central -Name oneview.hpelab.net
-
-    Return the OneView appliance named 'oneview.hpelab.net' in the central european region. 
-    
-    .EXAMPLE
-    Get-HPECOMOneViewAppliance -Region eu-central -Type Synergy
-
-    Return data for all OneView appliances located in the central European region that are classified as type 'Synergy'.
-
-    
-   #>
-    [CmdletBinding(DefaultParameterSetName = 'Name')]
-    Param( 
-    
-        [Parameter (Mandatory)] 
-        [ValidateScript({
-                if ($HPECOMAPICredentialRegions -contains $_) {
-                    $true
-                }
-                else {
-                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
-                }
-            })]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
-                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [String]$Region,  
-
-        [Parameter (ParameterSetName = 'IP')]
-        [ValidateScript({ [String]::IsNullOrEmpty($_) -or $_ -match [Net.IPAddress]$_ })]
-        [string]$IPAddress,
-
-        [Parameter (ParameterSetName = 'Name')]
-        [Parameter (Mandatory, ParameterSetName = 'ActivationKeyName')]
-        [String]$Hostname,
-
-        [Parameter (ParameterSetName = 'Limit')]
-        [ValidateScript({ $_ -le 1000 })]
-        [int]$Limit,
-
-        [Parameter (ParameterSetName = 'Limit')]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $environments = @('Synergy', 'VM')
-                $filteredEnvironments = $environments | Where-Object { $_ -like "$wordToComplete*" }
-                return $filteredEnvironments | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [ValidateScript({
-                $validOptions = @('Synergy', 'VM')
-                
-                if ($validOptions -contains $_) {
-                    $True
-                }
-                else {
-                    throw "'$_' is not a valid option."
-                }
-                
-            })]                
-        [String]$Type,
-
-        [Parameter (ParameterSetName = 'ActivationKeyName')]
-        [Switch]$ShowActivationKey,
-
-        [Switch]$WhatIf
-       
-    ) 
-
-    Begin {
-  
-        $Caller = (Get-PSCallStack)[1].Command
-        
-        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-      
-      
-    }
-      
-      
-    Process {
-      
-        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-
-        # No limit by default
-        if ($Limit) {
-
-            $Uri = $COMOneViewAppliancesUri + "?limit=$Limit"
-       
-        } 
-        else {
-            
-            $Uri = $COMOneViewAppliancesUri 
-        }           
-
-
-        try {
-            [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)
-               
-        }
-        
-
-        $ReturnData = @()
-       
-        if ($Null -ne $CollectionList) {      
-
-            # Add region to object
-            $CollectionList | Add-Member -type NoteProperty -name region -value $Region            
-            
-            if ($Type) {
-                
-                $CollectionList = $CollectionList | Where-Object applianceType -eq $Type
-            }
-            elseif ($IPAddress) {
-            
-                $CollectionList = $CollectionList | Where-Object ipaddress -eq $IPAddress
-                  
-            } 
-            elseif ($Hostname) {
-                
-                $CollectionList = $CollectionList | Where-Object Hostname -eq $Hostname 
-                
-            }       
-            
-            if ($ShowActivationKey) {
-                    
-                $CollectionList = $CollectionList.activationkey
-                return $CollectionList 
-                
-            }
-             
-
-            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.OneViewAppliances"    
-    
-            $ReturnData = $ReturnData | Sort-Object name, ipaddress
-        
-            return $ReturnData 
-           
-        }
-        else {
-
-            return
-                
-        }     
-
-    
-    }
-}
-
-
-
-Function New-HPECOMApplianceOneView {
-    <#
-    .SYNOPSIS
-    Adds an HPE OneView appliance for management to a specific region.
-
-    .DESCRIPTION   
-    This cmdlet adds an HPE OneView appliance to the specified region for management.
-
-    Note: Once added, the appliance must be activated in OneView with the activation key returned by this cmdlet using the 'Enable-OVComputeOpsManagement -ActivationKey $ActivationKey' cmdlet from the HPE OneView PowerShell library.
-
-    Note: The appliance activation key required to enable Compute Ops Management in OneView can also be retrieved using 'Get-HPECOMOneViewAppliance -Hostname <OV hostname> -ShowActivationKey'.
-
-    .PARAMETER Region     
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the appliance will be located.  
-    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
-
-    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
-
-    .PARAMETER ID
-    The unique identifier of the OneView appliance to be added.
-
-    Note: The appliance ID can be retrieved using the 'Get-OVComputeOpsManagement' cmdlet from the HPE OneView PowerShell library.
-
-    .PARAMETER WhatIf
-    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
-
-    .EXAMPLE
-    $credentials = Get-Credential
-    Connect-OVMgmt -Appliance OV.domain.com -Credential $credentials
-    $AddTask = Get-OVComputeOpsManagement | New-HPECOMApplianceOneView -Region eu-central
-    Enable-OVComputeOpsManagement -ActivationKey $AddTask.activationkey
-    
-    In this example:
-    1. Prompts the user to enter their credentials and stores them in the $credentials variable.
-    2. Establishes a connection to the OV.domain.com appliance using the Connect-OVMgmt cmdlet, passing the appliance URL (OV.domain.com) and the credentials stored in the $credentials variable.
-    3. Retrieves the Compute Ops Management configuration from OneView using the HPE OneView PowerShell library, then pipes the output to add the OneView appliance to the 'eu-central' region.
-    4. Activates the Compute Ops Management configuration in OneView using the obtained activation key from the returned $AddTask object with the 'Enable-OVComputeOpsManagement' cmdlet. The activation key is required for enabling Compute Ops Management in OneView.
-
-    .EXAMPLE
-    $credentials = Get-Credential
-    Connect-OVMgmt -Appliance OV.domain.com -Credential $credentials
-    $ApplianceID = (Get-OVComputeOpsManagement).ApplianceID
-    $AddTask = New-HPECOMApplianceOneView -Region eu-central -ID $ApplianceID 
-    Enable-OVComputeOpsManagement -ActivationKey $AddTask.activationkey
-
-    In this example:
-    1. Prompts the user to enter their credentials and stores them in the $credentials variable.
-    2. Establishes a connection to the OV.domain.com appliance using the Connect-OVMgmt cmdlet, passing the appliance URL (OV.domain.com) and the credentials stored in the $credentials variable.
-    3. Retrieves the ApplianceID from 'Get-OVComputeOpsManagement'.
-    4. Adds the OneView appliance to the 'eu-central' region using the appliance ID.
-    5. Activates the Compute Ops Management configuration in OneView using the obtained activation key from the returned $AddTask object with the 'Enable-OVComputeOpsManagement' cmdlet. The activation key is required for enabling Compute Ops Management in OneView.
-
-    .INPUTS
-    System.Collections.ArrayList
-        OneView appliance details from 'Get-OVComputeOpsManagement' (HPE OneView PowerShell library).
-
-    .OUTPUTS
-    System.Collections.ArrayList
-        A custom status object or array of objects containing the following PsCustomObject keys:  
-        * ID - ID of the OneView appliance attempted to be added to the region
-        * Region - Name of the region 
-        * ActivationKey - The activation key to be used in OneView for enabling Compute Ops Management
-        * Status - The status of the addition attempt (Failed for HTTP error return; Complete if addition is successful; Warning if no action is needed) 
-        * Details - More information about the status 
-        * Exception - Information about any exceptions generated during the operation.
-#>
-
-    [CmdletBinding()]
-    Param( 
-
-        [Parameter (Mandatory)] 
-        [ValidateScript({
-                if ($HPECOMAPICredentialRegions -contains $_) {
-                    $true
-                }
-                else {
-                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
-                }
-            })]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
-                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [String]$Region,  
-
-        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
-        [alias('ApplianceID')]
-        [String]$ID,
-                  
-        [Switch]$WhatIf
-    ) 
-
-    Begin {
-
-        $Caller = (Get-PSCallStack)[1].Command
-
-        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-
-        $AddOneViewStatus = [System.Collections.ArrayList]::new()
-
-    }
-
-    Process {
-
-        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-
-        # Build object for the output
-        $objStatus = [pscustomobject]@{
-  
-            ID            = $ID
-            Region        = $Region   
-            ActivationKey = $Null                         
-            Status        = $Null
-            Details       = $Null
-            Exception     = $Null
-        }
-            
-        $Uri = $COMOneViewAppliancesUri                         
-    
-        # Build payload
-        $payload = ConvertTo-Json @{
-            id = $ID
-        }          
-              
-        # Add resource
-        try {
-            $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf 
-                        
-            if (-not $WhatIf) {
-
-                "[{0}] Add OneView appliance call response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
-                    
-                "[{0}] OneView appliance '{1}' successfully added to '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ID, $Region | Write-Verbose
-                        
-                $objStatus.Status = "Complete"
-                $objStatus.Details = "OneView appliance successfully added to $Region region"
-                $objStatus.ActivationKey = $Response.ActivationKey
-    
-            }
-    
-        }
-        catch {
-    
-            if (-not $WhatIf) {
-                $objStatus.Status = "Failed"
-                $objStatus.Details = "OneView appliance cannot be added to $Region region!"
-                $objStatus.Exception = $_.Exception.message 
-    
-            }
-        }   
-            
-        
-
-        [void] $AddOneViewStatus.add($objStatus)
-
-    }
-
-    end {
-
-        if (-not $WhatIf) {
-
-            if ($AddOneViewStatus | Where-Object { $_.Status -eq "Failed" }) {
-  
-                write-error "One or more OneView appliances failed to be added to $Region!"
-          
-            }
-            
-            Return $AddOneViewStatus
-        }
-
-
-    }
-}
-
-
-
-Function Remove-HPECOMApplianceOneView {
-    <#
-    .SYNOPSIS
-    Remove a OneView appliance from management.
-
-   .DESCRIPTION   
-    This cmdlet removes a OneView appliance from a specified region. 
-
-    .PARAMETER Region     
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the appliance is located.  
-    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
-
-    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
-
-    .PARAMETER Hostname
-    Specifies the name of the OneView appliance resource.      
-
-    .PARAMETER IPAddress
-    Specifies the IP address of the OneView appliance resource.    
-
-    .PARAMETER WhatIf
-    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
-
-   .EXAMPLE
-    Remove-HPECOMApplianceOneView -Region eu-central -Hostname oneview.lab
-    
-    This example removes the OneView appliance named 'oneview.lab' from the eu-central region.
-        
-    .EXAMPLE
-    Remove-HPECOMApplianceOneView -Region eu-central -IPAddress 192.168.1.22
-
-    This example removes the OneView appliance with the IP address '192.168.1.22' from the eu-central region.
-
-    .EXAMPLE
-    Get-HPECOMOneViewAppliance -Region eu-central | Remove-HPECOMApplianceOneView -WhatIf
-
-    This example removes all OneView appliances from the eu-central region.
-
-    .EXAMPLE
-    "192.168.1.10", "192.168.1.20" | Remove-HPECOMApplianceOneView -Region eu-central 
-
-    This example removes the OneView appliances with the IP addresses '192.168.1.10' and '192.168.1.20' from the eu-central region.
-
-    .EXAMPLE
-    $ApplianceID = (Get-OVComputeOpsManagement ).ApplianceID
-    Remove-HPECOMApplianceOneView -Region eu-central -Hostname $ApplianceID 
-
-    This example removes a OneView appliance from the 'eu-central' region using the appliance ID returned by the 'Get-OVComputeOpsManagement' cmdlet from the HPE OneView PowerShell library. This is typically done for appliances that have not been activated.
-    
-    .INPUTS
-    System.String, System.String[]
-        A single string object or a list of string objects representing the appliance's IP addresses.
-
-    System.Collections.ArrayList
-        A list of OneView appliances from 'Get-HPECOMOneViewAppliance'.
-
-    .OUTPUTS
-    System.Collections.ArrayList
-        A custom status object or array of objects containing the following PsCustomObject keys:  
-        * Name - Name of the OneView appliance attempted to be removed from the region
-        * Region - Name of the region 
-        * Status - The status of the removal attempt (Failed for http error return; Complete if removal is successful; Warning if no action is needed) 
-        * Details - Additional information about the status.
-        * Exception: Information about any exceptions generated during the operation.
-
-   #>
-
-    [CmdletBinding(DefaultParameterSetName = 'Name')]
-    Param( 
-
-        [Parameter(Mandatory, ValueFromPipelineByPropertyName)] 
-        [ValidateScript({
-                if ($HPECOMAPICredentialRegions -contains $_) {
-                    $true
-                }
-                else {
-                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
-                }
-            })]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
-                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [String]$Region,  
-
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'IP')]
-        [ValidateScript({ [String]::IsNullOrEmpty($_) -or $_ -match [Net.IPAddress]$_ })]
-        [string]$IPAddress,
-
-        [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'Name')]
-        [alias('name')]
-        [String]$Hostname,
-                  
-        [Switch]$WhatIf
-    ) 
-
-    Begin {
-
-        $Caller = (Get-PSCallStack)[1].Command
-
-        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-
-        $RemoveOneViewStatus = [System.Collections.ArrayList]::new()
-
-    }
-
-    Process {
-
-        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-
-
-        # Build object for the output
-        $objStatus = [pscustomobject]@{
-            Name      = $Null
-            Region    = $Region   
-            Status    = $Null
-            Details   = $Null
-            Exception = $Null
-        }
-
-        try {
-
-            if ($Hostname) {
-    
-                $ParamUsed = $Hostname
-    
-                $_Appliance = Get-HPECOMOneViewAppliance -Region $Region -Hostname $Hostname
-            }
-            else {
-    
-                $ParamUsed = $IPAddress
-    
-                $_Appliance = Get-HPECOMOneViewAppliance -Region $Region -IPAddress $IPAddress
-    
-            }
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)
-            
-        }
-        
-
-        $objStatus.name = $ParamUsed
-
-        if (-not $_Appliance) {
-                
-            # Must return a message if not found
-
-            if ($WhatIf) {
-
-                $ErrorMessage = "Appliance '{0}' cannot be found in the Compute Ops Management instance!" -f $ParamUsed
-                Write-warning $ErrorMessage
-                return
-            
-            }
-            else {
-                $objStatus.Status = "Failed"
-                $objStatus.Details = "OneView appliance '$ParamUsed' cannot be found in the Compute Ops Management instance!"
-              
-            }
-
-        }
-        else {   
-            
-            $Uri = $_Appliance.resourceUri                    
-              
-            # Add resource
-            try {
-                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method DELETE -WhatIfBoolean $WhatIf 
-                        
-                if (-not $WhatIf) {
-
-                    "[{0}] Remove OneView appliance call response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
-                    
-                    "[{0}] OneView appliance '{1}' successfully removed from '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ParamUsed, $Region | Write-Verbose
-                        
-                    $objStatus.Status = "Complete"
-                    $objStatus.Details = "OneView appliance successfully removed from $Region region"
-    
-                }
-    
-            }
-            catch {
-    
-                if (-not $WhatIf) {
-                    $objStatus.Status = "Failed"
-                    $objStatus.Details = "OneView appliance cannot be removed from $Region region!"
-                    $objStatus.Exception = $_.Exception.message 
-    
-                }
-            }   
-            
-        }
-
-        [void] $RemoveOneViewStatus.add($objStatus)
-
-    }
-
-    end {
-
-        if (-not $WhatIf) {
-
-            if ($RemoveOneViewStatus | Where-Object { $_.Status -eq "Failed" }) {
-  
-                write-error "One or more OneView appliances failed to be removed from $Region!"
-          
-            }
-            
-            Return $RemoveOneViewStatus
-        }
-
-
-    }
-}
-
 
 #EndRegion
 
@@ -20292,649 +21281,6 @@ Function Set-HPECOMSchedule {
 
     }
 }
-
-#EndRegion
-
-
-#Region --- SERVER LOCATIONS ---
-
-# Get-HPECOMServerLocation is an alias of Get-HPEGLLocation
-Set-Alias -Name Get-HPECOMServerLocation -Value Get-HPEGLLocation
-
-
-Function Set-HPECOMOneViewServerLocation {
-    <#
-    .SYNOPSIS
-    Configure the server location for HPE OneView managed servers.
-
-    .DESCRIPTION
-    This Cmdlet assigns an a location that exists in HPE GreenLake to HPE OneView managed servers. 
-    
-    Assigning a location enhances the data visible in Compute Ops Management sustainability reports and the HPE Sustainability Insight Center.
-
-    For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'.
-    
-    .PARAMETER Region     
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.)
-    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
-
-    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
-
-    .PARAMETER LocationName
-    Specifies the name of the location to assign to the server.
-    
-    .PARAMETER ServerName
-    Specifies the name of the server.
-    
-    .PARAMETER ServerSerialNumber
-    Specifies the serial number of the server.
-
-    .PARAMETER WhatIf 
-    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
-
-    .EXAMPLE
-    Set-HPECOMOneViewServerLocation -Region eu-central -LocationName "Mougins" -ServerSerialNumber CN12312312
-
-    Assign the location named 'Mougins' to the server with the serial number 'CN12312312' in the central EU region.
-
-    .EXAMPLE
-    Set-HPECOMOneViewServerLocation -Region eu-central -LocationName "Mougins" -ServerName RHEL-1
-    
-    Assign the location named 'Mougins' to the server named 'RHEL-1' in the central EU region.
-
-    .EXAMPLE
-    'CN12312312', 'CN12312313', 'CN12312314' |  Set-HPECOMOneViewServerLocation -Region eu-central  -LocationName "Mougins" 
-
-    Assign the location named 'Mougins' to the servers with the serial numbers 'CN12312312', 'CN12312313', and 'CN12312314' in the central EU region.
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central -ConnectionType OneView | Set-HPECOMOneViewServerLocation -LocationName "Mougins" 
-    
-    Assign the location named 'Mougins' to all HPE OneView managed servers in the central EU region.
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Model 'Synergy 480 Gen11' | Set-HPECOMOneViewServerLocation -LocationName "Mougins"
-
-    Assign the location named 'Mougins' to all HPE OneView managed servers with the model 'Synergy 480 Gen11' in the central EU region.
-
-    .INPUTS
-    System.String, System.String[]
-        A single string object or a list of string objects representing the server's serial numbers.    
-    System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
-
-    .OUTPUTS
-    System.Collections.ArrayList
-        A custom status object or array of objects containing the following PsCustomObject keys:  
-        * Server - Serial number or name of the server
-        * Region - Name of the region where the server is located
-        * Location - Name of the location assigned to the server
-        * Status - Status of the assignment attempt (Failed for http error return; Complete if assignment is successful; Warning if no action is needed) 
-        * Details - More information about the status 
-        * Exception: Information about any exceptions generated during the operation.
-    
-   #>
-
-    [CmdletBinding(DefaultParameterSetName = 'Default')]
-    Param( 
-        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
-        [ValidateScript({
-                if ($HPECOMAPICredentialRegions -contains $_) {
-                    $true
-                }
-                else {
-                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
-                }
-            })]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
-                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [String]$Region,  
-
-        [Parameter (Mandatory)]
-        [String]$LocationName,
-
-        [Parameter (Mandatory, ParameterSetName = 'Name')]
-        [String]$ServerName,
-    
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
-        [Alias('serialNumber')]
-        [String]$ServerSerialNumber,
-
-        [Switch]$WhatIf
-       
-    ) 
-    Begin {
-
-        $Caller = (Get-PSCallStack)[1].Command
-
-        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-
-        $ObjectStatusList = [System.Collections.ArrayList]::new()
-        $DevicesList = [System.Collections.ArrayList]::new()
-        $DevicesTrackingList = [System.Collections.ArrayList]::new()
-
-        try {
-            $Location = Get-HPEGLLocation -Name $LocationName
-            $Uri = $COMServerLocationsUri + "/" + $Location.ID + "/servers"
-           
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)
-            
-        }
-
-        if ( -not $Location) {
-
-            $ErrorMessage = "Location '{0}' cannot be found in the Compute Ops Management instance!" -f $LocationName
-
-            throw $ErrorMessage
-
-        }
-
-        
-    }
-
-    Process {
-
-        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-        
-        # Build object for the output
-        $objStatus = [pscustomobject]@{
-
-            Server    = if ($ServerSerialNumber) { $ServerSerialNumber } else { $ServerName }
-            Region    = $Region     
-            Location  = $LocationName                       
-            Status    = $Null
-            Details   = $Null
-            Exception = $Null
-        }
-
-        [void] $ObjectStatusList.add($objStatus)
-    
-    }
-    
-    End {
-
-        try {
-            
-            $Servers = Get-HPECOMServer -Region $Region 
-            
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)                
-        }
-        
-        
-        "[{0}] List of servers to add to location: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList.SerialNumber | out-string) | Write-Verbose
-
-
-        foreach ($Object in $ObjectStatusList) {
-
-            $Server = $Servers | Where-Object serialNumber -eq $Object.server
-            
-            if (-not $Server) {
-                $Server = $Servers | Where-Object serverName -eq $Object.server
-            }
-            
-            #  Condition when serverName is used and when multiple servers use the same serverName 
-            if ( $server -and $Server.id.count -gt 1) {
-
-                # Must return a message if device not found
-                $Object.Status = "Failed"
-                $Object.Details = "Server was found multiple times in the Compute Ops Management instance! Please refine your query to return a single server resource."
-
-                if ($WhatIf) {
-                    $ErrorMessage = "Server '{0}' was found multiple times in the Compute Ops Management instance! Please refine your query to return a single server resource." -f $Object.server
-                    Write-warning $ErrorMessage
-                    continue
-                }
-            }
-            elseif ( $server -and $Server.connectionType -ne "OneView") {
-
-                # Must return a message if device not OneView server
-                $Object.Status = "Failed"
-                $Object.Details = "Server is not an HPE OneView managed server! For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'"
-
-                if ($WhatIf) {
-                    $ErrorMessage = "Server '{0}' is not an HPE OneView managed server! For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'" -f $Object.server
-                    Write-warning $ErrorMessage
-                    continue
-                }
-
-            } 
-            elseif ( -not $Server) {
-
-                # Must return a message if device not found
-                $Object.Status = "Failed"
-                $Object.Details = "Server cannot be found in the Compute Ops Management instance!"
-
-                if ($WhatIf) {
-                    $ErrorMessage = "Server '{0}' cannot be found in the Compute Ops Management instance!" -f $Object.server
-                    Write-warning $ErrorMessage
-                    continue
-                }
-
-            } 
-            else {       
-            
-                $ServerLocation = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $server.serialnumber -ShowLocation
-
-                if ($ServerLocation) {   
-                    # Must return a message if server already member of a location
-                    $Object.Status = "Warning"
-                    $Object.Details = "Server is already assigned to the '$($ServerLocation.name)' location!"
-
-                    if ($WhatIf) {
-                        $ErrorMessage = "Server '{0}' is already assigned to the '{1}' location!" -f $Object.server, $ServerLocation.name
-                        Write-warning $ErrorMessage
-                        continue
-                    }
-
-                }
-                else {
-
-                    # Build DeviceInfo object for tracking
-                    $DeviceInfo = [PSCustomObject]@{
-                        serialnumber = $server.serialNumber
-                        servername   = $server.serverName
-                        
-                    }
-                    
-                    Write-Verbose "Server serialNumber: $($server.serialNumber)"
-                    Write-Verbose "Server ID: $($server.id)"
-                    
-                    # Building the list of devices object for payload
-                    [void]$DevicesList.Add($($Server.id))
-    
-                    # Building the list of devices object for tracking
-                    [void]$DevicesTrackingList.Add($DeviceInfo)
-
-                }
-            }
-        }
-
-
-        if ($DevicesList) {
-
-            # Build payload
-            $payload = ConvertTo-Json -Depth 10 @{
-                servers = $DevicesList
-            } 
-
-        
-            # Add Devices to location  
-            try {
-
-                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -Body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf 
-                
-                if (-not $WhatIf) {
-                   
-                    foreach ($Object in $ObjectStatusList) {
-
-                        $DeviceSet = $DevicesTrackingList | Where-Object { $_.serialnumber -eq $Object.Server -or $_.servername -eq $Object.Server }
-
-                        If ($DeviceSet) {
-                            
-                            $Object.Status = "Complete"
-                            $Object.Details = "Location successfully assigned to server"
-
-                        }
-                    }
-                }
-            }
-            catch {
-                
-                if (-not $WhatIf) {
-
-                    foreach ($Object in $ObjectStatusList) {
-
-                        $DeviceSet = $DevicesTrackingList | Where-Object { $_.serialnumber -eq $Object.Server -or $_.servername -eq $Object.Server }
-
-                        If ($DeviceSet) {
-                            
-                            $Object.Status = "Failed"
-                            $Object.Details = "Location cannot be assigned to server!"
-                            $Object.Exception = $_.Exception.message 
-
-                        }
-                    }
-                }
-            }
-        }
-        
-
-        if (-not $WhatIf ) {
-
-            if ($ObjectStatusList | Where-Object { $_.Status -eq "Failed" }) {
-  
-                write-error "One or more server locations failed to assign successfully!"
-                
-          
-            }
-            
-            Return $ObjectStatusList
-        
-        }
-
-    }
-}
-
-
-
-Function Remove-HPECOMOneViewServerLocation {
-    <#
-    .SYNOPSIS
-    Remove location of one or more servers managed by HPE OneView.
-
-    .DESCRIPTION
-    This Cmdlet unassigns an HPE GreenLake location from HPE OneView managed server(s). 
-
-    For non-HPE OneView servers, use `Remove-HPEGLDeviceLocation`.
-    
-    .PARAMETER Region     
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.)
-    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
-
-    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
-    
-    .PARAMETER ServerName
-    Specifies the name of the server.
-    
-    .PARAMETER ServerSerialNumber
-    Specifies the serial number of the server.
-
-    .PARAMETER WhatIf 
-    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
-   
-    .EXAMPLE
-    Remove-HPECOMOneViewServerLocation -Region eu-central -ServerSerialNumber CN12312312
-    
-    Remove the location of the server with the serial number 'CN12312312' in the central EU region.
-
-    .EXAMPLE
-    Remove-HPECOMOneViewServerLocation -Region eu-central -ServerName RHEL-1
-
-    Remove the location of the server named 'RHEL-1' in the central EU region.
-
-    .EXAMPLE
-    'CN12312312', 'CN12312313', 'CN12312314' |  Remove-HPECOMOneViewServerLocation -Region eu-central
-
-    Remove the location of the servers with the serial numbers 'CN12312312', 'CN12312313', and 'CN12312314' in the central EU region.
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central -ConnectionType OneView | Remove-HPECOMOneViewServerLocation
-
-    Remove the location of all HPE OneView managed servers in the central EU region.
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Model 'Synergy 480 Gen11' | Remove-HPECOMOneViewServerLocation
-
-    Remove the location of all HPE OneView managed servers with the model 'Synergy 480 Gen11' in the central EU region.
-
-    .INPUTS
-    System.String, System.String[]
-        A single string object or a list of string objects representing the server's serial numbers.
-    System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
-    
-    .OUTPUTS
-    System.Collections.ArrayList
-        A custom status object or array of objects containing the following PsCustomObject keys:  
-        * Server - Serial number or name of the server
-        * Region - Name of the region where the server is located
-        * Location - Name of the location assigned to the server
-        * Status - Status of the assignment attempt (Failed for http error return; Complete if assignment is successful; Warning if no action is needed) 
-        * Details - More information about the status 
-        * Exception: Information about any exceptions generated during the operation.
-
-   #>
-
-   
-    [CmdletBinding(DefaultParameterSetName = 'Default')]
-    Param( 
-        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
-        [ValidateScript({
-                if ($HPECOMAPICredentialRegions -contains $_) {
-                    $true
-                }
-                else {
-                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
-                }
-            })]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
-                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [String]$Region,  
-
-        [Parameter (Mandatory, ParameterSetName = 'Name')]
-        [String]$ServerName,
-    
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
-        [Alias('serialNumber')]
-        [String]$ServerSerialNumber,
-
-        [Switch]$WhatIf
-       
-    ) 
-    Begin {
-
-        $Caller = (Get-PSCallStack)[1].Command
-
-        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-
-        $ObjectStatusList = [System.Collections.ArrayList]::new()
-        $DevicesList = [System.Collections.ArrayList]::new()
-        $DevicesTrackingList = [System.Collections.ArrayList]::new()
-
-                
-    }
-
-    Process {
-
-        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-        
-        # Build object for the output
-        $objStatus = [pscustomobject]@{
-
-            Server    = if ($ServerSerialNumber) { $ServerSerialNumber } else { $ServerName }
-            Region    = $Region     
-            Location  = $Null                       
-            Status    = $Null
-            Details   = $Null
-            Exception = $Null
-        }
-
-        [void] $ObjectStatusList.add($objStatus)
-    
-    }
-    
-    End {
-
-        try {
-            
-            $Servers = Get-HPECOMServer -Region $Region 
-            
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)                
-        }
-        
-        
-        "[{0}] List of servers where to remove the location: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList.SerialNumber | out-string) | Write-Verbose
-
-
-        foreach ($Object in $ObjectStatusList) {
-
-            $Server = $Servers | Where-Object serialNumber -eq $Object.server
-            
-            if (-not $Server) {
-                $Server = $Servers | Where-Object serverName -eq $Object.server
-            }
-            
-
-            #  Condition when serverName is used and when multiple servers use the same serverName 
-            if ( $server -and $Server.id.count -gt 1) {
-
-                # Must return a message if device not found
-                $Object.Status = "Failed"
-                $Object.Details = "Server was found multiple times in the Compute Ops Management instance! Please refine your query to return a single server resource."
-
-                if ($WhatIf) {
-                    $ErrorMessage = "Server '{0}' was found multiple times in the Compute Ops Management instance! Please refine your query to return a single server resource." -f $Object.server
-                    Write-warning $ErrorMessage
-                    continue
-                }
-            }
-            elseif ( $server -and $Server.connectionType -ne "OneView") {
-
-                # Must return a message if device not OneView server
-                $Object.Status = "Failed"
-                $Object.Details = "Server is not an HPE OneView managed server! For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'"
-
-                if ($WhatIf) {
-                    $ErrorMessage = "Server '{0}' is not an HPE OneView managed server! For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'" -f $Object.server
-                    Write-warning $ErrorMessage
-                    continue
-                }
-
-            } 
-            elseif ( -not $Server) {
-
-                # Must return a message if device not found
-                $Object.Status = "Failed"
-                $Object.Details = "Server cannot be found in the Compute Ops Management instance!"
-
-                if ($WhatIf) {
-                    $ErrorMessage = "Server '{0}' cannot be found in the Compute Ops Management instance!" -f $Object.server
-                    Write-warning $ErrorMessage
-                    continue
-                }
-
-            } 
-            else {       
-            
-                $ServerLocation = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $server.serialnumber -ShowLocation
-
-                if (-not $ServerLocation) {   
-                    # Must return a message if server already member of the location
-                    $Object.Status = "Warning"
-                    $Object.Details = "Server is not assigned to a location!"
-
-                    if ($WhatIf) {
-                        $ErrorMessage = "Server '{0}' is not assigned to a location" -f $Object.server
-                        Write-warning $ErrorMessage
-                        continue
-                    }
-
-                }
-                else {
-
-                    $Object.Location = $ServerLocation.name 
-
-                    # Build DeviceInfo object for tracking
-                    $DeviceInfo = [PSCustomObject]@{
-                        serialnumber = $server.serialNumber
-                        servername   = $server.serverName
-                        
-                    }
-                    
-                    Write-Verbose "Server serialNumber: $($server.serialNumber)"
-                    Write-Verbose "Server ID: $($server.id)"
-                    
-                    # Building the list of devices object for payload
-                    [void]$DevicesList.Add($($Server.id))
-    
-                    # Building the list of devices object for tracking
-                    [void]$DevicesTrackingList.Add($DeviceInfo)
-
-                }
-            }
-        }
-
-
-        if ($DevicesList) {
-
-            "[{0}] List of IDs to add to query: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($DevicesList | out-string) | Write-Verbose
-
-
-            # Build the query string
-            $queryString = ($DevicesList | ForEach-Object { "id=$_" }) -join "&"
-            $queryString = "?$queryString"
-
-            # ID uses a '+' sign, it needs to be replaced with '%2B' to avoid 404 resource not found error 
-            # (URL encoding not working: $encodedQueryString = [System.Web.HttpUtility]::UrlEncode($queryString) )
-            $encodedQueryString = $queryString.replace('+', '%2B')
-
-            $Uri = $COMServerLocationsUri + "/" + $ServerLocation.locationId + "/servers" + $encodedQueryString
-       
-            # Remove Devices to location  
-            try {
-
-                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method DELETE -Body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf 
-                
-                if (-not $WhatIf) {
-                   
-                    foreach ($Object in $ObjectStatusList) {
-
-                        $DeviceSet = $DevicesTrackingList | Where-Object { $_.serialnumber -eq $Object.Server -or $_.servername -eq $Object.Server }
-
-                        If ($DeviceSet) {
-                            
-                            $Object.Status = "Complete"
-                            $Object.Details = "Location successfully unassigned from server"
-
-                        }
-                    }
-                }
-            }
-            catch {
-                
-                if (-not $WhatIf) {
-
-                    foreach ($Object in $ObjectStatusList) {
-
-                        $DeviceSet = $DevicesTrackingList | Where-Object { $_.serialnumber -eq $Object.Server -or $_.servername -eq $Object.Server }
-
-                        If ($DeviceSet) {
-                            
-                            $Object.Status = "Failed"
-                            $Object.Details = "Location cannot be unassigned from server!"
-                            $Object.Exception = $_.Exception.message 
-
-                        }
-                    }
-                }
-            }
-        }
-        
-
-        if (-not $WhatIf ) {
-
-            if ($ObjectStatusList | Where-Object { $_.Status -eq "Failed" }) {
-  
-                write-error "One or more server locations failed to unassign successfully!"
-
-          
-            }
-            
-            Return $ObjectStatusList
-        
-        }
-
-    }
-}
-
-
-
 
 #EndRegion
 
@@ -33306,7 +33652,7 @@ Function Get-HPECOMServer {
     Partial model names are not supported.
     
     .PARAMETER ConnectionType
-    Optional parameter that can be used to display servers based on the connection type (Direct or OneView).
+    Optional parameter that can be used to display servers based on the connection type (Direct, OneView managed or Secure gateway).
     
     .PARAMETER ConnectedState
     A Boolean value (True or False). When set to True, only servers that are connected to HPE GreenLake will be displayed. When set to False, only servers that are not connected will be displayed.
@@ -33398,6 +33744,21 @@ Function Get-HPECOMServer {
     Get-HPECOMServer -Region eu-central -Name ESX-1.domain.lab -ShowAlerts
 
     This command returns the alerts of the server with name 'ESX-1.domain.lab'.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -ConnectionType Direct
+
+    This command returns the servers that are directly connected to HPE GreenLake in the Central European region.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -ConnectionType 'OneView managed'
+
+    This command returns the servers that are managed by OneView in the Central European region.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -ConnectionType 'Secure gateway'
+
+    This command returns the servers that are connected to HPE GreenLake through a secure gateway in the Central European region.
 
     .EXAMPLE
     Get-HPECOMServer -Region eu-central -ShowLocation
@@ -33561,13 +33922,13 @@ Function Get-HPECOMServer {
         [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeName')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Items = @('Direct', 'OneView')
+                $Items = @('Direct', 'OneView managed', 'Secure gateway')
                 $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
                 return $filteredItems | ForEach-Object {
                     [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
                 }
             })]
-        [ValidateSet ('Direct', 'OneView')]
+        [ValidateSet ('Direct', 'OneView managed', 'Secure gateway')]
         [String]$ConnectionType,
 
         
@@ -34274,8 +34635,14 @@ Function Get-HPECOMServer {
 
                 
                 if ($ConnectionType) {
+                   
+                    switch ($ConnectionType) {
+                        'Secure gateway' { $_ConnectionType = 'GATEWAY' }
+                        'OneView managed' { $_ConnectionType = 'ONEVIEW' }
+                        'Direct' { $_ConnectionType = 'DIRECT' }
+                    }
 
-                    $NewCollectionList = $NewCollectionList | where-Object ConnectionType -eq $ConnectionType
+                    $NewCollectionList = $NewCollectionList | where-Object ConnectionType -eq $_ConnectionType
                     
                 }
 
@@ -34350,7 +34717,7 @@ Function Get-HPECOMServerBySerialNumber {
     Partial model names are not supported.
     
     .PARAMETER ConnectionType
-    Optional parameter that can be used to display servers based on the connection type (Direct or OneView).
+    Optional parameter that can be used to display servers based on the connection type (Direct, OneView managed or Secure gateway).
     
     .PARAMETER ConnectedState
     A Boolean value (True or False). When set to True, only servers that are connected to HPE GreenLake will be displayed. When set to False, only servers that are not connected will be displayed.
@@ -34437,6 +34804,21 @@ Function Get-HPECOMServerBySerialNumber {
     Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowAlerts
 
     This command returns the alerts of the server with serial number 'CZJ3200B7F'.
+
+    .EXAMPLE
+    Get-HPECOMServerBySerialNumber -Region eu-central -ConnectionType Direct
+
+    This command returns the servers that are directly connected to HPE GreenLake in the Central European region.
+
+    .EXAMPLE
+    Get-HPECOMServerBySerialNumber -Region eu-central -ConnectionType 'OneView managed'
+
+    This command returns the servers that are managed by OneView in the Central European region.
+
+    .EXAMPLE
+    Get-HPECOMServerBySerialNumber -Region eu-central -ConnectionType 'Secure gateway'
+
+    This command returns the servers that are connected to HPE GreenLake through a secure gateway in the Central European region.
 
     .EXAMPLE
     Get-HPECOMServerBySerialNumber -Region eu-central -ShowLocation
@@ -34575,13 +34957,13 @@ Function Get-HPECOMServerBySerialNumber {
         [Parameter (ParameterSetName = 'Other')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Items = @('Direct', 'OneView')
+                $Items = @('Direct', 'OneView managed', 'Secure gateway')
                 $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
                 return $filteredItems | ForEach-Object {
                     [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
                 }
             })]
-        [ValidateSet ('Direct', 'OneView')]
+        [ValidateSet ('Direct', 'OneView managed', 'Secure gateway')]
         [String]$ConnectionType,
         
         [Parameter (ParameterSetName = 'Other')]
@@ -35276,7 +35658,13 @@ Function Get-HPECOMServerBySerialNumber {
 
                 if ($ConnectionType) {
 
-                    $NewCollectionList = $NewCollectionList | where-Object ConnectionType -eq $ConnectionType
+                    switch ($ConnectionType) {
+                        'Secure gateway' { $_ConnectionType = 'GATEWAY' }
+                        'OneView managed' { $_ConnectionType = 'ONEVIEW' }
+                        'Direct' { $_ConnectionType = 'DIRECT' }
+                    }
+
+                    $NewCollectionList = $NewCollectionList | where-Object ConnectionType -eq $_ConnectionType
                     
                 }               
              
@@ -35779,8 +36167,13 @@ Function Get-HPECOMServerActivationKey {
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
+    .PARAMETER SecureGateway
+    Specifies the name of the Compute Ops Management secure gateway to use for the activation key. The name can be retrieved using 'Get-HPECOMAppliance'.
+    When this parameter is used, servers connect to Compute Ops Management through the secure gateway present in the network infrastructure, rather than directly.
+
     .PARAMETER SubscriptionKey
-    Specifies the device subscription key to use for the request. This key can be retrieved using 'Get-HPEGLDeviceSubscription -ShowWithAvailableQuantity -ShowValid -FilterByDeviceType SERVER'.
+    Optional parameter that specifies a new or an existing device subscription key to assign to the server. 
+    An existing key can be retrieved using 'Get-HPEGLDeviceSubscription -ShowWithAvailableQuantity -ShowValid -FilterByDeviceType SERVER'.
 
     .PARAMETER ExpirationInHours
     Specifies the expiration time of the activation key in hours. The default value is 1 hour.
@@ -35826,9 +36219,9 @@ Function Get-HPECOMServerActivationKey {
             })]
         [String]$Region,  
 
-        [Parameter (Mandatory)] 
-        [String]$SubscriptionKey,
+        [String]$SecureGateway,
 
+        [String]$SubscriptionKey,
 
         [ValidateScript({
                 if ($_ -ge 0.5 -and $_ -le 168) {
@@ -35855,14 +36248,52 @@ Function Get-HPECOMServerActivationKey {
 
         "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
 
-        $body = @{
-            expirationInHours = $ExpirationInHours
-            subscriptionKey   = $SubscriptionKey         
-        } | ConvertTo-Json
+        if (-not $SubscriptionKey) {
 
+            $SubscriptionKey = ""
+        }
+
+        if ($SecureGateway) {
+
+            try {
+                $SecureGatewayFound = Get-HPECOMAppliance -Region $Region -Name $SecureGateway
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            If (-not $SecureGatewayFound) {
+
+                # Must return a message if secure gateway not found
+                "[{0}] Secure Gateway  '{1}' cannot be found in the Compute Ops Management instance" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGateway | Write-Verbose
+    
+                $ErrorMessage = "Secure Gateway '{0}' cannot be found in the Compute Ops Management instance!" -f $SecureGateway
+                Write-warning $ErrorMessage
+                return               
+            }
+            else {
+
+                $SecureGatewayID = $SecureGatewayFound.deviceId
+
+                $body = @{
+                    expirationInHours = $ExpirationInHours
+                    subscriptionKey   = $SubscriptionKey   
+                    gatewayApplianceId = $SecureGatewayID      
+                } | ConvertTo-Json
+        
+            }
+        }
+        else {
+
+            $body = @{
+                expirationInHours = $ExpirationInHours
+                subscriptionKey   = $SubscriptionKey         
+            } | ConvertTo-Json
+
+        }
 
        
-        $Uri = $COMActivationTokenUri
+        $Uri = $COMActivationTokensUri
 
         try {
             [Array]$Collection = Invoke-HPECOMWebRequest -Method POST -Uri $Uri -Region $Region -Body $body -WhatIfBoolean $WhatIf
@@ -35874,11 +36305,7 @@ Function Get-HPECOMServerActivationKey {
         catch {
             $PSCmdlet.ThrowTerminatingError($_)
                
-        }
-
-
-
-       
+        }     
 
     }   
 }
@@ -35886,47 +36313,88 @@ Function Get-HPECOMServerActivationKey {
 #EndRegion
 
 
-#Region --- EMAIL NOTIFICATION POLICY ---
+#Region --- SERVER LOCATIONS ---
 
-Function Get-HPECOMEmailNotificationPolicy {
+# Get-HPECOMServerLocation is an alias of Get-HPEGLLocation
+Set-Alias -Name Get-HPECOMServerLocation -Value Get-HPEGLLocation
+
+
+Function Set-HPECOMOneViewServerLocation {
     <#
     .SYNOPSIS
-    Get the email notification policy preference that is applied when servers are activated for management.
+    Configure the server location for HPE OneView managed servers.
 
     .DESCRIPTION
-    This Cmdlet returns the user preferences for the current user that are available in the specified region.
+    This Cmdlet assigns an a location that exists in HPE GreenLake to HPE OneView managed servers. 
     
-    .PARAMETER Region
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    Assigning a location enhances the data visible in Compute Ops Management sustainability reports and the HPE Sustainability Insight Center.
+
+    For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'.
+    
+    .PARAMETER Region     
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.)
     This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
-    .PARAMETER SerialNumber
-    Specifies the serial number of the server on which the email notification preferences will be retrieved.
+    .PARAMETER LocationName
+    Specifies the name of the location to assign to the server.
+    
+    .PARAMETER ServerName
+    Specifies the name of the server.
+    
+    .PARAMETER ServerSerialNumber
+    Specifies the serial number of the server.
 
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    Get-HPECOMUserPreference -Region us-west
+    Set-HPECOMOneViewServerLocation -Region eu-central -LocationName "Mougins" -ServerSerialNumber CN12312312
 
-    Return the user preferences for the current user. 
+    Assign the location named 'Mougins' to the server with the serial number 'CN12312312' in the central EU region.
 
     .EXAMPLE
-    Get-HPECOMUserPreference -Region  eu-central -SerialNumber CZ12312312 
+    Set-HPECOMOneViewServerLocation -Region eu-central -LocationName "Mougins" -ServerName RHEL-1
+    
+    Assign the location named 'Mougins' to the server named 'RHEL-1' in the central EU region.
 
+    .EXAMPLE
+    'CN12312312', 'CN12312313', 'CN12312314' |  Set-HPECOMOneViewServerLocation -Region eu-central  -LocationName "Mougins" 
+
+    Assign the location named 'Mougins' to the servers with the serial numbers 'CN12312312', 'CN12312313', and 'CN12312314' in the central EU region.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -ConnectionType 'OneView managed' | Set-HPECOMOneViewServerLocation -LocationName "Mougins" 
+    
+    Assign the location named 'Mougins' to all HPE OneView managed servers in the central EU region.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -Model 'Synergy 480 Gen11' | Set-HPECOMOneViewServerLocation -LocationName "Mougins"
+
+    Assign the location named 'Mougins' to all HPE OneView managed servers with the model 'Synergy 480 Gen11' in the central EU region.
 
     .INPUTS
-    None. You cannot pipe objects to this Cmdlet.
+    System.String, System.String[]
+        A single string object or a list of string objects representing the server's serial numbers.    
+    System.Collections.ArrayList
+        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
 
-    
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:  
+        * Server - Serial number or name of the server
+        * Region - Name of the region where the server is located
+        * Location - Name of the location assigned to the server
+        * Status - Status of the assignment attempt (Failed for http error return; Complete if assignment is successful; Warning if no action is needed) 
+        * Details - More information about the status 
+        * Exception: Information about any exceptions generated during the operation.
     
    #>
-    [CmdletBinding()]
-    Param( 
 
-        [Parameter (Mandatory)] 
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 if ($HPECOMAPICredentialRegions -contains $_) {
                     $true
@@ -35944,199 +36412,308 @@ Function Get-HPECOMEmailNotificationPolicy {
             })]
         [String]$Region,  
 
-        [String]$SerialNumber,
+        [Parameter (Mandatory)]
+        [String]$LocationName,
 
+        [Parameter (Mandatory, ParameterSetName = 'Name')]
+        [String]$ServerName,
+    
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
+        [Alias('serialNumber')]
+        [String]$ServerSerialNumber,
 
         [Switch]$WhatIf
        
     ) 
-
     Begin {
 
         $Caller = (Get-PSCallStack)[1].Command
 
-        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-    
-    }
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-    Process {
-        
-        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-        
-        if ($SerialNumber) {
-            
-            try {
-
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber
-
-            }
-            catch {
-                
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-            
-            if (-not $_server) {
-
-                Return
-
-            }
-            else {
-                
-                $_serverId = $_server.id
-
-                "[{0}] Server ID found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_serverId | Write-Verbose
-
-                $Uri = $COMServersUri + "/" + $_serverId + "/notifications"  
-                
-            }
-
-        }
-        else {
-            
-            $Uri = $COMUserPreferencesUri            
-        }
-
+        $ObjectStatusList = [System.Collections.ArrayList]::new()
+        $DevicesList = [System.Collections.ArrayList]::new()
+        $DevicesTrackingList = [System.Collections.ArrayList]::new()
 
         try {
-            [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -ErrorAction Stop
-    
+            $Location = Get-HPEGLLocation -Name $LocationName
+            $Uri = $COMServerLocationsUri + "/" + $Location.ID + "/servers"
+           
         }
         catch {
             $PSCmdlet.ThrowTerminatingError($_)
-                   
-        }           
-        
-
-        $ReturnData = @()
-       
-        if ($Null -ne $CollectionList) {   
-
-            # Add region to object
-            $CollectionList | Add-Member -type NoteProperty -name region -value $Region
-
-            if ($SerialNumber) {
-                
-                $CollectionList | Add-Member -type NoteProperty -name serialNumber -value $SerialNumber
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.NotificationStatus"    
-
-
-            }
-            else {
-
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.User.Preferences"    
-            }
-
-    
-            # $ReturnData = $ReturnData #| Sort-Object { $_.updatedAt }
-        
-            return $ReturnData 
-                
+            
         }
-        else {
 
-            Write-Warning "Looks like email notification policy preference has not been configured. See Set-HPECOMUserEmailNotification"
-            return
-                
-        }     
+        if ( -not $Location) {
 
+            $ErrorMessage = "Location '{0}' cannot be found in the Compute Ops Management instance!" -f $LocationName
+
+            throw $ErrorMessage
+
+        }
+
+        
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+        
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+
+            Server    = if ($ServerSerialNumber) { $ServerSerialNumber } else { $ServerName }
+            Region    = $Region     
+            Location  = $LocationName                       
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        [void] $ObjectStatusList.add($objStatus)
     
+    }
+    
+    End {
+
+        try {
+            
+            $Servers = Get-HPECOMServer -Region $Region 
+            
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)                
+        }
+        
+        
+        "[{0}] List of servers to add to location: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList.SerialNumber | out-string) | Write-Verbose
+
+
+        foreach ($Object in $ObjectStatusList) {
+
+            $Server = $Servers | Where-Object serialNumber -eq $Object.server
+            
+            if (-not $Server) {
+                $Server = $Servers | Where-Object serverName -eq $Object.server
+            }
+            
+            #  Condition when serverName is used and when multiple servers use the same serverName 
+            if ( $server -and $Server.id.count -gt 1) {
+
+                # Must return a message if device not found
+                $Object.Status = "Failed"
+                $Object.Details = "Server was found multiple times in the Compute Ops Management instance! Please refine your query to return a single server resource."
+
+                if ($WhatIf) {
+                    $ErrorMessage = "Server '{0}' was found multiple times in the Compute Ops Management instance! Please refine your query to return a single server resource." -f $Object.server
+                    Write-warning $ErrorMessage
+                    continue
+                }
+            }
+            elseif ( $server -and $Server.connectionType -ne "OneView") {
+
+                # Must return a message if device not OneView server
+                $Object.Status = "Failed"
+                $Object.Details = "Server is not an HPE OneView managed server! For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'"
+
+                if ($WhatIf) {
+                    $ErrorMessage = "Server '{0}' is not an HPE OneView managed server! For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'" -f $Object.server
+                    Write-warning $ErrorMessage
+                    continue
+                }
+
+            } 
+            elseif ( -not $Server) {
+
+                # Must return a message if device not found
+                $Object.Status = "Failed"
+                $Object.Details = "Server cannot be found in the Compute Ops Management instance!"
+
+                if ($WhatIf) {
+                    $ErrorMessage = "Server '{0}' cannot be found in the Compute Ops Management instance!" -f $Object.server
+                    Write-warning $ErrorMessage
+                    continue
+                }
+
+            } 
+            else {       
+            
+                $ServerLocation = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $server.serialnumber -ShowLocation
+
+                if ($ServerLocation) {   
+                    # Must return a message if server already member of a location
+                    $Object.Status = "Warning"
+                    $Object.Details = "Server is already assigned to the '$($ServerLocation.name)' location!"
+
+                    if ($WhatIf) {
+                        $ErrorMessage = "Server '{0}' is already assigned to the '{1}' location!" -f $Object.server, $ServerLocation.name
+                        Write-warning $ErrorMessage
+                        continue
+                    }
+
+                }
+                else {
+
+                    # Build DeviceInfo object for tracking
+                    $DeviceInfo = [PSCustomObject]@{
+                        serialnumber = $server.serialNumber
+                        servername   = $server.serverName
+                        
+                    }
+                    
+                    Write-Verbose "Server serialNumber: $($server.serialNumber)"
+                    Write-Verbose "Server ID: $($server.id)"
+                    
+                    # Building the list of devices object for payload
+                    [void]$DevicesList.Add($($Server.id))
+    
+                    # Building the list of devices object for tracking
+                    [void]$DevicesTrackingList.Add($DeviceInfo)
+
+                }
+            }
+        }
+
+
+        if ($DevicesList) {
+
+            # Build payload
+            $payload = ConvertTo-Json -Depth 10 @{
+                servers = $DevicesList
+            } 
+
+        
+            # Add Devices to location  
+            try {
+
+                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -Body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf 
+                
+                if (-not $WhatIf) {
+                   
+                    foreach ($Object in $ObjectStatusList) {
+
+                        $DeviceSet = $DevicesTrackingList | Where-Object { $_.serialnumber -eq $Object.Server -or $_.servername -eq $Object.Server }
+
+                        If ($DeviceSet) {
+                            
+                            $Object.Status = "Complete"
+                            $Object.Details = "Location successfully assigned to server"
+
+                        }
+                    }
+                }
+            }
+            catch {
+                
+                if (-not $WhatIf) {
+
+                    foreach ($Object in $ObjectStatusList) {
+
+                        $DeviceSet = $DevicesTrackingList | Where-Object { $_.serialnumber -eq $Object.Server -or $_.servername -eq $Object.Server }
+
+                        If ($DeviceSet) {
+                            
+                            $Object.Status = "Failed"
+                            $Object.Details = "Location cannot be assigned to server!"
+                            $Object.Exception = $_.Exception.message 
+
+                        }
+                    }
+                }
+            }
+        }
+        
+
+        if (-not $WhatIf ) {
+
+            if ($ObjectStatusList | Where-Object { $_.Status -eq "Failed" }) {
+  
+                write-error "One or more server locations failed to assign successfully!"
+                
+          
+            }
+            
+            Return $ObjectStatusList
+        
+        }
+
     }
 }
 
 
 
-Function Enable-HPECOMEmailNotificationPolicy {
+Function Remove-HPECOMOneViewServerLocation {
     <#
     .SYNOPSIS
-    Enable a service instance email notification policy in a region.
+    Remove location of one or more servers managed by HPE OneView.
 
-    .DESCRIPTION   
-    Compute Ops Management supports email notification policies that users can enable for each service instance. When enabled, the email notification policy preference settings are applied when a server is assigned to a service instance.
+    .DESCRIPTION
+    This Cmdlet unassigns an HPE GreenLake location from HPE OneView managed server(s). 
 
-    HPE GreenLake user account holders can configure an email notification policy for each service instance in a workspace. Notifications are sent to the email address that is associated with the user account that is used to configure the policy.
-        
-    Note: If a server you configure for automatic support case creation or integration with ServiceNow experiences a supported service event, the support case ID or ServiceNow incident ID is included in the server notification.   
+    For non-HPE OneView servers, use `Remove-HPEGLDeviceLocation`.
     
     .PARAMETER Region     
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the email notification preferences will be enabled.
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.)
     This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+    
+    .PARAMETER ServerName
+    Specifies the name of the server.
     
     .PARAMETER ServerSerialNumber
-    Specifies the serial number of the server on which the email notification preferences will be enabled.
-    
-    Note: Changing the email notification preferences at the individual server level does not reapply the service instance email notification policy.
+    Specifies the serial number of the server.
 
-    Note: Servers managed by HPE OneView are not supported.
-        
-    .PARAMETER ServiceEventIssues 
-    Enables notifications for service events. A service event is a failure requiring an HPE support case and possibly a service repair.
-    
-    .PARAMETER ServiceEventAndCriticalIssues
-    Enables notifications for service events and other critical severity events.
-
-    .PARAMETER ServiceEventAndCriticalAndWarningIssues
-    Enables notifications for service events and events of critical or warning severity.
-
-    .PARAMETER DailySummary
-    Enables a daily email summarizing the health of all servers configured for daily notifications. This email includes a summary of server health status values and potential actions such as activating or connecting servers, resolving subscription issues, and available firmware updates.
-
-    .PARAMETER WhatIf
+    .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
    
     .EXAMPLE
-    Enable-HPECOMEmailNotificationPolicy -Region eu-central -ServiceEventIssues -DailySummary
-
-    Subscribe the user account, used with 'Connect-HPEGL', to server notifications (service event issues) and daily summary notifications.
+    Remove-HPECOMOneViewServerLocation -Region eu-central -ServerSerialNumber CN12312312
     
-    .EXAMPLE
-    Enable-HPECOMEmailNotificationPolicy -Region eu-central -ServiceEventAndCriticalIssues
-
-    Subscribe the user account, used with 'Connect-HPEGL', to server notifications for service events and critical issues, without daily summary notifications.
+    Remove the location of the server with the serial number 'CN12312312' in the central EU region.
 
     .EXAMPLE
-    Enable-HPECOMEmailNotificationPolicy -Region eu-central -ServerSerialNumber CZ12312312 -ServiceEventAndCriticalAndWarningIssues 
+    Remove-HPECOMOneViewServerLocation -Region eu-central -ServerName RHEL-1
 
-    Subscribe the user account, used with 'Connect-HPEGL', to server notifications for service events and critical issues for the server with serial number 'CZ12312312'.    
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Name 'ESX-2.lab' | Enable-HPECOMEmailNotificationPolicy -ServiceEventAndCriticalIssues
-
-    Subscribe the user account, used with 'Connect-HPEGL', to server notifications for service events and critical issues for the server with the name 'ESX-2.lab'.
+    Remove the location of the server named 'RHEL-1' in the central EU region.
 
     .EXAMPLE
-    Get-HPECOMServer -Region eu-central -ConnectedState True -Model "ProLiant DL360 Gen10 Plus" | Enable-HPECOMEmailNotificationPolicy -DailySummary 
+    'CN12312312', 'CN12312313', 'CN12312314' |  Remove-HPECOMOneViewServerLocation -Region eu-central
 
-    Subscribe the user account, used with 'Connect-HPEGL', to daily summary notifications for all servers with the model 'ProLiant DL360 Gen10 Plus' that are connected.
+    Remove the location of the servers with the serial numbers 'CN12312312', 'CN12312313', and 'CN12312314' in the central EU region.
 
     .EXAMPLE
-    "CZ12312312", "DZ12312312" | Enable-HPECOMEmailNotificationPolicy -Region eu-central -ServiceEventIssues
+    Get-HPECOMServer -Region eu-central -ConnectionType 'OneView managed' | Remove-HPECOMOneViewServerLocation
 
-    Subscribe the user account, used with 'Connect-HPEGL', to server notifications for service events for the servers with serial numbers 'CZ12312312' and 'DZ12312312'.
+    Remove the location of all HPE OneView managed servers in the central EU region.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -Model 'Synergy 480 Gen11' | Remove-HPECOMOneViewServerLocation
+
+    Remove the location of all HPE OneView managed servers with the model 'Synergy 480 Gen11' in the central EU region.
 
     .INPUTS
     System.String, System.String[]
         A single string object or a list of string objects representing the server's serial numbers.
-
     System.Collections.ArrayList
         List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
-
+    
     .OUTPUTS
     System.Collections.ArrayList
         A custom status object or array of objects containing the following PsCustomObject keys:  
-        * User - Email address of the current user
-        * Server - Serial number of the server on which the email notification preferences will be enabled
-        * Region - Name of the region where the email notification preferences will be enabled
-        * Status - Status of the modification attempt (Failed for http error return; Complete if modification is successful; Warning if no action is needed) 
+        * Server - Serial number or name of the server
+        * Region - Name of the region where the server is located
+        * Location - Name of the location assigned to the server
+        * Status - Status of the assignment attempt (Failed for http error return; Complete if assignment is successful; Warning if no action is needed) 
         * Details - More information about the status 
         * Exception: Information about any exceptions generated during the operation.
 
    #>
 
-    [CmdletBinding(DefaultParameterSetName = 'ServiceEvent')]
+   
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
     Param( 
-
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 if ($HPECOMAPICredentialRegions -contains $_) {
@@ -36155,578 +36732,231 @@ Function Enable-HPECOMEmailNotificationPolicy {
             })]
         [String]$Region,  
 
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
-        [alias('serialnumber')]
+        [Parameter (Mandatory, ParameterSetName = 'Name')]
+        [String]$ServerName,
+    
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
+        [Alias('serialNumber')]
         [String]$ServerSerialNumber,
-        
-        [Parameter (ParameterSetName = 'ServiceEvent')]       
-        [Switch]$ServiceEventIssues,
-
-        [Parameter (ParameterSetName = 'ServiceEventAndCriticalIssues')]       
-        [Switch]$ServiceEventAndCriticalIssues,
-
-        [Parameter (ParameterSetName = 'ServiceEventAndCriticalAndWarningIssues')]       
-        [Switch]$ServiceEventAndCriticalAndWarningIssues,
-
-        [Switch]$DailySummary,
 
         [Switch]$WhatIf
+       
     ) 
-
     Begin {
 
         $Caller = (Get-PSCallStack)[1].Command
 
         "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $ObjectStatusList = [System.Collections.ArrayList]::new()
+        $DevicesList = [System.Collections.ArrayList]::new()
+        $DevicesTrackingList = [System.Collections.ArrayList]::new()
+
+                
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+        
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+
+            Server    = if ($ServerSerialNumber) { $ServerSerialNumber } else { $ServerName }
+            Region    = $Region     
+            Location  = $Null                       
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        [void] $ObjectStatusList.add($objStatus)
+    
+    }
+    
+    End {
+
+        try {
+            
+            $Servers = Get-HPECOMServer -Region $Region 
+            
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)                
+        }
+        
+        
+        "[{0}] List of servers where to remove the location: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList.SerialNumber | out-string) | Write-Verbose
+
+
+        foreach ($Object in $ObjectStatusList) {
+
+            $Server = $Servers | Where-Object serialNumber -eq $Object.server
+            
+            if (-not $Server) {
+                $Server = $Servers | Where-Object serverName -eq $Object.server
+            }
+            
+
+            #  Condition when serverName is used and when multiple servers use the same serverName 
+            if ( $server -and $Server.id.count -gt 1) {
+
+                # Must return a message if device not found
+                $Object.Status = "Failed"
+                $Object.Details = "Server was found multiple times in the Compute Ops Management instance! Please refine your query to return a single server resource."
+
+                if ($WhatIf) {
+                    $ErrorMessage = "Server '{0}' was found multiple times in the Compute Ops Management instance! Please refine your query to return a single server resource." -f $Object.server
+                    Write-warning $ErrorMessage
+                    continue
+                }
+            }
+            elseif ( $server -and $Server.connectionType -ne "OneView") {
+
+                # Must return a message if device not OneView server
+                $Object.Status = "Failed"
+                $Object.Details = "Server is not an HPE OneView managed server! For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'"
+
+                if ($WhatIf) {
+                    $ErrorMessage = "Server '{0}' is not an HPE OneView managed server! For non-HPE OneView servers, use 'Set-HPEGLDeviceLocation'" -f $Object.server
+                    Write-warning $ErrorMessage
+                    continue
+                }
+
+            } 
+            elseif ( -not $Server) {
+
+                # Must return a message if device not found
+                $Object.Status = "Failed"
+                $Object.Details = "Server cannot be found in the Compute Ops Management instance!"
+
+                if ($WhatIf) {
+                    $ErrorMessage = "Server '{0}' cannot be found in the Compute Ops Management instance!" -f $Object.server
+                    Write-warning $ErrorMessage
+                    continue
+                }
+
+            } 
+            else {       
+            
+                $ServerLocation = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $server.serialnumber -ShowLocation
+
+                if (-not $ServerLocation) {   
+                    # Must return a message if server already member of the location
+                    $Object.Status = "Warning"
+                    $Object.Details = "Server is not assigned to a location!"
+
+                    if ($WhatIf) {
+                        $ErrorMessage = "Server '{0}' is not assigned to a location" -f $Object.server
+                        Write-warning $ErrorMessage
+                        continue
+                    }
+
+                }
+                else {
+
+                    $Object.Location = $ServerLocation.name 
+
+                    # Build DeviceInfo object for tracking
+                    $DeviceInfo = [PSCustomObject]@{
+                        serialnumber = $server.serialNumber
+                        servername   = $server.serverName
+                        
+                    }
+                    
+                    Write-Verbose "Server serialNumber: $($server.serialNumber)"
+                    Write-Verbose "Server ID: $($server.id)"
+                    
+                    # Building the list of devices object for payload
+                    [void]$DevicesList.Add($($Server.id))
+    
+                    # Building the list of devices object for tracking
+                    [void]$DevicesTrackingList.Add($DeviceInfo)
+
+                }
+            }
+        }
+
+
+        if ($DevicesList) {
+
+            "[{0}] List of IDs to add to query: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($DevicesList | out-string) | Write-Verbose
+
+
+            # Build the query string
+            $queryString = ($DevicesList | ForEach-Object { "id=$_" }) -join "&"
+            $queryString = "?$queryString"
+
+            # ID uses a '+' sign, it needs to be replaced with '%2B' to avoid 404 resource not found error 
+            # (URL encoding not working: $encodedQueryString = [System.Web.HttpUtility]::UrlEncode($queryString) )
+            $encodedQueryString = $queryString.replace('+', '%2B')
+
+            $Uri = $COMServerLocationsUri + "/" + $ServerLocation.locationId + "/servers" + $encodedQueryString
+       
+            # Remove Devices to location  
+            try {
+
+                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method DELETE -Body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf 
+                
+                if (-not $WhatIf) {
+                   
+                    foreach ($Object in $ObjectStatusList) {
+
+                        $DeviceSet = $DevicesTrackingList | Where-Object { $_.serialnumber -eq $Object.Server -or $_.servername -eq $Object.Server }
+
+                        If ($DeviceSet) {
+                            
+                            $Object.Status = "Complete"
+                            $Object.Details = "Location successfully unassigned from server"
+
+                        }
+                    }
+                }
+            }
+            catch {
+                
+                if (-not $WhatIf) {
+
+                    foreach ($Object in $ObjectStatusList) {
+
+                        $DeviceSet = $DevicesTrackingList | Where-Object { $_.serialnumber -eq $Object.Server -or $_.servername -eq $Object.Server }
+
+                        If ($DeviceSet) {
+                            
+                            $Object.Status = "Failed"
+                            $Object.Details = "Location cannot be unassigned from server!"
+                            $Object.Exception = $_.Exception.message 
+
+                        }
+                    }
+                }
+            }
+        }
+        
+
+        if (-not $WhatIf ) {
+
+            if ($ObjectStatusList | Where-Object { $_.Status -eq "Failed" }) {
   
+                write-error "One or more server locations failed to unassign successfully!"
 
-        $EnableEmailPreferencesStatus = [System.Collections.ArrayList]::new()
-
-        if ($ServiceEventIssues) {
-            $criticalNotification = $true
-            $warningNotification = $false
-            $criticalNonServiceNotification = $false
-        }
-        elseif ($ServiceEventAndCriticalIssues) {
-            $criticalNotification = $true
-            $warningNotification = $false
-            $criticalNonServiceNotification = $True
-        } 
-        elseif ($ServiceEventAndCriticalAndWarningIssues) {
-            $criticalNotification = $true
-            $warningNotification = $true
-            $criticalNonServiceNotification = $True
-        
-        }
-        else {
-            $criticalNotification = $false
-            $warningNotification = $false
-            $criticalNonServiceNotification = $false
-        }
-
-
-        if ($DailySummary) {
-            $healthNotification = $True
-
-        }
-        else {
-            $healthNotification = $False
-
-        }
-
-
-    }
-
-    Process {
-
-        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-       
-
-        # Check if at least one of the switches is used
-        if (-not $DailySummary -and -not ($ServiceEventIssues -or $ServiceEventAndCriticalIssues -or $ServiceEventAndCriticalAndWarningIssues)) {
-            Write-Error "You must specify either a service event notification or -DailySummary, or both."
-            return
-        }
-                
-        if ($ServerSerialNumber) {
-            
-            try {
-
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
-
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
+          
             }
             
-            if (-not $_server) {
-
-                # Must return a message if not found                    
-                $ErrorMessage = "Server '{0}' cannot be found in the Compute Ops Management instance!" -f $ServerSerialNumber
-                Write-Warning $ErrorMessage
-
-            }
-            else {
-
-                $_serverId = $_server.id
-
-                "[{0}] Server ID found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_serverId | Write-Verbose
-
-                try {
-
-                    $_serverNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -SerialNumber $ServerSerialNumber
+            Return $ObjectStatusList
         
-                }
-                catch {
-                    $PSCmdlet.ThrowTerminatingError($_)
-                }
-                    
-        
-                if ($_serverNotifications) {
-    
-                    $Uri = $COMServersUri + "/" + $_serverId + "/notifications"
-
-                    $Method = "PUT"
-    
-                    # Build object for the output
-                    $objStatus = [pscustomobject]@{
-            
-                        Email     = $HPEGreenLakeSession.username
-                        Server    = $ServerSerialNumber
-                        Region    = $Region                            
-                        Status    = $Null
-                        Details   = $Null
-                        Exception = $Null
-                    }
-
-    
-                    if (-not $ServiceEventIssues -and -not $ServiceEventAndCriticalIssues -and -not $ServiceEventAndCriticalAndWarningIssues ) {
-    
-                        $criticalNotification = $_serverNotifications.criticalNotification  
-                        $warningNotification = $_serverNotifications.warningNotification
-                        $criticalNonServiceNotification = $_serverNotifications.criticalNonServiceNotification
-                    }
-                  
-                    if (-not $DailySummary) {
-                        $healthNotification = $_serverNotifications.healthNotification  
-                    }
-    
-                }
-                else {
-    
-                    Write-Error "You cannot specify a server serial number at this time as no user email notification policy exists yet!"
-                    return
-        
-                }
-            }
         }
-        else {
-
-            try {
-
-                $_userNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region
-    
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-                
-    
-            if ($_userNotifications) {
-
-                $Uri = $COMUserPreferencesUri + "/" + $_userNotifications.id
-                $Method = "PUT"
-
-                if (-not $ServiceEventIssues -and -not $ServiceEventAndCriticalIssues -and -not $ServiceEventAndCriticalAndWarningIssues ) {
-
-                    $criticalNotification = $_userNotifications.criticalNotification  
-                    $warningNotification = $_userNotifications.warningNotification
-                    $criticalNonServiceNotification = $_userNotifications.criticalNonServiceNotification
-                }
-              
-                if (-not $DailySummary) {
-                    $healthNotification = $_userNotifications.healthNotification  
-                }
-
-            }
-            else {
-
-                $Uri = $COMUserPreferencesUri
-                $Method = "POST"
-    
-            }
-
-            # Build object for the output
-            $objStatus = [pscustomobject]@{
-
-                Email     = $HPEGreenLakeSession.username
-                Server    = "All unless an individual definition has been configured"
-                Region    = $Region                            
-                Status    = $Null
-                Details   = $Null
-                Exception = $Null
-            }
-        }
-        
-        $Payload = @{
-            criticalNotification           = $criticalNotification
-            criticalNonServiceNotification = $criticalNonServiceNotification 
-            warningNotification            = $warningNotification
-            healthNotification             = $healthNotification
-        }   
-
-
-
-
-        # Convert the hashtable to JSON
-        $jsonPayload = $Payload | ConvertTo-Json
-
-
-        # Set resource
-        try {
-            $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method $Method -body $jsonPayload -ContentType "application/json" -WhatIfBoolean $WhatIf 
-
-                
-            if (-not $WhatIf) {
-
-                "[{0}] Email notification policy modification raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
-                
-                "[{0}] Email notification policy successfully modified in '{1}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
-                    
-                $objStatus.Status = "Complete"
-                $objStatus.Details = "Email notification policy successfully modified in $Region region"
-
-            }
-
-        }
-        catch {
-
-            if (-not $WhatIf) {
-                $objStatus.Status = "Failed"
-                $objStatus.Details = "Email notification policy cannot be modified!"
-                $objStatus.Exception = $_.Exception.message 
-            }
-        }           
-        
-
-        [void] $EnableEmailPreferencesStatus.add($objStatus)
-
-    }
-
-    end {
-
-        if (-not $WhatIf) {
-           
-            Return $EnableEmailPreferencesStatus
-        }
-
 
     }
 }
 
 
-
-Function Disable-HPECOMEmailNotificationPolicy {
-    <#
-    .SYNOPSIS
-    Disable a service instance email notification policy in a region.
-
-    .DESCRIPTION   
-    This Cmdlet disables email notification policies for a specified service instance within a designated region.
-    
-    .PARAMETER Region 
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the email notification preferences will be disabled.
-    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
-
-    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
-        
-    .PARAMETER SerialNumber
-    Specifies the serial number of the server on which the email notification preferences will be disabled.
-    
-    Note: Changing the email notification preferences at the individual server level does not reapply the service instance email notification policy.
-
-    Note: Servers managed by HPE OneView are not supported.
-        
-    .PARAMETER AllServiceEvents
-    Disables all notifications for service events and issues. 
-    
-    .PARAMETER DailySummary
-    Disables the daily email summary.
-
-    .PARAMETER WhatIf
-    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
-   
-    .EXAMPLE
-    Disable-HPECOMEmailNotificationPolicy -Region eu-central  -AllServiceEvents -DailySummary
-
-    Unsubscribe the user account, used with 'Connect-HPEGL', from all server notifications and the daily summary notifications.
-
-    .EXAMPLE
-    Disable-HPECOMEmailNotificationPolicy -Region eu-central -SerialNumber CZ12312312 -AllServiceEvents
-
-    Unsubscribe the user account, used with 'Connect-HPEGL', from all server notifications for the server with serial number 'CZ12312312'.    
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Name 'ESX-2.lab' | Disable-HPECOMEmailNotificationPolicy -DailySummary
-
-    Unsubscribe the user account, used with 'Connect-HPEGL', from the daily summary notifications for the server with the name 'ESX-2.lab'.
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central -ConnectedState True -Model "ProLiant DL360 Gen10 Plus" | Disable-HPECOMEmailNotificationPolicy -DailySummary 
-
-    Unsubscribe the user account, used with 'Connect-HPEGL', from the daily summary notifications for all servers with the model 'ProLiant DL360 Gen10 Plus' that are connected.
-
-    .EXAMPLE
-    "CZ12312312", "DZ12312312" | Disable-HPECOMEmailNotificationPolicy -Region eu-central -AllServiceEvents
-
-    Unsubscribe the user account, used with 'Connect-HPEGL', from all server notifications for the servers with serial numbers 'CZ12312312' and 'DZ12312312'.
-
-    .INPUTS
-    System.String, System.String[]
-        A single string object or a list of string objects representing the server's serial numbers.
-
-    System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
-
-    .OUTPUTS
-    System.Collections.ArrayList
-        A custom status object or array of objects containing the following PsCustomObject keys:  
-        * User - Email address of the current user
-        * Server - Serial number of the server on which the email notification preferences will be disabled
-        * Region - Name of the region where the email notification preferences will be disabled
-        * Status - Status of the modification attempt (Failed for http error return; Complete if modification is successful; Warning if no action is needed) 
-        * Details - More information about the status 
-        * Exception: Information about any exceptions generated during the operation.
-
-   #>
-
-    [CmdletBinding()]
-    Param( 
-
-        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
-        [ValidateScript({
-                if ($HPECOMAPICredentialRegions -contains $_) {
-                    $true
-                }
-                else {
-                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
-                }
-            })]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
-                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [String]$Region,  
-
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
-        [alias('serialnumber')]
-        [String]$ServerSerialNumber,
-        
-        [Switch]$AllServiceEvents,
-        
-        [Switch]$DailySummary,
-
-        [Switch]$WhatIf
-    ) 
-
-    Begin {
-
-        $Caller = (Get-PSCallStack)[1].Command
-
-        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-
-        $DisableEmailPreferencesStatus = [System.Collections.ArrayList]::new()
-
-        if ($AllServiceEvents) {
-            $criticalNotification = $false
-            $warningNotification = $false
-            $criticalNonServiceNotification = $false
-        }
-
-       
-        if ($DailySummary) {
-            $healthNotification = $False
-
-        }
-
-
-    }
-
-    Process {
-
-        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-       
-        # Check if at least one of the switches is used
-        if (-not $AllServiceEvents -and -not $DailySummary) {
-            Write-Error "You must specify either -AllServiceEvents, -DailySummary, or both."
-            return
-        }
-    
-        if ($ServerSerialNumber) {
-            
-            try {
-
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
-
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-            
-            if (-not $_server) {
-
-                # Must return a message if not found
-                $ErrorMessage = "Server '{0}' cannot be found in the Compute Ops Management instance!" -f $ServerSerialNumber
-                Write-Warning $ErrorMessage
-
-            }
-            else {
-
-                $_serverId = $_server.id
-
-                "[{0}] Server ID found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_serverId | Write-Verbose
-
-
-                try {
-
-                    $_serverNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -SerialNumber $ServerSerialNumber
-        
-                }
-                catch {
-                    $PSCmdlet.ThrowTerminatingError($_)
-                }
-                    
-        
-                if ($_serverNotifications) {
-    
-                    $Uri = $COMServersUri + "/" + $_serverId + "/notifications"
-
-                    $Method = "PUT"
-    
-                    # Build object for the output
-                    $objStatus = [pscustomobject]@{
-            
-                        Email     = $HPEGreenLakeSession.username
-                        Server    = $ServerSerialNumber
-                        Region    = $Region                            
-                        Status    = $Null
-                        Details   = $Null
-                        Exception = $Null
-                    }
-
-    
-                    if (-not $ServiceEventIssues -and -not $ServiceEventAndCriticalIssues -and -not $ServiceEventAndCriticalAndWarningIssues ) {
-    
-                        $criticalNotification = $_serverNotifications.criticalNotification  
-                        $warningNotification = $_serverNotifications.warningNotification
-                        $criticalNonServiceNotification = $_serverNotifications.criticalNonServiceNotification
-                    }
-                  
-                    if (-not $DailySummary) {
-                        $healthNotification = $_serverNotifications.healthNotification  
-                    }
-    
-                }
-                else {
-    
-                    Write-Error "You cannot specify a server serial number at this time as no user email notification policy exists yet!"
-                    return
-        
-                }
-               
-            }
-        }
-        else {
-
-            try {
-
-                $_userNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region
-    
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-                
-    
-            if ($_userNotifications) {
-
-                $Uri = $COMUserPreferencesUri + "/" + $_userNotifications.id
-                $Method = "PUT"
-
-                if (-not $AllServiceEvents) {
-
-                    $criticalNotification = $_userNotifications.criticalNotification  
-                    $warningNotification = $_userNotifications.warningNotification
-                    $criticalNonServiceNotification = $_userNotifications.criticalNonServiceNotification
-                }
-
-                if (-not $DailySummary) {
-                    $healthNotification = $_userNotifications.healthNotification  
-                }
-
-            }
-            else {
-
-                $Uri = $COMUserPreferencesUri
-                $Method = "POST"
-
-    
-            }
-
-            # Build object for the output
-            $objStatus = [pscustomobject]@{
-
-                Email     = $HPEGreenLakeSession.username
-                Server    = "All unless an individual definition has been configured"
-                Region    = $Region                            
-                Status    = $Null
-                Details   = $Null
-                Exception = $Null
-            }
-        }
-        
-        $Payload = @{
-            criticalNotification           = $criticalNotification
-            criticalNonServiceNotification = $criticalNonServiceNotification 
-            warningNotification            = $warningNotification
-            healthNotification             = $healthNotification
-        }   
-
-
-        # Convert the hashtable to JSON
-        $jsonPayload = $Payload | ConvertTo-Json
-
-
-        # Set resource
-        try {
-            $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method $Method -body $jsonPayload -ContentType "application/json" -WhatIfBoolean $WhatIf 
-
-                
-            if (-not $WhatIf) {
-
-                "[{0}] Email notification policy modification raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
-                
-                "[{0}] Email notification policy successfully modified in '{1}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
-                    
-                $objStatus.Status = "Complete"
-                $objStatus.Details = "Email notification policy successfully modified in $Region region"
-
-            }
-
-        }
-        catch {
-
-            if (-not $WhatIf) {
-                $objStatus.Status = "Failed"
-                $objStatus.Details = "Email notification policy cannot be modified!"
-                $objStatus.Exception = $_.Exception.message 
-            }
-        }           
-        
-
-        [void] $DisableEmailPreferencesStatus.add($objStatus)
-
-    }
-
-    end {
-
-        if (-not $WhatIf) {
-           
-            Return $DisableEmailPreferencesStatus
-        }
-
-
-    }
-}
 
 
 #EndRegion
 
 
-#Region --- Webhooks ---
+#Region --- WEBHOOKS ---
 
 Function Get-HPECOMWebhook {
     <#
@@ -39069,7 +39299,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
         }
         catch {
             $objStatus.iLOConnectionStatus = "Failed"
-            $objStatus.iLOConnectionDetails = "iLO connection error! Check your iLO IP or credential!"
+            $objStatus.iLOConnectionDetails = "iLO connection error! Verify the iLO IP address, credentials, and ensure you have an active connection to the iLO network, then try again."
             $objStatus.Exception = $_.Exception.message 
 
             "[{0}] '{1}' -- iLO session cannot be created!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
@@ -39194,7 +39424,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 
         if ($iLOGeneration -eq "iLO 5" -or $iLOGeneration -eq "iLO 6") {       
 
-            #Region-----------------------------------------------------------Enable iLO Proxy settings if needed-----------------------------------------------------------------------------
+            #Region-----------------------------------------------------------Enable iLO proxy settings or secure gateway if needed-----------------------------------------------------------------------------
 
             if ($IloProxyServer) {
 
@@ -44806,7 +45036,7 @@ Function New-HPEGLService {
 
         try {
 
-            $Appfound = Get-HPEGLService -Name $Name -Region $Region -ShowUnprovisioned
+            $Appfound = Get-HPEGLService -Name $Name -Region $Region 
 
         }
         catch {    
@@ -44815,7 +45045,7 @@ Function New-HPEGLService {
         }
         
         if (-not $Appfound) {
-            # Must return a message if Service is already provisioned 
+            # Must return a message if Service is not found 
             "[{0}] Service '{1}' is not available in '{2}' region for provisioning!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
 
             if ($WhatIf) {
@@ -44826,6 +45056,20 @@ Function New-HPEGLService {
             else {
                 $objStatus.Status = "Warning"
                 $objStatus.Details = "Service is not available in this region for provisioning!"
+            }
+        }
+        elseif ($Appfound.provision_status -eq "PROVISIONED") {
+            # Must return a message if Service is already provisioned 
+            "[{0}] Service '{1}' is already provisioned in '{2}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+
+            if ($WhatIf) {
+                $ErrorMessage = "Service '{0}' is already provisioned in '{1}' region!" -f $Name, $Region
+                Write-warning $ErrorMessage
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Service is already provisioned in this region!"
             }
         }
         else {
@@ -44901,7 +45145,6 @@ Function New-HPEGLService {
     
                                 $response = Invoke-RestMethod -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded' 
             
-                                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
                                 "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
     
                                 $comApiAccessToken = [PSCustomObject]@{
@@ -45619,27 +45862,13 @@ Function Remove-HPEGLDeviceFromService {
             else {       
             
                 # Build DeviceList object
-                if ($device | Where-Object device_model -match "Gen11" ) {
 
-                    # $mac = $device | ForEach-Object mac_address
-
-                    $DeviceList = [PSCustomObject]@{
-                        serial_number = $Device.serial_number
-                        part_number   = $Device.part_number 
-                        mac_address   = $Device.mac_address
-                        device_type   = $Device.device_type
-                    }
-                }
-                else {
-
-                    $DeviceList = [PSCustomObject]@{
-                        serial_number = $Device.serial_number
-                        part_number   = $Device.part_number 
-                        device_type   = $Device.device_type
-                    }
+                $DeviceList = [PSCustomObject]@{
+                    serial_number = $Device.serial_number
+                    part_number   = $Device.part_number 
+                    device_type   = $Device.device_type
                 }
             
-               
                 # Building the list of devices object where to add tags
                 [void]$DevicesList.Add($DeviceList)
                     
@@ -46792,6 +47021,154 @@ Function New-HPEGLDeviceSubscription {
 }
 
 
+Function New-HPEGLServiceSubscription {
+    <#
+    .SYNOPSIS
+    Add a service subscription to HPE GreenLake.
+
+    .DESCRIPTION
+    This Cmdlet adds a service subscription to the HPE GreenLake workspace. 
+
+    .PARAMETER SubscriptionKey 
+    The subscription key to add to the GreenLake workspace.
+
+    .PARAMETER WhatIf 
+    Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    New-HPEGLServiceSubscription -SubscriptionKey 'Kxxxxxxxxxx'
+
+    Adds the service subscription key 'Kxxxxxxxxxx'.
+        
+    .INPUTS
+    None. You cannot pipe objects to this Cmdlet.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:  
+        * SubscriptionKey - The subscription key attempted to be added 
+        * Status - The status of the addition attempt (Failed for HTTP error return; Complete if addition is successful) 
+        * Details - More information about the status 
+        * Exception - Information about any exceptions generated during the operation.
+    #>
+
+
+    [CmdletBinding()]
+    Param( 
+
+        [Parameter (Mandatory, ParameterSetName = 'Default')]
+        [String]$SubscriptionKey,
+        
+        [Switch]$WhatIf
+       
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $AddServiceSubscriptionStatus = [System.Collections.ArrayList]::new()
+        
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        try {
+            $SubscriptionKeyFound = Get-HPEGLServiceSubscription | Where-Object  subscription_key -eq $SubscriptionKey
+      
+        }
+        catch {    
+            $PSCmdlet.ThrowTerminatingError($_)
+        
+        }
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+  
+            SubscriptionKey = $SubscriptionKey
+            Status          = $Null
+            Details         = $Null
+            Exception       = $Null
+          
+        }
+
+        if ($SubscriptionKeyFound) {
+            # Must return a message if subscription already present
+            "[{0}] Subscription '{1}' is already present in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SubscriptionKey | Write-Verbose
+        
+            if ($WhatIf) {
+                $ErrorMessage = "Subscription '{0}' is already present in the HPE GreenLake workspace!" -f $SubscriptionKey
+                Write-warning $ErrorMessage
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Subscription is already present in the HPE GreenLake workspace!"
+            }
+        }
+        else {
+           
+            $Uri = $AddLicenseServicesUri + $SubscriptionKey
+
+            # Build payload
+            $payload = [PSCustomObject]@{
+                onPremWorkspaceId = ""
+                onPremWorkspaceName = ""
+
+            } | ConvertTo-Json -Depth 5
+
+            
+
+            # Add device subscription
+            try {
+                Invoke-HPEGLWebRequest -Uri $Uri -method 'POST' -body $payload -WhatIfBoolean $WhatIf | out-Null
+
+                if (-not $WhatIf) {
+
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "Service subscription successfully added to the HPE GreenLake platform"
+                    
+                }
+                
+            }
+            catch {
+
+                if (-not $WhatIf) {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Service subscription was not added to the HPE GreenLake platform"
+                    $objStatus.Exception = $_.Exception.message 
+                }
+            
+            }   
+        } 
+
+        [void] $AddServiceSubscriptionStatus.add($objStatus)
+
+  
+    }
+    end {
+
+        if (-not $WhatIf) {
+
+            if ($AddServiceSubscriptionStatus | Where-Object { $_.Status -eq "Failed" }) {
+  
+                write-error "One or more service subscriptions could not be added!"
+          
+            }
+
+            Return $AddServiceSubscriptionStatus
+        }
+
+
+    }
+      
+}
+
+
 <# NOT SUPPORTED
 Function Remove-HPEGLSubscription {
     <#
@@ -47064,18 +47441,20 @@ Function Get-HPEGLServiceSubscription {
 Function Get-HPEGLDeviceAutoSubscription {
     <#
     .SYNOPSIS
-    Retrieve the auto-subscription status of device(s) in the HPE GrenLake workspace.
+    Retrieve the automatic subscription status of device(s) in the HPE GrenLake workspace.
 
     .DESCRIPTION
-    This Cmdlet returns the device types enabled for automatic subscription assignment.
+    This Cmdlet returns the automatic subscription status of device(s) in the HPE GreenLake workspace.
 
+    Automatic subscription assignment allows HPE GreenLake to automatically assign an valid license to devices.
+    
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
 
     .EXAMPLE
     Get-HPEGLDeviceAutoSubscription
 
-    Returns all auto-subscribed device types.
+    Returns the automatic subscription status of device(s) in the HPE GreenLake workspace.
     
    #>
 
@@ -47110,9 +47489,9 @@ Function Get-HPEGLDeviceAutoSubscription {
         
         if ($Null -ne $Collection.autolicenses) {
 
-            $CollectionList = $Collection.autolicenses | Where-Object { $_.enabled -eq $True }
+            $CollectionList = $Collection.autolicenses #| Where-Object { $_.enabled -eq $True }
 
-            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "License.Auto"    
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "License.AutoSubscribe"    
 
             $ReturnData = $ReturnData | Sort-Object { $_.device_type }
     
@@ -47133,7 +47512,9 @@ function Set-HPEGLDeviceAutoSubscription {
     Configure automatic subscription assignment for each supported device type.
 
     .DESCRIPTION
-    This Cmdlet enables the automatic assignment of subscriptions to devices. When a subscription assigned to a device expires or is canceled, HPE GreenLake checks for available subscription tokens in your workspace and assigns the longest available subscription token to the device.
+    This Cmdlet enables the automatic assignment of subscriptions to different type of devices. 
+    
+    Automatic subscription assignment allows HPE GreenLake to automatically assign an valid license to devices.
 
     .PARAMETER AccessPointSubscriptionTier 
     Defines the automatic subscription for "Access Points". The subscription level can be selected from a predefined list.
@@ -47147,18 +47528,21 @@ function Set-HPEGLDeviceAutoSubscription {
     .PARAMETER SwitchSubscriptionTier 
     Defines the automatic subscription for "Switches". The subscription level can be selected from a predefined list.
 
+    .PARAMETER SensorsSubscriptionTier 
+    Defines the automatic subscription for "Sensors". The subscription level can be selected from a predefined list.
+
     .PARAMETER WhatIf
     Displays the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
 
     .EXAMPLE
     Set-HPEGLDeviceAutoSubscription -ComputeSubscriptionTier ENHANCED
 
-    Configures auto-subscription for your Compute devices using the Enhanced subscription tier.
+    Configures auto-subscription for compute devices using the Enhanced subscription tier.
 
     .EXAMPLE
     Set-HPEGLDeviceAutoSubscription -SwitchSubscriptionTier ADVANCED
 
-    Configures auto-subscription for your Switch devices using the Advanced subscription tier.
+    Configures auto-subscription for switch devices using the Advanced subscription tier.
 
     .INPUTS
     None. You cannot pipe objects to this Cmdlet.
@@ -47194,6 +47578,11 @@ function Set-HPEGLDeviceAutoSubscription {
         [ValidateNotNullOrEmpty()]
         [ValidateSet('FOUNDATION', 'ADVANCED')]
         [String]$SwitchSubscriptionTier,
+
+        [Parameter (Mandatory, ParameterSetName = "Sensor")]
+        [ValidateNotNullOrEmpty()]
+        [ValidateSet('FOUNDATION')]
+        [String]$SensorSubscriptionTier,
 
         [Switch]$WhatIf
     ) 
@@ -47260,6 +47649,12 @@ function Set-HPEGLDeviceAutoSubscription {
         }
 
 
+        if ($SensorSubscriptionTier -eq 'FOUNDATION' ) {
+            $AutoLicenseSubscriptionTierGroup = "FOUNDATION_SENSOR"
+            $DeviceType = "SENSOR"
+
+        }
+       
 
         # Build object for the output
         $objStatus = [pscustomobject]@{
@@ -47283,15 +47678,13 @@ function Set-HPEGLDeviceAutoSubscription {
         ) 
   
 
-        # Assign Device to Service 
-    
         try {
             Invoke-HPEGLWebRequest -Uri $Uri -method 'POST' -body $payload -WhatIfBoolean $WhatIf | Out-Null
                
             if (-not $WhatIf) {
 
                 $objStatus.Status = "Complete"
-                $objStatus.Details = "Automatic assignment of subscriptions to $DeviceType successfully set!"
+                $objStatus.Details = "Automatic assignment of subscriptions to '$DeviceType' successfully set!"
                 
 
             }
@@ -47299,7 +47692,7 @@ function Set-HPEGLDeviceAutoSubscription {
         catch {
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = "Automatic assignment of subscriptions to $DeviceType cannot be set!"
+                $objStatus.Details = "Automatic assignment of subscriptions to '$DeviceType' cannot be set!"
                 $objStatus.Exception = $_.Exception.message 
             }
         }
@@ -47314,7 +47707,7 @@ function Set-HPEGLDeviceAutoSubscription {
 
             if ($AutoSubscriptionStatus | Where-Object { $_.Status -eq "Failed" }) {
  
-                write-error "$DeviceType automatic assignment of subscription configuration failure!"
+                write-error "'$DeviceType' automatic assignment of subscription configuration failure!"
          
             }
 
@@ -47332,30 +47725,32 @@ function Remove-HPEGLDeviceAutoSubscription {
     Remove automatic subscription assignment for specified device types.
 
     .DESCRIPTION
-    This Cmdlet disables the automatic assignment of subscriptions to specified device types. It allows you to remove auto-subscription settings for Access Points, Gateways, Computes, and Switches.
+    This Cmdlet disables the automatic assignment of subscriptions to specified device types. It allows you to remove auto-subscription settings for Access Points, Gateways, Computes, Sensors and Switches.
 
-    .PARAMETER AccessPoint 
+    Automatic subscription assignment allows HPE GreenLake to automatically assign an valid license to devices.
+
+    .PARAMETER AccessPoints 
     Removes the automatic subscription assignment for "Access Points".
 
-    .PARAMETER Gateway 
+    .PARAMETER Gateways 
     Removes the automatic subscription assignment for "Gateways".
 
-    .PARAMETER Compute 
+    .PARAMETER Computes 
     Removes the automatic subscription assignment for "Computes".
 
-    .PARAMETER Switch 
+    .PARAMETER Switches 
     Removes the automatic subscription assignment for "Switches".
 
     .PARAMETER WhatIf
     Displays the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
 
     .EXAMPLE
-    Remove-HPEGLDeviceAutoSubscription -Compute
+    Remove-HPEGLDeviceAutoSubscription -Computes
 
     Removes the auto-subscription for Compute devices.
 
     .EXAMPLE
-    Remove-HPEGLDeviceAutoSubscription -Switch
+    Remove-HPEGLDeviceAutoSubscription -Switches
 
     Removes the auto-subscription for Switch devices.
 
@@ -47375,16 +47770,19 @@ function Remove-HPEGLDeviceAutoSubscription {
     Param( 
 
         [Parameter (Mandatory, ParameterSetName = "AP")]
-        [Switch]$AccessPoint,
+        [Switch]$AccessPoints,
 
         [Parameter (Mandatory, ParameterSetName = "Gateway")]
-        [Switch]$Gateway,
+        [Switch]$Gateways,
 
         [Parameter (Mandatory, ParameterSetName = "Compute")]
-        [Switch]$Compute,
+        [Switch]$Computes,
 
         [Parameter (Mandatory, ParameterSetName = "Switch")]
-        [Switch]$Switch,
+        [Switch]$Switches,
+
+        [Parameter (Mandatory, ParameterSetName = "Sensor")]
+        [Switch]$Sensors,
 
         [Switch]$WhatIf
     ) 
@@ -47405,25 +47803,13 @@ function Remove-HPEGLDeviceAutoSubscription {
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
 
       
-        if ($AccessPoint ) {
-            $DeviceType = "AP"
+        switch ($true) {
+            $AccessPoints { $DeviceType = "AP" }
+            $Gateways { $DeviceType = "GATEWAY" }
+            $Computes { $DeviceType = "COMPUTE" }
+            $Switches { $DeviceType = "SWITCH" }
+            $Sensors { $DeviceType = "SENSOR" }
         }
-
-        if ($Gateway) {
-            $DeviceType = "GATEWAY"
-
-        }
-
-        if ($Compute ) {
-            $DeviceType = "COMPUTE"
-
-        }
-
-        if ($Switch) {
-            $DeviceType = "SWITCH"
-
-        }
-
 
         # Build object for the output
         $objStatus = [pscustomobject]@{
@@ -47466,14 +47852,14 @@ function Remove-HPEGLDeviceAutoSubscription {
                 if (-not $WhatIf) {
 
                     $objStatus.Status = "Complete"
-                    $objStatus.Details = "Automatic assignment of subscriptions to $DeviceType successfully set!"
+                    $objStatus.Details = "Automatic assignment of subscriptions to '$DeviceType' successfully set!"
                 
                 }
             }
             catch {
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Automatic assignment of subscriptions to $DeviceType cannot be set!"
+                    $objStatus.Details = "Automatic assignment of subscriptions to '$DeviceType' cannot be set!"
                     $objStatus.Exception = $_.Exception.message 
                 }
             }
@@ -47482,7 +47868,7 @@ function Remove-HPEGLDeviceAutoSubscription {
         else {
 
             if ($WhatIf) {
-                $ErrorMessage = "Automatic subscription cannot be found for $DeviceType!" -f $Name
+                $ErrorMessage = "Automatic subscription cannot be found for '$DeviceType'!" -f $Name
                 Write-warning $ErrorMessage
                 return
             }
@@ -47503,7 +47889,7 @@ function Remove-HPEGLDeviceAutoSubscription {
 
             if ($AutoSubscriptionStatus | Where-Object { $_.Status -eq "Failed" }) {
  
-                write-error "$DeviceType automatic assignment of subscription configuration failure!"
+                write-error "'$DeviceType' automatic assignment of subscription configuration failure!"
          
             }
 
@@ -47512,6 +47898,461 @@ function Remove-HPEGLDeviceAutoSubscription {
 
 
     }
+}
+
+
+Function Get-HPEGLDeviceAutoReassign {
+    <#
+    .SYNOPSIS
+    Retrieve the automatic reassignment status of device(s) in the HPE GrenLake workspace.
+
+    .DESCRIPTION
+    This Cmdlet returns the device types enabled for automatic subscription reassignment.
+
+    Automatic subscription reassignment is a feature to switche the device when a subscription expires to another subscription of the same type preventing disruptions.
+
+    .PARAMETER WhatIf 
+    Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    Get-HPEGLDeviceAutoReassign
+
+    Returns the automatic reassignment status of device(s) in the HPE GreenLake workspace.
+    
+   #>
+
+    [CmdletBinding()]
+    Param( 
+        [Switch]$WhatIf   
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = $AutoRenewalDevicesUri
+        
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $ReturnData = @()
+        
+        try {
+            [array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -whatifBoolean $WhatIf
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+  
+        
+        if ($Null -ne $Collection.renewalSettingsList) {
+
+            $CollectionList = $Collection.renewalSettingsList #| Where-Object { $_.enabled -eq $True }
+
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "License.AutoReassign"    
+
+            $ReturnData = $ReturnData | Sort-Object { $_.device_type }
+    
+            return $ReturnData 
+        }
+        else {
+
+            return 
+            
+        }  
+    }
+}
+
+
+function Set-HPEGLDeviceAutoReassign {
+    <#
+    .SYNOPSIS
+    Configure automatic subscription reassignment for each supported device type.
+
+    .DESCRIPTION
+    This Cmdlet enables the automatic reassignment of subscriptions to devices. 
+    Automatic subscription reassignment is a feature to switche the device when a subscription expires to another subscription of the same type preventing disruptions.
+
+    .PARAMETER AccessPoints
+    Defines the automatic subscription reassignment for "Access Points".
+
+    .PARAMETER Gateways 
+    Defines the automatic subscription reassignment for "Gateways".
+
+    .PARAMETER Computes 
+    Defines the automatic subscription reassignment for "Computes".
+
+    .PARAMETER Switches 
+    Defines the automatic subscription reassignment for "Switches".
+
+    .PARAMETER Sensors 
+    Defines the automatic subscription reassignment for "Sensors".
+
+    .PARAMETER Bridges 
+    Defines the automatic subscription reassignment for "Bridges".
+
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    Set-HPEGLDeviceAutoReassign -Computes
+
+    Configures auto-reassignment for compute devices.
+
+    .EXAMPLE
+    Set-HPEGLDeviceAutoReassign -Switches
+
+    Configures auto-reassignment for switch devices.
+
+    .EXAMPLE
+    Set-HPEGLDeviceAutoReassign -AccessPoints -Gateways
+
+    Configures auto-reassignment for access points and gateways.
+
+    .INPUTS
+    None. You cannot pipe objects to this Cmdlet.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or an array of objects containing the following PsCustomObject keys:  
+        * DeviceType - The type of device configured for auto-subscription.
+        * Status - The status of the auto-subscription assignment attempt (Failed for HTTP error return; Complete if successful).
+        * Details - Additional information about the status.
+        * Exception - Information about any exceptions generated during the operation.
+    #>
+
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
+    Param( 
+
+        [switch]$AccessPoints,
+
+        [switch]$Gateways,
+
+        [switch]$Computes,
+
+        [switch]$Switches,
+
+        [switch]$Sensors,
+
+        [switch]$Bridges,
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = $AutoRenewalDevicesUri
+        $AutoReassignmentStatus = [System.Collections.ArrayList]::new()
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        try {
+
+            $ExistingSettings = Get-HPEGLDeviceAutoReassign
+            
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($AccessPoints) {
+            ($ExistingSettings | ? deviceType -eq "AP").enabled = $true
+            $DeviceType = "AccessPoints"
+        }
+        if ($Gateways) {
+            ($ExistingSettings | ? deviceType -eq "GATEWAY").enabled = $true
+            $DeviceType = "Gateways"
+        }
+        if ($Computes) {
+            ($ExistingSettings | ? deviceType -eq "COMPUTE").enabled = $true
+            $DeviceType = "Computes"
+        }
+        if ($Sensors) {
+            ($ExistingSettings | ? deviceType -eq "SENSOR").enabled = $true
+            $DeviceType = "Sensors"
+        }
+        if ($Switches) {
+            ($ExistingSettings | ? deviceType -eq "SWITCH").enabled = $true
+            $DeviceType = "Switches"
+        }
+        if ($Bridges) {
+            ($ExistingSettings | ? deviceType -eq "BRIDGE").enabled = $true
+            $DeviceType = "Bridges"
+        }
+
+        if ($PSBoundParameters.Count -gt 1) {
+            $DeviceType = "Multiple Types"
+        }
+
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+ 
+            DeviceType = $DeviceType
+            Status     = $Null
+            Details    = $Null
+            Exception  = $Null
+                 
+        }
+
+       
+        # Remove PSObject.TypeNames property
+        $CleanedSettings = $ExistingSettings | Select-Object -Property * -ExcludeProperty PSObject.TypeNames 
+
+        # Build payload
+        $payload = ConvertTo-Json @{ 
+            
+            renewalSettingsList = $CleanedSettings
+        
+        }
+              
+
+        try {
+            Invoke-HPEGLWebRequest -Uri $Uri -method PATCH -body $payload -WhatIfBoolean $WhatIf | Out-Null
+               
+            if (-not $WhatIf) {
+
+                $objStatus.Status = "Complete"
+                $objStatus.Details = "Automatic reassignment of subscriptions successfully set!"
+                
+
+            }
+        }
+        catch {
+            if (-not $WhatIf) {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Automatic reassignment of subscriptions cannot be set!"
+                $objStatus.Exception = $_.Exception.message 
+            }
+        }
+        
+
+        [void] $AutoReassignmentStatus.add($objStatus)
+    }
+
+    end {
+
+        if (-not $WhatIf) {
+
+            if ($AutoReassignmentStatus | Where-Object { $_.Status -eq "Failed" }) {
+ 
+                write-error "Automatic reassignment of subscription configuration failure!"
+         
+            }
+
+            Return $AutoReassignmentStatus
+        }
+
+
+    }
+}
+
+
+function Remove-HPEGLDeviceAutoReassign {
+    <#
+    .SYNOPSIS
+    Remove automatic subscription reassignment for specified device types.
+
+    .DESCRIPTION
+    This Cmdlet disables the automatic reassignment of subscriptions to specified device types.
+    Automatic subscription reassignment is a feature to switche the device when a subscription expires to another subscription of the same type preventing disruptions.
+
+    .PARAMETER AccessPoints 
+    Removes the automatic subscription reassignment for "Access Points".
+
+    .PARAMETER Gateways 
+    Removes the automatic subscription reassignment for "Gateways".
+
+    .PARAMETER Computes 
+    Removes the automatic subscription reassignment for "Computes".
+
+    .PARAMETER Switches 
+    Removes the automatic subscription reassignment for "Switches".
+    
+    .PARAMETER Sensors 
+    Removes the automatic subscription reassignment for "Sensors".
+    
+    .PARAMETER Bridges
+    Removes the automatic subscription reassignment for "Bridges".
+
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    Remove-HPEGLDeviceAutoReassign -Computes
+
+    Removes the auto-reassignment for compute devices.
+    
+    .EXAMPLE
+    Remove-HPEGLDeviceAutoReassign -Switches
+
+    Removes the auto-reassignment for switch devices.
+
+    .EXAMPLE
+    Remove-HPEGLDeviceAutoReassign -Gateways -Computes -Switches 
+
+    Removes the auto-reassignment for gateways, computes, and switches.
+
+    .INPUTS
+    None. You cannot pipe objects to this Cmdlet.
+    
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or an array of objects containing the following PsCustomObject keys:  
+        * DeviceType - The type of device removed from auto-subscription.
+        * Status - The status of the auto-subscription unassignment attempt (Failed for HTTP error return; Complete if successful).
+        * Details - Additional information about the status.
+        * Exception - Information about any exceptions generated during the operation.
+    #>
+
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
+    Param( 
+
+        [Switch]$AccessPoints,
+
+        [Switch]$Gateways,
+
+        [Switch]$Computes,
+
+        [Switch]$Switches,
+
+        [Switch]$Sensors,
+
+        [Switch]$Bridges,
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = $AutoRenewalDevicesUri
+        $AutoReassignmentStatus = [System.Collections.ArrayList]::new()
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+      
+        try {
+
+            $ExistingSettings = Get-HPEGLDeviceAutoReassign
+            
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($AccessPoints) {
+            ($ExistingSettings | ? deviceType -eq "AP").enabled = $false
+            $DeviceType = "AccessPoints"
+        }
+        if ($Gateways) {
+            ($ExistingSettings | ? deviceType -eq "GATEWAY").enabled = $false
+            $DeviceType = "Gateways"
+        }
+        if ($Computes) {
+            ($ExistingSettings | ? deviceType -eq "COMPUTE").enabled = $false
+            $DeviceType = "Computes"
+        }
+        if ($Sensors) {
+            ($ExistingSettings | ? deviceType -eq "SENSOR").enabled = $false
+            $DeviceType = "Sensors"
+        }
+        if ($Switches) {
+            ($ExistingSettings | ? deviceType -eq "SWITCH").enabled = $false
+            $DeviceType = "Switches"
+        }
+        if ($Bridges) {
+            ($ExistingSettings | ? deviceType -eq "BRIDGE").enabled = $false
+            $DeviceType = "Bridges"
+        }
+
+        if ($PSBoundParameters.Count -gt 1) {
+            $DeviceType = "Multiple types"
+        }
+
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+
+            DeviceType = $DeviceType
+            Status     = $Null
+            Details    = $Null
+            Exception  = $Null
+             
+        }
+
+          
+        # Remove PSObject.TypeNames property
+        $CleanedSettings = $ExistingSettings | Select-Object -Property * -ExcludeProperty PSObject.TypeNames 
+
+        # Build payload
+        $payload = ConvertTo-Json @{ 
+            
+            renewalSettingsList = $CleanedSettings
+        
+        }
+              
+
+        try {
+            Invoke-HPEGLWebRequest -Uri $Uri -method PATCH -body $payload -WhatIfBoolean $WhatIf | Out-Null
+               
+            if (-not $WhatIf) {
+
+                $objStatus.Status = "Complete"
+                $objStatus.Details = "Automatic reassignment of subscriptions successfully disabled!"
+                
+
+            }
+        }
+        catch {
+            if (-not $WhatIf) {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Automatic reassignment of subscriptions cannot be disabled!"
+                $objStatus.Exception = $_.Exception.message 
+            }
+        }
+        
+
+        [void] $AutoReassignmentStatus.add($objStatus)
+    }
+
+    end {
+
+        if (-not $WhatIf) {
+
+            if ($AutoReassignmentStatus | Where-Object { $_.Status -eq "Failed" }) {
+ 
+                write-error "Automatic reassignment of subscription configuration failure!"
+         
+            }
+
+            Return $AutoReassignmentStatus
+        }
+
+
+    }
+
+      
 }
 
 
@@ -53476,6 +54317,8 @@ Function Get-HPEGLWorkspace {
         [ValidateNotNullOrEmpty()]
         [Switch]$ShowActivationKey,
 
+        [int]$Limit,
+
         [Switch]$WhatIf
     ) 
 
@@ -53495,52 +54338,37 @@ Function Get-HPEGLWorkspace {
 
         $AllCollection = [System.Collections.ArrayList]::new()
 
-        # GET WORKSPACES
-        # Get 50 workspaces pagination
-        $limit = 50
+        if ($limit) {
 
-        $Uri = $WorkspacesListUri + "?offset=0&count_per_page=$limit"
-      
+            # Remove 1 to $limit as the collection always includes the current workspace
+            $limitMinusOne = $Limit -1
+
+            $Uri = $WorkspacesListUri + "?offset=0&count_per_page=$limitMinusOne"
+        }
+        else {
+            $Uri = $WorkspacesListUri
+        }
+
+
+        # GET WORKSPACES (if any) [Does not include the currently connected workspace]
+
         try {
-            [Array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf 
+            [Array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf   
+
         }
         catch {
             $PSCmdlet.ThrowTerminatingError($_)
         }
 
         if ($Collection.customers) {
+
+            $Collection = $Collection.customers
+
+            # Add current property
+            $Collection | Add-Member -Type NoteProperty -Name "current" -Value $False
             
-            $AllCollection = $Collection
+            $AllCollection += $Collection
             
-            $Numberofpages = [System.Math]::Ceiling(($Collection.pagination.total_count / $Collection.pagination.count_per_page))
-            
-            if ($Numberofpages -gt 1) {
-                
-                for ($i = 1; $i -lt $Numberofpages; $i++) {
-                    
-                    $Offset += $limit
-                    
-                    $Uri = $WorkspacesListUri + "?offset=$Offset&count_per_page=$limit"
-                    
-                    "[{0}] Request URI: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Uri | Write-Verbose
-                    
-                    try {
-                        [Array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf 
-                        
-                        
-                        $AllCollection += $Collection
-                        
-                    }
-                    catch {    
-                        $PSCmdlet.ThrowTerminatingError($_)
-                        
-                    }
-                    
-                }
-                
-            }
-            
-            $AllCollection = $AllCollection.customers
         }
             
         # GET CURRENT WORKSPACE (if any)
@@ -53549,19 +54377,22 @@ Function Get-HPEGLWorkspace {
         
             $uri = $CurrentWorkspaceUri    
             # $Uri = $UserLoadAccountUri                                                    # gives nothing
-            # $Uri = $WorkspacesUri + "/" + $HPEGreenLakeSession.workspaceId + "/contact"   # gives not enought info
-            # $Uri = $WorkspacesUri + "/" + $HPEGreenLakeSession.workspaceId                # gives not enought info
+            # $Uri = $WorkspacesUri + "/" + $HPEGreenLakeSession.workspaceId + "/contact"   # gives not enough info
+            # $Uri = $WorkspacesUri + "/" + $HPEGreenLakeSession.workspaceId                # gives not enough info
 
             try {
+                
                 [Array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf 
-                "[{0}] Content of current workspace: `n {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Collection | Out-String) | Write-Verbose
                 
                 # Add platform_customer_id property
                 $Collection | Add-Member -Type NoteProperty -Name "platform_customer_id" -Value $HPEGreenLakeSession.workspaceId
-
+                
                 # Add account_type (MSP or SANDALONE) from $HPEGLworkspaces generated by 'Connect-HPEGLWorkspace'
                 $_AccountType = $HPEGLworkspaces | Where-Object platform_customer_id -eq $HPEGreenLakeSession.workspaceId | ForEach-Object account_type
                 $Collection | Add-Member -Type NoteProperty -Name "account_type" -Value $_AccountType
+                $Collection | Add-Member -Type NoteProperty -Name "current" -Value $True
+                
+                "[{0}] Content of current workspace: `n {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Collection | Out-String) | Write-Verbose
 
                 $AllCollection += $Collection
                 
@@ -53589,11 +54420,25 @@ Function Get-HPEGLWorkspace {
                 return $HPEGreenLakeSession.workspaceId
                 
             }
+            elseif ($HPEGreenLakeSession.workspacesCount -eq 0) {
+
+                "[{0}] Error: No workspace found! Please execute New-HPEGLWorkspace first to create the initial workspace." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                Write-Warning "Error: No workspace found! Please execute New-HPEGLWorkspace first to create the initial workspace."
+                return
+            }
+            elseif ($HPEGreenLakeSession.workspacesCount -ge 1) {
+                
+                "[{0}] Error: No workspace connection found! Please execute Connect-HPEGLWorkspace first to establish a connection to a workspace." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                Write-Warning "Error: No workspace connection found! Please execute Connect-HPEGLWorkspace first to establish a connection to a workspace."
+                return
+            }
             else {
         
-                "[{0}] Error - No session found! Connect-HPEGL must be executed first!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                "[{0}] Error: No session found! Please execute Connect-HPEGL first to establish a session." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-                Write-Warning "Error - No session found! Connect-HPEGL must be executed first!"
+                Write-Warning "Error: No session found! Please execute Connect-HPEGL first to establish a session."
                 return
             }
 
@@ -53900,6 +54745,10 @@ Function New-HPEGLWorkspace {
             if (-not $HPEGreenLakeSession.workspaceId) {
                 Disconnect-HPEGL 
             }
+            else {
+                $Global:HPEGreenLakeSession.workspacesCount++
+
+            }
 
             Return $WorkspaceCreationStatus
         }
@@ -53907,245 +54756,6 @@ Function New-HPEGLWorkspace {
 
     }
 }
-
-
-# This cmdlet is deprecated. Use Connect-HPEGLWorkspace instead.
-<# 
-Function Use-HPEGLWorkspace {
-    <#
-    .SYNOPSIS
-    Switch between HPE GreenLake workspaces.
-    
-    .DESCRIPTION
-    When you have multiple HPE GreenLake workspaces, you can use this cmdlet to switch between them and manage them independently.
-        
-    .PARAMETER Name 
-    Name of the HPE GreenLake workspace.
-
-    .PARAMETER WhatIf
-    Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
-
-    .EXAMPLE
-    Use-HPEGLWorkspace -Name "DreamCompany"
-
-    Switch from the current workspace to the 'DreamCompany' HPE GreenLake workspace.
-
-    .INPUTS
-    None. You cannot pipe objects to this Cmdlet.
-
-    .OUTPUTS
-    System.Collections.ArrayList
-        When an error occurs, a custom status object or array of objects containing the following PsCustomObject keys is displayed:  
-        * Workspace - Name of the workspace object attempted to be set 
-        * Status - Status of the modification attempt (Failed for http error return; Complete if the workspace switch is successful; Warning if no action is needed) 
-        * Details - More information about the status         
-        * Exception: Information about any exceptions generated during the operation.
-
-    HPEGreenLakeSession
-        When a valid connection is established with a new HPE GreenLake workspace, ${Global:HPEGreenLakeSession} connection tracker variable is displayed.  
-
-    
-   
-
-    [CmdletBinding()]
-    Param( 
-
-        [Parameter (Mandatory)]
-        [ValidateNotNullOrEmpty()]
-        [String]$Name,
-
-        [Switch]$WhatIf
-    ) 
-
-
-    Begin {
-        
-        $Caller = (Get-PSCallStack)[1].Command
-
-        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-
-        $WorkspaceSwitchStatus = [System.Collections.ArrayList]::new()
-
-        
-    }
-
-    Process {
-
-        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-
-        # Check if the workspace exists
-       
-        try {
-            $Workspace = Get-HPEGLWorkspace -Name $Name
-           
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)
-            
-        }
-
-
-        # Build object for the output
-        $objStatus = [pscustomobject]@{
-  
-            Workspace = $Name
-            Status    = $Null
-            Details   = $Null
-            Exception = $Null
-                  
-        }
-
-        if (-not $Workspace) {
-            # Must return a message if workspace not found
-            "[{0}] Workspace '{1}' not found!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
-
-            if ($Whatif) {
-                $ErrorMessage = "Workspace '{0}' cannot be found in HPE GreenLake!" -f $Name
-                Write-warning $ErrorMessage
-                return
-            }
-            else {
-                $objStatus.Status = "Failed"
-                $objStatus.Details = "Workspace cannot be found!"
-                
-            }
-  
-        }
-        else {       
-
-            # Check if the workspace is not the current one
-            try {
-                $CurrentWorkspace = Get-HPEGLWorkspace -ShowCurrent  
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-        
-            if ( $CurrentWorkspace.company_name -eq $Name  ) {
-                # Must return a message if workspace is already in use
-                "[{0}] You are already connected to the workspace '{1}'!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name 
-
-                if ($Whatif) {
-                    $ErrorMessage = "You are already connected to the '{0}' workspace!" -f $Name
-                    Write-warning $ErrorMessage
-                    return
-                }
-                else {
-                    $objStatus.Status = "Warning"
-                    $objStatus.Details = "You are already connected to this workspace!"
-                    
-                }
-
-
-      
-            }
-            else {                
-
-                $PlatformCustomerId = $Workspace.platform_customer_id
-
-                $Url = $UserLoadAccountUri + $PlatformCustomerId
-                $Method = "GET"
-
-                $headers = @{} 
-                $headers["Accept"] = "application/json"
-                $headers["Authorization"] = "Bearer $($HPEGreenLakeSession.oauth2AccessToken)"
-
-                $NewSession = $HPEGreenLakeSession.session
-
-
-                if ($WhatIf) {
-
-                    if ( -not $Body ) {
-                        $Body = 'No Body'
-                    }
-                    write-warning "You have selected the What-IF option, so the call will not be made to HPE GreenLake console, `ninstead you will see a preview of the RestAPI call"
-                    Write-host "The URI for this call will be " 
-                    write-host  "$Url" -foregroundcolor green
-                    Write-host "The Method of this call will be "
-                    write-host -foregroundcolor green $Method
-    
-                    Write-host "The Header for this call will be :"
-                    write-host -foregroundcolor green ($Headers | ConvertTo-JSON | Out-String)  
-
-                }
-                else {
-
-                    try {
-         
-                        # Load CCS workspace account to get cookies session values for CCS API authentication 
-
-                        "[{0}] Load CCS workspace account to get cookies session values for CCS API authentication" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                        "[{0}] About to execute '{1}' request to: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Method, $url  | Write-Verbose
-
-                        $response = Invoke-WebRequest -Method $Method -Uri $url -Headers $headers -WebSession $NewSession  | Out-Null
-                        
-                        "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
-                        "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
-           
-                        "[{0}] CCS workspace account session - Cookies content:" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-           
-                        $cookies = $NewSession.Cookies.GetCookies($url)
-                        foreach ($cookie in $cookies) { 
-                            Write-Verbose "$($cookie.name) = $($cookie.value)"
-                        }
-
-               
-                        "[{0}] CCS workspace session creation successful!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                        $global:HPEGreenLakeSession.workspaceId = $PlatformCustomerId
-                        $global:HPEGreenLakeSession.workspace = $Name 
-                        $global:HPEGreenLakeSession.session = $NewSession
-
-                        return $global:HPEGreenLakeSession
-            
-                    }
-                    catch {         
-
-                        if ($_.ErrorDetails.Message) {
-                            $ErrorMsg = "Error: '{0}' - Error details: '{1}'" -f $_.Exception.Message, $_.ErrorDetails 
- 
-                        }
-                        else {
-                            $ErrorMsg = "Error: '{0}'" -f $_.Exception.Message | Write-Warning
- 
-                        }
-
-            
-                        "[{0}] CCS workspace session creation - Headers content: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | Out-String) | Write-Verbose
-
-                        if (-not $WhatIf) {
-                            $objStatus.Status = "Failed"
-                            $objStatus.Details = $ErrorMsg
-                            $objStatus.Exception = $_.Exception.message 
-                        }
-            
-                    }
-                }
-            }
-        }
-
-        [void] $WorkspaceSwitchStatus.add($objStatus)
-
-    }
-
-    end {
-
-        if (-not $WhatIf) {
-
-            if ($WorkspaceSwitchStatus | Where-Object { $_.Status -eq "Failed" }) {
-  
-                write-error "One or more failures to use this workspace!"
-          
-            }
-
-            Return $WorkspaceSwitchStatus
-        }
-
-
-    }
-}
-#>
 
 
 Function Set-HPEGLWorkspace {
@@ -54695,6 +55305,8 @@ Function Get-HPEGLAuditLog {
 }
 
 
+
+
 #EndRegion
 #EndRegion
 #EndRegion
@@ -54726,10 +55338,10 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 
 
 # SIG # Begin signature block
-# MIIsEAYJKoZIhvcNAQcCoIIsATCCK/0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItlAYJKoZIhvcNAQcCoIIthTCCLYECAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBwZlc/2m7CBkC/
-# m1p+0xta7DejDXgGh2ZdbN1El9CtLKCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBA8G+4y8TeTd2q
+# TF8egtG1WxDv7Sw+Wx5DQUj0wQMOCaCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -54822,144 +55434,152 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 # lLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQ
 # ZH3pwWvqURR8AgQdULUvrxjUYbHHj95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWU
 # H3fTv1Y8Wdho698YADR7TNx8X8z2Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63
-# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2RwxghnwMIIZ7AIBATBpMFQx
+# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2Rwxght0MIIbcAIBATBpMFQx
 # CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNVBAMT
 # IlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYCEQDzfDeB/ajwfQYd
 # ZdJTJuKyMA0GCWCGSAFlAwQCAQUAoHwwEAYKKwYBBAGCNwIBDDECMAAwGQYJKoZI
 # hvcNAQkDMQwGCisGAQQBgjcCAQQwHAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcC
-# ARUwLwYJKoZIhvcNAQkEMSIEIDNIwPFYuNrY1rWcGYIMNsB+reatyWezFysS4wAH
-# UEPvMA0GCSqGSIb3DQEBAQUABIIBgH1r1MPlE5YRdhNBu7zSTbylGxdejFMmnQSQ
-# nHitgUaW4VsUtD0wTyg0pWnaCbuS8w6fQsBcwnRZKzlGGA+Aap4sLfAG1CojpCJB
-# 76r6KGxkz+EA9+3HLUJCd7E29+ckI22VKAoFdNNuFn+ti+naZjSx02UlPxn7bYHC
-# k5JF6msyTVqYPBzwDRMIGRkudOHVyu+K1gxBVZGQjEJhAO3S7pdiRyfLUPFVc5if
-# Fh0+dy88LnEzmAOV4wkWHQzdSquiRKtvutI9ieR536tm+/t8DVZwvledTa4vvo7k
-# +j+aVxGarSJUix/geD2Om1lW60nqbID6G3QM2Xhg2pY7Eh7N7vz9twturaowQm0g
-# cNtBdFpL+xbg8n0MGF7MuwmjYVFEYTje0tQAiTb4Qmj+lYHbDFWSYcm/VdfezhvF
-# Z4D24ZPQ2wupUboWN+OFSCbTHiYdcXLR/TwQE4fyCFxZRkOkKkDd8CgkQZZZ6eM9
-# DkFQHVxdazM6ZsjZ3DJVKki/RpgKR6GCF1owghdWBgorBgEEAYI3AwMBMYIXRjCC
-# F0IGCSqGSIb3DQEHAqCCFzMwghcvAgEDMQ8wDQYJYIZIAWUDBAICBQAwgYcGCyqG
-# SIb3DQEJEAEEoHgEdjB0AgEBBglghkgBhv1sBwEwQTANBglghkgBZQMEAgIFAAQw
-# Dyol5YYY99/JYGb0Y/2f798O8vktZfXdWnKUMoSIFct2jKMNUxHXfpxj6sAs6UCj
-# AhBS9sWr7E+puJr/DVhkbPaKGA8yMDI0MTAxNzA5MTQwNlqgghMDMIIGvDCCBKSg
-# AwIBAgIQC65mvFq6f5WHxvnpBOMzBDANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQG
-# EwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0
-# IFRydXN0ZWQgRzQgUlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMB4XDTI0
-# MDkyNjAwMDAwMFoXDTM1MTEyNTIzNTk1OVowQjELMAkGA1UEBhMCVVMxETAPBgNV
-# BAoTCERpZ2lDZXJ0MSAwHgYDVQQDExdEaWdpQ2VydCBUaW1lc3RhbXAgMjAyNDCC
-# AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAL5qc5/2lSGrljC6W23mWaO1
-# 6P2RHxjEiDtqmeOlwf0KMCBDEr4IxHRGd7+L660x5XltSVhhK64zi9CeC9B6lUdX
-# M0s71EOcRe8+CEJp+3R2O8oo76EO7o5tLuslxdr9Qq82aKcpA9O//X6QE+AcaU/b
-# yaCagLD/GLoUb35SfWHh43rOH3bpLEx7pZ7avVnpUVmPvkxT8c2a2yC0WMp8hMu6
-# 0tZR0ChaV76Nhnj37DEYTX9ReNZ8hIOYe4jl7/r419CvEYVIrH6sN00yx49boUuu
-# mF9i2T8UuKGn9966fR5X6kgXj3o5WHhHVO+NBikDO0mlUh902wS/Eeh8F/UFaRp1
-# z5SnROHwSJ+QQRZ1fisD8UTVDSupWJNstVkiqLq+ISTdEjJKGjVfIcsgA4l9cbk8
-# Smlzddh4EfvFrpVNnes4c16Jidj5XiPVdsn5n10jxmGpxoMc6iPkoaDhi6JjHd5i
-# bfdp5uzIXp4P0wXkgNs+CO/CacBqU0R4k+8h6gYldp4FCMgrXdKWfM4N0u25OEAu
-# Ea3JyidxW48jwBqIJqImd93NRxvd1aepSeNeREXAu2xUDEW8aqzFQDYmr9ZONuc2
-# MhTMizchNULpUEoA6Vva7b1XCB+1rxvbKmLqfY/M/SdV6mwWTyeVy5Z/JkvMFpnQ
-# y5wR14GJcv6dQ4aEKOX5AgMBAAGjggGLMIIBhzAOBgNVHQ8BAf8EBAMCB4AwDAYD
-# VR0TAQH/BAIwADAWBgNVHSUBAf8EDDAKBggrBgEFBQcDCDAgBgNVHSAEGTAXMAgG
-# BmeBDAEEAjALBglghkgBhv1sBwEwHwYDVR0jBBgwFoAUuhbZbU2FL3MpdpovdYxq
-# II+eyG8wHQYDVR0OBBYEFJ9XLAN3DigVkGalY17uT5IfdqBbMFoGA1UdHwRTMFEw
-# T6BNoEuGSWh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRH
-# NFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcmwwgZAGCCsGAQUFBwEBBIGD
-# MIGAMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdpY2VydC5jb20wWAYIKwYB
-# BQUHMAKGTGh0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0
-# ZWRHNFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcnQwDQYJKoZIhvcNAQEL
-# BQADggIBAD2tHh92mVvjOIQSR9lDkfYR25tOCB3RKE/P09x7gUsmXqt40ouRl3lj
-# +8QioVYq3igpwrPvBmZdrlWBb0HvqT00nFSXgmUrDKNSQqGTdpjHsPy+LaalTW0q
-# VjvUBhcHzBMutB6HzeledbDCzFzUy34VarPnvIWrqVogK0qM8gJhh/+qDEAIdO/K
-# kYesLyTVOoJ4eTq7gj9UFAL1UruJKlTnCVaM2UeUUW/8z3fvjxhN6hdT98Vr2FYl
-# CS7Mbb4Hv5swO+aAXxWUm3WpByXtgVQxiBlTVYzqfLDbe9PpBKDBfk+rabTFDZXo
-# Uke7zPgtd7/fvWTlCs30VAGEsshJmLbJ6ZbQ/xll/HjO9JbNVekBv2Tgem+mLptR
-# 7yIrpaidRJXrI+UzB6vAlk/8a1u7cIqV0yef4uaZFORNekUgQHTqddmsPCEIYQP7
-# xGxZBIhdmm4bhYsVA6G2WgNFYagLDBzpmk9104WQzYuVNsxyoVLObhx3RugaEGru
-# +SojW4dHPoWrUhftNpFC5H7QEY7MhKRyrBe7ucykW7eaCuWBsBb4HOKRFVDcrZgd
-# waSIqMDiCLg4D+TPVgKx2EgEdeoHNHT9l3ZDBD+XgbF+23/zBjeCtxz+dL/9NWR6
-# P2eZRi7zcEO1xwcdcqJsyz/JceENc2Sg8h3KeFUCS7tpFk7CrDqkMIIGrjCCBJag
-# AwIBAgIQBzY3tyRUfNhHrP0oZipeWzANBgkqhkiG9w0BAQsFADBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwHhcNMjIw
-# MzIzMDAwMDAwWhcNMzcwMzIyMjM1OTU5WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UE
-# ChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0IFRydXN0ZWQgRzQg
-# UlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMIICIjANBgkqhkiG9w0BAQEF
-# AAOCAg8AMIICCgKCAgEAxoY1BkmzwT1ySVFVxyUDxPKRN6mXUaHW0oPRnkyibaCw
-# zIP5WvYRoUQVQl+kiPNo+n3znIkLf50fng8zH1ATCyZzlm34V6gCff1DtITaEfFz
-# sbPuK4CEiiIY3+vaPcQXf6sZKz5C3GeO6lE98NZW1OcoLevTsbV15x8GZY2UKdPZ
-# 7Gnf2ZCHRgB720RBidx8ald68Dd5n12sy+iEZLRS8nZH92GDGd1ftFQLIWhuNyG7
-# QKxfst5Kfc71ORJn7w6lY2zkpsUdzTYNXNXmG6jBZHRAp8ByxbpOH7G1WE15/teP
-# c5OsLDnipUjW8LAxE6lXKZYnLvWHpo9OdhVVJnCYJn+gGkcgQ+NDY4B7dW4nJZCY
-# OjgRs/b2nuY7W+yB3iIU2YIqx5K/oN7jPqJz+ucfWmyU8lKVEStYdEAoq3NDzt9K
-# oRxrOMUp88qqlnNCaJ+2RrOdOqPVA+C/8KI8ykLcGEh/FDTP0kyr75s9/g64ZCr6
-# dSgkQe1CvwWcZklSUPRR8zZJTYsg0ixXNXkrqPNFYLwjjVj33GHek/45wPmyMKVM
-# 1+mYSlg+0wOI/rOP015LdhJRk8mMDDtbiiKowSYI+RQQEgN9XyO7ZONj4KbhPvbC
-# dLI/Hgl27KtdRnXiYKNYCQEoAA6EVO7O6V3IXjASvUaetdN2udIOa5kM0jO0zbEC
-# AwEAAaOCAV0wggFZMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFLoW2W1N
-# hS9zKXaaL3WMaiCPnshvMB8GA1UdIwQYMBaAFOzX44LScV1kTN8uZz/nupiuHA9P
-# MA4GA1UdDwEB/wQEAwIBhjATBgNVHSUEDDAKBggrBgEFBQcDCDB3BggrBgEFBQcB
-# AQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggr
-# BgEFBQcwAoY1aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1
-# c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybDMuZGln
-# aWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAI
-# BgZngQwBBAIwCwYJYIZIAYb9bAcBMA0GCSqGSIb3DQEBCwUAA4ICAQB9WY7Ak7Zv
-# mKlEIgF+ZtbYIULhsBguEE0TzzBTzr8Y+8dQXeJLKftwig2qKWn8acHPHQfpPmDI
-# 2AvlXFvXbYf6hCAlNDFnzbYSlm/EUExiHQwIgqgWvalWzxVzjQEiJc6VaT9Hd/ty
-# dBTX/6tPiix6q4XNQ1/tYLaqT5Fmniye4Iqs5f2MvGQmh2ySvZ180HAKfO+ovHVP
-# ulr3qRCyXen/KFSJ8NWKcXZl2szwcqMj+sAngkSumScbqyQeJsG33irr9p6xeZmB
-# o1aGqwpFyd/EjaDnmPv7pp1yr8THwcFqcdnGE4AJxLafzYeHJLtPo0m5d2aR8XKc
-# 6UsCUqc3fpNTrDsdCEkPlM05et3/JWOZJyw9P2un8WbDQc1PtkCbISFA0LcTJM3c
-# HXg65J6t5TRxktcma+Q4c6umAU+9Pzt4rUyt+8SVe+0KXzM5h0F4ejjpnOHdI/0d
-# KNPH+ejxmF/7K9h+8kaddSweJywm228Vex4Ziza4k9Tm8heZWcpw8De/mADfIBZP
-# J/tgZxahZrrdVcA6KYawmKAr7ZVBtzrVFZgxtGIJDwq9gdkT/r+k0fNX2bwE+oLe
-# Mt8EifAAzV3C+dAjfwAL5HYCJtnwZXZCpimHCUcr5n8apIUP/JiW9lVUKx+A+sDy
-# Divl1vupL0QVSucTDh3bNzgaoSv27dZ8/DCCBY0wggR1oAMCAQICEA6bGI750C3n
-# 79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAwZTELMAkGA1UEBhMCVVMxFTATBgNVBAoT
-# DERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UE
-# AxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBSb290IENBMB4XDTIyMDgwMTAwMDAwMFoX
-# DTMxMTEwOTIzNTk1OVowYjELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0
-# IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNl
-# cnQgVHJ1c3RlZCBSb290IEc0MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKC
-# AgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUuySE98orYWcLhKac9WKt2ms2uexuEDcQw
-# H/MbpDgW61bGl20dq7J58soR0uRf1gU8Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6
-# dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0MG+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXG
-# XuxbGrzryc/NrDRAX7F6Zu53yEioZldXn1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXn
-# Mcvak17cjo+A2raRmECQecN4x7axxLVqGDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy
-# 19sEcypukQF8IUzUvK4bA3VdeGbZOjFEmjNAvwjXWkmkwuapoGfdpCe8oU85tRFY
-# F/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6SPDgohIbZpp0yt5LHucOY67m1O+Skjqe
-# PdwA5EUlibaaRBkrfsCUtNJhbesz2cXfSwQAzH0clcOP9yGyshG3u3/y1YxwLEFg
-# qrFjGESVGnZifvaAsPvoZKYz0YkH4b235kOkGLimdwHhD5QMIR2yVCkliWzlDlJR
-# R3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ6zHFynIWIgnffEx1P2PsIV/EIFFrb7Gr
-# hotPwtZFX50g/KEexcCPorF+CiaZ9eRpL5gdLfXZqbId5RsCAwEAAaOCATowggE2
-# MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFOzX44LScV1kTN8uZz/nupiuHA9P
-# MB8GA1UdIwQYMBaAFEXroq/0ksuCMS1Ri6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIB
-# hjB5BggrBgEFBQcBAQRtMGswJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2lj
-# ZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29t
-# L0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENBLmNydDBFBgNVHR8EPjA8MDqgOKA2hjRo
-# dHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3JsMBEGA1UdIAQKMAgwBgYEVR0gADANBgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV
-# 5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVeqRq7IviHGmlUIu2kiHdtvRoU9BNKei8t
-# tzjv9P+Aufih9/Jy3iS8UgPITtAq3votVs/59PesMHqai7Je1M/RQ0SbQyHrlnKh
-# SLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO
-# 7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJaISfb8rbII01YBwCA8sgsKxYoA5AY8WY
-# IsGyWfVVa88nq2x2zm8jLfR+cWojayL/ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3
-# AamfV6peKOK5lDGCA4YwggOCAgEBMHcwYzELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
-# DkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2VydCBUcnVzdGVkIEc0IFJT
-# QTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQQIQC65mvFq6f5WHxvnpBOMzBDAN
-# BglghkgBZQMEAgIFAKCB4TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJ
-# KoZIhvcNAQkFMQ8XDTI0MTAxNzA5MTQwNlowKwYLKoZIhvcNAQkQAgwxHDAaMBgw
-# FgQU29OF7mLb0j575PZxSFCHJNWGW0UwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQg
-# dnafqPJjLx9DCzojMK7WVnX+13PbBdZluQWTmEOPmtswPwYJKoZIhvcNAQkEMTIE
-# MP7yMTAR2o3gwU2KC0G608emcD7LswgqovImbLeN2NnGvmMb25r+e8e6PxSekGOW
-# njANBgkqhkiG9w0BAQEFAASCAgAIC0T1iDdgwLFxU3W7GwE1I09PssKPd3PIuXmu
-# I0Ui7/zjo6UceAz4ZyNT9fiTBHpy+dBfUR7NzvX4r01MZtkpvt3W/vS6zzT3wtLf
-# /CKRXYkzkDsKCj5wvnT8fv2+TqKMNQlwHZn3j1FaoCdGa5zb1bk9I89sKYXQP/Lm
-# TNJiSO8Sxr+SIG6zd/TDYcMCmu3c0cxgoWNNcA5du3ELwzvj6F6VmBMjO7WxsqgV
-# vKFXnDw3fIUTh77qGGvtQ9LODdZgWSd5qt5tgsfEQcLPdKr7peC1VnCWcZq9fHkr
-# u6jPMH9uM8RbKTBQTwRmKO5BViERSo2BwxRYtFrCQ+pnlEoCjfbzhlhT8RBOiy3U
-# JTfO0H7+qMsoXN0pb9+CvxQO8uGTAeAPbW+vgMVGhXc+BML2ggIBYHavmP9gFoUu
-# zQhMSCWWji7OlEeGYPLFIFBlRs4MynhmQccAfq0bYIA0zdbK1AvxL5ooopCzv6yo
-# oHKXedPsqjivMRuEvLkLcWJFoaS2UPECZOGMaiq1kxyb0QiKdENlRGDY9A+3A2Z/
-# qFxPycVgJ0vkeyb9CRVoja8dPeJm4wbcDHSSiygK0Nx7UGG30WQxbm3QAs+HvhYK
-# f7JfALpU4yLFpLYCBkkF6dSfximownb/aS0WE3CANeynnC6OWdOAyiiVfGAVCAMm
-# RbG7Bw==
+# ARUwLwYJKoZIhvcNAQkEMSIEIL0QThqEcUG03mVVyWN01uF4Bu5KoB9EA/htkCEa
+# oMyTMA0GCSqGSIb3DQEBAQUABIIBgK8S39c2VBFrVbqRiLqym/Dnwv1Sd+eQ5W0E
+# tD36uZXpgihhBeDcKWs/bdt21ml7a/ipE27Fw/0W7/0f8KYTA/JDTQRDwAhu1F94
+# CL3Tl+IOSTKkqFy8AF15D6+T8+m/KXoOQYJRTyUAot7kXZLXdaWfKCd2okz5Kjgl
+# hzx1dQOjkKhj2cAxygbP9qtnNnB1J+L9zqnsyjWqlIEgUV9QnalVDaW3HdKuuHWX
+# eqOX5e5MLD6Cekal9Vv9ziB6hvV3SSh0smULcWKM7vUJmpbg+WkPHHuPzYE7P6YS
+# GFbqOuD6a/TXvh6N1UXQij70uOS0fuPlfFtWU/VCyNNEPzR+ucHqelH+AFaW6X4V
+# zbpkyXuPHnekNurBvaxTJkZhUUqPa5mWy3L1d1uchUJ3+j5OaNfRFa3jQE3D56/0
+# 7AFND9f6wvVy5BB8uO96I0BRTfoPzpFHIoyx8aPU452Ao95bkFWLwjbsDFu42dv3
+# NmQchj0+S3m8k20jT37BuVesVRgtHaGCGN4wghjaBgorBgEEAYI3AwMBMYIYyjCC
+# GMYGCSqGSIb3DQEHAqCCGLcwghizAgEDMQ8wDQYJYIZIAWUDBAICBQAwggEDBgsq
+# hkiG9w0BCRABBKCB8wSB8DCB7QIBAQYKKwYBBAGyMQIBATBBMA0GCWCGSAFlAwQC
+# AgUABDBxXHiCFOX60iwtoLbgHm4O7qZtxKLXtM3zbOsQYYr2zmzk778WbZaqf3Bs
+# GHRWqs8CFDFabQH20upffg8OuzU4UBf4dV7PGA8yMDI0MTAyMzEyMDg0NVqgcqRw
+# MG4xCzAJBgNVBAYTAkdCMRMwEQYDVQQIEwpNYW5jaGVzdGVyMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgU2lnbmVyIFIzNaCCEv8wggZdMIIExaADAgECAhA6UmoshM5V5h1l/MwS
+# 2OmJMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0
+# aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBp
+# bmcgQ0EgUjM2MB4XDTI0MDExNTAwMDAwMFoXDTM1MDQxNDIzNTk1OVowbjELMAkG
+# A1UEBhMCR0IxEzARBgNVBAgTCk1hbmNoZXN0ZXIxGDAWBgNVBAoTD1NlY3RpZ28g
+# TGltaXRlZDEwMC4GA1UEAxMnU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBT
+# aWduZXIgUjM1MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAjdFn9MFI
+# m739OEk6TWGBm8PY3EWlYQQ2jQae45iWgPXUGVuYoIa1xjTGIyuw3suUSBzKiyG0
+# /c/Yn++d5mG6IyayljuGT9DeXQU9k8GWWj2/BPoamg2fFctnPsdTYhMGxM06z1+F
+# t0Bav8ybww21ii/faiy+NhiUM195+cFqOtCpJXxZ/lm9tpjmVmEqpAlRpfGmLhNd
+# kqiEuDFTuD1GsV3jvuPuPGKUJTam3P53U4LM0UCxeDI8Qz40Qw9TPar6S02XExlc
+# 8X1YsiE6ETcTz+g1ImQ1OqFwEaxsMj/WoJT18GG5KiNnS7n/X4iMwboAg3IjpcvE
+# zw4AZCZowHyCzYhnFRM4PuNMVHYcTXGgvuq9I7j4ke281x4e7/90Z5Wbk92RrLcS
+# 35hO30TABcGx3Q8+YLRy6o0k1w4jRefCMT7b5mTxtq5XPmKvtgfPuaWPkGZ/tbxI
+# nyNDA7YgOgccULjp4+D56g2iuzRCsLQ9ac6AN4yRbqCYsG2rcIQ5INTyI2JzA2w1
+# vsAHPRbUTeqVLDuNOY2gYIoKBWQsPYVoyzaoBVU6O5TG+a1YyfWkgVVS9nXKs8hV
+# ti3VpOV3aeuaHnjgC6He2CCDL9aW6gteUe0AmC8XCtWwpePx6QW3ROZo8vSUe9AR
+# 7mMdu5+FzTmW8K13Bt8GX/YBFJO7LWzwKAUCAwEAAaOCAY4wggGKMB8GA1UdIwQY
+# MBaAFF9Y7UwxeqJhQo1SgLqzYZcZojKbMB0GA1UdDgQWBBRo76QySWm2Ujgd6kM5
+# LPQUap4MhTAOBgNVHQ8BAf8EBAMCBsAwDAYDVR0TAQH/BAIwADAWBgNVHSUBAf8E
+# DDAKBggrBgEFBQcDCDBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDCDAlMCMGCCsG
+# AQUFBwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAIwSgYDVR0f
+# BEMwQTA/oD2gO4Y5aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGlj
+# VGltZVN0YW1waW5nQ0FSMzYuY3JsMHoGCCsGAQUFBwEBBG4wbDBFBggrBgEFBQcw
+# AoY5aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1w
+# aW5nQ0FSMzYuY3J0MCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0aWdvLmNv
+# bTANBgkqhkiG9w0BAQwFAAOCAYEAsNwuyfpPNkyKL/bJT9XvGE8fnw7Gv/4SetmO
+# kjK9hPPa7/Nsv5/MHuVus+aXwRFqM5Vu51qfrHTwnVExcP2EHKr7IR+m/Ub7Pama
+# eWfle5x8D0x/MsysICs00xtSNVxFywCvXx55l6Wg3lXiPCui8N4s51mXS0Ht85fk
+# Xo3auZdo1O4lHzJLYX4RZovlVWD5EfwV6Ve1G9UMslnm6pI0hyR0Zr95QWG0MpNP
+# P0u05SHjq/YkPlDee3yYOECNMqnZ+j8onoUtZ0oC8CkbOOk/AOoV4kp/6Ql2gEp3
+# bNC7DOTlaCmH24DjpVgryn8FMklqEoK4Z3IoUgV8R9qQLg1dr6/BjghGnj2XNA8u
+# jta2JyoxpqpvyETZCYIUjIs69YiDjzftt37rQVwIZsfCYv+DU5sh/StFL1x4rgNj
+# 2t8GccUfa/V3iFFW9lfIJWWsvtlC5XOOOQswr1UmVdNWQem4LwrlLgcdO/YAnHqY
+# 52QwnBLiAuUnuBeshWmfEb5oieIYMIIGFDCCA/ygAwIBAgIQeiOu2lNplg+RyD5c
+# 9MfjPzANBgkqhkiG9w0BAQwFADBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2Vj
+# dGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1w
+# aW5nIFJvb3QgUjQ2MB4XDTIxMDMyMjAwMDAwMFoXDTM2MDMyMTIzNTk1OVowVTEL
+# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMj
+# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBDQSBSMzYwggGiMA0GCSqGSIb3
+# DQEBAQUAA4IBjwAwggGKAoIBgQDNmNhDQatugivs9jN+JjTkiYzT7yISgFQ+7yav
+# jA6Bg+OiIjPm/N/t3nC7wYUrUlY3mFyI32t2o6Ft3EtxJXCc5MmZQZ8AxCbh5c6W
+# zeJDB9qkQVa46xiYEpc81KnBkAWgsaXnLURoYZzksHIzzCNxtIXnb9njZholGw9d
+# jnjkTdAA83abEOHQ4ujOGIaBhPXG2NdV8TNgFWZ9BojlAvflxNMCOwkCnzlH4oCw
+# 5+4v1nssWeN1y4+RlaOywwRMUi54fr2vFsU5QPrgb6tSjvEUh1EC4M29YGy/SIYM
+# 8ZpHadmVjbi3Pl8hJiTWw9jiCKv31pcAaeijS9fc6R7DgyyLIGflmdQMwrNRxCul
+# Vq8ZpysiSYNi79tw5RHWZUEhnRfs/hsp/fwkXsynu1jcsUX+HuG8FLa2BNheUPtO
+# cgw+vHJcJ8HnJCrcUWhdFczf8O+pDiyGhVYX+bDDP3GhGS7TmKmGnbZ9N+MpEhWm
+# biAVPbgkqykSkzyYVr15OApZYK8CAwEAAaOCAVwwggFYMB8GA1UdIwQYMBaAFPZ3
+# at0//QET/xahbIICL9AKPRQlMB0GA1UdDgQWBBRfWO1MMXqiYUKNUoC6s2GXGaIy
+# mzAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUEDDAK
+# BggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAwTAYDVR0fBEUwQzBBoD+gPYY7
+# aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1waW5n
+# Um9vdFI0Ni5jcmwwfAYIKwYBBQUHAQEEcDBuMEcGCCsGAQUFBzAChjtodHRwOi8v
+# Y3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2
+# LnA3YzAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZI
+# hvcNAQEMBQADggIBABLXeyCtDjVYDJ6BHSVY/UwtZ3Svx2ImIfZVVGnGoUaGdlto
+# X4hDskBMZx5NY5L6SCcwDMZhHOmbyMhyOVJDwm1yrKYqGDHWzpwVkFJ+996jKKAX
+# yIIaUf5JVKjccev3w16mNIUlNTkpJEor7edVJZiRJVCAmWAaHcw9zP0hY3gj+fWp
+# 8MbOocI9Zn78xvm9XKGBp6rEs9sEiq/pwzvg2/KjXE2yWUQIkms6+yslCRqNXPjE
+# nBnxuUB1fm6bPAV+Tsr/Qrd+mOCJemo06ldon4pJFbQd0TQVIMLv5koklInHvyaf
+# 6vATJP4DfPtKzSBPkKlOtyaFTAjD2Nu+di5hErEVVaMqSVbfPzd6kNXOhYm23EWm
+# 6N2s2ZHCHVhlUgHaC4ACMRCgXjYfQEDtYEK54dUwPJXV7icz0rgCzs9VI29DwsjV
+# ZFpO4ZIVR33LwXyPDbYFkLqYmgHjR3tKVkhh9qKV2WCmBuC27pIOx6TYvyqiYbnt
+# inmpOqh/QPAnhDgexKG9GX/n1PggkGi9HCapZp8fRwg8RftwS21Ln61euBG0yONM
+# 6noD2XQPrFwpm3GcuqJMf0o8LLrFkSLRQNwxPDDkWXhW+gZswbaiie5fd/W2ygct
+# o78XCSPfFWveUOSZ5SqK95tBO8aTHmEa4lpJVD7HrTEn9jb1EGvxOb1cnn0CMIIG
+# gjCCBGqgAwIBAgIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQwFADCBiDEL
+# MAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNl
+# eSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMT
+# JVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA
+# iJ3YuUVnnR3d6LkmgZpUVMB8SQWbzFoVD9mUEES0QUCBdxSZqdTkdizICFNeINCS
+# JS+lV1ipnW5ihkQyC0cRLWXUJzodqpnMRs46npiJPHrfLBOifjfhpdXJ2aHHsPHg
+# gGsCi7uE0awqKggE/LkYw3sqaBia67h/3awoqNvGqiFRJ+OTWYmUCO2GAXsePHi+
+# /JUNAax3kpqstbl3vcTdOGhtKShvZIvjwulRH87rbukNyHGWX5tNK/WABKf+Gnoi
+# 4cmisS7oSimgHUI0Wn/4elNd40BFdSZ1EwpuddZ+Wr7+Dfo0lcHflm/FDDrOJ3rW
+# qauUP8hsokDoI7D/yUVI9DAE/WK3Jl3C4LKwIpn1mNzMyptRwsXKrop06m7NUNHd
+# lTDEMovXAIDGAvYynPt5lutv8lZeI5w3MOlCybAZDpK3Dy1MKo+6aEtE9vtiTMzz
+# /o2dYfdP0KWZwZIXbYsTIlg1YIetCpi5s14qiXOpRsKqFKqav9R1R5vj3NgevsAs
+# vxsAnI8Oa5s2oy25qhsoBIGo/zi6GpxFj+mOdh35Xn91y72J4RGOJEoqzEIbW3q0
+# b2iPuWLA911cRxgY5SJYubvjay3nSMbBPPFsyl6mY4/WYucmyS9lo3l7jk27MAe1
+# 45GWxK4O3m3gEFEIkv7kRmefDR7Oe2T1HxAnICQvr9sCAwEAAaOCARYwggESMB8G
+# A1UdIwQYMBaAFFN5v1qqK0rPVIDh2JvAnfKyA2bLMB0GA1UdDgQWBBT2d2rdP/0B
+# E/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAT
+# BgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAwUAYDVR0fBEkw
+# RzBFoEOgQYY/aHR0cDovL2NybC51c2VydHJ1c3QuY29tL1VTRVJUcnVzdFJTQUNl
+# cnRpZmljYXRpb25BdXRob3JpdHkuY3JsMDUGCCsGAQUFBwEBBCkwJzAlBggrBgEF
+# BQcwAYYZaHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkqhkiG9w0BAQwFAAOC
+# AgEADr5lQe1oRLjlocXUEYfktzsljOt+2sgXke3Y8UPEooU5y39rAARaAdAxUeiX
+# 1ktLJ3+lgxtoLQhn5cFb3GF2SSZRX8ptQ6IvuD3wz/LNHKpQ5nX8hjsDLRhsyeIi
+# Jsms9yAWnvdYOdEMq1W61KE9JlBkB20XBee6JaXx4UBErc+YuoSb1SxVf7nkNtUj
+# PfcxuFtrQdRMRi/fInV/AobE8Gw/8yBMQKKaHt5eia8ybT8Y/Ffa6HAJyz9gvEOc
+# F1VWXG8OMeM7Vy7Bs6mSIkYeYtddU1ux1dQLbEGur18ut97wgGwDiGinCwKPyFO7
+# ApcmVJOtlw9FVJxw/mL1TbyBns4zOgkaXFnnfzg4qbSvnrwyj1NiurMp4pmAWjR+
+# Pb/SIduPnmFzbSN/G8reZCL4fvGlvPFk4Uab/JVCSmj59+/mB2Gn6G/UYOy8k60m
+# KcmaAZsEVkhOFuoj4we8CYyaR9vd9PGZKSinaZIkvVjbH/3nlLb0a7SBIkiRzfPf
+# S9T+JesylbHa1LtRV9U/7m0q7Ma2CQ/t392ioOssXW7oKLdOmMBl14suVFBmbzrt
+# 5V5cQPnwtd3UOTpS9oCG+ZZheiIvPgkDmA8FzPsnfXW5qHELB43ET7HHFHeRPRYr
+# MBKjkb8/IN7Po0d0hQoF4TeMM+zYAJzoKQnVKOLg8pZVPT8xggSRMIIEjQIBATBp
+# MFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNV
+# BAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2AhA6UmoshM5V
+# 5h1l/MwS2OmJMA0GCWCGSAFlAwQCAgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZI
+# hvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI0MTAyMzEyMDg0NVowPwYJKoZIhvcN
+# AQkEMTIEMAJJ1c6gK4ndoLolXdStWiIflZEAC3U0KKTcvPvIKGcTvCvxFGwHs4y8
+# NvvkSqYp1TCCAXoGCyqGSIb3DQEJEAIMMYIBaTCCAWUwggFhMBYEFPhgmBmm+4gs
+# 9+hSl/KhGVIaFndfMIGHBBTGrlTkeIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQsw
+# CQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVT
+# ZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HI
+# Plz0x+M/MIG8BBSFPWMtk4KCYXzQkDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkG
+# A1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBD
+# aXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVT
+# RVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7Pd
+# NsvJdWgwDQYJKoZIhvcNAQEBBQAEggIARc5DGCnZTBjoAgUQvLnBYiAzhUORUBeO
+# W5Ljp5DIaG1RTgpRdBBXR1plO53gdaZ1NsFTv3xb/AMa7Vi9rTTzfP+/gNMQGkV6
+# j3evv5sVB61cdMGT2zLOS7SUaANt8NeaEdp8/1sEmWdTWKOFSbzLKZW/OmsnTFbJ
+# FmgiM//plt/ARc11WHMzVgcAM/J7/F818SMNq+ag8GNPZijHRPSdnT6Y7bmNoQP5
+# U9F/dlkS0mDsp9q2cM/e3+y6wZ59DVSsxYSAqKyg4R4aYlbytUMSMkAT35NTiTwB
+# eb4ixVx/Df+++1OX9yM3YaBrdiM9rd2LTR3sMEnu1sLwJp32QWT5GzRPGBRjAZ9k
+# gcRAdpzO0QU+1JkUbtleVeecuBEi+o83fEmjrRsHcH5ZNKdsUnuKpJB/LIwRjGg7
+# yIlPZkBFIzNr2XemlWJAwz/WpEvHPyZB7CMBVeKMqJJHMwZg6Ue6AOWGDTYwUNeA
+# 8sLlJi21jn77H6hrLeEsXoXhIygQKYFpsp//lsJeu0MfhSVM59HTjDyRwPB9OmtL
+# Rvzv2zBoDVt2TTbvCFrUElWH4yRlGyw93KHKYA+vlNGw0IGT768erJZqVl+dklu6
+# b5kCBiAFOemBwa0Kcl3Bhf63JlxZAls3C6sNMMEilue3flaUw4CubDrCCXAzZGNF
+# Cuh0YyEgQ8c=
 # SIG # End signature block
