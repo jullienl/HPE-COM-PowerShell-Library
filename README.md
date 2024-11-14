@@ -2,41 +2,50 @@
 
 The HPE Compute Ops Management PowerShell library provides a set of cmdlets to manage and automate your HPE GreenLake environment. This library allows users to interact with HPE GreenLake and Compute Ops Management services directly from the PowerShell command line, enabling seamless integration into your existing automation workflows.
 
-Development is ongoing, with the goal to add broad support for the entire API set.
+Development is ongoing, and the library will be continuously updated to support new features as they are released by HPE.
 
-Review `/Examples/sample.ps1` to see how the module can be used to accomplish some of the tasks.
 
 ## Key Features
 
-- **Authentication**: Connect to HPE GreenLake using single-factor authentication.
+This library provides a variety of key features for managing HPE GreenLake and Compute Ops Management. Here are the main features:
+
+- **Authentication**: Connect to HPE GreenLake using single-factor authentication with or without an existing workspace.
 - **Workspace Management**: Create and manage HPE GreenLake workspaces.
 - **Session Tracking**: Automatically track sessions with the global session tracker `$HPEGreenLakeSession`.
-- **User Management**: Invite and manage users within your HPE GreenLake environment.
+- **User Management**: Invite and manage users within your HPE GreenLake environment, assign roles.
 - **Resource Management**: Manage resources such as servers, storage, and networking within your HPE GreenLake environment.
-- **Monitoring and Alerts**: Set up monitoring and alerts for your resources to ensure optimal performance and uptime.
+- **Service Provisioning**: Provision services like Compute Ops Management, manage service roles and subscriptions.
+- **Device Management**: Add devices individually or in bulk using CSV files, manage device subscriptions and auto-subscriptions, set device locations and connect devices to services.
+- **Server configuration Management**: Create and apply BIOS, storage, OS, and firmware settings. Manager group and apply configurations to groups of servers.
+- **Security and Compliance**: Manage iLO security settings and run inventory and compliance checks.
+- **Job Scheduling and Execution**: Schedule and execute various tasks like firmware updates, OS installations, and sustainability reports.
+- **Notification and Integration**: Enable email notifications for service events and summaries, integrate with external services like ServiceNow.
+- **Appliance Management**: Add HPE OneView and Secure Gateway appliances, upgrade HPE OneView appliances.
+- **Monitoring and Alerts**: Monitor alerts for your resources to ensure optimal performance and uptime.
 - **Reporting**: Generate detailed reports on resource usage, performance, and other metrics.
 - **Automation**: Automate repetitive tasks and workflows using PowerShell scripts and cmdlets.
 - **Integration**: Seamlessly integrate with other tools and platforms using REST APIs and webhooks.
 - **Security**: Implement security best practices and manage access control for your HPE GreenLake environment.
 
-The HPE Compute Ops Management PowerShell library includes a comprehensive set of cmdlets to manage various aspects of your HPE GreenLake environment and any existing Compute Ops Management service instances. For a complete list of cmdlets and their detailed usage, refer to the module's help documentation using the `Get-Help` cmdlet.
+These features collectively provide a comprehensive set of cmdlets to manage various aspects of your HPE GreenLake environment and any existing Compute Ops Management service instances. 
+
+For a complete list of cmdlets and their detailed usage, refer to the module's help documentation using the `Get-Help` cmdlet.
 
 
 ## Latest release
 
-1.0.7 |
+1.0.8 |
 ------------ |
 [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] |
 
 
-## Requirements 
+## Requirements
 
 - **PowerShell Version**: 5.1 or higher
-- **Supported PSEditions**: Desktop, Core
-- **HPE Account**: If you do not have an HPE Account, you can create one at https://common.cloud.hpe.com.
+- **Supported PowerShell Editions**: Desktop, Core
+- **HPE Account**: Required to connect to the HPE GreenLake platform and any Compute Ops Management services
      
-
-    > **Note**: To learn how to create an HPE account, see [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
+    > **Note**: If you do not have an HPE Account, you can create one [here](https://common.cloud.hpe.com). To learn how to create an HPE account, see [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
 
     > **Note**: To interact with an HPE GreenLake workspace and a Compute Ops Management instance using this library, you must have at least the ***Observer*** role for both ***HPE GreenLake Platform*** and ***Compute Ops Management*** service managers. This role grants view-only privileges. For modification capabilities, you need either the ***Operator*** (view and edit privileges) or the ***Administrator*** (view, edit, and delete privileges) role. Alternatively, you can create a custom role that meets your specific access requirements.
 
@@ -49,7 +58,7 @@ The HPE Compute Ops Management PowerShell library includes a comprehensive set o
 
 To install the HPE Compute Ops Management PowerShell library, download the module and import it into your PowerShell session:
 
-```powerShell
+```sh
 Install-Module HPECOMCmdlets
 ```
 
@@ -65,7 +74,7 @@ This will download and install the module from the official PowerShell Gallery r
 
 If you have previously installed the module and wish to update it to the latest version, you can use the following commands:
 
-```PowerShell
+```sh
 Get-Module -Name HPECOMCmdlets -ListAvailable | Uninstall-Module
 Install-Module HPECOMCmdlets
 ```
@@ -75,61 +84,92 @@ Install-Module HPECOMCmdlets
 
 To get started, create a credentials object using your HPE GreenLake user's email and password and connect to your HPE GreenLake workspace:
 
-
-```powerShell
+```sh
 $credentials = Get-Credential
 Connect-HPEGL -Credential $credentials -Workspace "YourWorkspaceName"
 ```
 
 If you don't have a workspace yet, use:
 
-```powerShell
+```sh
 Connect-HPEGL -Credential $credentials 
 ```
 
-This cmdlet establishes and manages your connection to the HPE GreenLake platform. Upon successful connection, it creates a persistent session for all subsequent module cmdlet requests. Additionally, the cmdlet generates temporary API client credentials for both HPE GreenLake and any Compute Ops Management service instances provisioned in the workspace.
+If you have multiple workspaces assigned to your account and are unsure which one to connect to, use:
+
+```sh
+Connect-HPEGL -Credential $credentials 
+# Get the list of workspaces
+Get-HPEGLWorkspace 
+# Connect to the workspace you want using the workspace name
+Connect-HPEGLWorkspace -Name "<WorkspaceName>"
+```
+
+These commands establishe and manage your connection to the HPE GreenLake platform. Upon successful connection, it creates a persistent session for all subsequent module cmdlet requests. Additionally, the cmdlet generates temporary API client credentials for both HPE GreenLake and any Compute Ops Management service instances provisioned in the workspace.
 
 The global variable `$HPEGreenLakeSession` stores session information, API client credentials, API access tokens, and other relevant details for both HPE GreenLake and Compute Ops Management APIs.
 
 To learn more about this object, refer to the help documentation of `Connect-HPEGL`.
 
+
 ## Script Samples
 
-To help you get started quickly, I have provided a sample script file named `sample.ps1`. This file contains examples of all the commands you can use with the HPE Compute Ops Management PowerShell library. You can find this file in the `Examples` directory of the module.
 
-Feel free to modify and expand upon these examples to suit your specific needs.
+To help you get started quickly, I have provided a [sample script](https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/Examples/sample.ps1). 
+
+This file contains a variety of examples demonstrating how to use the different cmdlets available in the library to accomplish various tasks.
+
+With HPE GreenLake:
+
+- Setting up credentials and connecting to HPE GreenLake
+- Configuring workspace, inviting new users and assigning roles
+- Provisioning services and managing device subscriptions
+- Adding devices individually or via CSV files
+
+With HPE Compute Ops Management:
+
+- Creating BIOS, internal storage, OS, and firmware settings.
+- Managing group and adding servers to groups.
+- Running inventory jobs and setting auto firmware updates.
+- Powering on servers and updating firmware.
+- Applying configurations and installing OS on servers.
+- Generating sustainability reports and enabling email notifications.
+- Adding external services like ServiceNow.
+- Managing and upgrading HPE OneView and Secure Gateway appliances.
+
+Feel free to modify and expand upon these examples to suit your specific needs. This file is an excellent starting point for understanding the capabilities of the module and how to leverage it in your automation workflows.
+
 
 ## Getting help
 
 For more detailed information on each cmdlet and its usage, refer to the module's help documentation using:
 
-```PowerShell
+```sh
 Get-Help <CmdletName> -full
 ```
 
 To see detailed examples of how to use a specific cmdlet, use the **Get-Help** cmdlet with the **\-Examples** parameter followed by the cmdlet name.
 
-```PowerShell
+```sh
 Get-Help <CmdletName> -Examples
 ```
 To list all commands exported by the module, use:
 
-```PowerShell
+```sh
 Get-Command -Module HPECOMCmdlets
 ```
 
 To find cmdlets related to a specific resource, use:
 
-```PowerShell
-Get-Command -Module HPECOMCmdlets | Where-Object { $_.Name -match "<ResourceName>" }
+```sh
+Get-Command -Module HPECOMCmdlets | ? Name -match "<ResourceName>" 
 ```
-
 
 ## Support
 
-If you encounter any issues or unexpected behavior, please open a [new issue][new-issue-link] on our issue tracker for assistance.
+If you encounter any issues or unexpected behavior, please open a [new issue](https://github.com/jullienl/HPE-COM-PowerShell-Library/issues) on my GitHub issue tracker for assistance.
 
-For general questions or discussions that don't require tracking, join our GitHub Discussions: [Join the discussion][github-chat-link]
+For general questions or discussions that don't require tracking, join our [GitHub Discussions](https://github.com/jullienl/HPE-COM-PowerShell-Library/discussions).
 
 
 ## Disclaimer
@@ -139,8 +179,10 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 
 ## Want more?
 
+* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us)
+* [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
-* To learn more about HPE GreenLake, see the [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us)
+
 
 <!-- markdown variables links -->
 
@@ -159,4 +201,4 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 This library is provided under the MIT License. See the full license text in the module manifest for more details.
 
 ## Author
-Lionel Jullien, Hewlett-Packard Enterprise
+Lionel Jullien, Hewlett Packard Enterprise

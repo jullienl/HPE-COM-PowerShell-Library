@@ -27,7 +27,7 @@ THE SOFTWARE.
 #>
 
 # Set PowerShell library version
-[Version]$ModuleVersion = '1.0.7'
+[Version]$ModuleVersion = '1.0.8'
 
 
 
@@ -128,9 +128,10 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 
 [String]$COMActivationKeysUri = '/compute-ops-mgmt/v1beta1/activation-keys'
 
-#  Activation-Tokens
+#  Activation-Tokens-Keys
 
 [String]$COMActivationTokensUri = '/compute-ops-mgmt/v1beta1/activation-tokens'
+[String]$COMActivationKeysUri = '/compute-ops-mgmt/v1beta1/activation-keys'
 
 #  Activities
 
@@ -169,6 +170,7 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 
 # Jobs
 
+[String]$COMGetJobUri = '/compute-ops-mgmt/v1/jobs'
 [String]$COMJobsUri = '/compute-ops-mgmt/v1beta3/jobs'
 
 # Metrics Configurations
@@ -191,7 +193,7 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 
 [String]$COMSettingsUri = '/compute-ops-mgmt/v1beta1/settings'
 
-#  Servers
+# Servers
 
 [String]$COMServersUri = '/compute-ops-mgmt/v1beta2/servers'
 [String]$COMServersUIDoorwayUri = '/ui-doorway/compute/v2/servers'
@@ -253,6 +255,7 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 [String]$DevicesLocationUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/locations'
 [String]$LocalGatewayUri = $HPEGLUIbaseURL + '/platform/acpmgr/getGateways'
 [String]$LocalGatewayAppUri = $HPEGLUIbaseURL + '/opg-proxy/v1/gateways/'
+
 
 #  License - Subscription
 
@@ -2225,9 +2228,24 @@ function Invoke-HPECOMWebRequest {
                     "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
 
                     "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
+                   
+                    "[{0}] HTTP exception response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($_.Exception.Response ) | Write-Verbose 
+                    
+                    if ($_.Exception.Response -ne $null) {
+
+                        $ErrorCode = [int]$_.Exception.Response.StatusCode
+                        $ReasonPhrase = $_.Exception.Response.ReasonPhrase
+                      
+                        "[{0}] HTTP status code: {1} - {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorCode, $ReasonPhrase | Write-Verbose 
+
+                    }
+                    else {
+                        $ErrorCode = 0
+                    }
+
 
                     # 'Service Unavailable' error
-                    if ($_.Exception.Response.StatusCode -eq 503) {
+                    if ($ErrorCode -eq 503) {
                         $retries++
                         # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
                         $waitTime = 2
@@ -2236,10 +2254,9 @@ function Invoke-HPECOMWebRequest {
                     }
                     else {
 
-                        if ($_.Exception.Response) {
+                        if ($_.Exception.Response -ne $null) {
 
-                            $PSCmdlet.ThrowTerminatingError($_).Exception.Response
-                            
+                            $PSCmdlet.ThrowTerminatingError($_).Exception.Response                            
                            
                         }
                         else {
@@ -2255,8 +2272,37 @@ function Invoke-HPECOMWebRequest {
 
                     "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
 
+                    # "[{0}] Exception raw JSON content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($_ | ConvertFrom-Json ) | Write-Verbose 
+
+                    "[{0}] HTTP exception response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($_.Exception.Response ) | Write-Verbose 
+                    
+                    if ($_.Exception.Response -ne $null) {
+
+                        $ErrorCode = [int]$_.Exception.Response.StatusCode         
+                        $ReasonPhrase = $_.Exception.Response.ReasonPhrase
+                        
+                        "[{0}] HTTP status code: {1} - {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorCode, $ReasonPhrase | Write-Verbose 
+                                   
+                        try {
+
+                            $ExceptionJsonRawContent = $_ | ConvertFrom-Json 
+
+                            $ExceptionErrorMessage = $ExceptionJsonRawContent.message
+
+                            "[{0}] Error response message content: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionErrorMessage | Write-Verbose
+                        }
+                        catch {
+                            $ExceptionErrorMessage = $null
+                            "[{0}] Unable to read the response message content." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                        }                        
+                    }
+                    else {
+                        $ErrorCode = 0
+                    }
+
                     # 'Request Timeout' error
-                    if ($_.Exception.Response.StatusCode -eq 408) {
+                    if ($ErrorCode -eq 408) {
                         $retries++
                         # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
                         $waitTime = 2
@@ -2264,7 +2310,7 @@ function Invoke-HPECOMWebRequest {
                         Start-Sleep -Seconds $waitTime
                     }
                     # When 'Internal Server Error' error 
-                    elseif ($_.Exception.Response.StatusCode -eq 500) {
+                    elseif ($ErrorCode -eq 500) {
                         $retries++
                         # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
                         $waitTime = 2
@@ -2276,11 +2322,14 @@ function Invoke-HPECOMWebRequest {
                         if ($_.ErrorDetails) {
     
                             $errorResponse = $_.ErrorDetails.Message | ConvertFrom-Json
-    
-                            # Write-Verbose  $errorResponse
-    
+
+                            "[{0}] Error response found in `$_.ErrorDetails.Message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorResponse | Write-Verbose
+
                             $httpStatusCode = $errorResponse.httpStatusCode
                             $Message = $errorResponse.message
+
+                            "[{0}] Error Message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Message | Write-Verbose
+
                            
                             if ($errorResponse -and $errorResponse.errorDetails -and $errorResponse.errorDetails.Count -gt 0 -and 
                                 $errorResponse.errorDetails[0].issues -and $errorResponse.errorDetails[0].issues.Count -gt 0 -and 
@@ -2311,7 +2360,6 @@ function Invoke-HPECOMWebRequest {
                             "[{0}] Error response message: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $message | Write-Verbose
                             Throw "Error - Session has expired or been closed! Connect-HPEGL must be executed again!"
     
-    
                         }
                         elseif ($Message) {
     
@@ -2334,15 +2382,11 @@ function Invoke-HPECOMWebRequest {
                                 Throw "Error: '$message' - HTTP status code: '$httpStatusCode'"
                                 
                             }
-    
-    
                         }
                         else {
     
                             "[{0}] Error: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
                             Throw $_
-    
-    
                         }
                     }
                 }    
@@ -2464,8 +2508,9 @@ function Invoke-HPECOMWebRequest {
                     }                    
                 }  
             }
-
-            throw "Max retries exeeced after receiving Error 503 - Service Unavailable"
+            
+            $msg = "Max retries exeeced after receiving Error {0} - {1} - Message: {2}" -f $ErrorCode, $ReasonPhrase, $ExceptionErrorMessage
+            Write-Warning $msg
                 
         }
         #EndRegion
@@ -3391,237 +3436,234 @@ System.String
                 -Id $Id
         }
 
-
-        # Access_token expiration date
-        $AccessTokenExpirationDate = $HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
-
-        # Number of minutes before expiration of the Access_token expiration date
-        $BeforeExpirationinMinutes = [math]::Round(((New-TimeSpan -Start (Get-Date) -End ($AccessTokenExpirationDate)).TotalHours ) * 60)
-    
-        if ( $BeforeExpirationinMinutes -gt 0) { 
-            $Expiration = $BeforeExpirationinMinutes 
-            "[{0}] Session expiration in '{1}' minutes" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Expiration | Write-Verbose
-        }
-        else { 
-            $Expiration = 0 
-        }
-
-
-
       
         if (-not $HPEGreenLakeSession) {
             Write-Warning "Operation not required: No HPE GreenLake session found."
     
         }
-        elseif ($Expiration -eq 0) {
+        else {
 
-            "[{0}] The session has expired! Disconnection is not needed!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            # Access_token expiration date
+            $AccessTokenExpirationDate = $HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
 
-            # Remove $HPEGreenLakeSession global variable
-            Remove-Variable HPEGreenLakeSession -Scope Global
-            "[{0}] Global variable `$HPEGreenLakeSession has been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            # Number of minutes before expiration of the Access_token expiration date
+            $BeforeExpirationinMinutes = [math]::Round(((New-TimeSpan -Start (Get-Date) -End ($AccessTokenExpirationDate)).TotalHours ) * 60)
+        
+            if ( $BeforeExpirationinMinutes -gt 0) { 
+
+                $Expiration = $BeforeExpirationinMinutes 
+
+                "[{0}] Session expiration in '{1}' minutes" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Expiration | Write-Verbose
+
+
+                #Region 1 - Remove library API client credentials   
             
-            # Clear all HPEGL global variables
-            Get-Variable -Scope global | Where-Object name -match HPEGL | Remove-Variable -Force -Scope Global
-            "[{0}] All global variable starting with HPEGL have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                "[{0}] ------------------------------------- STEP 1 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 1 / 3 - Removing all library API Client credentials..." -Id 3
+                "[{0}] About to remove all temporary API Client credentials using the template '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $APIClientCredentialTemplateName | Write-Verbose
+                
+                if ($HPEGreenLakeSession.apiCredentials) {
 
-            # Clear all HPECOM global variables
-            Get-Variable -Scope global | Where-Object name -match HPECOM | Remove-Variable -Force -Scope Global
-            "[{0}] All global variable starting with HPECOM have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    try {
 
-            Write-Warning "The session has already been disconnected due to expiration!"
-            return
-
-        }
-        else {       
-
-            #Region 1 - Remove library API client credentials   
+                        $APIcredentials = Get-HPEGLAPICredential | Where-Object name -match $APIClientCredentialTemplateName 
+                
+                        if ($APIcredentials) {
             
-            "[{0}] ------------------------------------- STEP 1 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 1 / 3 - Removing all library API Client credentials..." -Id 3
-            "[{0}] About to remove all temporary API Client credentials using the template '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $APIClientCredentialTemplateName | Write-Verbose
+                            $APIcredentials | Remove-HPEGLAPICredential | Out-Null
             
-            if ($HPEGreenLakeSession.apiCredentials) {
+                        }
+                        else {
+                            "[{0}] No library API Client credential found using the template '{1}'!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $APIClientCredentialTemplateName | Write-Verbose
+                        }
 
+                    }
+                    catch {
+                        Write-Progress -Id 3 -Completed 
+                        Write-Warning "The session has already been disconnected due to expiration!"
+                        return
+                        # $PSCmdlet.ThrowTerminatingError($_)
+                    }    
+                
+                }
+
+                $completedSteps++
+
+                #endregion
+
+
+                #Region 2 - Remove HPE GreenLake workspace session   
+                "[{0}] ------------------------------------- STEP 2 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 2 / 3 - Removing HPE GreenLake workspace session..." -Id 3
+
+                "[{0}] About to remove HPE GreenLake workspace session" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                
+                $url = $AuthnEndSessionUri
+                
+                "[{0}] About to execute GET request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $url | Write-Verbose
+        
                 try {
 
-                    $APIcredentials = Get-HPEGLAPICredential | Where-Object name -match $APIClientCredentialTemplateName 
-            
-                    if ($APIcredentials) {
-        
-                        $APIcredentials | Remove-HPEGLAPICredential | Out-Null
-        
-                    }
-                    else {
-                        "[{0}] No library API Client credential found using the template '{1}'!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $APIClientCredentialTemplateName | Write-Verbose
-                    }
+                    $InvokeReturnData = Invoke-WebRequest -Method GET -Uri $url -WebSession $HPEGreenLakeSession.session -ContentType 'application/json' 
+                
+                    "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
+                    "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose
+                
+                    "[{0}] Workspace '{1}' session removed successfully!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
 
                 }
                 catch {
-                    Write-Progress -Id 3 -Completed 
+
+                    $Response = $_.Exception.Response | convertto-json -depth 10 
+
+                    $ExceptionCode = $_.Exception.Response.StatusCode.value__
+                    $ExceptionText = $_.Exception.Response.StatusDescription + $_.Exception.Response.ReasonPhrase 
+                
+                    "[{0}] Request payload: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Payload | Out-String) | Write-Verbose
+
+                    "[{0}] Request failed with the following Status:`r`n`tHTTPS Return Code = '{1}' `r`n`tHTTPS Return Code Description = '{2}' `n" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionCode, $ExceptionText | write-verbose
+
+                    # "[{0}] Raw response  = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-verbose
+
+
+                    Write-Progress -Id 3 -Completed
+                    $PSCmdlet.ThrowTerminatingError($_)
+            
+                }
+
+                $completedSteps++
+
+                #endregion
+
+
+                #Region 3 - Revoke CCS OAuth2 token
+                "[{0}] ------------------------------------- STEP 3 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 2 / 3 - Revoking OAuth2 tokens..." -Id 3
+
+                "[{0}] About to revoke CCS OAuth2 token" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                $url = $HPEGLauthorityURL.OriginalString + $OpenidConfiguration
+                "[{0}] About to execute GET request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $url | Write-Verbose
+            
+                
+                try {
+                    $response = Invoke-RestMethod $url -Method 'GET' 
+            
+                }
+                catch {                
+                    Write-Progress -Id 3 -Completed
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+
+                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
+                
+                $payload = @{
+                    'client_id'       = 'aquila-user-auth'
+                    'token'           = $HPEGreenLakeSession.oauth2AccessToken
+                    'token_type_hint' = 'access_token'
+                    
+                } 
+                    
+                $RevocationEndpoint = $response.revocation_endpoint
+
+                "[{0}] About to execute POST request to revoke CCS OAuth2 token to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $RevocationEndpoint | Write-Verbose
+                
+                try {
+                    "[{0}] Request payload: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($payload | Out-String) | Write-Verbose
+
+                    $InvokeReturnData = Invoke-webrequest -Uri $RevocationEndpoint -Method 'POST' -Body $payload -ContentType "application/x-www-form-urlencoded" -ErrorAction stop -WebSession $HPEGreenLakeSession.session
+                    
+                    "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
+                    # "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose
+                
+                    "[{0}] CCS OAuth2 token '{1}' revoked!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.username | Write-Verbose
+
+                    $_username = $HPEGreenLakeSession.username
+                    
+                    # Remove $HPEGreenLakeSession global variable
+                    Remove-Variable HPEGreenLakeSession -Scope Global
+                    "[{0}] Global variable `$HPEGreenLakeSession has been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    # Clear all HPEGL global variables
+                    Get-Variable -Scope global | Where-Object name -match HPEGL | Remove-Variable -Force -Scope Global
+                    "[{0}] All global variable starting with HPEGL have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                    # Clear all HPECOM global variables
+                    Get-Variable -Scope global | Where-Object name -match HPECOM | Remove-Variable -Force -Scope Global
+                    "[{0}] All global variable starting with HPECOM have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                    
+                }
+                
+                catch {
+
+                    "[{0}] Exception thrown!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                    # Get Exception type
+                    $exception = $_.Exception
+
+                    do {
+                        "[{0}] Exception Type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exception.GetType().Name | Write-Verbose
+                        $exception = $exception.InnerException
+                    } while ($exception)
+
+                    # Get exception stream
+                    $result = $_.Exception.Response.GetResponseStream()
+                    $reader = New-Object System.IO.StreamReader($result)
+                    $reader.BaseStream.Position = 0
+                    $reader.DiscardBufferedData()
+                    $responseBody = $reader.ReadToEnd() 
+
+
+                    "[{0}] Raw response `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseBody | Write-Verbose
+                
+                    $response = $responseBody | ConvertFrom-Json
+                        
+                    if ($Body) {
+                        "[{0}] Request payload: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Body | Out-String) | Write-Verbose
+                    }
+                    if ($Headers) {
+                        "[{0}] Request headers: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | Out-String) | Write-Verbose
+                    }
+
+                    Write-Progress -Id 3 -Completed
+                    Throw "Error -  $responseBody"          
+                }
+                
+                $completedSteps++
+                
+                #endregion
+                
+                # Clear the progress bar upon completion
+                Write-Progress -Id 3 -Completed
+                
+                return ("{0} session disconnected!" -f $_username )
+
+                }
+                # Expiration = 0
+                else { 
+
+                    "[{0}] The session has expired! Disconnection is not needed!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    # Remove $HPEGreenLakeSession global variable
+                    Remove-Variable HPEGreenLakeSession -Scope Global
+                    "[{0}] Global variable `$HPEGreenLakeSession has been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    # Clear all HPEGL global variables
+                    Get-Variable -Scope global | Where-Object name -match HPEGL | Remove-Variable -Force -Scope Global
+                    "[{0}] All global variable starting with HPEGL have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    # Clear all HPECOM global variables
+                    Get-Variable -Scope global | Where-Object name -match HPECOM | Remove-Variable -Force -Scope Global
+                    "[{0}] All global variable starting with HPECOM have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
                     Write-Warning "The session has already been disconnected due to expiration!"
                     return
-                    # $PSCmdlet.ThrowTerminatingError($_)
-                }    
-            
-            }
-
-            $completedSteps++
-
-            #endregion
-
-
-            #Region 2 - Remove HPE GreenLake workspace session   
-            "[{0}] ------------------------------------- STEP 2 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 2 / 3 - Removing HPE GreenLake workspace session..." -Id 3
-
-            "[{0}] About to remove HPE GreenLake workspace session" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            
-            $url = $AuthnEndSessionUri
-            
-            "[{0}] About to execute GET request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $url | Write-Verbose
-       
-            try {
-
-                $InvokeReturnData = Invoke-WebRequest -Method GET -Uri $url -WebSession $HPEGreenLakeSession.session -ContentType 'application/json' 
-            
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
-                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose
-            
-                "[{0}] Workspace '{1}' session removed successfully!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.workspace | Write-Verbose
-
-            }
-            catch {
-
-                $Response = $_.Exception.Response | convertto-json -depth 10 
-
-                $ExceptionCode = $_.Exception.Response.StatusCode.value__
-                $ExceptionText = $_.Exception.Response.StatusDescription + $_.Exception.Response.ReasonPhrase 
-            
-                "[{0}] Request payload: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Payload | Out-String) | Write-Verbose
-
-                "[{0}] Request failed with the following Status:`r`n`tHTTPS Return Code = '{1}' `r`n`tHTTPS Return Code Description = '{2}' `n" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionCode, $ExceptionText | write-verbose
-
-                # "[{0}] Raw response  = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-verbose
-
-
-                Write-Progress -Id 3 -Completed
-                $PSCmdlet.ThrowTerminatingError($_)
-           
-            }
-
-            $completedSteps++
-
-            #endregion
-
-
-            #Region 3 - Revoke CCS OAuth2 token
-            "[{0}] ------------------------------------- STEP 3 -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 2 / 3 - Revoking OAuth2 tokens..." -Id 3
-
-            "[{0}] About to revoke CCS OAuth2 token" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-            $url = $HPEGLauthorityURL.OriginalString + $OpenidConfiguration
-            "[{0}] About to execute GET request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $url | Write-Verbose
-        
-            
-            try {
-                $response = Invoke-RestMethod $url -Method 'GET' 
-           
-            }
-            catch {                
-                Write-Progress -Id 3 -Completed
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-
-            "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
-            
-            $payload = @{
-                'client_id'       = 'aquila-user-auth'
-                'token'           = $HPEGreenLakeSession.oauth2AccessToken
-                'token_type_hint' = 'access_token'
-                
-            } 
-                
-            $RevocationEndpoint = $response.revocation_endpoint
-
-            "[{0}] About to execute POST request to revoke CCS OAuth2 token to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $RevocationEndpoint | Write-Verbose
-            
-            try {
-                "[{0}] Request payload: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($payload | Out-String) | Write-Verbose
-
-                $InvokeReturnData = Invoke-webrequest -Uri $RevocationEndpoint -Method 'POST' -Body $payload -ContentType "application/x-www-form-urlencoded" -ErrorAction stop -WebSession $HPEGreenLakeSession.session
-                
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
-                # "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose
-            
-                "[{0}] CCS OAuth2 token '{1}' revoked!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGreenLakeSession.username | Write-Verbose
-
-                $_username = $HPEGreenLakeSession.username
-                 
-                # Remove $HPEGreenLakeSession global variable
-                Remove-Variable HPEGreenLakeSession -Scope Global
-                "[{0}] Global variable `$HPEGreenLakeSession has been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                
-                # Clear all HPEGL global variables
-                Get-Variable -Scope global | Where-Object name -match HPEGL | Remove-Variable -Force -Scope Global
-                "[{0}] All global variable starting with HPEGL have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                # Clear all HPECOM global variables
-                Get-Variable -Scope global | Where-Object name -match HPECOM | Remove-Variable -Force -Scope Global
-                "[{0}] All global variable starting with HPECOM have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                
-            }
-            
-            catch {
-
-                "[{0}] Exception thrown!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                # Get Exception type
-                $exception = $_.Exception
-
-                do {
-                    "[{0}] Exception Type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exception.GetType().Name | Write-Verbose
-                    $exception = $exception.InnerException
-                } while ($exception)
-
-                # Get exception stream
-                $result = $_.Exception.Response.GetResponseStream()
-                $reader = New-Object System.IO.StreamReader($result)
-                $reader.BaseStream.Position = 0
-                $reader.DiscardBufferedData()
-                $responseBody = $reader.ReadToEnd() 
-
-
-                "[{0}] Raw response `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseBody | Write-Verbose
-            
-                $response = $responseBody | ConvertFrom-Json
-                    
-                if ($Body) {
-                    "[{0}] Request payload: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Body | Out-String) | Write-Verbose
                 }
-                if ($Headers) {
-                    "[{0}] Request headers: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | Out-String) | Write-Verbose
-                }
-
-                Write-Progress -Id 3 -Completed
-                Throw "Error -  $responseBody"          
             }
-            
-            $completedSteps++
-            
-            #endregion
-            
-            # Clear the progress bar upon completion
-            Write-Progress -Id 3 -Completed
-            
-            return ("{0} session disconnected!" -f $_username )
-
         }
     }
-    
-}
+
 
 
 Function Connect-HPEGLWorkspace { 
@@ -4904,19 +4946,12 @@ Function Get-HPECOMActivity {
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
-    .PARAMETER ServerName 
-    Optional parameter that can be used to display the activities of a specific server name.
+    .PARAMETER Name 
+    Optional parameter that can be used to display the activities of a specific activity name.
 
-    .PARAMETER GroupName 
-    Optional parameter that can be used to display the activities of a specific group name.
+    .PARAMETER Category 
+    Optional parameter that can be used to display the activities of a specific category. Auto-completion (Tab key) is supported for this parameter, providing a list of categories.
 
-    .PARAMETER SourceType 
-    Optional parameter that can be used to display the activities of a specific source type such as OneView Appliance, 
-    Schedule, Firmware, Report, Job, Setting, Server, Group, External service, User Preferences and Subscription.
-
-    .PARAMETER SettingsName 
-    Optional parameter that can be used to display the activities of a specific settings name.
- 
     .PARAMETER Limit 
     This parameter allows you to define the number of activities to be displayed.
 
@@ -4932,24 +4967,29 @@ Function Get-HPECOMActivity {
     Return the last 50 activities data for all servers in the central european region. 
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -ServerName CZJ11105MV -limit 1
+    Get-HPECOMActivity -Region eu-central -Name CZJ11105MV -limit 1
 
-    Retrieve the last activity data for a server specified by its name.
+    Retrieve the last activity data for a server specified by its serial number.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -GroupName RHEL92-1_server_group -nolimit
+    Get-HPECOMActivity -Region eu-central -Name RHEL92-1_server_group -nolimit
 
     Retrieve all activities data for a group specified by its name.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -SettingsName RAID1
+    Get-HPECOMActivity -Region eu-central -Name RAID1
 
     Retrieve the last 50 activities data for a server settings specified by its name.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -SourceType Server
+    Get-HPECOMActivity -Region eu-central -Category Server
 
-    Retrieve the last 50 activities data for all server source type.
+    Retrieve the last 50 activities data for a specific category.
+
+    .EXAMPLE
+    Get-HPECOMActivity -Region eu-central -Name "ESXi_group" -Category Job
+
+    Retrieve the last 50 activities data for a specific category and a specific server group.
 
     .EXAMPLE
     Get-HPECOMServer -Region eu-central -Name ESX-1 | Get-HPECOMActivity 
@@ -4957,7 +4997,7 @@ Function Get-HPECOMActivity {
     This example demonstrates how to retrieve last 50 activities data for a server named 'ESX-1' in the "eu-central" region.
 
     .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ11105MV | Get-HPECOMActivity 
+    Get-HPECOMServer -Region eu-central -Name CZJ11105MV | Get-HPECOMActivity 
 
     This example demonstrates how to retrieve last 50 activities data for a server with the serial number 'CZJ11105MV' in the "eu-central" region.
 
@@ -4985,11 +5025,11 @@ Function Get-HPECOMActivity {
     System.String, System.String[]
         A single string object or a list of string objects representing the server's names.
     System.Collections.ArrayList
-        List of server, group or setting resources retrieved using 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber' or 'Get-HPECOMGroup' or 'Get-HPECOMSetting'.
+        List of server, group or setting resources retrieved using 'Get-HPECOMServer' or 'Get-HPECOMGroup' or 'Get-HPECOMSetting'.
 
     
    #>
-    [CmdletBinding(DefaultParameterSetName = 'ServerName')]
+    [CmdletBinding(DefaultParameterSetName = 'Limit')]
     Param( 
     
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
@@ -5010,24 +5050,19 @@ Function Get-HPECOMActivity {
             })]
         [String]$Region,  
 
-        [Parameter (ParameterSetName = 'ServerName', ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [Alias("Name")]
-        [String]$ServerName,
+        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [String]$Name,
 
-        [Parameter (ParameterSetName = 'GroupName', ValueFromPipelineByPropertyName)]
-        [String]$GroupName,
-
-        [Parameter (ParameterSetName = 'SourceType')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $environments = @('"OneView Appliance"', 'Schedule', 'Firmware', 'Report', 'Job', 'Setting', 'Server', 'Group', '"External service"', '"User Preferences"', 'Subscription')
+                $environments = @('"External service"', 'Filter', 'Firmware', 'Group', 'Job', '"OneView Appliance"', 'Report', 'Schedule', 'Server', 'Setting', 'Subscription', '"User Preferences"', 'Webhook')
                 $filteredEnvironments = $environments | Where-Object { $_ -like "$wordToComplete*" }
                 return $filteredEnvironments | ForEach-Object {
                     [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
                 }
             })]
         [ValidateScript({
-                $validOptions = @('"OneView Appliance"', 'Schedule', 'Firmware', 'Report', 'Job', 'Setting', 'Server', 'Group', '"External service"', '"User Preferences"', 'Subscription')
+                $validOptions = @('External service', 'Filter', 'Firmware', 'Group', 'Job', 'OneView Appliance', 'Report', 'Schedule', 'Server', 'Setting', 'Subscription', 'User Preferences', 'Webhook')
                 
                 if ($validOptions -contains $_) {
                     $True
@@ -5037,14 +5072,13 @@ Function Get-HPECOMActivity {
                 }
                 
             })]
-        [String]$SourceType,
+        [String]$Category,
 
-        [Parameter (ParameterSetName = 'Settings', ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [String]$SettingsName,
-
+        [Parameter (ParameterSetName = 'Limit')]
         [ValidateScript({ $_ -le 1000 })]
         [int]$Limit,
-
+        
+        [Parameter (ParameterSetName = 'NoLimit')]
         [switch]$NoLimit,
 
         [Switch]$WhatIf
@@ -5066,33 +5100,41 @@ Function Get-HPECOMActivity {
       
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
       
+        $Uri = $COMActivitiesUri 
 
         
-        if ($serverName) {
+        if ($Name) {
 
-            $Uri = $COMActivitiesUri + "?filter=source/displayName eq '$ServerName'"
+            if ($Uri -match "\?") {
+                
+                $Uri = $Uri + "&filter=source/displayName eq '$Name'"
 
-        }
-        elseif ($GroupName) {
+            }
+            else {
+            
+                $Uri = $Uri + "?filter=source/displayName eq '$Name'"
 
-            $Uri = $COMActivitiesUri + "?filter=groupDisplayName eq '$GroupName'"
-
-        }
-        elseif ($SettingsName) {
-
-            $Uri = $COMActivitiesUri + "?filter=serverSettingsName eq '$SettingsName'"
-
-        }
-        elseif ($SourceType) {
-
-            $Uri = $COMActivitiesUri + "?filter=source/type eq '$SourceType'"
-
-        }
-        else {
-
-            $Uri = $COMActivitiesUri 
+            }
         }
         
+        if ($Category) {
+
+            if ($Uri -match "\?filter") {
+                
+                $Uri = $Uri + " and source/type eq '$Category'"
+
+            }
+            elseif ($Uri -match "\?") {
+                
+                $Uri = $Uri + "&filter=source/type eq '$Category'"
+
+            }
+            else {
+            
+                $Uri = $Uri + "?filter=source/type eq '$Category'"
+
+            }
+        }        
         
         if ($Limit) {
             
@@ -5106,7 +5148,6 @@ Function Get-HPECOMActivity {
                 $Uri = $Uri + "?limit=$Limit"
 
             }
-
         }
         elseif ($NoLimit) {
 
@@ -5141,22 +5182,16 @@ Function Get-HPECOMActivity {
        
         if ($Null -ne $CollectionList) {     
 
-            if ($ServerName) {
-                
-                $CollectionList = $CollectionList | Where-Object associatedServerUri -match $serverUri
-                
-            }   
-
-
-
             # Add region to object
             $CollectionList | Add-Member -type NoteProperty -name region -value $Region
             # Add job uri to object
             $CollectionList | % { $_ | Add-Member -type NoteProperty -name sourceResourceUri -value $_.source.resourceUri }
+            # Add category to object
+            $CollectionList | % { $_ | Add-Member -type NoteProperty -name Category -value $_.source.type }
 
             $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Activities"    
     
-            # $ReturnData = $ReturnData #| Sort-Object { $_.updatedAt }
+            # $ReturnData = $ReturnData | Sort-Object activity, {$_.source.displayname}  # Not required as sorted by date by default
         
             return $ReturnData 
                 
@@ -5887,7 +5922,6 @@ Function Remove-HPECOMAppliance {
             
             $Uri = $_Appliance.resourceUri                    
               
-            # Add resource
             try {
                 $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method DELETE -WhatIfBoolean $WhatIf 
                         
@@ -6234,7 +6268,7 @@ Function Get-HPECOMEmailNotificationPolicy {
             
             try {
 
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber
+                $_server = Get-HPECOMServer -Region $Region -Name $SerialNumber
 
             }
             catch {
@@ -6301,7 +6335,7 @@ Function Get-HPECOMEmailNotificationPolicy {
         }
         else {
 
-            Write-Warning "Looks like email notification policy preference has not been configured. See Set-HPECOMUserEmailNotification"
+            Write-Warning "Looks like email notification policy preference has not been configured. See Enable-HPECOMEmailNotificationPolicy"
             return
                 
         }     
@@ -6387,7 +6421,7 @@ Function Enable-HPECOMEmailNotificationPolicy {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -6499,7 +6533,7 @@ Function Enable-HPECOMEmailNotificationPolicy {
             
             try {
 
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
+                $_server = Get-HPECOMServer -Region $Region -Name $ServerSerialNumber
 
             }
             catch {
@@ -6521,7 +6555,7 @@ Function Enable-HPECOMEmailNotificationPolicy {
 
                 try {
 
-                    $_serverNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -SerialNumber $ServerSerialNumber
+                    $_serverNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -SerialNumber $ServerSerialNumber -WarningAction SilentlyContinue
         
                 }
                 catch {
@@ -6571,7 +6605,7 @@ Function Enable-HPECOMEmailNotificationPolicy {
 
             try {
 
-                $_userNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region
+                $_userNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -WarningAction SilentlyContinue
     
             }
             catch {
@@ -6733,7 +6767,7 @@ Function Disable-HPECOMEmailNotificationPolicy {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -6816,7 +6850,7 @@ Function Disable-HPECOMEmailNotificationPolicy {
             
             try {
 
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
+                $_server = Get-HPECOMServer -Region $Region -Name $ServerSerialNumber
 
             }
             catch {
@@ -6839,7 +6873,7 @@ Function Disable-HPECOMEmailNotificationPolicy {
 
                 try {
 
-                    $_serverNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -SerialNumber $ServerSerialNumber
+                    $_serverNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -SerialNumber $ServerSerialNumber -WarningAction SilentlyContinue
         
                 }
                 catch {
@@ -6890,7 +6924,7 @@ Function Disable-HPECOMEmailNotificationPolicy {
 
             try {
 
-                $_userNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region
+                $_userNotifications = Get-HPECOMEmailNotificationPolicy -Region $Region -WarningAction SilentlyContinue
     
             }
             catch {
@@ -9328,7 +9362,7 @@ Function Get-HPECOMGroup {
                 Foreach ($Item in $CollectionList) {
 
                     try {
-                        $ServerName = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $Item.serial                        
+                        $ServerName = Get-HPECOMServer -Region $Region -Name $Item.serial                        
                     }
                     catch {
                         $PSCmdlet.ThrowTerminatingError($_)
@@ -9351,7 +9385,7 @@ Function Get-HPECOMGroup {
                 Foreach ($Item in $CollectionList) {
 
                     try {
-                        $ServerName = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $Item.serial                        
+                        $ServerName = Get-HPECOMServer -Region $Region -Name $Item.serial                        
                     }
                     catch {
                         $PSCmdlet.ThrowTerminatingError($_)
@@ -11521,7 +11555,7 @@ Function Add-HPECOMServerToGroup {
     System.String, System.String[]
         A single string object or a list of string objects representing the server's serial numbers.
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -11822,7 +11856,7 @@ Function Remove-HPECOMServerFromGroup {
     System.String, System.String[]
         A single string object or a list of string objects representing the server's serial numbers.
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber' or 'Get-HPECOMGroup -ShowMembers'.
+        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -12483,8 +12517,8 @@ Function Get-HPECOMJob {
     .PARAMETER JobResourceUri
     Optional parameter that can be used to specify the Uri of a job to display.
 
-    .PARAMETER Type
-    Type of the job resource such as 'servers', 'groups', etc.
+    .PARAMETER Category 
+    Optional parameter that can be used to display the jobs of a specific category. Auto-completion (Tab key) is supported for this parameter, providing a list of categories.
 
     .PARAMETER Limit
     This parameter allows you to define the number of jobs to be displayed. 
@@ -12501,12 +12535,12 @@ Function Get-HPECOMJob {
     Return the last 50 jobs resources located in the western US region. 
 
     .EXAMPLE
-    Get-HPECOMJob -Region eu-central -Type servers
+    Get-HPECOMJob -Region eu-central -Category servers
 
     Return the last 50 jobs resources of type 'servers' located in the western US region. 
 
     .EXAMPLE
-    Get-HPECOMJob -Region eu-central -Type Analyze -NoLimit
+    Get-HPECOMJob -Region eu-central -Category Analyze -NoLimit
 
     Return all jobs resources of type 'Analyze' located in the western US region.
 
@@ -12516,7 +12550,7 @@ Function Get-HPECOMJob {
     Return all jobs resources located in the western US region. 
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -GroupName ESXi_group -Limit 1 | Get-HPECOMJob
+    Get-HPECOMActivity -Region eu-central -Name ESXi_group -Limit 1 | Get-HPECOMJob
 
     Retrieves the job resource associated with the most recent activity of the 'ESXi_group' in the central EU region.
 
@@ -12532,7 +12566,7 @@ Function Get-HPECOMJob {
 
     
    #>
-    [CmdletBinding(DefaultParameterSetName = "Limit")]
+    [CmdletBinding(DefaultParameterSetName = "ShowRunningNoLimit")]
     Param( 
     
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
@@ -12553,7 +12587,13 @@ Function Get-HPECOMJob {
             })]
         [String]$Region,  
 
+        [String]$Name,
+
+        [Parameter (ParameterSetName = 'ShowRunning')]
         [Switch]$ShowRunning,
+        
+        [Parameter (ParameterSetName = 'ShowPending')]
+        [Switch]$ShowPending,
         
         [Parameter (ValueFromPipelineByPropertyName)] 
         [Alias('sourceResourceUri')]
@@ -12561,14 +12601,14 @@ Function Get-HPECOMJob {
 
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Items = @('Analyze', 'Filters', 'Groups', 'Oneview-appliances', 'Reports', 'Servers', 'Server-hardware', 'Settings')
+                $Items = @('Analyze', 'Filter', 'Group', 'Oneview-appliance', 'Report', 'Server', 'Server-hardware', 'Setting')
                 $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
                 return $filteredItems | ForEach-Object {
                     [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
                 }
             })]
-        [ValidateSet ('Analyze', 'Filters', 'Groups', 'Oneview-appliances', 'Reports', 'Servers', 'Server-hardware', 'Settings')]
-        [string]$Type,
+        [ValidateSet ('Analyze', 'Filter', 'Group', 'Oneview-appliance', 'Report', 'Server', 'Server-hardware', 'Setting')]
+        [string]$Category,
 
         [Parameter (ParameterSetName = 'Limit')]
         [ValidateScript({ $_ -le 1000 })]
@@ -12619,18 +12659,100 @@ Function Get-HPECOMJob {
             
         }
         else {
-            $uri = $COMJobsUri
+            $uri = $COMGetJobUri
         }
+
+        if ($Name) {
+
+            if ($Uri -match "\?") {
+                
+                $Uri = $Uri + "&filter=name eq '$Name'"
+
+            }
+            else {
+            
+                $Uri = $Uri + "?filter=name eq '$Name'"
+
+            }
+        }
+
+        if ($ShowRunning) {
+
+           if ($Uri -match "\?") {
+                
+                $Uri = $Uri + "&filter=state eq 'RUNNING'"
+
+            }
+            else {
+            
+                $Uri = $Uri + "?filter=state eq 'RUNNING'"
+
+            }
+        }
+        elseif ($ShowPending) {
+
+            if ($Uri -match "\?") {
+                
+                $Uri = $Uri + "&filter=state eq 'PENDING'"
+
+            }
+            else {
+            
+                $Uri = $Uri + "?filter=state eq 'PENDING'"
+
+            }
+        }
+
+        # Not supporting match but eq only so it does not returns response as my category is large to support all categories that are not the same 
+        # if ($Category) {
+
+        #     if ($Uri -match "\?filter") {
+                
+        #         $Uri = $Uri + " and resource/type eq '$Category'"
+
+        #     }
+        #     elseif ($Uri -match "\?") {
+                
+        #         $Uri = $Uri + "&filter=resource/type eq '$Category'"
+
+        #     }
+        #     else {
+            
+        #         $Uri = $Uri + "?filter=resource/type eq '$Category'"
+
+        #     }
+        # }        
         
         
         if ($Limit) {
-            $Uri = $Uri + "?limit=$limit"    
+            
+            if ($Uri -match "\?") {
+                
+                $Uri = $Uri + "&limit=$Limit"
+
+            }
+            else {
+            
+                $Uri = $Uri + "?limit=$Limit"
+
+            }
         }
         elseif ($NoLimit) {
-            $Uri = $Uri
-        }
+
+            $Uri = $Uri 
+        }   
         else {
-            $Uri = $Uri + "?limit=50"    
+
+            if ($Uri -match "\?") {
+                
+                $Uri = $Uri + "&limit=50"
+
+            }
+            else {
+            
+                $Uri = $Uri + "?limit=50"
+
+            }
 
         }
 
@@ -12650,13 +12772,13 @@ Function Get-HPECOMJob {
 
             # Add region to object
             $CollectionList | Add-Member -type NoteProperty -name region -value $Region
-             
-            if ($Type) {
-                $CollectionList = $CollectionList | Where-Object associatedResourceType -eq $Type
-            }
+            # Add category to object
+            $CollectionList | % { $_ | Add-Member -type NoteProperty -name Category -value $_.resource.type }
+                       
+            if ($Category) {
 
-            if ($ShowRunning) {
-                $CollectionList = $CollectionList | Where-Object state -eq "Running"
+                $CollectionList = $CollectionList | Where-Object Category -match $Category
+
             }
 
             $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Jobs"    
@@ -12682,7 +12804,7 @@ Function Start-HPECOMserver {
     Power on a server resource.
 
     .DESCRIPTION
-    This cmdlet initiates the power state of a server using the virtual power button     
+    This cmdlet initiates the power-on operation for a server using the virtual power button.
     It provides options for scheduling the execution at a specific time and setting recurring schedules.
 
     .PARAMETER Region 
@@ -12748,7 +12870,7 @@ Function Start-HPECOMserver {
     This command schedules a power on operation for the server with the serial number 'CZ12312312' in the `eu-central` region to occur six hours from the current time. 
 
     .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -ServerSerialNumber CZ12312312 | Start-HPECOMserver -ScheduleTime (Get-Date).AddDays(2)
+    Get-HPECOMServer -Region eu-central -Name CZ12312312 | Start-HPECOMserver -ScheduleTime (Get-Date).AddDays(2)
   
     This command retrieves the server with the serial number 'CZ12312312' in the `eu-central` region and schedules a power on to occur two days from the current date.
     
@@ -12762,7 +12884,7 @@ Function Start-HPECOMserver {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -12867,7 +12989,7 @@ Function Start-HPECOMserver {
         
         try {
 
-            $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
+            $_server = Get-HPECOMServer -Region $Region -Name $ServerSerialNumber
             
         }
         catch {
@@ -13035,9 +13157,9 @@ Function Restart-HPECOMserver {
     Restart a server resource.
 
     .DESCRIPTION
-    This cmdlet initiates the restart of a server to force the server to warm-boot which resets CPUs and I/O resources. 
-    It provides options for scheduling the execution at a specific time and setting recurring schedules.
-    Using this option circumvents the graceful shutdown features of the operating system.
+    This cmdlet initiates a server restart, performing a warm boot that resets the CPUs and I/O resources. 
+    It provides options for scheduling the restart at a specific time and setting recurring schedules.
+    Note: This operation bypasses the operating system's graceful shutdown features.
             
     .PARAMETER Region     
     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
@@ -13087,7 +13209,7 @@ Function Restart-HPECOMserver {
     This command restarts the server with the serial number 'CZ12312312' and immediately returns the asynchronous job resource to monitor.
     
     .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Name ESX-2  | Start-HPECOMserver -Async
+    Get-HPECOMServer -Region eu-central -Name ESX-2  | Restart-HPECOMserver -Async
 
     This command restarts the server named 'ESX-2' and immediately returns the asynchronous job resource to monitor.
 
@@ -13107,7 +13229,7 @@ Function Restart-HPECOMserver {
     This command schedules a restart operation for the server with the serial number 'CZ12312312' in the `eu-central` region to occur six hours from the current time. 
 
     .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZ12312312 | Restart-HPECOMserver -ScheduleTime (Get-Date).AddDays(2)
+    Get-HPECOMServer -Region eu-central -Name CZ12312312 | Restart-HPECOMserver -ScheduleTime (Get-Date).AddDays(2)
   
     This command retrieves the server with the serial number 'CZ12312312' in the `eu-central` region and schedules a restart to occur two days from the current date.
 
@@ -13121,7 +13243,7 @@ Function Restart-HPECOMserver {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -13226,7 +13348,7 @@ Function Restart-HPECOMserver {
         
         try {
           
-            $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
+            $_server = Get-HPECOMServer -Region $Region -Name $ServerSerialNumber
 
 
         }
@@ -13315,50 +13437,48 @@ Function Restart-HPECOMserver {
                     resourceUri    = $_serverResourceUri
     
                 }   
+            }
         
-                $payload = ConvertTo-Json $payload -Depth 10 
+            $payload = ConvertTo-Json $payload -Depth 10 
 
-                try {
-                    $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf 
+            try {
+                $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf 
 
-                    # Add region to object
-                    $_resp | Add-Member -type NoteProperty -name region -value $Region
+                # Add region to object
+                $_resp | Add-Member -type NoteProperty -name region -value $Region
 
-                    if ($ScheduleTime) {
-
-                        if (-not $WhatIf) {
-        
-                            $ReturnData = Invoke-RepackageObjectWithType -RawObject $_resp -ObjectName "COM.Schedules"
-    
-                            "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
-    
-                        }
-
-                    }
-                    else {
-
-                        if (-not $WhatIf -and -not $Async) {
-                    
-                            "[{0}] Running Wait-HPECOMJobComplete -Region '{1}' -Job '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, ($_resp.resourceuri) | Write-Verbose
-                    
-                            $_resp = Wait-HPECOMJobComplete -Region $Region -Job $_resp.resourceuri -Timeout 420
-        
-                            "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
-
-                        }
-                    }
-                }
-                catch {
+                if ($ScheduleTime) {
 
                     if (-not $WhatIf) {
+    
+                        $ReturnData = Invoke-RepackageObjectWithType -RawObject $_resp -ObjectName "COM.Schedules"
 
-                        $PSCmdlet.ThrowTerminatingError($_)
+                        "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
 
                     }
-                }  
 
+                }
+                else {
 
-            }   
+                    if (-not $WhatIf -and -not $Async) {
+                
+                        "[{0}] Running Wait-HPECOMJobComplete -Region '{1}' -Job '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, ($_resp.resourceuri) | Write-Verbose
+                
+                        $_resp = Wait-HPECOMJobComplete -Region $Region -Job $_resp.resourceuri -Timeout 420
+    
+                        "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+
+                    }
+                }
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    $PSCmdlet.ThrowTerminatingError($_)
+
+                }
+            }  
         }
 
         if ($ScheduleTime) {
@@ -13395,9 +13515,9 @@ Function Stop-HPECOMserver {
     Power off a server resource.
 
     .DESCRIPTION
-    This cmdlet initiates a graceful shutdown of a server using the virtual power button. It provides options for scheduling the execution at a specific time and setting recurring schedules.
+    This cmdlet initiates a graceful shutdown of a server using the virtual power button. It also provides options for scheduling the shutdown at a specific time and setting recurring schedules.
 
-    Note: If the OS does not shut down, this cmdlet will forcibly power off the server using the force-off option.
+    Note: If the operating system does not shut down gracefully, this cmdlet will forcibly power off the server using the force-off option.
             
     .PARAMETER Region     
     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
@@ -13470,7 +13590,7 @@ Function Stop-HPECOMserver {
     This command schedules a power off operation for the server with the serial number 'CZ12312312' in the `eu-central` region to occur six hours from the current time. 
 
     .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZ12312312 | Stop-HPECOMserver -ScheduleTime (Get-Date).AddDays(2)
+    Get-HPECOMServer -Region eu-central -Name CZ12312312 | Stop-HPECOMserver -ScheduleTime (Get-Date).AddDays(2)
   
     This command retrieves the server with the serial number 'CZ12312312' in the `eu-central` region and schedules a power off to occur two days from the current date.
     
@@ -13489,7 +13609,7 @@ Function Stop-HPECOMserver {
         A single string object or a list of string objects representing the server's serial numbers.
     
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -13600,7 +13720,7 @@ Function Stop-HPECOMserver {
        
         try {
 
-            $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
+            $_server = Get-HPECOMServer -Region $Region -Name $ServerSerialNumber
             
         }
         catch {
@@ -13887,7 +14007,7 @@ function Update-HPECOMServerFirmware {
         A single string object or a list of string objects representing the server's serial numbers.
     
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -13994,7 +14114,7 @@ function Update-HPECOMServerFirmware {
 
         try {
 
-            $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
+            $_server = Get-HPECOMServer -Region $Region -Name $ServerSerialNumber
 
         }
         catch {
@@ -14213,7 +14333,7 @@ function Update-HPECOMServeriLOFirmware {
     It also provides an option to schedule the update at a specific time.
 
     Note: This cmdlet can ONLY be used when automatic iLO firmware updates are disabled in your workspace. 
-          Refer to 'Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber -ShowAutoiLOFirmwareUpdateStatus', 'Enable-HPECOMServerAutoiLOFirmwareUpdate', and 'Disable-HPECOMServerAutoiLOFirmwareUpdate' for more information.
+          Refer to 'Get-HPECOMServer -Region $Region -Name $SerialNumber -ShowAutoiLOFirmwareUpdateStatus', 'Enable-HPECOMServerAutoiLOFirmwareUpdate', and 'Disable-HPECOMServerAutoiLOFirmwareUpdate' for more information.
     
     .PARAMETER Region     
     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server is located. 
@@ -14280,7 +14400,7 @@ function Update-HPECOMServeriLOFirmware {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -14374,7 +14494,7 @@ function Update-HPECOMServeriLOFirmware {
 
         try {
             
-            $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber
+            $_server = Get-HPECOMServer -Region $Region -Name $ServerSerialNumber
 
         }
         catch {
@@ -14400,7 +14520,7 @@ function Update-HPECOMServeriLOFirmware {
             }
 
             # Only supported if ServerAutoiLOFirmwareUpdate is disabled
-            if ((Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $ServerSerialNumber -ShowAutoiLOFirmwareUpdateStatus).autoIloFwUpdate -eq $True ) {
+            if ((Get-HPECOMServer -Region $Region -Name $ServerSerialNumber -ShowAutoiLOFirmwareUpdateStatus).autoIloFwUpdate -eq $True ) {
 
                 # Must return a message if OneView managed server
 
@@ -14650,7 +14770,7 @@ function Update-HPECOMGroupFirmware {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber' or 'Get-HPECOMGroup -ShowMembers'.
+        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -15800,7 +15920,7 @@ function Get-HPECOMGroupFirmwareCompliance {
             Foreach ($Item in $CollectionList) {
 
                 try {
-                    $_ServerName = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $Item.serial                        
+                    $_ServerName = Get-HPECOMServer -Region $Region -Name $Item.serial                        
                 }
                 catch {
                     $PSCmdlet.ThrowTerminatingError($_)
@@ -15927,7 +16047,7 @@ function Invoke-HPECOMGroupInternalStorageConfiguration {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber' or 'Get-HPECOMGroup -ShowMembers'.
+        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -16274,7 +16394,7 @@ function Invoke-HPECOMGroupOSInstallation {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber' or 'Get-HPECOMGroup -ShowMembers'.    
+        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.    
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -16677,7 +16797,7 @@ function Invoke-HPECOMGroupBiosConfiguration {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber' or 'Get-HPECOMGroup -ShowMembers'.
+        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -17933,7 +18053,7 @@ function Enable-HPECOMIloIgnoreSecuritySetting {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -18041,7 +18161,7 @@ function Enable-HPECOMIloIgnoreSecuritySetting {
             if ($SerialNumber) {
 
                 $ParamUsed = $SerialNumber
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber
+                $_server = Get-HPECOMServer -Region $Region -Name $SerialNumber
 
             } 
             elseif ($Name) {
@@ -18315,7 +18435,7 @@ function Disable-HPECOMIloIgnoreSecuritySetting {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -18423,7 +18543,7 @@ function Disable-HPECOMIloIgnoreSecuritySetting {
             if ($SerialNumber) {
 
                 $ParamUsed = $SerialNumber
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber
+                $_server = Get-HPECOMServer -Region $Region -Name $SerialNumber
 
             } 
             elseif ($Name) {
@@ -19081,7 +19201,7 @@ function New-HPECOMServerInventory {
     System.String, System.String[]
         A single string object or a list of string objects that represent the server's serial numbers.
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'. 
+        List of servers from 'Get-HPECOMServer'. 
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
@@ -19209,7 +19329,7 @@ function New-HPECOMServerInventory {
 
             if ($SerialNumber) {
 
-                $_ResourceUri = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber).resourceUri
+                $_ResourceUri = (Get-HPECOMServer -Region $Region -Name $SerialNumber).resourceUri
 
                 "[{0}] Resource is 'SERVERS' type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ResourceUri | Write-Verbose
 
@@ -19776,7 +19896,7 @@ Function Get-HPECOMServerInventory {
             
             # Add region, servername and serialNumber (only serial is provided)
             try {
-                $_ServerName = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $CollectionList.serial                        
+                $_ServerName = Get-HPECOMServer -Region $Region -Name $CollectionList.serial                        
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
@@ -33645,7 +33765,7 @@ Function Get-HPECOMServer {
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
     .PARAMETER Name 
-    Specifies the host name of the server to display. 
+    Specifies the name or serial number of the server to display. 
     
     .PARAMETER Model 
     Optional parameter that can be used to display a specific server model only, such as 'ProLiant DL380 Gen11', 'ProLiant DL365 Gen11', etc. 
@@ -33721,9 +33841,9 @@ Function Get-HPECOMServer {
     Returns the server data for the server named 'sles15sp4' located in the Central European region.
 
     .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Name ESX-1.domain.lab 
+    Get-HPECOMServer -Region eu-central -Name TWA22525A6 
 
-    Returns the server data for the server with the name 'ESX-1.domain.lab'.
+    Returns the server data for the server with the serial number 'TWA22525A6'.
 
     .EXAMPLE
     Get-HPECOMServer -Region eu-central -Name ESX-1.domain.lab -ShowGroupMembership
@@ -33849,7 +33969,7 @@ Function Get-HPECOMServer {
     System.String, System.String[]
         A single string object or a list of string objects representing the server's names.
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
 #>
 
@@ -33875,51 +33995,30 @@ Function Get-HPECOMServer {
         [String]$Region,  
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ByName')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupMembershipName')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupFirmwareCompliance')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupFirmwareDeviation')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'Location')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AlertsName')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'CheckifserverHasStorageVolumeName')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ExternalStorageDetailsName')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'NotificationStatusName')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SecurityParameters')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SecurityParametersDetailsName')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithNameForbidFilters')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'CheckifserverHasStorageVolumeWithNameForbidFilters')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ExternalStorageDetailsWithNameForbidFilters')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupMembershipWithNameForbidFilters')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupFirmwareComplianceWithNameForbidFilters')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'LocationWithNameForbidFilters')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'NotificationStatusWithNameForbidFilters')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SecurityParametersWithNameForbidFilters')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AdapterToSwitchPortMappingsName')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AutoiLOFirmwareUpdateStatus')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AlertsName')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupFirmwareDeviationName')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SecurityParametersDetailsName')]
         [String]$Name,
-    
-        # Parameter sets are different from Get-HPECOMServerBySerialNumber as a server name is not unique like a serial number is.
+        
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'GroupMembershipName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareCompliance')]
-        [Parameter (ParameterSetName = 'GroupFirmwareDeviation')]
-        [Parameter (ParameterSetName = 'Location')]
-        [Parameter (ParameterSetName = 'AlertsName')]
-        [Parameter (ParameterSetName = 'NotificationStatusName')]
-        [Parameter (ParameterSetName = 'SecurityParameters')]
-        [Parameter (ParameterSetName = 'SecurityParametersDetailsName')]
-        [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsName')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatus')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeName')]
-        [String]$Model,
-       
-        [Parameter (ParameterSetName = 'ByName')]
-        [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'GroupMembershipName')]       
-        [Parameter (ParameterSetName = 'GroupFirmwareCompliance')]
-        [Parameter (ParameterSetName = 'GroupFirmwareDeviation')]
-        [Parameter (ParameterSetName = 'Location')]
-        [Parameter (ParameterSetName = 'AlertsName')]
-        [Parameter (ParameterSetName = 'NotificationStatusName')]
-        [Parameter (ParameterSetName = 'SecurityParameters')]
-        [Parameter (ParameterSetName = 'SecurityParametersDetailsName')]
-        [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsName')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatus')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeName')]
+        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
+        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
+        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
+        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'LocationWithoutName')]
+        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
+        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 $Items = @('Direct', 'OneView managed', 'Secure gateway')
@@ -33934,43 +34033,47 @@ Function Get-HPECOMServer {
         
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'GroupMembershipName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareCompliance')]
-        [Parameter (ParameterSetName = 'GroupFirmwareDeviation')]
-        [Parameter (ParameterSetName = 'Location')]
-        [Parameter (ParameterSetName = 'AlertsName')]
-        [Parameter (ParameterSetName = 'NotificationStatusName')]
-        [Parameter (ParameterSetName = 'SecurityParameters')]
-        [Parameter (ParameterSetName = 'SecurityParametersDetailsName')]
-        [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsName')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatus')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeName')]
+        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
+        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
+        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
+        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'LocationWithoutName')]
+        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
+        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
         [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Items = @('True', 'False')
-                $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
-                return $filteredItems | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
+            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+            $Items = @('True', 'False')
+            $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
+            return $filteredItems | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+        })]
         [ValidateSet ('True', 'False')]
         [String]$ConnectedState,
-
+    
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'GroupMembershipName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareCompliance')]
-        [Parameter (ParameterSetName = 'GroupFirmwareDeviation')]
-        [Parameter (ParameterSetName = 'Location')]
-        [Parameter (ParameterSetName = 'AlertsName')]
-        [Parameter (ParameterSetName = 'NotificationStatusName')]
-        [Parameter (ParameterSetName = 'SecurityParameters')]
-        [Parameter (ParameterSetName = 'SecurityParametersDetailsName')]
-        [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsName')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatus')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeName')]
+        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
+        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
+        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
+        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'LocationWithoutName')]
+        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
+        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
+        [String]$Model,
+        
+        [Parameter (ParameterSetName = 'ByName')]
+        [Parameter (ParameterSetName = 'Other')]
+        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
+        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
+        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
+        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'LocationWithoutName')]
+        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
+        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 $Items = @('ON', 'OFF')
@@ -33981,59 +34084,63 @@ Function Get-HPECOMServer {
             })]
         [ValidateSet ('ON', 'OFF')]
         [String]$PowerState,
-    
-        [Parameter (ParameterSetName = 'ByName')]
-        [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'GroupMembershipName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareCompliance')]
-        [Parameter (ParameterSetName = 'GroupFirmwareDeviation')]
-        [Parameter (ParameterSetName = 'Location')]
-        [Parameter (ParameterSetName = 'AlertsName')]
-        [Parameter (ParameterSetName = 'NotificationStatusName')]
-        [Parameter (ParameterSetName = 'SecurityParameters')]
-        [Parameter (ParameterSetName = 'SecurityParametersDetailsName')]
-        [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsName')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatus')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeName')]
-        [ValidateScript({ $_ -le 100 })]
-        [int]$Limit,
-
-        [Parameter (ParameterSetName = 'GroupMembershipName')]
-        [Switch]$ShowGroupMembership,
-
-        [Parameter (ParameterSetName = 'GroupFirmwareCompliance')]
-        [Switch]$ShowGroupFirmwareCompliance,
-    
-        [Parameter (ParameterSetName = 'GroupFirmwareDeviation')]
-        [Switch]$ShowGroupFirmwareDeviation,
-
-        [Parameter (ParameterSetName = 'Location')]
-        [Switch]$ShowLocation,
-    
+        
+        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
+        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithNameForbidFilters')]
+        [Switch]$CheckIfServerHasStorageVolume,
+        
         [Parameter (ParameterSetName = 'AlertsName')]
         [Switch]$ShowAlerts,
-    
-        [Parameter (ParameterSetName = 'NotificationStatusName')]
-        [Switch]$ShowNotificationStatus,
-        
-        [Parameter (ParameterSetName = 'SecurityParameters')]
-        [Switch]$ShowSecurityParameters,
-        
-        [Parameter (ParameterSetName = 'SecurityParametersDetailsName')]
-        [Switch]$ShowSecurityParametersDetails,
         
         [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsName')]
         [Switch]$ShowAdapterToSwitchPortMappings,
         
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatus')]
+        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
+        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithNameForbidFilters')]
         [Switch]$ShowAutoiLOFirmwareUpdateStatus,
         
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsName')]
+        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithNameForbidFilters')]
         [Switch]$ShowExternalStorageDetails,
+
+        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
+        [Parameter (ParameterSetName = 'GroupMembershipWithNameForbidFilters')]
+        [Switch]$ShowGroupMembership,
+
+        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithNameForbidFilters')]
+        [Switch]$ShowGroupFirmwareCompliance,
+    
+        [Parameter (ParameterSetName = 'GroupFirmwareDeviationName')]
+        [Switch]$ShowGroupFirmwareDeviation,
+
+        [Parameter (ParameterSetName = 'LocationWithoutName')]
+        [Parameter (ParameterSetName = 'LocationWithNameForbidFilters')]
+        [Switch]$ShowLocation,    
+    
+        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
+        [Parameter (ParameterSetName = 'NotificationStatusWithNameForbidFilters')]
+        [Switch]$ShowNotificationStatus,
         
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeName')]
-        [Switch]$CheckIfServerHasStorageVolume,
+        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
+        [Parameter (ParameterSetName = 'SecurityParametersWithNameForbidFilters')]
+        [Switch]$ShowSecurityParameters,
+        
+        [Parameter (ParameterSetName = 'SecurityParametersDetailsName')]
+        [Switch]$ShowSecurityParametersDetails,
+            
+        [Parameter (ParameterSetName = 'ByName')]
+        [Parameter (ParameterSetName = 'Other')]
+        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
+        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
+        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
+        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'LocationWithoutName')]
+        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
+        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
+        [ValidateScript({ $_ -le 100 })]
+        [int]$Limit,
 
         [Switch]$WhatIf
         
@@ -34058,7 +34165,7 @@ Function Get-HPECOMServer {
         if ($Name) {       
 
             # $Uri = $COMServersUri + "?filter=name eq '$Name'"   # Filter that supports only serial numbers
-            $Uri = $COMServersUri + "?filter=host/hostname eq '$Name'"  
+            $Uri = $COMServersUri + "?filter=host/hostname eq '$Name' or name eq '$Name'"   # Filter that supports both serial numbers and server names
         }
         else {
             
@@ -34156,16 +34263,13 @@ Function Get-HPECOMServer {
 
 
         # Set $Uri
-        if (        $ShowGroupMembership `
-                -or ($ShowLocation -and $Name) `
-                -or $ShowAlerts `
-                -or $ShowExternalStorageDetails `
-                -or $ShowNotificationStatus `
-                -or ($ShowSecurityParameters -and $Name) `
+        if (       
+                    $ShowAlerts `
+                -or ($ShowExternalStorageDetails -and $Name) `
+                -or ($ShowNotificationStatus -and $Name) `
                 -or $ShowSecurityParametersDetails `
                 -or $ShowAdapterToSwitchPortMappings `
-                -or $CheckifserverHasStorageVolume `
-                # -or $ShowAutoiLOFirmwareUpdateStatus `
+                -or ($CheckifserverHasStorageVolume -and $Name) `
         ) {
                 
 
@@ -34178,7 +34282,7 @@ Function Get-HPECOMServer {
            
                 }
                 elseif ($server.count -gt 1) {
-                    throw "Multiple servers found with the name '$Name'. Please refine your query to return only one server or use the serial number with 'Get-HPECOMServerBySerialNumber' to retrieve the server details."
+                    throw "Multiple servers found with the name '$Name'. Please refine your query to return only one server or use the serial number to retrieve the server details."
                 }
                 else {
                     
@@ -34237,88 +34341,8 @@ Function Get-HPECOMServer {
         # }
 
      
-        # Requests using $ServerID in URI
-        if ($ShowGroupMembership) {
-
-            $Uri = $COMServersUIDoorwayUri + "/" + $ServerID 
-
-            try {
-                $GroupName = (Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf).group_.name
-
-                if ($GroupName) {
-
-                    "[{0}] Group name is '{1}''" -f $MyInvocation.InvocationName.ToString().ToUpper(), $GroupName | Write-Verbose
-                    $_Resp = Get-HPECOMGroup -Region $Region -Name $GroupName
-                    
-                    if (-not $Whatif) {
-                        Return $_Resp
-                    }
-                }
-                else {
-                    
-                    "[{0}] Server is not member of a group!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                     
-                    if (-not $Whatif) {
-                        Return
-                    }
-                }
-    
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                   
-            }
-
-            # $Uri = $COMServersUri + "/" + $ServerID 
-
-            # try {
-            #     [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-    
-            # }
-            # catch {
-            #     $PSCmdlet.ThrowTerminatingError($_)
-                   
-            # }
-            
-           
-            # # Add GroupName to $CollectionList
-            # $CollectionList | Add-Member -MemberType NoteProperty -Name 'associatedGroupname' -Value $GroupName -Force
-
-
-        }
-        elseif ($ShowLocation -and $Name) {
-
-            $Uri = $COMServersUIDoorwayUri + "/" + $ServerID 
-
-            try {
-                $CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-                
-                # "[{0}] Server '{1}' data from UI Doorway: `n{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerID, ($CollectionList | Out-String) | Write-Verbose
-
-                $CollectionList = [PSCustomObject]$CollectionList.locationInfo_
-
-                "[{0}] Server '{1}' location Info data from UI Doorway: `n{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerID, ($CollectionList | Out-String) | Write-Verbose
-
-                # "[{0}] Object type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($CollectionList.GetType().FullName ) | Write-Verbose
-
-                if ($CollectionList.name) {
-                    "[{0}] Location name is '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.name | Write-Verbose
-                }
-                else {
-                    "[{0}] Server location is not set!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                    
-                }
-    
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                   
-            }
-
-
-
-        }
-        elseif ($ShowAlerts) {
+        # Requests using $ServerID in URI    
+        if ($ShowAlerts) {
 
             $Uri = $COMServersUri + "/" + $ServerID + "/alerts"
 
@@ -34332,7 +34356,7 @@ Function Get-HPECOMServer {
             }
 
         }
-        elseif ($ShowExternalStorageDetails) {
+        elseif ($ShowExternalStorageDetails -and $Name) {
 
             $Uri = $COMServersUri + "/" + $ServerID + "/external-storage-details"
 
@@ -34345,24 +34369,7 @@ Function Get-HPECOMServer {
                 return
             }
         }
-        elseif ($CheckifserverHasStorageVolume) {
-                            
-            $Uri = $COMServersUri + "/" + $ServerID + "/analyze-os-install"
-            $Payload = @{id = $ServerID } | ConvertTo-Json
-
-            try {
-                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method POST -Uri $Uri -Body $payload -Region $Region -WhatIfBoolean $WhatIf
-            
-                return $CollectionList.serverHasStorageVolume
-                
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                    
-            }
-                    
-        }   
-        elseif ($ShowNotificationStatus) {
+        elseif ($ShowNotificationStatus -and $Name) {
                             
             $Uri = $COMServersUri + "/" + $ServerID + "/notifications"
            
@@ -34376,7 +34383,7 @@ Function Get-HPECOMServer {
             }
                     
         }
-        elseif (($ShowSecurityParameters -and $Name) -or $ShowSecurityParametersDetails) {
+        elseif ($ShowSecurityParametersDetails) {
                             
             $Uri = $COMServersUri + "/" + $ServerID + "/security-parameters"
            
@@ -34434,11 +34441,27 @@ Function Get-HPECOMServer {
             $CollectionList | Add-Member -type NoteProperty -name region -value $Region
             $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serverName -value $_.name }
 
+            if ($ConnectionType) {
+                   
+                switch ($ConnectionType) {
+                    'Secure gateway' { $_ConnectionType = 'GATEWAY' }
+                    'OneView managed' { $_ConnectionType = 'ONEVIEW' }
+                    'Direct' { $_ConnectionType = 'DIRECT' }
+                }
+
+                $CollectionList = $CollectionList | where-Object ConnectionType -eq $_ConnectionType
+
+                "[{0}] --------------------------- Final content of `$CollectionList - Number of items : {1} ------------------------------------------------" -f  $MyInvocation.InvocationName.ToString().ToUpper(), ($CollectionList.count) | Write-Verbose
+                "[{0}] --------------------------- Final content of `$CollectionList ------------------------------------------------------------------------`n{1}" -f  $MyInvocation.InvocationName.ToString().ToUpper(), ($CollectionList | Out-String) | Write-Verbose
+                "[{0}] ---------------------------------------------------------------------------------------------------------------------------------------" -f  $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                
+            }
                                        
             if ($ShowAlerts) {
 
                 # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
+                $_ServerName = (Get-HPECOMServer -Region $Region -Name  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
                 $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
 
@@ -34447,37 +34470,245 @@ Function Get-HPECOMServer {
             }
             elseif ($ShowExternalStorageDetails) {
 
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
+                if ($Name) {
+                    # Add serial number, servername, model and connectionType to object
+                    $_Server = (Get-HPECOMServer -Region $Region -Name  ($CollectionList.serverId -split '\+')[1])
+                    $CollectionList | Add-Member -type NoteProperty -name serverName -value $_Server.name -Force
+                    $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
+                    $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name model -value $_Server.hardware.model }
+                    $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name connectionType -value $_Server.connectionType }
+                    
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.ExternalStorageDetails"    
+                    
+                }
+                else {
 
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.ExternalStorageDetails"    
-                
+                    $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                    foreach ($Item in $CollectionList) {
+
+                        $Uri = $COMServersUri + "/" + $Item.ID + "/external-storage-details"
+
+                        try {
+                                 
+                            $ServerExternalStorageDetails = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -ErrorAction SilentlyContinue
+
+                            if ($ServerExternalStorageDetails ) {
+
+                                $_ServerExternalStorageDetails =  [PSCustomObject]@{
+                                    model                               = $Item.hardware.model
+                                    serverId                            = $Item.id
+                                    serverName                          = $Item.name   
+                                    serialNumber                        = $Item.hardware.serialNumber 
+                                    connectionType                      = $Item.connectionType
+                                    volumeDetails                       = $ServerExternalStorageDetails.VolumeDetails
+                                    HostName                            = $ServerExternalStorageDetails.HostName
+                                    HostGroups                          = $ServerExternalStorageDetails.HostGroups
+                                    HostOS                              = $ServerExternalStorageDetails.HostOS
+                                    region                              = $Region
+                                }
+                                    
+
+                                "[{0}] _ServerExternalStorageDetails object built content: `n{1}" -f  $MyInvocation.InvocationName.ToString().ToUpper(), ($_ServerExternalStorageDetails | Out-String) | Write-Verbose
+
+                                [void]$NewCollectionList.add($_ServerExternalStorageDetails)
+
+                                "----------------------------------------- Item added to collection:--------------------------------------------------- `n{0}" -f   ($_ServerExternalStorageDetails|out-String )| Write-Verbose
+                            }
+                            
+                        }
+                        catch {
+
+                            "[{0}] ServerExternalStorageDetails content not available" -f  $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                            Continue
+                        }
+
+                    }
+
+                    $NewCollectionList = $NewCollectionList | Sort-Object -Property serverName, serialNumber
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.ExternalStorageDetails" 
+                }   
             }
             elseif ($ShowNotificationStatus) {
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
 
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.NotificationStatus"    
-                
+                if ($Name) {
+
+                    # Add serial number, servername, model and connectionType to object
+                    $_Server = (Get-HPECOMServer -Region $Region -Name  ($CollectionList.serverId -split '\+')[1])
+                    $CollectionList | Add-Member -type NoteProperty -name serverName -value $_Server.name -Force
+                    $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
+                    $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name model -value $_Server.hardware.model }
+                    $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name connectionType -value $_Server.connectionType }
+    
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.NotificationStatus"    
+
+                }
+                else {
+
+                    $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                    foreach ($Item in $CollectionList) {
+
+                        # Not using COM API 
+                        # $Uri = $COMServersUri + "/" + $Item.ID + "/security-parameters"
+                        # Using /ui-doorway/compute/v2/servers/<serverID>
+                        $Uri = $COMServersUIDoorwayUri + "/" + $Item.ID 
+
+                        try {
+                                
+                            # $_ServerSecurityParameters = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
+                            $_Server = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
+
+                            "[{0}] Response type: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Server.GetType().FullName | Write-Verbose
+
+                            if ($Null -ne $_Server.notifications_ ){
+
+                                "[{0}] notifications_ content: `n{1}" -f  $MyInvocation.InvocationName.ToString().ToUpper(), ($_Server.notifications_ | Out-String) | Write-Verbose
+
+                                $_ServerNotifications =  [PSCustomObject]@{
+                                    model                               = $_Server.hardware.model
+                                    serverId                            = $_Server.id
+                                    serverName                          = $_Server.name   
+                                    serialNumber                        = $_Server.hardware.serialNumber 
+                                    connectionType                      = $_Server.connectionType_
+                                    healthNotification                  = $_Server.notifications_.healthNotification
+                                    healthNotificationUsersCount        = $_Server.notifications_.healthNotificationUsersCount_
+                                    criticalNotification                = $_Server.notifications_.criticalNotification
+                                    criticalNotificationUsersCount      = $_Server.notifications_.criticalNotificationUsersCount_
+                                    criticalNonServiceNotification      = $_Server.notifications_.criticalNonServiceNotification
+                                    warningNotification                 = $_Server.notifications_.warningNotification
+                                    serverNotificationUsersCount        = $_Server.notifications_.serverNotificationUsersCount_
+                                    region                              = $Region
+                                }
+                                    
+
+                                "[{0}] _ServerNotifications object built content: `n{1}" -f  $MyInvocation.InvocationName.ToString().ToUpper(), ($_ServerNotifications | Out-String) | Write-Verbose
+
+                            }
+                            else {
+
+                                "[{0}] notifications_ content not available" -f  $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                               
+                            }
+
+                            [void]$NewCollectionList.add($_ServerNotifications)
+
+                            "----------------------------------------- item added to collection:--------------------------------------------------- `n{0}" -f   ($_ServerNotifications|out-String )| Write-Verbose
+    
+
+                        }
+                        catch {
+
+                            $PSCmdlet.ThrowTerminatingError($_)
+                        }
+
+                    }
+
+                    $NewCollectionList = $NewCollectionList | Sort-Object -Property serverName, serialNumber
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.NotificationStatus"  
+
+                }                
             }
-            elseif ($ShowSecurityParameters -and $Name) {
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1] }
+            elseif ($ShowSecurityParameters) {
 
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.SecurityParameters"   
-                
+                $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                foreach ($Item in $CollectionList) {
+
+                    # Not using COM API as there is an issue with OneView servers at the moment (Error 404 with OneView servers, case 5385212183 )
+                    # $Uri = $COMServersUri + "/" + $Item.ID + "/security-parameters"
+                    # So retrieved from /ui-doorway/compute/v2/servers/<serverID>
+                    $Uri = $COMServersUIDoorwayUri + "/" + $Item.ID 
+
+                    try {
+                            
+                        # $_ServerSecurityParameters = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
+                        $_Server = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
+
+                        "[{0}] Response type: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Server.GetType().FullName | Write-Verbose
+
+                        # Due to convert response from json exception returned by this request sometimes, object generated is a PSObject with name/value that breaks the .add() later, so it needs to be converted to PSCustomObject
+                        if ($Null -ne $_Server.iloSecurity_ ){
+
+                            "[{0}] Response detected with iloSecurity_ content" -f  $MyInvocation.InvocationName.ToString().ToUpper(), $_Server.GetType().FullName | Write-Verbose
+                                                            
+                            $_ServerSecurityParameters =  [PSCustomObject]@{
+                                iLOVersion                  = $_Server.iloSecurity_.iLOVersion 
+                                overallSecurityStatus       = $_Server.iloSecurity_.overallSecurityStatus
+                                iLOGeneration               = $_Server.iloSecurity_.iLOGeneration 
+                                id                          = $_Server.iloSecurity_.id
+                                IloSecurityParams           = $_Server.iloSecurity_.iloSecurityParams      
+                            }
+                                
+
+                            "[{0}] iloSecurity_ content: `n{1}" -f  $MyInvocation.InvocationName.ToString().ToUpper(), ($_ServerSecurityParameters | Out-String) | Write-Verbose
+
+                        }
+                        else {
+
+                            "[{0}] iloSecurity_ content not available, creating object..." -f  $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                            # If server is connected
+                            if ($Item.State.connected -eq $True){
+
+                                $_ServerSecurityParameters =  [PSCustomObject]@{
+                                    iLOVersion = $Item.iloFirmwareVersion_.substring(5)
+                                    overallSecurityStatus = "Not available"
+                                    iLOGeneration = $Item.iloFirmwareVersion_.substring(0, 4)
+                                    id = $Item.id
+                                    IloSecurityParams = @()
+                                }
+                            }
+                            else {
+
+                                $_ServerSecurityParameters =  [PSCustomObject]@{
+                                    iLOVersion = $Item.iloFirmwareVersion_
+                                    overallSecurityStatus = "Not available"
+                                    iLOGeneration = $Item.iloFirmwareVersion_
+                                    id = $Item.id
+                                    IloSecurityParams = @()
+                                }
+
+                            }
+                        }
+
+                        # Add serial number, servername, model and connectionType to object
+                        # $_ServerName = (Get-HPECOMServer -Region $Region -Name  ($Item.id -split '\+')[1]).name
+                        # $_ServerSecurityParameters | Add-Member -type NoteProperty -name serverName -value $_ServerName 
+                            
+                        $_ServerSecurityParameters | Add-Member -type NoteProperty -name serverName -value $_Server.Name 
+                        # $_ServerSecurityParameters | Add-Member -type NoteProperty -name serialNumber -value ($Item.id -split '\+')[1]
+                            
+                        $_ServerSecurityParameters | Add-Member -type NoteProperty -name serialNumber -value $_Server.hardware.serialNumber 
+
+                        $_ServerSecurityParameters | Add-Member -type NoteProperty -name model -value $_Server.hardware.model 
+                        $_ServerSecurityParameters | Add-Member -type NoteProperty -name connectionType -value $_Server.connectionType_ 
+
+
+                        [void]$NewCollectionList.add($_ServerSecurityParameters)
+
+                        "----------------------------------------- item added to collection:--------------------------------------------------- `n{0}" -f   ($_ServerSecurityParameters|out-String )| Write-Verbose
+
+                    }
+                    catch {
+
+                        $PSCmdlet.ThrowTerminatingError($_)
+                        
+                    }
+                }
+
+                # "-------------- Content of final object: `n{0}" -f   ($NewCollectionList|Out-String )| Write-Verbose
+
+                $NewCollectionList = $NewCollectionList | Sort-Object -Property serverName, serialNumber
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.SecurityParameters"  
+
             }   
             elseif ($ShowSecurityParametersDetails) {
        
                 $NewCollectionList = [System.Collections.ArrayList]::new()
 
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
+                $_ServerName = (Get-HPECOMServer -Region $Region -Name  ($CollectionList.Id -split '\+')[1]).name
 
                 foreach ($IloSecurityParam in $CollectionList.IloSecurityParams) {
                     # Add serial number and region to object
@@ -34493,7 +34724,7 @@ Function Get-HPECOMServer {
             }                       
             elseif ($ShowAdapterToSwitchPortMappings) {
                 # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
+                $_ServerName = (Get-HPECOMServer -Region $Region -Name  ($CollectionList.serverId -split '\+')[1]).name
                 $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
                 $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }        
          
@@ -34502,1184 +34733,207 @@ Function Get-HPECOMServer {
             } 
             elseif ($ShowGroupMembership) {
 
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.GroupMembership"    
+                $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                # Get Groups with members
+                $_Groups = Get-HPECOMGroup -Region $Region | ? {$_.devices.count -gt 0}
+
+                foreach ($Item in $CollectionList) {
+
+                    if ($_Groups) {
+
+                        $GroupName = ($_Groups | Where-Object {$_.devices.serial -eq $Item.hardware.serialNumber}).name
+                        
+                        # Groups are not supported with OneView servers
+                        if (-not $GroupName -and $Item.connectionType -eq "ONEVIEW") {   
+                            
+                            $GroupName = "Unsupported"
+                            
+                        }
+                        elseif (-Not $GroupName) {
+                            $GroupName = "No group"
+                        }
+
+                        
+                        # Add group name to object
+                        $Item | Add-Member -type NoteProperty -name associatedGroupname -value $GroupName
+
+                        [void]$NewCollectionList.add($Item)
+                        
+                    }
+                }                
                 
+                $NewCollectionList = $NewCollectionList | Sort-Object -Property name, {$_.hardware.serialnumber}
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.GroupMembership"    
+
             }       
-            elseif ($ShowLocation -and $Name) {
+            elseif ($ShowLocation) {
 
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1] }
-           
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Server.Location"    
-                
-            }  
-            else {
-                
                 $NewCollectionList = [System.Collections.ArrayList]::new()
 
-                if ($ShowLocation -and -not $Name) {
+                try {
+
+                    $_Devices = Get-HPEGLDevice 
                     
-                    try {
-
-                        $_Devices = Get-HPEGLDevice 
+                    # As OneView servers are not available in GLP, location must be retrieved from /ui-doorway/compute/v2/servers
+                    $_Servers = Invoke-HPECOMWebRequest -Method Get -Uri $COMServersUIDoorwayUri -Region $Region -WhatIfBoolean $WhatIf 
+                    
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
                         
-                    }
-                    catch {
-                        $PSCmdlet.ThrowTerminatingError($_)
+                }
+
+                foreach ($Item in $CollectionList) {
+
+                    # Add serial number to object
+                    $Item | Add-Member -type NoteProperty -name serialNumber -value ($Item.Id -split '\+')[1]  
+
+                    if ($_Devices) {
+
+                        $LocationName = ($_Devices | Where-Object serial_number -eq $Item.serialNumber).location_name
+
+                        if (-not $LocationName) {   # The case for OneView servers
                             
-                    }
-
-                    foreach ($Item in $CollectionList) {
-
-                        # Add serial number to object
-                        $Item | Add-Member -type NoteProperty -name serialNumber -value ($Item.Id -split '\+')[1]  
-
-                        if ($_Devices) {
-
-                            $LocationName = ($_Devices | Where-Object serial_number -eq $Item.serialNumber).location_name
-                                                
-                            # Add location name to object
-                            $Item | Add-Member -type NoteProperty -name Location -value $LocationName
-                            
-                            [void]$NewCollectionList.add($Item)
+                            $LocationName = ($_Servers.items | Where-Object { $_.hardware.serialNumber -eq $Item.serialNumber}).locationInfo_.name
                             
                         }
-                    }
-                }
-                else {
-
-                    foreach ($Item in $CollectionList) {
-    
-                        # "[{0}] item found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
+                                            
+                        # Add location name to object
+                        $Item | Add-Member -type NoteProperty -name Location -value $LocationName
                         
-                        # Add serial number to object
-                        $Item | Add-Member -type NoteProperty -name serialNumber -value ($Item.Id -split '\+')[1]  
-    
-                        if ($ShowGroupFirmwareCompliance) {
-    
-                            try {
-                                
-                                $_GroupName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $Item.serialNumber -ShowGroupMembership ).Groupname
-                                    
-                                if ($_GroupName) {
-        
-                                    $_Resp = Get-HPECOMGroupFirmwareCompliance -Region $Region -GroupName $_GroupName -ServerSerialNumber $Item.serialNumber 
-        
-                                    [void]$NewCollectionList.add($_Resp)
-                                    
-                                }
-                            }
-                            catch {
-                                $PSCmdlet.ThrowTerminatingError($_)
-                                
-                            }
-                        }
-                        elseif ($ShowGroupFirmwareDeviation) {
-    
-                            try {
-                                    
-                                $_GroupName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $Item.serialNumber -ShowGroupMembership ).Groupname
-                                
-                                if ($_GroupName) {
-    
-                                    $_Resp = Get-HPECOMGroupFirmwareCompliance -Region $Region -GroupName $_GroupName -ServerSerialNumber $Item.serialNumber -Deviations
-
-                                    # # Add serial number and servername to object
-                                    $_Resp | Add-Member -type NoteProperty -name serialNumber -value $Item.serialNumber
-                                    $_Resp | Add-Member -type NoteProperty -name serverName -value $Item.ServerName 
-                                    
-                                    [void]$NewCollectionList.add($_Resp)
-                                    
-                                }
-                               
-                            }
-                            catch {
-                                $PSCmdlet.ThrowTerminatingError($_)
-                                
-                            }
-    
-                        }
-                        elseif ($ShowSecurityParameters) {
-    
-                            try {
-
-                                $Uri = $COMServersUri + "/" + $Item.ID + "/security-parameters"
-
-                                $_ServerSecurityParameters = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-
-                                # # Add serial number and servername to object
-                                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($Item.id -split '\+')[1]).name
-                                $_ServerSecurityParameters | Add-Member -type NoteProperty -name serverName -value $_ServerName 
-                                $_ServerSecurityParameters | Add-Member -type NoteProperty -name serialNumber -value ($Item.id -split '\+')[1]
-  
-                                [void]$NewCollectionList.add($_ServerSecurityParameters)
-
-                            }
-                            catch {
-                                # Error 404 with OneView servers, case 5385212183 
-
-                                # $PSCmdlet.ThrowTerminatingError($_)
-                                
-                            }
-    
-                        }
-                        else {
-                            [void]$NewCollectionList.add($Item)
-    
-                        }
-    
-                    }      
-                }
-
-                
-                if ($ConnectionType) {
-                   
-                    switch ($ConnectionType) {
-                        'Secure gateway' { $_ConnectionType = 'GATEWAY' }
-                        'OneView managed' { $_ConnectionType = 'ONEVIEW' }
-                        'Direct' { $_ConnectionType = 'DIRECT' }
-                    }
-
-                    $NewCollectionList = $NewCollectionList | where-Object ConnectionType -eq $_ConnectionType
-                    
-                }
-
-                if ( $ShowLocation) {
-
-                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.Location"   
-                    $ReturnData = $ReturnData | Sort-Object name, { $_.hardware.serialNumber }
-                } 
-                elseif ($ShowSecurityParameters) {
-                   
-                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.SecurityParameters"    
-                    $ReturnData = $ReturnData | Sort-Object name, serialNumber 
-                } 
-                elseif ($ShowAutoiLOFirmwareUpdateStatus ) {
-
-                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.autoIloFwUpdateStatus"    
-                    $ReturnData = $ReturnData | Sort-Object name, serialNumber 
-   
-                }
-                elseif ($ShowGroupFirmwareDeviation) {
-
-                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Groups.Compliance.Deviations"   
-
-                    $ReturnData = $ReturnData | Sort-Object name, { $_.hardware.serialNumber }
-                } 
-                elseif (-not $ShowGroupFirmwareCompliance) {
-
-                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers"   
-                    $ReturnData = $ReturnData | Sort-Object name, { $_.hardware.serialNumber }
-                } 
-                else {
-                    $ReturnData = $NewCollectionList
-                }
-            }
-
-            if (-not $WhatIf) {
-                
-                return $ReturnData 
-
-            }
-           
-        }
-        else {
-
-            return
-                
-        }         
-    }
-}
-
-Function Get-HPECOMServerBySerialNumber {
-    <#
-    .SYNOPSIS
-    Retrieve the list of servers.
-    
-    .DESCRIPTION
-    This Cmdlet returns a collection of server resources in the specified region. Switch parameters can be used to retrieve specific data such as alerts, external storage details, notification status, security parameters, adapter to switch port mapping, and to check the presence of storage volume for OS installation.
-    
-    For server inventory data, you must use 'Get-HPECOMServerInventory'.
-
-    .PARAMETER Region
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
-    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
-
-    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
-
-    .PARAMETER SerialNumber 
-    Specifies the serial number of the server to display. 
-        
-    .PARAMETER Model 
-    Optional parameter that can be used to display a specific server model only, such as 'ProLiant DL380 Gen11', 'ProLiant DL365 Gen11', etc. 
-    Partial model names are not supported.
-    
-    .PARAMETER ConnectionType
-    Optional parameter that can be used to display servers based on the connection type (Direct, OneView managed or Secure gateway).
-    
-    .PARAMETER ConnectedState
-    A Boolean value (True or False). When set to True, only servers that are connected to HPE GreenLake will be displayed. When set to False, only servers that are not connected will be displayed.
-    
-    .PARAMETER PowerState
-    A value of ON or OFF. When set to ON, only servers that are powered on will be displayed. When set to OFF, only servers that are powered off will be displayed.
-
-    .PARAMETER Limit 
-    This parameter allows you to define a limit on the number of servers to be displayed. 
-    
-    .PARAMETER ShowGroupMembership 
-    Optional parameter that can be used to get the server group membership.
-
-    .PARAMETER ShowGroupFirmwareCompliance
-    Optional parameter that can be used when a server is a member of a group to get the group firmware compliance. 
-    This parameter allows you to check if the server is compliant with the group's firmware baseline (if any).
-      
-    .PARAMETER ShowGroupFirmwareDeviation
-    Optional parameter that can be used when a server is member of a group to get the group firmware deviation.
-    This parameter can be useful for identifying deviations from the group's firmware baseline (if any), ensuring that the server is up to date and compliant with the group (if any).
-
-    .PARAMETER ShowLocation 
-    Optional parameter that can be used to get the server location.
-    
-    .PARAMETER ShowAlerts 
-    Optional parameter that can be used to get the server alerts. 
-    
-    .PARAMETER ShowNotificationStatus 
-    Optional parameter that can be used to get the server notification status. 
-    
-    .PARAMETER ShowSecurityParameters 
-    Optional parameter that can be used to get the server security parameters. 
-
-    .PARAMETER ShowSecurityParametersDetails 
-    Optional parameter that can be used to get the server security parameter details. 
-    
-    .PARAMETER ShowAdapterToSwitchPortMappings 
-    Optional parameter that can be used to get the network connectivity of the adapter port to the connected switch port of the server. 
-    
-    .PARAMETER ShowAutoiLOFirmwareUpdateStatus
-    Optional parameter that can be used to get the status of the automatic iLO firmware update configuration.
-
-    .PARAMETER ShowExternalStorageDetails 
-    Optional parameter that can be used to get the server external storage details. 
-   
-    .PARAMETER CheckifserverHasStorageVolume 
-    Optional parameter that can be used to validate the presence of a storage volume for the server 
-    specified for operating system installation. The response returned is a boolean.
-
-    .PARAMETER WhatIf 
-    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central
-
-    Returns data for all servers located in the Central European region. 
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Limit 50
-
-    Returns the first 50 servers located in the Central European region. 
-    
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F 
-
-    Returns the server data for the server with the serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowGroupMembership
-
-    This command returns the group membership of the server with serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowGroupFirmwareCompliance 
-
-    This command returns the group firmware compliance report of the server serial number 'CZJ3200B7F' if it is a member of a group with a compatible firmware baseline.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowGroupFirmwareDeviation 
-
-    This command returns the firmware components of the server serial number 'CZJ3200B7F' that have deviations from the group's firmware baseline if it is a member of a group with a compatible firmware baseline.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowAlerts
-
-    This command returns the alerts of the server with serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -ConnectionType Direct
-
-    This command returns the servers that are directly connected to HPE GreenLake in the Central European region.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -ConnectionType 'OneView managed'
-
-    This command returns the servers that are managed by OneView in the Central European region.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -ConnectionType 'Secure gateway'
-
-    This command returns the servers that are connected to HPE GreenLake through a secure gateway in the Central European region.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -ShowLocation
-
-    This command returns the location of all servers in the Central European region.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowLocation
-
-    This command returns the location of the server with serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowNotificationStatus
-
-    This command returns the notification status of the server with serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowSecurityParameters
-
-    This command returns the security parameters of the server with serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -ShowSecurityParametersDetails
-
-    This command returns the security parameters of all servers in the Central European region.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowSecurityParametersDetails
-
-    This command returns the security parameters details of the server with serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowAdapterToSwitchPortMappings
-
-    This command returns the adapter to switch port mappings of the server with serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -ShowAutoiLOFirmwareUpdateStatus
-
-    This command returns the auto iLO firmware update status of all servers in the Central European region.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowAutoiLOFirmwareUpdateStatus
-
-    This command returns the auto iLO firmware update status of the server with serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -ShowExternalStorageDetails
-
-    This command returns the external storage details of the server with serial number 'CZJ3200B7F'.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region us-west -ConnectedState False
-    
-    Lists all servers that are not connected to Compute Ops Management.
-
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region us-west -ConnectedState True -PowerState ON
-
-    Lists all servers that are powered on and connected to Compute Ops Management.
-    
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region us-west -Model "ProLiant DL325 Gen10 Plus" -PowerState ON 
-
-    Lists all ProLiant DL325 Gen10 Plus servers that are powered on.
-    
-    .EXAMPLE
-    Get-HPECOMServerBySerialNumber -Region eu-central -SerialNumber CZJ3200B7F -CheckIfServerHasStorageVolume
-
-    This command returns a True or False output to indicate if the server with serial number 'CZJ3200B7F' has a storage volume for OS installation.
-
-    .EXAMPLE
-    "CZ24050752", "CZ24050751" | Get-HPECOMServerBySerialNumber -Region eu-central
-
-    Returns all servers that match the serial numbers given in the pipeline.
-
-    .EXAMPLE
-    "CZ24050752", "CZ24050751" | Get-HPECOMServerBySerialNumber -Region eu-central -ShowSecurityParameters
-
-    Retrieves server security parameters for the two servers with the specified serial numbers in the pipeline.
-
-    .EXAMPLE
-    Get-HPECOMServer -Limit 2 | Get-HPECOMServerBySerialNumber -Region eu-central -ShowNotificationStatus 
-    
-    Gets the first two servers in HPE GreenLake and passes their serial numbers into the pipeline to retrieve 
-    their server notification status.
-
-    .INPUTS
-    System.String, System.String[]
-        A single string object or a list of string objects representing the server's serial numbers.
-    System.Collections.ArrayList
-        List of servers retrieved using 'Get-HPECOMServer -Name $Name' or 'Get-HPECOMServerBySerialNumber -SerialNumber $Serialnumber'.
-
-#>
-
-    [CmdletBinding(DefaultParameterSetName = 'BySerialNumber')]
-    Param( 
-    
-        [Parameter(Mandatory, ValueFromPipelineByPropertyName)] 
-        [ValidateScript({
-                if ($HPECOMAPICredentialRegions -contains $_) {
-                    $true
-                }
-                else {
-                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
-                }
-            })]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
-                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [String]$Region,  
-
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'BySerialNumber')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupMembershipSN')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupFirmwareComplianceSN')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupFirmwareDeviationSN')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'Location')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AlertsSN')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'CheckifserverHasStorageVolumeSN')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ExternalStorageDetailsSN')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'NotificationStatusSN')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SecurityParameters')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SecurityParametersDetailsSN')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AdapterToSwitchPortMappingsSN')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AutoiLOFirmwareUpdateStatus')]
-        [Alias ('serial_number')]
-        [String]$SerialNumber,
-    
-        [Parameter (ParameterSetName = 'Other')]
-        [String]$Model,
-       
-        [Parameter (ParameterSetName = 'Other')]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Items = @('Direct', 'OneView managed', 'Secure gateway')
-                $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
-                return $filteredItems | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [ValidateSet ('Direct', 'OneView managed', 'Secure gateway')]
-        [String]$ConnectionType,
-        
-        [Parameter (ParameterSetName = 'Other')]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Items = @('True', 'False')
-                $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
-                return $filteredItems | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [ValidateSet ('True', 'False')]
-        [String]$ConnectedState,
-
-        [Parameter (ParameterSetName = 'Other')]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Items = @('ON', 'OFF')
-                $filteredItems = $Items | Where-Object { $_ -like "$wordToComplete*" }
-                return $filteredItems | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [ValidateSet ('ON', 'OFF')]
-        [String]$PowerState,
-    
-        [Parameter (ParameterSetName = 'Other')]
-        [ValidateScript({ $_ -le 100 })]
-        [int]$Limit,
-
-        [Parameter (ParameterSetName = 'GroupMembershipSN')]
-        [Switch]$ShowGroupMembership,
-
-        [Parameter (ParameterSetName = 'GroupFirmwareComplianceSN')]
-        [Switch]$ShowGroupFirmwareCompliance,
-    
-        [Parameter (ParameterSetName = 'GroupFirmwareDeviationSN')]
-        [Switch]$ShowGroupFirmwareDeviation,
-    
-        [Parameter (ParameterSetName = 'Location')]
-        [Switch]$ShowLocation,
-    
-        [Parameter (ParameterSetName = 'AlertsSN')]
-        [Switch]$ShowAlerts,
-    
-        [Parameter (ParameterSetName = 'NotificationStatusSN')]
-        [Switch]$ShowNotificationStatus,
-        
-        [Parameter (ParameterSetName = 'SecurityParameters')]
-        [Switch]$ShowSecurityParameters,
-        
-        [Parameter (ParameterSetName = 'SecurityParametersDetailsSN')]
-        [Switch]$ShowSecurityParametersDetails,
-        
-        [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsSN')]
-        [Switch]$ShowAdapterToSwitchPortMappings,
-        
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatus')]
-        [Switch]$ShowAutoiLOFirmwareUpdateStatus,
-        
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsSN')]
-        [Switch]$ShowExternalStorageDetails,
-        
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeSN')]
-        [Switch]$CheckIfServerHasStorageVolume,
-
-        [Switch]$WhatIf
-        
-    ) 
-
-    Begin {
-  
-        $Caller = (Get-PSCallStack)[1].Command
-        
-        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-      
-      
-    }
-      
-      
-    Process {
-      
-        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-           
-
-        # Set $Uri
-        if (        $ShowGroupMembership `
-                -or ($ShowLocation -and $SerialNumber) `
-                -or $ShowAlerts `
-                -or $ShowExternalStorageDetails `
-                -or $ShowNotificationStatus `
-                -or ($ShowSecurityParameters -and $SerialNumber)`
-                -or $ShowSecurityParametersDetails `
-                -or $ShowAdapterToSwitchPortMappings `
-                -or $CheckifserverHasStorageVolume `
-                # -or $ShowAutoiLOFirmwareUpdateStatus `
-        ) {
-                
-            # Get server ID using SN or Name
-            if ($SerialNumber) {
-
-                $Uri = $COMServersUri + "?filter=hardware/serialNumber eq '$SerialNumber'"
-                
-            }
-           
-
-            try {
-                [Array]$Server = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region
-
-
-                if ($Null -eq $Server) { 
-                
-                    Return
-           
-                }
-                else {
-                    
-                    $ServerID = $Server.id
-                    
-                    if ($SerialNumber) {
-                        
-                        "[{0}] ID found for server serial number '{1}': '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $ServerID | Write-Verbose
-                        
+                        [void]$NewCollectionList.add($Item)
                         
                     }
-                }
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-           
-            }
-        }
-        elseif ($SerialNumber) {       
-            
-            $Uri = $COMServersUri + "?filter=hardware/serialNumber eq '$SerialNumber'"
-   
-        }
-        else {
-            
-            $Uri = $COMServersUri 
-
-        }       
-        
-        
-        if ($PSBoundParameters.ContainsKey('Model')) {
-            
-            if ($Uri -match "\?") {
-                
-                $Uri = $Uri + "&filter=hardware/model eq '$Model'"
-
-            }
-            else {
-            
-                $Uri = $Uri + "?filter=hardware/model eq '$Model'"
-
-            }
-   
-        }
-
-
-        
-
-        if ($PSBoundParameters.ContainsKey('ConnectedState')) {
-
-            if ($ConnectedState -eq 'True') {	
-                # If $Uri contains a query parameter            
-                if ($Uri -match "\?limit=" -and $Uri -notmatch "filter=" ) {
-                
-                    $Uri = $Uri + "&filter=state/connected eq true"
-                }
-                elseif ($Uri -notmatch "limit=" -and $Uri -notmatch "filter=" ) {
-
-                    $Uri = $Uri + "?filter=state/connected eq true"
-
-                }
-                else {
-
-                    $Uri = $Uri + " and state/connected eq true"
-
-                }
-            }
-            else {
-                # If $Uri contains a query parameter            
-                if ($Uri -match "\?limit=" -and $Uri -notmatch "filter=" ) {
-                
-                    $Uri = $Uri + "&filter=state/connected eq false"
-                }
-                elseif ($Uri -notmatch "limit=" -and $Uri -notmatch "filter=" ) {
-                
-                    $Uri = $Uri + "?filter=state/connected eq false"
-                
-                }
-                else {
-                
-                    $Uri = $Uri + " and state/connected eq false"
-                
-                }
-            }
-        }
-
-        if ($PSBoundParameters.ContainsKey('PowerState')) {
-
-            if ($PowerState -eq 'ON') {    
-                
-                # If $Uri contains a query parameter            
-                if ($Uri -match "\?limit=" -and $Uri -notmatch "filter=" ) {
-                
-                    $Uri = $Uri + "&filter=hardware/powerState eq 'ON'"
-                }
-                elseif ($Uri -notmatch "limit=" -and $Uri -notmatch "filter=" ) {
-
-                    $Uri = $Uri + "?filter=hardware/powerState eq 'ON'"
-
-                }
-                else {
-
-                    $Uri = $Uri + " and hardware/powerState eq 'ON'"
-
-                }
-            }
-            else {
-                # If $Uri contains a query parameter            
-                if ($Uri -match "\?limit=" -and $Uri -notmatch "filter=" ) {
-                
-                    $Uri = $Uri + "&filter=hardware/powerState eq 'OFF'"
-                }
-                elseif ($Uri -notmatch "limit=" -and $Uri -notmatch "filter=" ) {
-                
-                    $Uri = $Uri + "?filter=hardware/powerState eq 'OFF'"
-                
-                }
-                else {
-                
-                    $Uri = $Uri + " and hardware/powerState eq 'OFF'"
-                
-                }
-            }
-        }
-
-        if ($PSBoundParameters.ContainsKey('Limit')) {
-            
-            if ($Uri -match "\?") {
-                
-                $Uri = $Uri + "&limit=$Limit"
-
-            }
-            else {
-            
-                $Uri = $Uri + "?limit=$Limit"
-
-            }
-
-        }
-
-        # NOT SUPPORTED FILTER
-        #   if ($PSBoundParameters.ContainsKey('ConnectionType')) {
-
-        #     if ($ConnectionType -eq 'Direct') {	
-        #         # If $Uri contains a query parameter            
-        #         if ($Uri -match "\?limit=" -and $Uri -notmatch "filter=" ) {
-                
-        #             $Uri = $Uri + "&filter=connectionType eq 'DIRECT'"
-        #         }
-        #         elseif ($Uri -notmatch "limit=" -and $Uri -notmatch "filter=" ) {
-
-        #             $Uri = $Uri + "?filter=connectionType eq 'DIRECT'"
-
-        #         }
-        #         else {
-
-        #             $Uri = $Uri + " and connectionType eq 'DIRECT'"
-
-        #         }
-        #     }
-        #     else {
-        #         # If $Uri contains a query parameter            
-        #         if ($Uri -match "\?limit=" -and $Uri -notmatch "filter=" ) {
-                
-        #             $Uri = $Uri + "&filter=connectionType eq 'ONEVIEW'"
-        #         }
-        #         elseif ($Uri -notmatch "limit=" -and $Uri -notmatch "filter=" ) {
-                
-        #             $Uri = $Uri + "?filter=connectionType eq 'ONEVIEW'"
-                
-        #         }
-        #         else {
-                
-        #             $Uri = $Uri + " and connectionType eq 'ONEVIEW'"
-                
-        #         }
-        #     }
-        # }
-
-     
-        # Requests using $ServerID in URI
-        if ($ShowGroupMembership) {
-
-            $Uri = $COMServersUIDoorwayUri + "/" + $ServerID 
-
-            try {
-                $GroupName = (Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf).group_.name
-
-                if ($GroupName) {
-
-                    "[{0}] Group name is '{1}''" -f $MyInvocation.InvocationName.ToString().ToUpper(), $GroupName | Write-Verbose
-                    $_Resp = Get-HPECOMGroup -Region $Region -Name $GroupName
-                    
-                    if (-not $Whatif) {
-                        Return $_Resp
-                    }
-                }
-                else {
-                    
-                    "[{0}] Server is not member of a group!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                     
-                    if (-not $Whatif) {
-                        Return
-                    }
-                }
-    
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                   
-            }
-
-            
-            # $Uri = $COMServersUri + "/" + $ServerID 
-
-            # try {
-            #     [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-    
-            # }
-            # catch {
-            #     $PSCmdlet.ThrowTerminatingError($_)
-                   
-            # }
-            
-           
-            # # Add GroupName to $CollectionList
-            # $CollectionList | Add-Member -MemberType NoteProperty -Name 'associatedGroupname' -Value $GroupName -Force
-
-
-        }
-        elseif ($ShowLocation -and $SerialNumber) {
-
-            $Uri = $COMServersUIDoorwayUri + "/" + $ServerID 
-
-            try {
-                $CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-                
-                # "[{0}] Server '{1}' data from UI Doorway: `n{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerID, ($CollectionList | Out-String) | Write-Verbose
-
-                $CollectionList = [PSCustomObject]$CollectionList.locationInfo_
-
-                "[{0}] Server '{1}' location Info data from UI Doorway: `n{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerID, ($CollectionList | Out-String) | Write-Verbose
-
-                # "[{0}] Object type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($CollectionList.GetType().FullName ) | Write-Verbose
-
-                if ($CollectionList.name) {
-                    "[{0}] Location name is '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.name | Write-Verbose
-                }
-                else {
-                    "[{0}] Server location is not set!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                    
-                }
-    
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                   
-            }
-
-
-
-        }
-        elseif ($ShowAlerts) {
-
-            $Uri = $COMServersUri + "/" + $ServerID + "/alerts"
-
-            try {
-                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-    
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                   
-            }
-
-        }
-        elseif ($ShowExternalStorageDetails) {
-
-            $Uri = $COMServersUri + "/" + $ServerID + "/external-storage-details"
-
-            
-            try {
-                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -ErrorAction SilentlyContinue
-            }
-
-            catch {    
-                return
-            }
-        }
-        elseif ($CheckifserverHasStorageVolume) {
-                            
-            $Uri = $COMServersUri + "/" + $ServerID + "/analyze-os-install"
-            $Payload = @{id = $ServerID } | ConvertTo-Json
-
-            try {
-                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method POST -Uri $Uri -Body $payload -Region $Region -WhatIfBoolean $WhatIf
-            
-                return $CollectionList.serverHasStorageVolume
-                
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                    
-            }
-                    
-        }   
-        elseif ($ShowNotificationStatus) {
-                            
-            $Uri = $COMServersUri + "/" + $ServerID + "/notifications"
-           
-            try {
-                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-                            
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                    
-            }
-                    
-        }
-        elseif (($ShowSecurityParameters -and $SerialNumber ) -or $ShowSecurityParametersDetails) {
-                            
-            $Uri = $COMServersUri + "/" + $ServerID + "/security-parameters"
-           
-            try {
-                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-                            
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                    
-            }
-                    
-        }
-        elseif ($ShowAdapterToSwitchPortMappings) {
-                            
-            $Uri = $COMServersUri + "/" + $ServerID + "/tor-port-mappings"
-           
-            try {
-                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-                            
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-                    
-            }
-                    
-        }
-        # Request with no $ServerID in URI
-        else {
-
-            try {
-                [Array]$AllCollection = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-
-            }
-            catch {
-                $PSCmdlet.ThrowTerminatingError($_)
-               
-            }
-
-
-            if ($Null -ne $AllCollection) {     
-                            
-                $CollectionList = $AllCollection
-        
-            }
-
-        }
-
-        $ReturnData = @()
-               
-        # Format response with Repackage Object With Type
-        if ($Null -ne $CollectionList) {     
-            
-            # Add region and serverName to object
-            $CollectionList | Add-Member -type NoteProperty -name region -value $Region
-            $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serverName -value $_.name }
-           
-                            
-            if ($ShowAlerts) {
-                
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
-                
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.Alert"    
-                
-            }
-            elseif ($ShowExternalStorageDetails) {
-
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
-            
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.ExternalStorageDetails"    
-                
-            }
-            elseif ($ShowNotificationStatus) {
-                
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
-
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.NotificationStatus"    
-                
-            }
-            elseif ($ShowSecurityParameters -and $SerialNumber) {
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1] }
-
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.SecurityParameters"    
-                
-            }   
-            elseif ($ShowSecurityParametersDetails) {
-       
-                $NewCollectionList = [System.Collections.ArrayList]::new()
-
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
-
-                foreach ($IloSecurityParam in $CollectionList.IloSecurityParams) {
-                    # Add serial number and region to object
-                    $IloSecurityParam | Add-Member -type NoteProperty -name serialNumber -value ($CollectionList.Id -split '\+')[1]  
-                    $IloSecurityParam | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                    $IloSecurityParam | Add-Member -type NoteProperty -name region -value $Region
-
-                    [void]$NewCollectionList.add($IloSecurityParam)
                 }     
-
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.SecurityParameters.Details"    
                 
-            }                       
-            elseif ($ShowAdapterToSwitchPortMappings) {
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.serverId -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }        
-         
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.AdapterToSwitchPortMappings"    
+                $NewCollectionList = $NewCollectionList | Sort-Object -Property name, {$_.hardware.serialnumber}
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.Location"    
                 
             } 
-            elseif ($ShowGroupMembership) {
- 
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.GroupMembership"    
-                
-            }       
-            elseif ($ShowLocation -and $SerialNumber) {
-               
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($CollectionList.Id -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1] }
-           
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Server.Location"    
-                
-            }
-            else {
-                
+            elseif ($CheckifserverHasStorageVolume) {
+
                 $NewCollectionList = [System.Collections.ArrayList]::new()
 
-                if ($ShowLocation -and -not $SerialNumber) {
+                foreach ($Item in $CollectionList) {
+
+                    $Uri = $COMServersUri + "/" + $Item.ID + "/analyze-os-install"
+                    $Payload = @{id = $Item.ID } | ConvertTo-Json
 
                     try {
-
-                        $_Devices = Get-HPEGLDevice 
+                        [Array]$_ServerAnalyseOSInstall = Invoke-HPECOMWebRequest -Method POST -Uri $Uri -Body $payload -Region $Region -WhatIfBoolean $WhatIf -ErrorAction SilentlyContinue
+                        
+                        # if ($_ServerAnalyseOSInstall.serverHasStorageVolume) {
+                            $Item | Add-Member -type NoteProperty -name serverHasStorageVolume -value $_ServerAnalyseOSInstall.serverHasStorageVolume
+                            [void]$NewCollectionList.add($Item)
+                        # }
+                    }
+                    catch [System.Net.Http.HttpRequestException] {
+                        continue
                     }
                     catch {
                         $PSCmdlet.ThrowTerminatingError($_)
                             
                     }
-
-                    foreach ($Item in $CollectionList) {
-
-                        # Add serial number to object
-                        $Item | Add-Member -type NoteProperty -name serialNumber -value ($Item.Id -split '\+')[1]  
-
-                        if ($_Devices) {
-
-                            $LocationName = ($_Devices | Where-Object serial_number -eq $Item.serialNumber).location_name
-                                                
-                            # Add location name to object
-                            $Item | Add-Member -type NoteProperty -name Location -value $LocationName
-                            
-                            [void]$NewCollectionList.add($Item)
-                            
-                        }
-                    }
                 }
-                else {
-                    
-                    foreach ($Item in $CollectionList) {
-    
-                        # "[{0}] item found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
+
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.OSInstallAnalysis"    
+
+            }
+            elseif ($ShowGroupFirmwareCompliance) {
+
+                $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                $_GroupMemberships = (Get-HPECOMServer -Region $Region -ShowGroupMembership )
+
+                foreach ($Item in $CollectionList) {
+
+                    "[{0}] Item: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
+
+                    try {
+
+                        $_GroupName = $_GroupMemberships | Where-Object { $_.hardware.serialNumber -eq $Item.hardware.serialNumber } | Select-Object -ExpandProperty associatedGroupname
+
+                        "[{0}] `$_Groupname found: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_GroupName | Write-Verbose
                         
-                        # Add serial number to object
-                        $Item | Add-Member -type NoteProperty -name serialNumber -value ($Item.Id -split '\+')[1]  
-    
-                        if ($ShowGroupFirmwareCompliance) {
-    
-                            try {
-                                
-                                $_GroupName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $Item.serialNumber -ShowGroupMembership ).Groupname
-                                    
-                                if ($_GroupName) {
-        
-                                    $_Resp = Get-HPECOMGroupFirmwareCompliance -Region $Region -GroupName $_GroupName -ServerSerialNumber $Item.serialNumber 
-                                    
-                                    [void]$NewCollectionList.add($_Resp)
-                                    
-                                }
-                            }
-                            catch {
-                                $PSCmdlet.ThrowTerminatingError($_)
-                                
-                            }
-                        }
-                        elseif ($ShowGroupFirmwareDeviation) {
-    
-                            try {
-                                    
-                                $_GroupName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $Item.serialNumber -ShowGroupMembership ).Groupname
-                                
-                                if ($_GroupName) {
-                                    
-                                    $_Resp = Get-HPECOMGroupFirmwareCompliance -Region $Region -GroupName $_GroupName -ServerSerialNumber $Item.serialNumber -Deviations
-                                    
-                                    # # Add serial number and servername to object
-                                    $_Resp | Add-Member -type NoteProperty -name serialNumber -value $Item.serialNumber
-                                    $_Resp | Add-Member -type NoteProperty -name serverName -value $Item.ServerName 
-                                    
-                                    [void]$NewCollectionList.add($_Resp)
-                                    
-                                }
-                               
-                            }
-                            catch {
-                                $PSCmdlet.ThrowTerminatingError($_)
-                                
-                            }
-    
-                        }
-                        elseif ($ShowSecurityParameters) {
-    
-                            try {
+                        if ($_GroupName -ne "No group" -and $_GroupName -ne "Unsupported") {
 
-                                $Uri = $COMServersUri + "/" + $Item.ID + "/security-parameters"
-
-                                $_ServerSecurityParameters = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-                                
-                                # # Add serial number and servername to object
-                                $_ServerName = (Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber  ($Item.id -split '\+')[1]).name
-                                $_ServerSecurityParameters | Add-Member -type NoteProperty -name serverName -value $_ServerName 
-                                $_ServerSecurityParameters | Add-Member -type NoteProperty -name serialNumber -value ($Item.id -split '\+')[1]
-                                
-                                [void]$NewCollectionList.add($_ServerSecurityParameters)
-
-                            }
-                            catch {
-                                # Error 404 with OneView servers, case 5385212183 
-
-                                # $PSCmdlet.ThrowTerminatingError($_)
-                                
-                            }
-    
+                            $_Resp = Get-HPECOMGroupFirmwareCompliance -Region $Region -GroupName $_GroupName -ServerSerialNumber $Item.hardware.serialNumber
+                            
+                            [void]$NewCollectionList.add($_Resp)
+                            
                         }
                         else {
-                            [void]$NewCollectionList.add($Item)
-    
+                            "[{0}] No group found!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
                         }
-    
-                    }     
+
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                            
+                    }
                 }
 
+                $ReturnData = $NewCollectionList
 
-                if ($ConnectionType) {
+            }
+            elseif ($ShowGroupFirmwareDeviation) {
 
-                    switch ($ConnectionType) {
-                        'Secure gateway' { $_ConnectionType = 'GATEWAY' }
-                        'OneView managed' { $_ConnectionType = 'ONEVIEW' }
-                        'Direct' { $_ConnectionType = 'DIRECT' }
+                $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                $_GroupMemberships = (Get-HPECOMServer -Region $Region -ShowGroupMembership )
+
+                foreach ($Item in $CollectionList) {
+
+                    "[{0}] Item: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
+
+                    try {
+                        
+                        $_GroupName = $_GroupMemberships | Where-Object { $_.hardware.serialNumber -eq $Item.hardware.serialNumber } | Select-Object -ExpandProperty associatedGroupname
+
+                        "[{0}] `$_Groupname found: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_GroupName | Write-Verbose
+                       
+                        if ($_GroupName -ne "No group" -and $_GroupName -ne "Unsupported") {
+                            
+                            $_Resp = Get-HPECOMGroupFirmwareCompliance -Region $Region -GroupName $_GroupName -ServerSerialNumber $Item.hardware.serialNumber -Deviations
+                            
+                            # # Add serial number and servername to object
+                            $_Resp | Add-Member -type NoteProperty -name serialNumber -value $Item.serialNumber
+                            $_Resp | Add-Member -type NoteProperty -name serverName -value $Item.ServerName 
+                            
+                            [void]$NewCollectionList.add($_Resp)
+                            
+                        }
                     }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                            
+                    }
+                }
 
-                    $NewCollectionList = $NewCollectionList | where-Object ConnectionType -eq $_ConnectionType
+                $ReturnData = $NewCollectionList
+
+            }
+            else {
+
+                $NewCollectionList = [System.Collections.ArrayList]::new()
+                
+                foreach ($Item in $CollectionList) {
+
+                    # "[{0}] Item: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
                     
-                }               
-             
+                    # Add serial number to object
+                    $Item | Add-Member -type NoteProperty -name serialNumber -value ($Item.Id -split '\+')[1]  
 
-                if ( $ShowLocation) {
+                    # "[{0}] added SN: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Item.Id -split '\+')[1]   | Write-Verbose
 
-                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.Location"   
-                    $ReturnData = $ReturnData | Sort-Object name, { $_.hardware.serialNumber }
-                } 
-                elseif ($ShowSecurityParameters) {
-                   
-                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.SecurityParameters"    
-                    $ReturnData = $ReturnData | Sort-Object name, serialNumber 
-                } 
-                elseif ($ShowAutoiLOFirmwareUpdateStatus ) {
+                    [void]$NewCollectionList.add($Item)
+
+                }      
+               
+
+               if ($ShowAutoiLOFirmwareUpdateStatus ) {
 
                     $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.autoIloFwUpdateStatus"    
                     $ReturnData = $ReturnData | Sort-Object name, serialNumber 
@@ -35765,7 +35019,7 @@ Function Enable-HPECOMServerAutoiLOFirmwareUpdate {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -35828,7 +35082,7 @@ Function Enable-HPECOMServerAutoiLOFirmwareUpdate {
             if ($SerialNumber) {
 
                 $ParamUsed = $SerialNumber
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber
+                $_server = Get-HPECOMServer -Region $Region -Name $SerialNumber
 
             } 
             elseif ($Name) {
@@ -35982,7 +35236,7 @@ Function Disable-HPECOMServerAutoiLOFirmwareUpdate {
         A single string object or a list of string objects representing the server's serial numbers.
 
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -36046,7 +35300,7 @@ Function Disable-HPECOMServerAutoiLOFirmwareUpdate {
             if ($SerialNumber) {
 
                 $ParamUsed = $SerialNumber
-                $_server = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $SerialNumber
+                $_server = Get-HPECOMServer -Region $Region -Name $SerialNumber
 
             } 
             elseif ($Name) {
@@ -36156,11 +35410,108 @@ Function Disable-HPECOMServerAutoiLOFirmwareUpdate {
 Function Get-HPECOMServerActivationKey {
     <#
     .SYNOPSIS
-    Retrieve the activation key required to add servers to a Compute Ops Management service instance.
+    Retrieve server activation keys.
+
+    .DESCRIPTION   
+    This Cmdlet returns a collection of activation keys for adding servers to a Compute Ops Management service instance. The keys will be removed from the collection on expiry.
+    
+    .PARAMETER Region 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server will be added.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be made to COM instead of sending the request. Useful for understanding the native REST API calls used by COM.
+
+    .EXAMPLE
+    Get-HPECOMServerActivationKey -Region eu-central
+
+    This command retrieves the activation keys required to add servers to a Compute Ops Management service instance in the "eu-central" region.
+        
+    #>
+
+    [CmdletBinding()]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $Uri = $COMActivationKeysUri
+       
+        try {
+            [Array]$Collection = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
+
+
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+               
+        }     
+
+        if ($Collection) {
+
+            # Add region to objects
+            $Collection | ForEach-Object { $_ | Add-Member -type NoteProperty -name region -value $Region }
+
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $Collection -ObjectName "COM.Servers.ActivationKeys"   
+            $ReturnData = $ReturnData | Sort-Object activationKey
+
+            return $ReturnData
+        }
+        else {
+            return
+        }
+
+    }   
+}
+
+
+Function New-HPECOMServerActivationKey {
+    <#
+    .SYNOPSIS
+    Generate a activation key required to connect servers to a Compute Ops Management service instance.
     
     .DESCRIPTION   
-    This cmdlet retrieves the activation key required to add servers to a Compute Ops Management service instance using 'Connect-HPEGLDeviceComputeiLOtoCOM -ActivationKey'. 
+    This cmdlet generates an activation key necessary for connecting servers to a Compute Ops Management service instance using the 'Connect-HPEGLDeviceComputeiLOtoCOM -ActivationKey' command.
 
+    The activation key is valid for a duration specified by the ExpirationInHours parameter.
+
+    Note that a maximum of 10 server activation keys per user per region is allowed. The generated activation key will consist of 9 alphanumeric characters.
+
+    Note that iLO must be updated to the following minimum versions prior to support activation keys:
+    - iLO 5: v3.09 or later
+    - iLO 6: v1.64 or later
+    
     .PARAMETER Region 
     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server will be added.  
     This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
@@ -36182,21 +35533,28 @@ Function Get-HPECOMServerActivationKey {
     Displays the raw REST API call that would be made to COM instead of sending the request. Useful for understanding the native REST API calls used by COM.
 
     .EXAMPLE
+    $Activation_Key = New-HPECOMServerActivationKey -Region eu-central -ExpirationInHours 2
+
+    This command generates an activation key required to add servers to a Compute Ops Management service instance in the "eu-central" region. The activation key will expire in 2 hours.
+
+    .EXAMPLE
     $Subscription_Key = Get-HPEGLDeviceSubscription -ShowWithAvailableQuantity -ShowValid -FilterByDeviceType SERVER | select -First 1 -ExpandProperty subscription_key
     
-    $Activation_Key = Get-HPECOMServerActivationKey -Region eu-central -SubscriptionKey $Subscription_Key 
-
+    $Activation_Key = New-HPECOMServerActivationKey -Region eu-central -SubscriptionKey $Subscription_Key 
    
     The first command retrieves the first available server subscription key that is valid and with available quantity.
 
     The second command retrieves the activation key required to add servers to a Compute Ops Management service instance in the "eu-central" region using the subscription key retrieved in the first command.
         
-    The activation key will expire in 2 hours and can be used in:
-
+    The activation key will expire in 1 hour and can then be used using 'Connect-HPEGLDeviceComputeiLOtoCOM -iLOCredential $iLO_credential -IloIP $iLO_IP -ActivationKeyfromCOM $Activation_Key'
+    
     .INPUTS
-    None - This cmdlet does not accept pipeline input.
+    Pipeline input is not supported
 
-        
+    .OUTPUTS
+    System.String
+        A string object representing the activation key generated for adding servers to a Compute Ops Management service instance.
+    
     #>
 
     [CmdletBinding()]
@@ -36232,7 +35590,7 @@ Function Get-HPECOMServerActivationKey {
                 }
             })]
         [Int]$ExpirationInHours = 1,
-        
+
         [Switch]$WhatIf
     ) 
 
@@ -36272,6 +35630,8 @@ Function Get-HPECOMServerActivationKey {
                 return               
             }
             else {
+        
+                $Uri = $COMActivationTokensUri
 
                 $SecureGatewayID = $SecureGatewayFound.deviceId
 
@@ -36285,16 +35645,17 @@ Function Get-HPECOMServerActivationKey {
         }
         else {
 
+            $Uri = $COMActivationKeysUri
+
             $body = @{
                 expirationInHours = $ExpirationInHours
-                subscriptionKey   = $SubscriptionKey         
+                subscriptionKey   = $SubscriptionKey       
+                targetDevice      = 'ILO'  
             } | ConvertTo-Json
 
         }
 
        
-        $Uri = $COMActivationTokensUri
-
         try {
             [Array]$Collection = Invoke-HPECOMWebRequest -Method POST -Uri $Uri -Region $Region -Body $body -WhatIfBoolean $WhatIf
 
@@ -36308,6 +35669,184 @@ Function Get-HPECOMServerActivationKey {
         }     
 
     }   
+}
+
+
+Function Remove-HPECOMServerActivationKey {
+    <#
+    .SYNOPSIS
+    Delete an activation key.
+    
+    .DESCRIPTION   
+    This cmdlet deletes a generated activation key necessary for connecting servers to a Compute Ops Management service instance.
+
+    
+    .PARAMETER Region 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the server will be added.  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER ActivationKey
+    Specifies the activation key to be deleted from the Compute Ops Management service instance. The key can be retrieved using 'Get-HPECOMServerActivationKey'.
+   
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be made to COM instead of sending the request. Useful for understanding the native REST API calls used by COM.
+
+    .EXAMPLE
+    Remove-HPECOMServerActivationKey -Region eu-central -ActivationKey 123456789    
+
+    .EXAMPLE
+    Get-HPECOMServerActivationKey -Region eu-central | Remove-HPECOMServerActivationKey 
+
+    This command deletes all activation keys for the Compute Ops Management service instance in the "eu-central" region.
+
+    .INPUTS
+    System.String, System.String[]
+        A single string object or a list of string objects representing the activation keys.
+    System.Collections.ArrayList
+        List of keys retrieved using 'Get-HPECOMServerActivationKey'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:  
+        * ActivationKey - Name of the activation key to be removed from the region
+        * Region - Name of the region 
+        * Status - The status of the removal attempt (Failed for http error return; Complete if removal is successful; Warning if no action is needed) 
+        * Details - Additional information about the status.
+        * Exception: Information about any exceptions generated during the operation.
+
+       
+    #>
+
+    [CmdletBinding()]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [String]$ActivationKey,
+            
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $RemoveKeyStatus = [System.Collections.ArrayList]::new()
+
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            ActivationKey      = $ActivationKey
+            Region             = $Region   
+            Status             = $Null
+            Details            = $Null
+            Exception          = $Null
+        }
+
+
+        try {
+    
+            $_ActivationKey = Get-HPECOMServerActivationKey -Region $Region | ? activationKey -eq $ActivationKey
+            
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+            
+        }
+        
+
+        if (-not $_ActivationKey) {
+                
+            # Must return a message if not found
+
+            if ($WhatIf) {
+
+                $ErrorMessage = "Activation key '{0}' cannot be found in the Compute Ops Management instance!" -f $ActivationKey
+                Write-warning $ErrorMessage
+                return
+            
+            }
+            else {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Activation key '$ActivationKey' cannot be found in the Compute Ops Management instance!"
+              
+            }
+
+        }
+        else {   
+
+            $Uri = $COMActivationKeysUri + '/' + $_ActivationKey.activationKey
+
+            try {
+                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method DELETE -WhatIfBoolean $WhatIf 
+                        
+                if (-not $WhatIf) {
+
+                    "[{0}] Remove activation key call response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
+                    
+                    "[{0}] Activation key '{1}' successfully removed from '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ActivationKey, $Region | Write-Verbose
+                        
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "Activation key successfully removed from $Region region"
+    
+                }
+    
+            }
+            catch {
+    
+                if (-not $WhatIf) {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Activation key cannot be removed from $Region region!"
+                    $objStatus.Exception = $_.Exception.message 
+    
+                }
+            }   
+            
+        }
+
+        [void] $RemoveKeyStatus.add($objStatus)
+
+    }   
+    end {
+
+        if (-not $WhatIf) {
+
+            if ($RemoveKeyStatus | Where-Object { $_.Status -eq "Failed" }) {
+  
+                write-error "One or more activation keys failed to be removed from $Region!"
+          
+            }
+            
+            Return $RemoveKeyStatus
+        }
+    }
 }
 
 #EndRegion
@@ -36378,7 +35917,7 @@ Function Set-HPECOMOneViewServerLocation {
     System.String, System.String[]
         A single string object or a list of string objects representing the server's serial numbers.    
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -36539,7 +36078,7 @@ Function Set-HPECOMOneViewServerLocation {
             } 
             else {       
             
-                $ServerLocation = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $server.serialnumber -ShowLocation
+                $ServerLocation = Get-HPECOMServer -Region $Region -Name $server.serialnumber -ShowLocation
 
                 if ($ServerLocation) {   
                     # Must return a message if server already member of a location
@@ -36697,7 +36236,7 @@ Function Remove-HPECOMOneViewServerLocation {
     System.String, System.String[]
         A single string object or a list of string objects representing the server's serial numbers.
     System.Collections.ArrayList
-        List of servers from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of servers from 'Get-HPECOMServer'.
     
     .OUTPUTS
     System.Collections.ArrayList
@@ -36839,7 +36378,7 @@ Function Remove-HPECOMOneViewServerLocation {
             } 
             else {       
             
-                $ServerLocation = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $server.serialnumber -ShowLocation
+                $ServerLocation = Get-HPECOMServer -Region $Region -Name $server.serialnumber -ShowLocation
 
                 if (-not $ServerLocation) {   
                     # Must return a message if server already member of the location
@@ -37844,7 +37383,7 @@ Function Send-HPECOMWebhookTest {
                 }
                 alert { 
                     $_SerialNumber = Get-HPECOMServer -Region $Region | select -First 1 | ForEach-Object serialNumber
-                    $Object = Get-HPECOMServerBySerialNumber -Region $Region -SerialNumber $_SerialNumber -ShowAlerts | select -First 1
+                    $Object = Get-HPECOMServer -Region $Region -Name $_SerialNumber -ShowAlerts | select -First 1
 
                 }                
                 group { 
@@ -38287,7 +37826,7 @@ Function Get-HPEGLdevice {
     System.String, System.String[]
         A single string object or a list of string objects representing the device's serial numbers.
     System.Collections.ArrayList
-        List of device(s) from 'Get-HPECOMServer' or 'Get-HPECOMServerBySerialNumber'.
+        List of device(s) from 'Get-HPECOMServer'.
 
     #>
 
@@ -39594,7 +39133,8 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
                             # Increment counter
                             $counter++
                             
-                        } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)
+                        } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)                        
+
                     }
                     else {
                         $msg = "AlreadyConnected"
@@ -39633,7 +39173,6 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
                         
                         } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)
 
-
                     }
                     else {
                         $msg = "AlreadyConnected"
@@ -39648,7 +39187,9 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
                 
                 
                 if ($msg -match "Success") {
-                    "`r$clearLine`r[{0}] -- iLO '{1}' - Connected!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
+                    # Clear the message after do/until is complete
+                    "`r$clearLine`r" | Write-Host -NoNewline
+                    # "`r$clearLine`r[{0}] -- iLO '{1}' - Connected!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
                     "[{0}] '{1}' -- iLO '{2}' successfully connected to Compute Ops Management!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
                     $objStatus.iLOConnectionStatus = "Complete"
                     $objStatus.iLOConnectionDetails = "iLO successfully connected to Compute Ops Management!"
@@ -39660,7 +39201,9 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
                 }
 
                 if ($counter -gt 10) {
-                    "`r$clearLine`r[{0}] -- iLO '{1}' - Failed!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
+                    # Clear the message after do/until is complete
+                    "`r$clearLine`r" | Write-Host -NoNewline
+                    # "`r$clearLine`r[{0}] -- iLO '{1}' - Failed!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
                     $objStatus.iLOConnectionStatus = "Failed"
                     $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! Check the iLO event log for more information."
                     $objStatus.Status = "Failed"
@@ -55338,10 +54881,10 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 
 
 # SIG # Begin signature block
-# MIItlAYJKoZIhvcNAQcCoIIthTCCLYECAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIsEAYJKoZIhvcNAQcCoIIsATCCK/0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBA8G+4y8TeTd2q
-# TF8egtG1WxDv7Sw+Wx5DQUj0wQMOCaCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBT6+FeF7EjNx2W
+# ndPNtCHWO35x/f/egQZFO6rVQrzuJKCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -55434,152 +54977,144 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 # lLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQ
 # ZH3pwWvqURR8AgQdULUvrxjUYbHHj95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWU
 # H3fTv1Y8Wdho698YADR7TNx8X8z2Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63
-# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2Rwxght0MIIbcAIBATBpMFQx
+# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2RwxghnwMIIZ7AIBATBpMFQx
 # CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNVBAMT
 # IlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYCEQDzfDeB/ajwfQYd
 # ZdJTJuKyMA0GCWCGSAFlAwQCAQUAoHwwEAYKKwYBBAGCNwIBDDECMAAwGQYJKoZI
 # hvcNAQkDMQwGCisGAQQBgjcCAQQwHAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcC
-# ARUwLwYJKoZIhvcNAQkEMSIEIL0QThqEcUG03mVVyWN01uF4Bu5KoB9EA/htkCEa
-# oMyTMA0GCSqGSIb3DQEBAQUABIIBgK8S39c2VBFrVbqRiLqym/Dnwv1Sd+eQ5W0E
-# tD36uZXpgihhBeDcKWs/bdt21ml7a/ipE27Fw/0W7/0f8KYTA/JDTQRDwAhu1F94
-# CL3Tl+IOSTKkqFy8AF15D6+T8+m/KXoOQYJRTyUAot7kXZLXdaWfKCd2okz5Kjgl
-# hzx1dQOjkKhj2cAxygbP9qtnNnB1J+L9zqnsyjWqlIEgUV9QnalVDaW3HdKuuHWX
-# eqOX5e5MLD6Cekal9Vv9ziB6hvV3SSh0smULcWKM7vUJmpbg+WkPHHuPzYE7P6YS
-# GFbqOuD6a/TXvh6N1UXQij70uOS0fuPlfFtWU/VCyNNEPzR+ucHqelH+AFaW6X4V
-# zbpkyXuPHnekNurBvaxTJkZhUUqPa5mWy3L1d1uchUJ3+j5OaNfRFa3jQE3D56/0
-# 7AFND9f6wvVy5BB8uO96I0BRTfoPzpFHIoyx8aPU452Ao95bkFWLwjbsDFu42dv3
-# NmQchj0+S3m8k20jT37BuVesVRgtHaGCGN4wghjaBgorBgEEAYI3AwMBMYIYyjCC
-# GMYGCSqGSIb3DQEHAqCCGLcwghizAgEDMQ8wDQYJYIZIAWUDBAICBQAwggEDBgsq
-# hkiG9w0BCRABBKCB8wSB8DCB7QIBAQYKKwYBBAGyMQIBATBBMA0GCWCGSAFlAwQC
-# AgUABDBxXHiCFOX60iwtoLbgHm4O7qZtxKLXtM3zbOsQYYr2zmzk778WbZaqf3Bs
-# GHRWqs8CFDFabQH20upffg8OuzU4UBf4dV7PGA8yMDI0MTAyMzEyMDg0NVqgcqRw
-# MG4xCzAJBgNVBAYTAkdCMRMwEQYDVQQIEwpNYW5jaGVzdGVyMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgU2lnbmVyIFIzNaCCEv8wggZdMIIExaADAgECAhA6UmoshM5V5h1l/MwS
-# 2OmJMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0
-# aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBp
-# bmcgQ0EgUjM2MB4XDTI0MDExNTAwMDAwMFoXDTM1MDQxNDIzNTk1OVowbjELMAkG
-# A1UEBhMCR0IxEzARBgNVBAgTCk1hbmNoZXN0ZXIxGDAWBgNVBAoTD1NlY3RpZ28g
-# TGltaXRlZDEwMC4GA1UEAxMnU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBT
-# aWduZXIgUjM1MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAjdFn9MFI
-# m739OEk6TWGBm8PY3EWlYQQ2jQae45iWgPXUGVuYoIa1xjTGIyuw3suUSBzKiyG0
-# /c/Yn++d5mG6IyayljuGT9DeXQU9k8GWWj2/BPoamg2fFctnPsdTYhMGxM06z1+F
-# t0Bav8ybww21ii/faiy+NhiUM195+cFqOtCpJXxZ/lm9tpjmVmEqpAlRpfGmLhNd
-# kqiEuDFTuD1GsV3jvuPuPGKUJTam3P53U4LM0UCxeDI8Qz40Qw9TPar6S02XExlc
-# 8X1YsiE6ETcTz+g1ImQ1OqFwEaxsMj/WoJT18GG5KiNnS7n/X4iMwboAg3IjpcvE
-# zw4AZCZowHyCzYhnFRM4PuNMVHYcTXGgvuq9I7j4ke281x4e7/90Z5Wbk92RrLcS
-# 35hO30TABcGx3Q8+YLRy6o0k1w4jRefCMT7b5mTxtq5XPmKvtgfPuaWPkGZ/tbxI
-# nyNDA7YgOgccULjp4+D56g2iuzRCsLQ9ac6AN4yRbqCYsG2rcIQ5INTyI2JzA2w1
-# vsAHPRbUTeqVLDuNOY2gYIoKBWQsPYVoyzaoBVU6O5TG+a1YyfWkgVVS9nXKs8hV
-# ti3VpOV3aeuaHnjgC6He2CCDL9aW6gteUe0AmC8XCtWwpePx6QW3ROZo8vSUe9AR
-# 7mMdu5+FzTmW8K13Bt8GX/YBFJO7LWzwKAUCAwEAAaOCAY4wggGKMB8GA1UdIwQY
-# MBaAFF9Y7UwxeqJhQo1SgLqzYZcZojKbMB0GA1UdDgQWBBRo76QySWm2Ujgd6kM5
-# LPQUap4MhTAOBgNVHQ8BAf8EBAMCBsAwDAYDVR0TAQH/BAIwADAWBgNVHSUBAf8E
-# DDAKBggrBgEFBQcDCDBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDCDAlMCMGCCsG
-# AQUFBwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAIwSgYDVR0f
-# BEMwQTA/oD2gO4Y5aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGlj
-# VGltZVN0YW1waW5nQ0FSMzYuY3JsMHoGCCsGAQUFBwEBBG4wbDBFBggrBgEFBQcw
-# AoY5aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1w
-# aW5nQ0FSMzYuY3J0MCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0aWdvLmNv
-# bTANBgkqhkiG9w0BAQwFAAOCAYEAsNwuyfpPNkyKL/bJT9XvGE8fnw7Gv/4SetmO
-# kjK9hPPa7/Nsv5/MHuVus+aXwRFqM5Vu51qfrHTwnVExcP2EHKr7IR+m/Ub7Pama
-# eWfle5x8D0x/MsysICs00xtSNVxFywCvXx55l6Wg3lXiPCui8N4s51mXS0Ht85fk
-# Xo3auZdo1O4lHzJLYX4RZovlVWD5EfwV6Ve1G9UMslnm6pI0hyR0Zr95QWG0MpNP
-# P0u05SHjq/YkPlDee3yYOECNMqnZ+j8onoUtZ0oC8CkbOOk/AOoV4kp/6Ql2gEp3
-# bNC7DOTlaCmH24DjpVgryn8FMklqEoK4Z3IoUgV8R9qQLg1dr6/BjghGnj2XNA8u
-# jta2JyoxpqpvyETZCYIUjIs69YiDjzftt37rQVwIZsfCYv+DU5sh/StFL1x4rgNj
-# 2t8GccUfa/V3iFFW9lfIJWWsvtlC5XOOOQswr1UmVdNWQem4LwrlLgcdO/YAnHqY
-# 52QwnBLiAuUnuBeshWmfEb5oieIYMIIGFDCCA/ygAwIBAgIQeiOu2lNplg+RyD5c
-# 9MfjPzANBgkqhkiG9w0BAQwFADBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2Vj
-# dGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1w
-# aW5nIFJvb3QgUjQ2MB4XDTIxMDMyMjAwMDAwMFoXDTM2MDMyMTIzNTk1OVowVTEL
-# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMj
-# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBDQSBSMzYwggGiMA0GCSqGSIb3
-# DQEBAQUAA4IBjwAwggGKAoIBgQDNmNhDQatugivs9jN+JjTkiYzT7yISgFQ+7yav
-# jA6Bg+OiIjPm/N/t3nC7wYUrUlY3mFyI32t2o6Ft3EtxJXCc5MmZQZ8AxCbh5c6W
-# zeJDB9qkQVa46xiYEpc81KnBkAWgsaXnLURoYZzksHIzzCNxtIXnb9njZholGw9d
-# jnjkTdAA83abEOHQ4ujOGIaBhPXG2NdV8TNgFWZ9BojlAvflxNMCOwkCnzlH4oCw
-# 5+4v1nssWeN1y4+RlaOywwRMUi54fr2vFsU5QPrgb6tSjvEUh1EC4M29YGy/SIYM
-# 8ZpHadmVjbi3Pl8hJiTWw9jiCKv31pcAaeijS9fc6R7DgyyLIGflmdQMwrNRxCul
-# Vq8ZpysiSYNi79tw5RHWZUEhnRfs/hsp/fwkXsynu1jcsUX+HuG8FLa2BNheUPtO
-# cgw+vHJcJ8HnJCrcUWhdFczf8O+pDiyGhVYX+bDDP3GhGS7TmKmGnbZ9N+MpEhWm
-# biAVPbgkqykSkzyYVr15OApZYK8CAwEAAaOCAVwwggFYMB8GA1UdIwQYMBaAFPZ3
-# at0//QET/xahbIICL9AKPRQlMB0GA1UdDgQWBBRfWO1MMXqiYUKNUoC6s2GXGaIy
-# mzAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUEDDAK
-# BggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAwTAYDVR0fBEUwQzBBoD+gPYY7
-# aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1waW5n
-# Um9vdFI0Ni5jcmwwfAYIKwYBBQUHAQEEcDBuMEcGCCsGAQUFBzAChjtodHRwOi8v
-# Y3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2
-# LnA3YzAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZI
-# hvcNAQEMBQADggIBABLXeyCtDjVYDJ6BHSVY/UwtZ3Svx2ImIfZVVGnGoUaGdlto
-# X4hDskBMZx5NY5L6SCcwDMZhHOmbyMhyOVJDwm1yrKYqGDHWzpwVkFJ+996jKKAX
-# yIIaUf5JVKjccev3w16mNIUlNTkpJEor7edVJZiRJVCAmWAaHcw9zP0hY3gj+fWp
-# 8MbOocI9Zn78xvm9XKGBp6rEs9sEiq/pwzvg2/KjXE2yWUQIkms6+yslCRqNXPjE
-# nBnxuUB1fm6bPAV+Tsr/Qrd+mOCJemo06ldon4pJFbQd0TQVIMLv5koklInHvyaf
-# 6vATJP4DfPtKzSBPkKlOtyaFTAjD2Nu+di5hErEVVaMqSVbfPzd6kNXOhYm23EWm
-# 6N2s2ZHCHVhlUgHaC4ACMRCgXjYfQEDtYEK54dUwPJXV7icz0rgCzs9VI29DwsjV
-# ZFpO4ZIVR33LwXyPDbYFkLqYmgHjR3tKVkhh9qKV2WCmBuC27pIOx6TYvyqiYbnt
-# inmpOqh/QPAnhDgexKG9GX/n1PggkGi9HCapZp8fRwg8RftwS21Ln61euBG0yONM
-# 6noD2XQPrFwpm3GcuqJMf0o8LLrFkSLRQNwxPDDkWXhW+gZswbaiie5fd/W2ygct
-# o78XCSPfFWveUOSZ5SqK95tBO8aTHmEa4lpJVD7HrTEn9jb1EGvxOb1cnn0CMIIG
-# gjCCBGqgAwIBAgIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQwFADCBiDEL
-# MAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNl
-# eSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMT
-# JVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMjEwMzIy
-# MDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIFJvb3QgUjQ2MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA
-# iJ3YuUVnnR3d6LkmgZpUVMB8SQWbzFoVD9mUEES0QUCBdxSZqdTkdizICFNeINCS
-# JS+lV1ipnW5ihkQyC0cRLWXUJzodqpnMRs46npiJPHrfLBOifjfhpdXJ2aHHsPHg
-# gGsCi7uE0awqKggE/LkYw3sqaBia67h/3awoqNvGqiFRJ+OTWYmUCO2GAXsePHi+
-# /JUNAax3kpqstbl3vcTdOGhtKShvZIvjwulRH87rbukNyHGWX5tNK/WABKf+Gnoi
-# 4cmisS7oSimgHUI0Wn/4elNd40BFdSZ1EwpuddZ+Wr7+Dfo0lcHflm/FDDrOJ3rW
-# qauUP8hsokDoI7D/yUVI9DAE/WK3Jl3C4LKwIpn1mNzMyptRwsXKrop06m7NUNHd
-# lTDEMovXAIDGAvYynPt5lutv8lZeI5w3MOlCybAZDpK3Dy1MKo+6aEtE9vtiTMzz
-# /o2dYfdP0KWZwZIXbYsTIlg1YIetCpi5s14qiXOpRsKqFKqav9R1R5vj3NgevsAs
-# vxsAnI8Oa5s2oy25qhsoBIGo/zi6GpxFj+mOdh35Xn91y72J4RGOJEoqzEIbW3q0
-# b2iPuWLA911cRxgY5SJYubvjay3nSMbBPPFsyl6mY4/WYucmyS9lo3l7jk27MAe1
-# 45GWxK4O3m3gEFEIkv7kRmefDR7Oe2T1HxAnICQvr9sCAwEAAaOCARYwggESMB8G
-# A1UdIwQYMBaAFFN5v1qqK0rPVIDh2JvAnfKyA2bLMB0GA1UdDgQWBBT2d2rdP/0B
-# E/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAT
-# BgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAwUAYDVR0fBEkw
-# RzBFoEOgQYY/aHR0cDovL2NybC51c2VydHJ1c3QuY29tL1VTRVJUcnVzdFJTQUNl
-# cnRpZmljYXRpb25BdXRob3JpdHkuY3JsMDUGCCsGAQUFBwEBBCkwJzAlBggrBgEF
-# BQcwAYYZaHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkqhkiG9w0BAQwFAAOC
-# AgEADr5lQe1oRLjlocXUEYfktzsljOt+2sgXke3Y8UPEooU5y39rAARaAdAxUeiX
-# 1ktLJ3+lgxtoLQhn5cFb3GF2SSZRX8ptQ6IvuD3wz/LNHKpQ5nX8hjsDLRhsyeIi
-# Jsms9yAWnvdYOdEMq1W61KE9JlBkB20XBee6JaXx4UBErc+YuoSb1SxVf7nkNtUj
-# PfcxuFtrQdRMRi/fInV/AobE8Gw/8yBMQKKaHt5eia8ybT8Y/Ffa6HAJyz9gvEOc
-# F1VWXG8OMeM7Vy7Bs6mSIkYeYtddU1ux1dQLbEGur18ut97wgGwDiGinCwKPyFO7
-# ApcmVJOtlw9FVJxw/mL1TbyBns4zOgkaXFnnfzg4qbSvnrwyj1NiurMp4pmAWjR+
-# Pb/SIduPnmFzbSN/G8reZCL4fvGlvPFk4Uab/JVCSmj59+/mB2Gn6G/UYOy8k60m
-# KcmaAZsEVkhOFuoj4we8CYyaR9vd9PGZKSinaZIkvVjbH/3nlLb0a7SBIkiRzfPf
-# S9T+JesylbHa1LtRV9U/7m0q7Ma2CQ/t392ioOssXW7oKLdOmMBl14suVFBmbzrt
-# 5V5cQPnwtd3UOTpS9oCG+ZZheiIvPgkDmA8FzPsnfXW5qHELB43ET7HHFHeRPRYr
-# MBKjkb8/IN7Po0d0hQoF4TeMM+zYAJzoKQnVKOLg8pZVPT8xggSRMIIEjQIBATBp
-# MFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNV
-# BAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2AhA6UmoshM5V
-# 5h1l/MwS2OmJMA0GCWCGSAFlAwQCAgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZI
-# hvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI0MTAyMzEyMDg0NVowPwYJKoZIhvcN
-# AQkEMTIEMAJJ1c6gK4ndoLolXdStWiIflZEAC3U0KKTcvPvIKGcTvCvxFGwHs4y8
-# NvvkSqYp1TCCAXoGCyqGSIb3DQEJEAIMMYIBaTCCAWUwggFhMBYEFPhgmBmm+4gs
-# 9+hSl/KhGVIaFndfMIGHBBTGrlTkeIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQsw
-# CQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVT
-# ZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HI
-# Plz0x+M/MIG8BBSFPWMtk4KCYXzQkDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkG
-# A1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBD
-# aXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVT
-# RVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7Pd
-# NsvJdWgwDQYJKoZIhvcNAQEBBQAEggIARc5DGCnZTBjoAgUQvLnBYiAzhUORUBeO
-# W5Ljp5DIaG1RTgpRdBBXR1plO53gdaZ1NsFTv3xb/AMa7Vi9rTTzfP+/gNMQGkV6
-# j3evv5sVB61cdMGT2zLOS7SUaANt8NeaEdp8/1sEmWdTWKOFSbzLKZW/OmsnTFbJ
-# FmgiM//plt/ARc11WHMzVgcAM/J7/F818SMNq+ag8GNPZijHRPSdnT6Y7bmNoQP5
-# U9F/dlkS0mDsp9q2cM/e3+y6wZ59DVSsxYSAqKyg4R4aYlbytUMSMkAT35NTiTwB
-# eb4ixVx/Df+++1OX9yM3YaBrdiM9rd2LTR3sMEnu1sLwJp32QWT5GzRPGBRjAZ9k
-# gcRAdpzO0QU+1JkUbtleVeecuBEi+o83fEmjrRsHcH5ZNKdsUnuKpJB/LIwRjGg7
-# yIlPZkBFIzNr2XemlWJAwz/WpEvHPyZB7CMBVeKMqJJHMwZg6Ue6AOWGDTYwUNeA
-# 8sLlJi21jn77H6hrLeEsXoXhIygQKYFpsp//lsJeu0MfhSVM59HTjDyRwPB9OmtL
-# Rvzv2zBoDVt2TTbvCFrUElWH4yRlGyw93KHKYA+vlNGw0IGT768erJZqVl+dklu6
-# b5kCBiAFOemBwa0Kcl3Bhf63JlxZAls3C6sNMMEilue3flaUw4CubDrCCXAzZGNF
-# Cuh0YyEgQ8c=
+# ARUwLwYJKoZIhvcNAQkEMSIEIK18uYyw8RrKUGqHkR/xQuQdBl5LyxfdCd0oHIfh
+# IkA0MA0GCSqGSIb3DQEBAQUABIIBgE721pto+ATLVYvuq/ky1ZOraBbOMTv4yQkH
+# FA4lls5vs+L9J5hlszPmE6vA0W+RMP2KhAQdFkE6R+MjOYCEPI4VFKUghB21+t36
+# aaFcGwz5dXt1aERcC2Q/kNaaOSUm10h/42l/HfGvZnXYXJ/+shUUsM8LFT6ooJSO
+# txaCjoCoL/RHbzI1tbWXEhJbsBgJR+DVwpFmgLgN5K0TS//f1JsRs1CPPNXEVrf2
+# RKR8xbB+Fx9dpr0orqAELy0dhLkeqCbhni6ctB1YZ1nEdfq8DPJGI9GfYrg6jMj9
+# GzRSH2xgU/7/rybpN0VdUaxiksxkJPSkId8+hyuxc/dP2/voSg8wJXF4HICE2074
+# AD70aA0WXvw/pIatcagFHQHGD2qqNCrxxqVwnjuf+eWYbfy6kOIKrmjZ3zFJqphd
+# nGJ+3yC/TaHMcpIPDBbnL09+dAJLyy1mjMvPNgT1wTRwLorvSLsuQYNf6XlrwR+l
+# V517VMTwRE4Dh/52I5aRZBW+1/ZtcqGCF1owghdWBgorBgEEAYI3AwMBMYIXRjCC
+# F0IGCSqGSIb3DQEHAqCCFzMwghcvAgEDMQ8wDQYJYIZIAWUDBAICBQAwgYcGCyqG
+# SIb3DQEJEAEEoHgEdjB0AgEBBglghkgBhv1sBwEwQTANBglghkgBZQMEAgIFAAQw
+# pq4lMl5etc3ioAD+9oq5XFS7X9fcQz9LCV/kuzGedux+ce0Ggz6l+9Geql4NSzfA
+# AhBaoyEnkZGpD8P5mjeWNM4fGA8yMDI0MTExNDA4MTAxNFqgghMDMIIGvDCCBKSg
+# AwIBAgIQC65mvFq6f5WHxvnpBOMzBDANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQG
+# EwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0
+# IFRydXN0ZWQgRzQgUlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMB4XDTI0
+# MDkyNjAwMDAwMFoXDTM1MTEyNTIzNTk1OVowQjELMAkGA1UEBhMCVVMxETAPBgNV
+# BAoTCERpZ2lDZXJ0MSAwHgYDVQQDExdEaWdpQ2VydCBUaW1lc3RhbXAgMjAyNDCC
+# AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAL5qc5/2lSGrljC6W23mWaO1
+# 6P2RHxjEiDtqmeOlwf0KMCBDEr4IxHRGd7+L660x5XltSVhhK64zi9CeC9B6lUdX
+# M0s71EOcRe8+CEJp+3R2O8oo76EO7o5tLuslxdr9Qq82aKcpA9O//X6QE+AcaU/b
+# yaCagLD/GLoUb35SfWHh43rOH3bpLEx7pZ7avVnpUVmPvkxT8c2a2yC0WMp8hMu6
+# 0tZR0ChaV76Nhnj37DEYTX9ReNZ8hIOYe4jl7/r419CvEYVIrH6sN00yx49boUuu
+# mF9i2T8UuKGn9966fR5X6kgXj3o5WHhHVO+NBikDO0mlUh902wS/Eeh8F/UFaRp1
+# z5SnROHwSJ+QQRZ1fisD8UTVDSupWJNstVkiqLq+ISTdEjJKGjVfIcsgA4l9cbk8
+# Smlzddh4EfvFrpVNnes4c16Jidj5XiPVdsn5n10jxmGpxoMc6iPkoaDhi6JjHd5i
+# bfdp5uzIXp4P0wXkgNs+CO/CacBqU0R4k+8h6gYldp4FCMgrXdKWfM4N0u25OEAu
+# Ea3JyidxW48jwBqIJqImd93NRxvd1aepSeNeREXAu2xUDEW8aqzFQDYmr9ZONuc2
+# MhTMizchNULpUEoA6Vva7b1XCB+1rxvbKmLqfY/M/SdV6mwWTyeVy5Z/JkvMFpnQ
+# y5wR14GJcv6dQ4aEKOX5AgMBAAGjggGLMIIBhzAOBgNVHQ8BAf8EBAMCB4AwDAYD
+# VR0TAQH/BAIwADAWBgNVHSUBAf8EDDAKBggrBgEFBQcDCDAgBgNVHSAEGTAXMAgG
+# BmeBDAEEAjALBglghkgBhv1sBwEwHwYDVR0jBBgwFoAUuhbZbU2FL3MpdpovdYxq
+# II+eyG8wHQYDVR0OBBYEFJ9XLAN3DigVkGalY17uT5IfdqBbMFoGA1UdHwRTMFEw
+# T6BNoEuGSWh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRH
+# NFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcmwwgZAGCCsGAQUFBwEBBIGD
+# MIGAMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdpY2VydC5jb20wWAYIKwYB
+# BQUHMAKGTGh0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0
+# ZWRHNFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcnQwDQYJKoZIhvcNAQEL
+# BQADggIBAD2tHh92mVvjOIQSR9lDkfYR25tOCB3RKE/P09x7gUsmXqt40ouRl3lj
+# +8QioVYq3igpwrPvBmZdrlWBb0HvqT00nFSXgmUrDKNSQqGTdpjHsPy+LaalTW0q
+# VjvUBhcHzBMutB6HzeledbDCzFzUy34VarPnvIWrqVogK0qM8gJhh/+qDEAIdO/K
+# kYesLyTVOoJ4eTq7gj9UFAL1UruJKlTnCVaM2UeUUW/8z3fvjxhN6hdT98Vr2FYl
+# CS7Mbb4Hv5swO+aAXxWUm3WpByXtgVQxiBlTVYzqfLDbe9PpBKDBfk+rabTFDZXo
+# Uke7zPgtd7/fvWTlCs30VAGEsshJmLbJ6ZbQ/xll/HjO9JbNVekBv2Tgem+mLptR
+# 7yIrpaidRJXrI+UzB6vAlk/8a1u7cIqV0yef4uaZFORNekUgQHTqddmsPCEIYQP7
+# xGxZBIhdmm4bhYsVA6G2WgNFYagLDBzpmk9104WQzYuVNsxyoVLObhx3RugaEGru
+# +SojW4dHPoWrUhftNpFC5H7QEY7MhKRyrBe7ucykW7eaCuWBsBb4HOKRFVDcrZgd
+# waSIqMDiCLg4D+TPVgKx2EgEdeoHNHT9l3ZDBD+XgbF+23/zBjeCtxz+dL/9NWR6
+# P2eZRi7zcEO1xwcdcqJsyz/JceENc2Sg8h3KeFUCS7tpFk7CrDqkMIIGrjCCBJag
+# AwIBAgIQBzY3tyRUfNhHrP0oZipeWzANBgkqhkiG9w0BAQsFADBiMQswCQYDVQQG
+# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
+# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwHhcNMjIw
+# MzIzMDAwMDAwWhcNMzcwMzIyMjM1OTU5WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UE
+# ChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0IFRydXN0ZWQgRzQg
+# UlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMIICIjANBgkqhkiG9w0BAQEF
+# AAOCAg8AMIICCgKCAgEAxoY1BkmzwT1ySVFVxyUDxPKRN6mXUaHW0oPRnkyibaCw
+# zIP5WvYRoUQVQl+kiPNo+n3znIkLf50fng8zH1ATCyZzlm34V6gCff1DtITaEfFz
+# sbPuK4CEiiIY3+vaPcQXf6sZKz5C3GeO6lE98NZW1OcoLevTsbV15x8GZY2UKdPZ
+# 7Gnf2ZCHRgB720RBidx8ald68Dd5n12sy+iEZLRS8nZH92GDGd1ftFQLIWhuNyG7
+# QKxfst5Kfc71ORJn7w6lY2zkpsUdzTYNXNXmG6jBZHRAp8ByxbpOH7G1WE15/teP
+# c5OsLDnipUjW8LAxE6lXKZYnLvWHpo9OdhVVJnCYJn+gGkcgQ+NDY4B7dW4nJZCY
+# OjgRs/b2nuY7W+yB3iIU2YIqx5K/oN7jPqJz+ucfWmyU8lKVEStYdEAoq3NDzt9K
+# oRxrOMUp88qqlnNCaJ+2RrOdOqPVA+C/8KI8ykLcGEh/FDTP0kyr75s9/g64ZCr6
+# dSgkQe1CvwWcZklSUPRR8zZJTYsg0ixXNXkrqPNFYLwjjVj33GHek/45wPmyMKVM
+# 1+mYSlg+0wOI/rOP015LdhJRk8mMDDtbiiKowSYI+RQQEgN9XyO7ZONj4KbhPvbC
+# dLI/Hgl27KtdRnXiYKNYCQEoAA6EVO7O6V3IXjASvUaetdN2udIOa5kM0jO0zbEC
+# AwEAAaOCAV0wggFZMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFLoW2W1N
+# hS9zKXaaL3WMaiCPnshvMB8GA1UdIwQYMBaAFOzX44LScV1kTN8uZz/nupiuHA9P
+# MA4GA1UdDwEB/wQEAwIBhjATBgNVHSUEDDAKBggrBgEFBQcDCDB3BggrBgEFBQcB
+# AQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggr
+# BgEFBQcwAoY1aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1
+# c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybDMuZGln
+# aWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAI
+# BgZngQwBBAIwCwYJYIZIAYb9bAcBMA0GCSqGSIb3DQEBCwUAA4ICAQB9WY7Ak7Zv
+# mKlEIgF+ZtbYIULhsBguEE0TzzBTzr8Y+8dQXeJLKftwig2qKWn8acHPHQfpPmDI
+# 2AvlXFvXbYf6hCAlNDFnzbYSlm/EUExiHQwIgqgWvalWzxVzjQEiJc6VaT9Hd/ty
+# dBTX/6tPiix6q4XNQ1/tYLaqT5Fmniye4Iqs5f2MvGQmh2ySvZ180HAKfO+ovHVP
+# ulr3qRCyXen/KFSJ8NWKcXZl2szwcqMj+sAngkSumScbqyQeJsG33irr9p6xeZmB
+# o1aGqwpFyd/EjaDnmPv7pp1yr8THwcFqcdnGE4AJxLafzYeHJLtPo0m5d2aR8XKc
+# 6UsCUqc3fpNTrDsdCEkPlM05et3/JWOZJyw9P2un8WbDQc1PtkCbISFA0LcTJM3c
+# HXg65J6t5TRxktcma+Q4c6umAU+9Pzt4rUyt+8SVe+0KXzM5h0F4ejjpnOHdI/0d
+# KNPH+ejxmF/7K9h+8kaddSweJywm228Vex4Ziza4k9Tm8heZWcpw8De/mADfIBZP
+# J/tgZxahZrrdVcA6KYawmKAr7ZVBtzrVFZgxtGIJDwq9gdkT/r+k0fNX2bwE+oLe
+# Mt8EifAAzV3C+dAjfwAL5HYCJtnwZXZCpimHCUcr5n8apIUP/JiW9lVUKx+A+sDy
+# Divl1vupL0QVSucTDh3bNzgaoSv27dZ8/DCCBY0wggR1oAMCAQICEA6bGI750C3n
+# 79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAwZTELMAkGA1UEBhMCVVMxFTATBgNVBAoT
+# DERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UE
+# AxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBSb290IENBMB4XDTIyMDgwMTAwMDAwMFoX
+# DTMxMTEwOTIzNTk1OVowYjELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0
+# IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNl
+# cnQgVHJ1c3RlZCBSb290IEc0MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKC
+# AgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUuySE98orYWcLhKac9WKt2ms2uexuEDcQw
+# H/MbpDgW61bGl20dq7J58soR0uRf1gU8Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6
+# dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0MG+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXG
+# XuxbGrzryc/NrDRAX7F6Zu53yEioZldXn1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXn
+# Mcvak17cjo+A2raRmECQecN4x7axxLVqGDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy
+# 19sEcypukQF8IUzUvK4bA3VdeGbZOjFEmjNAvwjXWkmkwuapoGfdpCe8oU85tRFY
+# F/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6SPDgohIbZpp0yt5LHucOY67m1O+Skjqe
+# PdwA5EUlibaaRBkrfsCUtNJhbesz2cXfSwQAzH0clcOP9yGyshG3u3/y1YxwLEFg
+# qrFjGESVGnZifvaAsPvoZKYz0YkH4b235kOkGLimdwHhD5QMIR2yVCkliWzlDlJR
+# R3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ6zHFynIWIgnffEx1P2PsIV/EIFFrb7Gr
+# hotPwtZFX50g/KEexcCPorF+CiaZ9eRpL5gdLfXZqbId5RsCAwEAAaOCATowggE2
+# MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFOzX44LScV1kTN8uZz/nupiuHA9P
+# MB8GA1UdIwQYMBaAFEXroq/0ksuCMS1Ri6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIB
+# hjB5BggrBgEFBQcBAQRtMGswJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2lj
+# ZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29t
+# L0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENBLmNydDBFBgNVHR8EPjA8MDqgOKA2hjRo
+# dHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
+# Y3JsMBEGA1UdIAQKMAgwBgYEVR0gADANBgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV
+# 5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVeqRq7IviHGmlUIu2kiHdtvRoU9BNKei8t
+# tzjv9P+Aufih9/Jy3iS8UgPITtAq3votVs/59PesMHqai7Je1M/RQ0SbQyHrlnKh
+# SLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO
+# 7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJaISfb8rbII01YBwCA8sgsKxYoA5AY8WY
+# IsGyWfVVa88nq2x2zm8jLfR+cWojayL/ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3
+# AamfV6peKOK5lDGCA4YwggOCAgEBMHcwYzELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
+# DkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2VydCBUcnVzdGVkIEc0IFJT
+# QTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQQIQC65mvFq6f5WHxvnpBOMzBDAN
+# BglghkgBZQMEAgIFAKCB4TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJ
+# KoZIhvcNAQkFMQ8XDTI0MTExNDA4MTAxNFowKwYLKoZIhvcNAQkQAgwxHDAaMBgw
+# FgQU29OF7mLb0j575PZxSFCHJNWGW0UwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQg
+# dnafqPJjLx9DCzojMK7WVnX+13PbBdZluQWTmEOPmtswPwYJKoZIhvcNAQkEMTIE
+# MLSuwVfDTTxGRvQDSMPd2+0MVSXxpGfKUs40ukSpQs4/eLeO2XQEhTpctyEgFpFt
+# azANBgkqhkiG9w0BAQEFAASCAgB+4LvAhfMztRN8LZYT8X6pmy3w3t/VEr0A4bQn
+# PdGGSF0PBuLtV2gBWhTmXQbeOndqmBVy4I4nW4ZVJd7VFSTY81XUe+pndF/XDwqJ
+# D3KOB7V+cS3HSo0rwGJgW630xxf0NXL8LyCM3lR/D2z2I0k8ot3xMXOzAT6BFH0D
+# p5dPIGfERo+3KnrLci8Ar7eK+WqlOqvXMAEBAMc5WEg1mDGCe57wk7eDe6fTSHUk
+# P2bkrgcXSuqDfN0Zj9X3VmlY619qraQLNvIVwQs5BI5dqotirhDfglCUrDiZNMaJ
+# G/KQtGqEIFviHnPRkmlpRFw5HaRjsS7IT5UR4xDWaBaIqmdjNXNppbxK9WTq8tti
+# kyIuFAOKQpTDPrPWm0V51mpxPq6kJCw5e3GsTSKZShq375ZqyZkE+J5JbbOZ7mMc
+# 6mQM7fjdTMsljkE38vEQLAJzAUXmNA2iZOdE7phad86XjC+aJNGu1wzz+Bz5n/l0
+# +ptNDIf924WfoEp/pl3lMYe3g54r2rJXGA0JQYNdsIDgiHzLcYcAJNoAyfD1DwS8
+# oL4QtGbYeEhzykaJNeIXv86fI4Q4xRmaUpup+xnJqUzisKBKwyYKOHxVkkIHTTZw
+# T90/VoqI4STWJpPwBItXb8mBhQsmEpwK2y8Cep2ToEqvgK9Wz3h0QQIWKTxXXJWg
+# owbtGg==
 # SIG # End signature block
