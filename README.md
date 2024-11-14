@@ -186,7 +186,7 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 
 <!-- markdown variables links -->
 
-[GL-master-psgallery-badge]: https://img.shields.io/powershellgallery/dt/HPEGreenLake?label=PSGallery
+[GL-master-psgallery-badge]: https://img.shields.io/powershellgallery/dt/HPECOMCmdlets?label=PSGallery
 [GL-master-psgallery-link]: https://www.powershellgallery.com/packages/HPECOMCmdlets
 
 
