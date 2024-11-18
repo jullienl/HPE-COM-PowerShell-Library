@@ -27,7 +27,7 @@ THE SOFTWARE.
 #>
 
 # Set PowerShell library version
-[Version]$ModuleVersion = '1.0.8'
+[Version]$ModuleVersion = '1.0.9'
 
 
 
@@ -262,6 +262,7 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 [String]$LicenseDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/devices'
 [String]$AddLicenseDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/customers/license'
 [String]$AddLicenseServicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/'
+[String]$RemoveLicensesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/unclaim'
 [String]$LicenseDevicesProductTypeDeviceUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license?product_type=DEVICE'
 [String]$ServiceSubscriptionsListUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/service-subscriptions'
 [String]$AutoLicenseDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/autolicense'
@@ -2831,6 +2832,30 @@ To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/
 
         # Changing default TLS to 1.2 from 1.0
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+        # Cleaning up any HPECOMCmdlets variables in the session
+
+        # Remove $HPEGreenLakeSession global variable
+        if ($HPEGreenLakeSession) {
+
+            "[{0}] Global variable `$HPEGreenLakeSession detected in session" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            Remove-Variable HPEGreenLakeSession -Scope Global
+            "[{0}] Global variable `$HPEGreenLakeSession removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        }
+        
+        # Clear all HPEGL global variables
+        if (Get-Variable -Scope global | Where-Object name -match HPEGL) {
+
+            Get-Variable -Scope global | Where-Object name -match HPEGL | Remove-Variable -Force -Scope Global
+            "[{0}] All global variable starting with HPEGL have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        }
+        
+        # Clear all HPECOM global variables
+        if (Get-Variable -Scope global | Where-Object name -match HPECOM) {
+
+            Get-Variable -Scope global | Where-Object name -match HPECOM | Remove-Variable -Force -Scope Global
+            "[{0}] All global variable starting with HPECOM have been removed" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        }
         
         "[{0}] About to test DNS resolution and TCP connection with all HPE GreenLake endpoints" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
@@ -2882,15 +2907,18 @@ To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/
         
         Test-EndpointTCPConnection $OnepassServer
 
-        # Credential decryption
+        # 8 - Decrypt credential password
+
         $Username = $Credential.UserName
         $decryptPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Password))
         
-        # Get Compute GMT time difference in hours
+        # 9 - Get Compute GMT time difference in hours
+
         $GMTTimeDifferenceInHour = Get-GMTTimeDifferenceInHours
-        
-        # Set a global variable
         $Global:HPEGLGMTTimeDifferenceInHour = $GMTTimeDifferenceInHour 
+
+        "[{0}] Global varibale `$HPEGLGMTTimeDifferenceInHour set to store compute time difference in hours with the GMT timezone" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
 
         
     }
@@ -3102,7 +3130,8 @@ To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/
     
         # Capture HPE Onepass SID from response1 headers Set-Cookies
 
-        If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+        If ( $True -eq  $POSHv5) {
+
             if ($response1.StatusCode -eq 302) {
 
                 # Retrieve the 'Location' header value
@@ -3162,7 +3191,7 @@ To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/
         }
    
 
-        If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+        If ( $True -eq  $POSHv5) {
             if ($response2.StatusCode -eq 302) {
                 $redirecturl2 = $response2.Headers.Location
             }
@@ -3205,7 +3234,7 @@ To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/
                 # $PSCmdlet.ThrowTerminatingError($_)
             }
    
-            If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+            If ( $True -eq  $POSHv5) {
                 if ($response3.StatusCode -eq 302) {
                     $redirecturl3 = $response3.Headers.Location
 
@@ -4840,7 +4869,7 @@ When a new valid connection is established with a workspace, ${Global:HPEGreenLa
         #endregion
 
 
-        #Region - Get HPE GreenLake schema meta data to get HPE GL supported timezones and countries at https://onepass-enduserservice.it.hpe.com/v2-get-user-schema-metadata
+        #Region - Get HPE GreenLake schema meta data to get supported timezones and countries at https://onepass-enduserservice.it.hpe.com/v2-get-user-schema-metadata
 
         if (-not $Force) {
             
@@ -4883,8 +4912,8 @@ When a new valid connection is established with a workspace, ${Global:HPEGreenLa
                 }
             }
     
-            # Register an argument completer for the Country parameter
-            Register-ArgumentCompleter -CommandName 'Set-HPEGLUserAccountDetails', 'New-HPEGLWorkspace', 'Set-HPEGLWorkspace', 'New-HPEGLLocation', 'Set-HPEGLLocation' -ParameterName Country -ScriptBlock {
+            # Register an argument completer for the Country parameter (removed 'New-HPEGLWorkspace' from the list of commands due to isse when no workspace exits)
+            Register-ArgumentCompleter -CommandName 'Set-HPEGLUserAccountDetails', 'Set-HPEGLWorkspace', 'New-HPEGLLocation', 'Set-HPEGLLocation' -ParameterName Country -ScriptBlock {
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
     
                 # Get all available country codes
@@ -38720,6 +38749,29 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         }
 
 
+        if (($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+
+            $POSHv5 = $True
+
+            # Adding type to trust self-signed iLO certificates 
+            add-type -TypeDefinition  @"
+            using System.Net;
+            using System.Security.Cryptography.X509Certificates;
+            public class TrustAllCertsPolicy : ICertificatePolicy {
+                public bool CheckValidationResult(
+                    ServicePoint srvPoint, X509Certificate certificate,
+                    WebRequest request, int certificateProblem) {
+                    return true;
+                }
+            }
+"@
+            
+            [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+
+        }
+        else {
+            $POSHv5 = $False
+        }
     
     }
 
@@ -38777,25 +38829,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
 
         # Connection to iLO
 
-        If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
-
-            add-type -TypeDefinition  @"
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
-public class TrustAllCertsPolicy : ICertificatePolicy {
-    public bool CheckValidationResult(
-        ServicePoint srvPoint, X509Certificate certificate,
-        WebRequest request, int certificateProblem) {
-        return true;
-    }
-}
-"@
-
-            [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
-
-        }
-
-
+      
         $iLOBaseURL = "https://$IloIP"
             
         $AddURI = "/redfish/v1/SessionService/Sessions/"
@@ -38817,7 +38851,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 
         try {
 
-            If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+            If ( $True -eq  $POSHv5) {
     
                 $response = Invoke-WebRequest -Method POST -Uri $url -Body $Body -Headers $Headers -ContentType "Application/json" -ErrorAction Stop
 
@@ -38861,7 +38895,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 
         try {
 
-            If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+            If ( $True -eq  $POSHv5) {
 
                 $Manager = Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers
     
@@ -38900,7 +38934,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 
             try {
                 
-                If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+                If ( $True -eq  $POSHv5) {
     
                     $System = Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers
     
@@ -39014,7 +39048,7 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
 
                 try {
         
-                    If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+                    If ( $True -eq  $POSHv5) {
 
                         $Response = Invoke-RestMethod -Method PATCH -Uri $url -Headers $Headers -Body $Body -ErrorAction Stop
 
@@ -39091,7 +39125,6 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
             "[{0}] '{1}' -- iLO '{2}' - Body content: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $Body | Write-Verbose
     
             
-            
             try {
                 
                 $counter = 1
@@ -39099,85 +39132,70 @@ public class TrustAllCertsPolicy : ICertificatePolicy {
                 # Define the spinning cursor characters
                 $spinner = @('|', '/', '-', '\')
                 
-                # Use padding to ensure the entire line is overwritten
-                $clearLine = " " * 150
+                # Get the current width of the terminal
+                $terminalWidth = (Get-Host).UI.RawUI.WindowSize.Width
+                
+                # Create a clear line string based on the terminal width to ensure the entire line is overwritten
+                $clearLine = " " * ($terminalWidth - 1)
 
-                If ( ($PSVersionTable.PSVersion.ToString()).Split('.')[0] -eq 5) {
+                If ( $True -eq  $POSHv5) {
 
                     $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
-
-                    if ($CloudConnectStatus -ne "Connected") {
-                        
-                        do {
-                            
-                            $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop 
-                            
-                            $subcounter = 0
-                            
-                            do {
-                                
-                                $subcounter++
-                                
-                                $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
-                                "[{0}] '{1}' -- iLO '{2}' - Connection to COM status: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $CloudConnectStatus | Write-Verbose
-                                
-                                # Calculate the current spinner character
-                                $spinnerChar = $spinner[$subcounter % $spinner.Length]
-                                # Display the spinner character, replacing the previous content
-                                "`r$clearLine`r[{0}] -- iLO '{1}' - Connection to COM status: '{2}'  $spinnerChar  " -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -NoNewline -ForegroundColor Yellow
-                                
-                                sleep -Milliseconds 500
-                                
-                            } while ($CloudConnectStatus -eq "ConnectionInProgress")
-                            
-                            # Increment counter
-                            $counter++
-                            
-                        } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)                        
-
-                    }
-                    else {
-                        $msg = "AlreadyConnected"
-                    }
                 }
                 else {
 
                     $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
+                }
 
-                    if ($CloudConnectStatus -ne "Connected") {
+                if ($CloudConnectStatus -ne "Connected") {
+                    
+                    do {
+
+                        If ($True -eq  $POSHv5) {
+                            $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop 
+                        }
+                        else {
+                            $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop -SkipCertificateCheck
+                        }
+                        
+                        $subcounter = 0
                         
                         do {
-                        
-                            $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop -SkipCertificateCheck
                             
-                            $subcounter = 0
+                            $subcounter++
                             
-                            do {
-                                
-                                $subcounter++
-                                
-                                $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
-                                "[{0}] '{1}' -- iLO '{2}' - Connection to COM status: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $CloudConnectStatus | Write-Verbose
-                                
-                                # Calculate the current spinner character
-                                $spinnerChar = $spinner[$subcounter % $spinner.Length]
-                                # Display the spinner character, replacing the previous content
-                                "`r$clearLine`r[{0}] -- iLO '{1}' - Connection to COM status: '{2}'  $spinnerChar  " -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -NoNewline -ForegroundColor Yellow
-                                
-                                sleep -Milliseconds 500
-                                
-                            } while ($CloudConnectStatus -eq "ConnectionInProgress")
-                            
-                            # Increment counter
-                            $counter++
-                        
-                        } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)
+                            If ( $True -eq  $POSHv5) {
 
-                    }
-                    else {
-                        $msg = "AlreadyConnected"
-                    }
+                                $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
+                            }
+                            else {
+                                $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
+
+                            }
+
+                            "[{0}] '{1}' -- iLO '{2}' - Connection to COM status: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $CloudConnectStatus | Write-Verbose
+                            
+                            # Calculate the current spinner character
+                            $spinnerChar = $spinner[$subcounter % $spinner.Length]
+
+                            # Display the spinner character, replacing the previous content
+                            $output = "[{0}] -- iLO '{1}' - Connection to COM status: '{2}'  {3}" -f $SerialNumber, $IloIP, $CloudConnectStatus, $spinnerChar
+                            Write-Host "`r$clearLine`r$output" -NoNewline -ForegroundColor Yellow
+
+                            sleep -Milliseconds 500
+                            
+                        } while ($CloudConnectStatus -eq "ConnectionInProgress")
+                        
+                        # Increment counter
+                        $counter++
+                        
+                    } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)                        
+
                 }
+                else {
+                    $msg = "AlreadyConnected"
+                }              
+          
                 
                 if ($iLOConnectiontoCOMRresponse) {
                     "[{0}] '{1}' -- iLO '{2}' - Raw response: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($iLOConnectiontoCOMRresponse | Out-String) | Write-Verbose
@@ -46260,7 +46278,7 @@ Function Get-HPEGLDeviceSubscription {
     This Cmdlet returns a collection of device subscriptions or a filtered collection based on optional parameters.
     Subscriptions are necessary for assigning them to devices using the 'Set-HPEGLDeviceSubscription' Cmdlet.
 
-    .PARAMETER Key
+    .PARAMETER SubscriptionKey
     Specifies the subscription key to display.
 
     .PARAMETER ShowWithAvailableQuantity 
@@ -46303,7 +46321,7 @@ Function Get-HPEGLDeviceSubscription {
     [CmdletBinding(DefaultParameterSetName = 'NotExpired')]
     Param( 
 
-        [String]$Key,
+        [String]$SubscriptionKey,
 
         [Parameter (ParameterSetName = 'Expired')]
         [Parameter (ParameterSetName = 'NotExpired')]
@@ -46402,8 +46420,8 @@ Function Get-HPEGLDeviceSubscription {
 
             $ReturnData = $ReturnData | Sort-Object { $_.subscription_key }
 
-            if ($Key) {
-                $ReturnData = $ReturnData | Where-Object subscription_key -eq $Key
+            if ($SubscriptionKey) {
+                $ReturnData = $ReturnData | Where-Object subscription_key -eq $SubscriptionKey
             }
     
             return $ReturnData 
@@ -46712,7 +46730,6 @@ Function New-HPEGLServiceSubscription {
 }
 
 
-<# NOT SUPPORTED
 Function Remove-HPEGLSubscription {
     <#
     .SYNOPSIS
@@ -46731,24 +46748,31 @@ Function Remove-HPEGLSubscription {
     Remove-HPEGLServiceSubscription -SubscriptionKey 'Kxxxxxxxxxx'
 
     Removes the service subscription key 'Kxxxxxxxxxx'.
+
+    .EXAMPLE
+    Get-HPEGLDeviceSubscription | Remove-HPEGLSubscription
+
+    Removes all subscriptions from the workspace.
         
     .INPUTS
-    None. You cannot pipe objects to this Cmdlet.
+    System.Collections.ArrayList
+        A list of subscriptions retrieved from 'Get-HPEGLDeviceSubscription'. 
 
     .OUTPUTS
     System.Collections.ArrayList
         A custom status object or array of objects containing the following PsCustomObject keys:  
-        * SubscriptionKey - The subscription key attempted to be added 
-        * Status - The status of the addition attempt (Failed for HTTP error return; Complete if addition is successful) 
+        * SubscriptionKey - The subscription key attempted to be removed 
+        * Status - The status of the removal attempt (Failed for HTTP error return; Complete if addition is successful) 
         * Details - More information about the status 
         * Exception - Information about any exceptions generated during the operation.
     
-
+    #>
 
     [CmdletBinding()]
     Param( 
 
-        [Parameter (Mandatory, ParameterSetName = 'Default')]
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [alias('subscription_key')]
         [String]$SubscriptionKey,
         
         [Switch]$WhatIf
@@ -46761,7 +46785,7 @@ Function Remove-HPEGLSubscription {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $AddDevicesSubscriptionStatus = [System.Collections.ArrayList]::new()
+        $RemoveDevicesSubscriptionStatus = [System.Collections.ArrayList]::new()
         
     }
 
@@ -46805,13 +46829,21 @@ Function Remove-HPEGLSubscription {
         }
         else {
            
-            $ResourceId = $SubscriptionKeyFound.resource_id
+            $SubscriptionKeyId = $SubscriptionKeyFound.subscription_key
 
-            $Uri = $AddLicenseDevicesUri + "/" + $ResourceId
+            $Uri = $RemoveLicensesUri 
 
-            # Add device subscription
+            
+            # Build payload
+            $payload = [PSCustomObject]@{
+                subscription_keys = @($SubscriptionKeyId)                
+
+            } | ConvertTo-Json 
+
+
+            
             try {
-                Invoke-HPEGLWebRequest -Uri $Uri -method 'DELETE' -WhatIfBoolean $WhatIf | out-Null
+                Invoke-HPEGLWebRequest -Uri $Uri -method 'POST' -Body $payload -WhatIfBoolean $WhatIf | out-Null
 
                 if (-not $WhatIf) {
 
@@ -46832,7 +46864,7 @@ Function Remove-HPEGLSubscription {
             }   
         } 
 
-        [void] $AddDevicesSubscriptionStatus.add($objStatus)
+        [void] $RemoveDevicesSubscriptionStatus.add($objStatus)
 
   
     }
@@ -46840,21 +46872,19 @@ Function Remove-HPEGLSubscription {
 
         if (-not $WhatIf) {
 
-            if ($AddDevicesSubscriptionStatus | Where-Object { $_.Status -eq "Failed" }) {
+            if ($RemoveDevicesSubscriptionStatus | Where-Object { $_.Status -eq "Failed" }) {
   
-                write-error "One or more device subscriptions could not be removed!"
+                write-error "One or more subscriptions could not be removed!"
           
             }
 
-            Return $AddDevicesSubscriptionStatus
+            Return $RemoveDevicesSubscriptionStatus
         }
 
 
     }
       
 }
-
-#>
 
 
 Function Get-HPEGLServiceSubscription {
@@ -46864,6 +46894,9 @@ Function Get-HPEGLServiceSubscription {
 
     .DESCRIPTION
     This Cmdlet returns a collection of service subscriptions or a filtered collection based on optional parameters. 
+
+    .PARAMETER SubscriptionKey
+    Specifies the subscription key to display.
 
     .PARAMETER ShowWithAvailableQuantity 
     Optional parameter that displays only the subscriptions with available quantity.
@@ -46897,6 +46930,8 @@ Function Get-HPEGLServiceSubscription {
 
     [CmdletBinding(DefaultParameterSetName = 'NotExpired')]
     Param( 
+
+        [String]$SubscriptionKey,
        
         [Parameter (ParameterSetName = 'Expired')]
         [Parameter (ParameterSetName = 'NotExpired')]
@@ -46969,6 +47004,10 @@ Function Get-HPEGLServiceSubscription {
             $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "License.Service"    
 
             $ReturnData = $ReturnData | Sort-Object { $_.subscription_key }
+
+            if ($SubscriptionKey) {
+                $ReturnData = $ReturnData | Where-Object subscription_key -eq $SubscriptionKey
+            }
     
             return $ReturnData 
         }
@@ -47984,7 +48023,7 @@ Function Set-HPEGLDeviceSubscription {
 
         try {
             
-            $subscriptionKeyFound = Get-HPEGLDeviceSubscription -Key $SubscriptionKey -ShowWithAvailableQuantity -ShowValid
+            $subscriptionKeyFound = Get-HPEGLDeviceSubscription -SubscriptionKey $SubscriptionKey -ShowWithAvailableQuantity -ShowValid
 
             
         }
@@ -54124,15 +54163,8 @@ Function New-HPEGLWorkspace {
         [String]$PostalCode,
         
         [Parameter (Mandatory)]
-        # Argument completer reqistered in Connect-HPEGL 
-        [ValidateScript({ 
-                if ($HPEGLSchemaMetadata.definitions.custom.properties.hpeCountryCode.oneOf | Where-Object title -eq $_) {
-                    $True
-                }
-                else {
-                    Throw "'$_' is not a valid country name!"
-                }
-            })]
+        # Cannot use argument completer - pb when no workspace exists as the meta data $HPEGLSchemaMetadata are retrieved from onepass which requires a session cookie thus a workspace session
+        [ValidateSet("Afghanistan", "Aland Islands", "Albania", "Algeria", "American Samoa", "Andorra", "Angola", "Anguilla", "Antarctica", "Antigua and Barbuda", "Argentina", "Armenia", "Aruba", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bermuda", "Bhutan", "Bolivia", "Bonaire, Sint Eustatius and Saba", "Bosnia and Herzegovina", "Botswana", "Bouvet Island", "Brazil", "British Indian Ocean Territory", "British Virgin Islands", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cambodia", "Cameroon", "Canada", "Cape Verde", "Cayman Islands", "Central African Republic", "Chad", "Chile", "China", "Christmas Island", "Cocos Islands", "Colombia", "Comoros", "Cook Islands", "Costa Rica", "Croatia", "Cuba", "Curacao", "Cyprus", "Czech Republic", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "East Timor", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Ethiopia", "Falkland Islands", "Faroe Islands", "Fiji", "Finland", "France", "French Polynesia", "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Gibraltar", "Greece", "Greenland", "Grenada", "Guadeloupe", "Guam", "Guatemala", "Guernsey", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Honduras", "Hong Kong", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Isle of Man", "Israel", "Italy", "Ivory Coast", "Jamaica", "Japan", "Jersey", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kosovo", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Macau", "Macedonia", "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Martinique", "Mauritania", "Mauritius", "Mayotte", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Montserrat", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "Netherlands Antilles", "New Caledonia", "New Zealand", "Nicaragua", "Niger", "Nigeria", "Niue", "North Korea", "Northern Mariana Islands", "Norway", "Oman", "Pakistan", "Palau", "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Pitcairn", "Poland", "Portugal", "Puerto Rico", "Qatar", "Republic of the Congo", "Reunion", "Romania", "Russia", "Rwanda", "Saint Barthelemy", "Saint Helena", "Saint Kitts and Nevis", "Saint Lucia", "Saint Martin", "Saint Pierre and Miquelon", "Saint Vincent and the Grenadine", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Sint Maarten", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Georgia and the South Sandwich Islands", "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Svalbard and Jan Mayen", "Swaziland", "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan", "Tanzania", "Thailand", "The French Republic", "The Territory of Norfolk Island", "Togo", "Tokelau", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Turks and Caicos Islands", "Tuvalu", "U.S. Virgin Islands", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "United States Minor Outlying Islands", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican", "Venezuela", "Vietnam", "Wallis and Futuna", "Western Sahara", "Yemen", "Zambia", "Zimbabwe")]
         [String]$Country,
 
         [String]$PhoneNumber,
@@ -54198,14 +54230,263 @@ Function New-HPEGLWorkspace {
                 $objStatus.Status = "Warning"
                 $objStatus.Details = "This workspace already exists!"
             }
-
             
         }
         else {
 
-            # $User = Get-HPEGLUser -Email $HPEGreenLakeSession.username
-
-            $CountryCode = $HPEGLSchemaMetadata.definitions.custom.properties.hpeCountryCode.oneOf | Where-Object title -eq $Country | ForEach-Object const
+            # Set country code
+            switch ($Country) {
+                "Afghanistan" { $CountryCode = "AF" }
+                "Aland Islands" { $CountryCode = "AX" }
+                "Albania" { $CountryCode = "AL" }
+                "Algeria" { $CountryCode = "DZ" }
+                "American Samoa" { $CountryCode = "AS" }
+                "Andorra" { $CountryCode = "AD" }
+                "Angola" { $CountryCode = "AO" }
+                "Anguilla" { $CountryCode = "AI" }
+                "Antarctica" { $CountryCode = "AQ" }
+                "Antigua and Barbuda" { $CountryCode = "AG" }
+                "Argentina" { $CountryCode = "AR" }
+                "Armenia" { $CountryCode = "AM" }
+                "Aruba" { $CountryCode = "AW" }
+                "Australia" { $CountryCode = "AU" }
+                "Austria" { $CountryCode = "AT" }
+                "Azerbaijan" { $CountryCode = "AZ" }
+                "Bahamas" { $CountryCode = "BS" }
+                "Bahrain" { $CountryCode = "BH" }
+                "Bangladesh" { $CountryCode = "BD" }
+                "Barbados" { $CountryCode = "BB" }
+                "Belarus" { $CountryCode = "BY" }
+                "Belgium" { $CountryCode = "BE" }
+                "Belize" { $CountryCode = "BZ" }
+                "Benin" { $CountryCode = "BJ" }
+                "Bermuda" { $CountryCode = "BM" }
+                "Bhutan" { $CountryCode = "BT" }
+                "Bolivia" { $CountryCode = "BO" }
+                "Bonaire, Sint Eustatius and Saba" { $CountryCode = "BQ" }
+                "Bosnia and Herzegovina" { $CountryCode = "BA" }
+                "Botswana" { $CountryCode = "BW" }
+                "Bouvet Island" { $CountryCode = "BV" }
+                "Brazil" { $CountryCode = "BR" }
+                "British Indian Ocean Territory" { $CountryCode = "IO" }
+                "British Virgin Islands" { $CountryCode = "VG" }
+                "Brunei" { $CountryCode = "BN" }
+                "Bulgaria" { $CountryCode = "BG" }
+                "Burkina Faso" { $CountryCode = "BF" }
+                "Burundi" { $CountryCode = "BI" }
+                "Cambodia" { $CountryCode = "KH" }
+                "Cameroon" { $CountryCode = "CM" }
+                "Canada" { $CountryCode = "CA" }
+                "Cape Verde" { $CountryCode = "CV" }
+                "Cayman Islands" { $CountryCode = "KY" }
+                "Central African Republic" { $CountryCode = "CF" }
+                "Chad" { $CountryCode = "TD" }
+                "Chile" { $CountryCode = "CL" }
+                "China" { $CountryCode = "CN" }
+                "Christmas Island" { $CountryCode = "CX" }
+                "Cocos Islands" { $CountryCode = "CC" }
+                "Colombia" { $CountryCode = "CO" }
+                "Comoros" { $CountryCode = "KM" }
+                "Cook Islands" { $CountryCode = "CK" }
+                "Costa Rica" { $CountryCode = "CR" }
+                "Croatia" { $CountryCode = "HR" }
+                "Cuba" { $CountryCode = "CU" }
+                "Curacao" { $CountryCode = "CW" }
+                "Cyprus" { $CountryCode = "CY" }
+                "Czech Republic" { $CountryCode = "CZ" }
+                "Democratic Republic of the Congo" { $CountryCode = "CD" }
+                "Denmark" { $CountryCode = "DK" }
+                "Djibouti" { $CountryCode = "DJ" }
+                "Dominica" { $CountryCode = "DM" }
+                "Dominican Republic" { $CountryCode = "DO" }
+                "East Timor" { $CountryCode = "TL" }
+                "Ecuador" { $CountryCode = "EC" }
+                "Egypt" { $CountryCode = "EG" }
+                "El Salvador" { $CountryCode = "SV" }
+                "Equatorial Guinea" { $CountryCode = "GQ" }
+                "Eritrea" { $CountryCode = "ER" }
+                "Estonia" { $CountryCode = "EE" }
+                "Ethiopia" { $CountryCode = "ET" }
+                "Falkland Islands" { $CountryCode = "FK" }
+                "Faroe Islands" { $CountryCode = "FO" }
+                "Fiji" { $CountryCode = "FJ" }
+                "Finland" { $CountryCode = "FI" }
+                "France" { $CountryCode = "FR" }
+                "French Polynesia" { $CountryCode = "PF" }
+                "Gabon" { $CountryCode = "GA" }
+                "Gambia" { $CountryCode = "GM" }
+                "Georgia" { $CountryCode = "GE" }
+                "Germany" { $CountryCode = "DE" }
+                "Ghana" { $CountryCode = "GH" }
+                "Gibraltar" { $CountryCode = "GI" }
+                "Greece" { $CountryCode = "GR" }
+                "Greenland" { $CountryCode = "GL" }
+                "Grenada" { $CountryCode = "GD" }
+                "Guadeloupe" { $CountryCode = "GP" }
+                "Guam" { $CountryCode = "GU" }
+                "Guatemala" { $CountryCode = "GT" }
+                "Guernsey" { $CountryCode = "GG" }
+                "Guinea" { $CountryCode = "GN" }
+                "Guinea-Bissau" { $CountryCode = "GW" }
+                "Guyana" { $CountryCode = "GY" }
+                "Haiti" { $CountryCode = "HT" }
+                "Honduras" { $CountryCode = "HN" }
+                "Hong Kong" { $CountryCode = "HK" }
+                "Hungary" { $CountryCode = "HU" }
+                "Iceland" { $CountryCode = "IS" }
+                "India" { $CountryCode = "IN" }
+                "Indonesia" { $CountryCode = "ID" }
+                "Iran" { $CountryCode = "IR" }
+                "Iraq" { $CountryCode = "IQ" }
+                "Ireland" { $CountryCode = "IE" }
+                "Isle of Man" { $CountryCode = "IM" }
+                "Israel" { $CountryCode = "IL" }
+                "Italy" { $CountryCode = "IT" }
+                "Ivory Coast" { $CountryCode = "CI" }
+                "Jamaica" { $CountryCode = "JM" }
+                "Japan" { $CountryCode = "JP" }
+                "Jersey" { $CountryCode = "JE" }
+                "Jordan" { $CountryCode = "JO" }
+                "Kazakhstan" { $CountryCode = "KZ" }
+                "Kenya" { $CountryCode = "KE" }
+                "Kiribati" { $CountryCode = "KI" }
+                "Kosovo" { $CountryCode = "XK" }
+                "Kuwait" { $CountryCode = "KW" }
+                "Kyrgyzstan" { $CountryCode = "KG" }
+                "Laos" { $CountryCode = "LA" }
+                "Latvia" { $CountryCode = "LV" }
+                "Lebanon" { $CountryCode = "LB" }
+                "Lesotho" { $CountryCode = "LS" }
+                "Liberia" { $CountryCode = "LR" }
+                "Libya" { $CountryCode = "LY" }
+                "Liechtenstein" { $CountryCode = "LI" }
+                "Lithuania" { $CountryCode = "LT" }
+                "Luxembourg" { $CountryCode = "LU" }
+                "Macau" { $CountryCode = "MO" }
+                "Macedonia" { $CountryCode = "MK" }
+                "Madagascar" { $CountryCode = "MG" }
+                "Malawi" { $CountryCode = "MW" }
+                "Malaysia" { $CountryCode = "MY" }
+                "Maldives" { $CountryCode = "MV" }
+                "Mali" { $CountryCode = "ML" }
+                "Malta" { $CountryCode = "MT" }
+                "Marshall Islands" { $CountryCode = "MH" }
+                "Martinique" { $CountryCode = "MQ" }
+                "Mauritania" { $CountryCode = "MR" }
+                "Mauritius" { $CountryCode = "MU" }
+                "Mayotte" { $CountryCode = "YT" }
+                "Mexico" { $CountryCode = "MX" }
+                "Micronesia" { $CountryCode = "FM" }
+                "Moldova" { $CountryCode = "MD" }
+                "Monaco" { $CountryCode = "MC" }
+                "Mongolia" { $CountryCode = "MN" }
+                "Montenegro" { $CountryCode = "ME" }
+                "Montserrat" { $CountryCode = "MS" }
+                "Morocco" { $CountryCode = "MA" }
+                "Mozambique" { $CountryCode = "MZ" }
+                "Myanmar" { $CountryCode = "MM" }
+                "Namibia" { $CountryCode = "NA" }
+                "Nauru" { $CountryCode = "NR" }
+                "Nepal" { $CountryCode = "NP" }
+                "Netherlands" { $CountryCode = "NL" }
+                "Netherlands Antilles" { $CountryCode = "AN" }
+                "New Caledonia" { $CountryCode = "NC" }
+                "New Zealand" { $CountryCode = "NZ" }
+                "Nicaragua" { $CountryCode = "NI" }
+                "Niger" { $CountryCode = "NE" }
+                "Nigeria" { $CountryCode = "NG" }
+                "Niue" { $CountryCode = "NU" }
+                "North Korea" { $CountryCode = "KP" }
+                "Northern Mariana Islands" { $CountryCode = "MP" }
+                "Norway" { $CountryCode = "NO" }
+                "Oman" { $CountryCode = "OM" }
+                "Pakistan" { $CountryCode = "PK" }
+                "Palau" { $CountryCode = "PW" }
+                "Palestine" { $CountryCode = "PS" }
+                "Panama" { $CountryCode = "PA" }
+                "Papua New Guinea" { $CountryCode = "PG" }
+                "Paraguay" { $CountryCode = "PY" }
+                "Peru" { $CountryCode = "PE" }
+                "Philippines" { $CountryCode = "PH" }
+                "Pitcairn" { $CountryCode = "PN" }
+                "Poland" { $CountryCode = "PL" }
+                "Portugal" { $CountryCode = "PT" }
+                "Puerto Rico" { $CountryCode = "PR" }
+                "Qatar" { $CountryCode = "QA" }
+                "Republic of the Congo" { $CountryCode = "CG" }
+                "Reunion" { $CountryCode = "RE" }
+                "Romania" { $CountryCode = "RO" }
+                "Russia" { $CountryCode = "RU" }
+                "Rwanda" { $CountryCode = "RW" }
+                "Saint Barthelemy" { $CountryCode = "BL" }
+                "Saint Helena" { $CountryCode = "SH" }
+                "Saint Kitts and Nevis" { $CountryCode = "KN" }
+                "Saint Lucia" { $CountryCode = "LC" }
+                "Saint Martin" { $CountryCode = "MF" }
+                "Saint Pierre and Miquelon" { $CountryCode = "PM" }
+                "Saint Vincent and the Grenadine" { $CountryCode = "VC" }
+                "Samoa" { $CountryCode = "WS" }
+                "San Marino" { $CountryCode = "SM" }
+                "Sao Tome and Principe" { $CountryCode = "ST" }
+                "Saudi Arabia" { $CountryCode = "SA" }
+                "Senegal" { $CountryCode = "SN" }
+                "Serbia" { $CountryCode = "RS" }
+                "Seychelles" { $CountryCode = "SC" }
+                "Sierra Leone" { $CountryCode = "SL" }
+                "Singapore" { $CountryCode = "SG" }
+                "Sint Maarten" { $CountryCode = "SX" }
+                "Slovakia" { $CountryCode = "SK" }
+                "Slovenia" { $CountryCode = "SI" }
+                "Solomon Islands" { $CountryCode = "SB" }
+                "Somalia" { $CountryCode = "SO" }
+                "South Africa" { $CountryCode = "ZA" }
+                "South Georgia and the South Sandwich Islands" { $CountryCode = "GS" }
+                "South Korea" { $CountryCode = "KR" }
+                "South Sudan" { $CountryCode = "SS" }
+                "Spain" { $CountryCode = "ES" }
+                "Sri Lanka" { $CountryCode = "LK" }
+                "Sudan" { $CountryCode = "SD" }
+                "Suriname" { $CountryCode = "SR" }
+                "Svalbard and Jan Mayen" { $CountryCode = "SJ" }
+                "Swaziland" { $CountryCode = "SZ" }
+                "Sweden" { $CountryCode = "SE" }
+                "Switzerland" { $CountryCode = "CH" }
+                "Syria" { $CountryCode = "SY" }
+                "Taiwan" { $CountryCode = "TW" }
+                "Tajikistan" { $CountryCode = "TJ" }
+                "Tanzania" { $CountryCode = "TZ" }
+                "Thailand" { $CountryCode = "TH" }
+                "The French Republic" { $CountryCode = "GF" }
+                "The Territory of Norfolk Island" { $CountryCode = "NF" }
+                "Togo" { $CountryCode = "TG" }
+                "Tokelau" { $CountryCode = "TK" }
+                "Tonga" { $CountryCode = "TO" }
+                "Trinidad and Tobago" { $CountryCode = "TT" }
+                "Tunisia" { $CountryCode = "TN" }
+                "Turkey" { $CountryCode = "TR" }
+                "Turkmenistan" { $CountryCode = "TM" }
+                "Turks and Caicos Islands" { $CountryCode = "TC" }
+                "Tuvalu" { $CountryCode = "TV" }
+                "U.S. Virgin Islands" { $CountryCode = "VI" }
+                "Uganda" { $CountryCode = "UG" }
+                "Ukraine" { $CountryCode = "UA" }
+                "United Arab Emirates" { $CountryCode = "AE" }
+                "United Kingdom" { $CountryCode = "GB" }
+                "United States" { $CountryCode = "US" }
+                "United States Minor Outlying Islands" { $CountryCode = "UM" }
+                "Uruguay" { $CountryCode = "UY" }
+                "Uzbekistan" { $CountryCode = "UZ" }
+                "Vanuatu" { $CountryCode = "VU" }
+                "Vatican" { $CountryCode = "VA" }
+                "Venezuela" { $CountryCode = "VE" }
+                "Vietnam" { $CountryCode = "VN" }
+                "Wallis and Futuna" { $CountryCode = "WF" }
+                "Western Sahara" { $CountryCode = "EH" }
+                "Yemen" { $CountryCode = "YE" }
+                "Zambia" { $CountryCode = "ZM" }
+                "Zimbabwe" { $CountryCode = "ZW" }
+            }
+            
 
             if ($Type -eq "Managed Service Provider workspace") {
                 $WorkspaceType = "MSP"
@@ -54881,10 +55162,10 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 
 
 # SIG # Begin signature block
-# MIIsEAYJKoZIhvcNAQcCoIIsATCCK/0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIsEQYJKoZIhvcNAQcCoIIsAjCCK/4CAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBT6+FeF7EjNx2W
-# ndPNtCHWO35x/f/egQZFO6rVQrzuJKCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAQVoyMmVlVvMnq
+# RmJBorQ63P6LIVxMhNb2f+ARZcSUMaCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -54977,144 +55258,144 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 # lLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQ
 # ZH3pwWvqURR8AgQdULUvrxjUYbHHj95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWU
 # H3fTv1Y8Wdho698YADR7TNx8X8z2Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63
-# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2RwxghnwMIIZ7AIBATBpMFQx
+# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2RwxghnxMIIZ7QIBATBpMFQx
 # CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNVBAMT
 # IlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYCEQDzfDeB/ajwfQYd
 # ZdJTJuKyMA0GCWCGSAFlAwQCAQUAoHwwEAYKKwYBBAGCNwIBDDECMAAwGQYJKoZI
 # hvcNAQkDMQwGCisGAQQBgjcCAQQwHAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcC
-# ARUwLwYJKoZIhvcNAQkEMSIEIK18uYyw8RrKUGqHkR/xQuQdBl5LyxfdCd0oHIfh
-# IkA0MA0GCSqGSIb3DQEBAQUABIIBgE721pto+ATLVYvuq/ky1ZOraBbOMTv4yQkH
-# FA4lls5vs+L9J5hlszPmE6vA0W+RMP2KhAQdFkE6R+MjOYCEPI4VFKUghB21+t36
-# aaFcGwz5dXt1aERcC2Q/kNaaOSUm10h/42l/HfGvZnXYXJ/+shUUsM8LFT6ooJSO
-# txaCjoCoL/RHbzI1tbWXEhJbsBgJR+DVwpFmgLgN5K0TS//f1JsRs1CPPNXEVrf2
-# RKR8xbB+Fx9dpr0orqAELy0dhLkeqCbhni6ctB1YZ1nEdfq8DPJGI9GfYrg6jMj9
-# GzRSH2xgU/7/rybpN0VdUaxiksxkJPSkId8+hyuxc/dP2/voSg8wJXF4HICE2074
-# AD70aA0WXvw/pIatcagFHQHGD2qqNCrxxqVwnjuf+eWYbfy6kOIKrmjZ3zFJqphd
-# nGJ+3yC/TaHMcpIPDBbnL09+dAJLyy1mjMvPNgT1wTRwLorvSLsuQYNf6XlrwR+l
-# V517VMTwRE4Dh/52I5aRZBW+1/ZtcqGCF1owghdWBgorBgEEAYI3AwMBMYIXRjCC
-# F0IGCSqGSIb3DQEHAqCCFzMwghcvAgEDMQ8wDQYJYIZIAWUDBAICBQAwgYcGCyqG
-# SIb3DQEJEAEEoHgEdjB0AgEBBglghkgBhv1sBwEwQTANBglghkgBZQMEAgIFAAQw
-# pq4lMl5etc3ioAD+9oq5XFS7X9fcQz9LCV/kuzGedux+ce0Ggz6l+9Geql4NSzfA
-# AhBaoyEnkZGpD8P5mjeWNM4fGA8yMDI0MTExNDA4MTAxNFqgghMDMIIGvDCCBKSg
-# AwIBAgIQC65mvFq6f5WHxvnpBOMzBDANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQG
-# EwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0
-# IFRydXN0ZWQgRzQgUlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMB4XDTI0
-# MDkyNjAwMDAwMFoXDTM1MTEyNTIzNTk1OVowQjELMAkGA1UEBhMCVVMxETAPBgNV
-# BAoTCERpZ2lDZXJ0MSAwHgYDVQQDExdEaWdpQ2VydCBUaW1lc3RhbXAgMjAyNDCC
-# AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAL5qc5/2lSGrljC6W23mWaO1
-# 6P2RHxjEiDtqmeOlwf0KMCBDEr4IxHRGd7+L660x5XltSVhhK64zi9CeC9B6lUdX
-# M0s71EOcRe8+CEJp+3R2O8oo76EO7o5tLuslxdr9Qq82aKcpA9O//X6QE+AcaU/b
-# yaCagLD/GLoUb35SfWHh43rOH3bpLEx7pZ7avVnpUVmPvkxT8c2a2yC0WMp8hMu6
-# 0tZR0ChaV76Nhnj37DEYTX9ReNZ8hIOYe4jl7/r419CvEYVIrH6sN00yx49boUuu
-# mF9i2T8UuKGn9966fR5X6kgXj3o5WHhHVO+NBikDO0mlUh902wS/Eeh8F/UFaRp1
-# z5SnROHwSJ+QQRZ1fisD8UTVDSupWJNstVkiqLq+ISTdEjJKGjVfIcsgA4l9cbk8
-# Smlzddh4EfvFrpVNnes4c16Jidj5XiPVdsn5n10jxmGpxoMc6iPkoaDhi6JjHd5i
-# bfdp5uzIXp4P0wXkgNs+CO/CacBqU0R4k+8h6gYldp4FCMgrXdKWfM4N0u25OEAu
-# Ea3JyidxW48jwBqIJqImd93NRxvd1aepSeNeREXAu2xUDEW8aqzFQDYmr9ZONuc2
-# MhTMizchNULpUEoA6Vva7b1XCB+1rxvbKmLqfY/M/SdV6mwWTyeVy5Z/JkvMFpnQ
-# y5wR14GJcv6dQ4aEKOX5AgMBAAGjggGLMIIBhzAOBgNVHQ8BAf8EBAMCB4AwDAYD
-# VR0TAQH/BAIwADAWBgNVHSUBAf8EDDAKBggrBgEFBQcDCDAgBgNVHSAEGTAXMAgG
-# BmeBDAEEAjALBglghkgBhv1sBwEwHwYDVR0jBBgwFoAUuhbZbU2FL3MpdpovdYxq
-# II+eyG8wHQYDVR0OBBYEFJ9XLAN3DigVkGalY17uT5IfdqBbMFoGA1UdHwRTMFEw
-# T6BNoEuGSWh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRH
-# NFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcmwwgZAGCCsGAQUFBwEBBIGD
-# MIGAMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdpY2VydC5jb20wWAYIKwYB
-# BQUHMAKGTGh0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0
-# ZWRHNFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcnQwDQYJKoZIhvcNAQEL
-# BQADggIBAD2tHh92mVvjOIQSR9lDkfYR25tOCB3RKE/P09x7gUsmXqt40ouRl3lj
-# +8QioVYq3igpwrPvBmZdrlWBb0HvqT00nFSXgmUrDKNSQqGTdpjHsPy+LaalTW0q
-# VjvUBhcHzBMutB6HzeledbDCzFzUy34VarPnvIWrqVogK0qM8gJhh/+qDEAIdO/K
-# kYesLyTVOoJ4eTq7gj9UFAL1UruJKlTnCVaM2UeUUW/8z3fvjxhN6hdT98Vr2FYl
-# CS7Mbb4Hv5swO+aAXxWUm3WpByXtgVQxiBlTVYzqfLDbe9PpBKDBfk+rabTFDZXo
-# Uke7zPgtd7/fvWTlCs30VAGEsshJmLbJ6ZbQ/xll/HjO9JbNVekBv2Tgem+mLptR
-# 7yIrpaidRJXrI+UzB6vAlk/8a1u7cIqV0yef4uaZFORNekUgQHTqddmsPCEIYQP7
-# xGxZBIhdmm4bhYsVA6G2WgNFYagLDBzpmk9104WQzYuVNsxyoVLObhx3RugaEGru
-# +SojW4dHPoWrUhftNpFC5H7QEY7MhKRyrBe7ucykW7eaCuWBsBb4HOKRFVDcrZgd
-# waSIqMDiCLg4D+TPVgKx2EgEdeoHNHT9l3ZDBD+XgbF+23/zBjeCtxz+dL/9NWR6
-# P2eZRi7zcEO1xwcdcqJsyz/JceENc2Sg8h3KeFUCS7tpFk7CrDqkMIIGrjCCBJag
-# AwIBAgIQBzY3tyRUfNhHrP0oZipeWzANBgkqhkiG9w0BAQsFADBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwHhcNMjIw
-# MzIzMDAwMDAwWhcNMzcwMzIyMjM1OTU5WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UE
-# ChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0IFRydXN0ZWQgRzQg
-# UlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMIICIjANBgkqhkiG9w0BAQEF
-# AAOCAg8AMIICCgKCAgEAxoY1BkmzwT1ySVFVxyUDxPKRN6mXUaHW0oPRnkyibaCw
-# zIP5WvYRoUQVQl+kiPNo+n3znIkLf50fng8zH1ATCyZzlm34V6gCff1DtITaEfFz
-# sbPuK4CEiiIY3+vaPcQXf6sZKz5C3GeO6lE98NZW1OcoLevTsbV15x8GZY2UKdPZ
-# 7Gnf2ZCHRgB720RBidx8ald68Dd5n12sy+iEZLRS8nZH92GDGd1ftFQLIWhuNyG7
-# QKxfst5Kfc71ORJn7w6lY2zkpsUdzTYNXNXmG6jBZHRAp8ByxbpOH7G1WE15/teP
-# c5OsLDnipUjW8LAxE6lXKZYnLvWHpo9OdhVVJnCYJn+gGkcgQ+NDY4B7dW4nJZCY
-# OjgRs/b2nuY7W+yB3iIU2YIqx5K/oN7jPqJz+ucfWmyU8lKVEStYdEAoq3NDzt9K
-# oRxrOMUp88qqlnNCaJ+2RrOdOqPVA+C/8KI8ykLcGEh/FDTP0kyr75s9/g64ZCr6
-# dSgkQe1CvwWcZklSUPRR8zZJTYsg0ixXNXkrqPNFYLwjjVj33GHek/45wPmyMKVM
-# 1+mYSlg+0wOI/rOP015LdhJRk8mMDDtbiiKowSYI+RQQEgN9XyO7ZONj4KbhPvbC
-# dLI/Hgl27KtdRnXiYKNYCQEoAA6EVO7O6V3IXjASvUaetdN2udIOa5kM0jO0zbEC
-# AwEAAaOCAV0wggFZMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFLoW2W1N
-# hS9zKXaaL3WMaiCPnshvMB8GA1UdIwQYMBaAFOzX44LScV1kTN8uZz/nupiuHA9P
-# MA4GA1UdDwEB/wQEAwIBhjATBgNVHSUEDDAKBggrBgEFBQcDCDB3BggrBgEFBQcB
-# AQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggr
-# BgEFBQcwAoY1aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1
-# c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybDMuZGln
-# aWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAI
-# BgZngQwBBAIwCwYJYIZIAYb9bAcBMA0GCSqGSIb3DQEBCwUAA4ICAQB9WY7Ak7Zv
-# mKlEIgF+ZtbYIULhsBguEE0TzzBTzr8Y+8dQXeJLKftwig2qKWn8acHPHQfpPmDI
-# 2AvlXFvXbYf6hCAlNDFnzbYSlm/EUExiHQwIgqgWvalWzxVzjQEiJc6VaT9Hd/ty
-# dBTX/6tPiix6q4XNQ1/tYLaqT5Fmniye4Iqs5f2MvGQmh2ySvZ180HAKfO+ovHVP
-# ulr3qRCyXen/KFSJ8NWKcXZl2szwcqMj+sAngkSumScbqyQeJsG33irr9p6xeZmB
-# o1aGqwpFyd/EjaDnmPv7pp1yr8THwcFqcdnGE4AJxLafzYeHJLtPo0m5d2aR8XKc
-# 6UsCUqc3fpNTrDsdCEkPlM05et3/JWOZJyw9P2un8WbDQc1PtkCbISFA0LcTJM3c
-# HXg65J6t5TRxktcma+Q4c6umAU+9Pzt4rUyt+8SVe+0KXzM5h0F4ejjpnOHdI/0d
-# KNPH+ejxmF/7K9h+8kaddSweJywm228Vex4Ziza4k9Tm8heZWcpw8De/mADfIBZP
-# J/tgZxahZrrdVcA6KYawmKAr7ZVBtzrVFZgxtGIJDwq9gdkT/r+k0fNX2bwE+oLe
-# Mt8EifAAzV3C+dAjfwAL5HYCJtnwZXZCpimHCUcr5n8apIUP/JiW9lVUKx+A+sDy
-# Divl1vupL0QVSucTDh3bNzgaoSv27dZ8/DCCBY0wggR1oAMCAQICEA6bGI750C3n
-# 79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAwZTELMAkGA1UEBhMCVVMxFTATBgNVBAoT
-# DERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UE
-# AxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBSb290IENBMB4XDTIyMDgwMTAwMDAwMFoX
-# DTMxMTEwOTIzNTk1OVowYjELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0
-# IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNl
-# cnQgVHJ1c3RlZCBSb290IEc0MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKC
-# AgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUuySE98orYWcLhKac9WKt2ms2uexuEDcQw
-# H/MbpDgW61bGl20dq7J58soR0uRf1gU8Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6
-# dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0MG+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXG
-# XuxbGrzryc/NrDRAX7F6Zu53yEioZldXn1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXn
-# Mcvak17cjo+A2raRmECQecN4x7axxLVqGDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy
-# 19sEcypukQF8IUzUvK4bA3VdeGbZOjFEmjNAvwjXWkmkwuapoGfdpCe8oU85tRFY
-# F/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6SPDgohIbZpp0yt5LHucOY67m1O+Skjqe
-# PdwA5EUlibaaRBkrfsCUtNJhbesz2cXfSwQAzH0clcOP9yGyshG3u3/y1YxwLEFg
-# qrFjGESVGnZifvaAsPvoZKYz0YkH4b235kOkGLimdwHhD5QMIR2yVCkliWzlDlJR
-# R3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ6zHFynIWIgnffEx1P2PsIV/EIFFrb7Gr
-# hotPwtZFX50g/KEexcCPorF+CiaZ9eRpL5gdLfXZqbId5RsCAwEAAaOCATowggE2
-# MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFOzX44LScV1kTN8uZz/nupiuHA9P
-# MB8GA1UdIwQYMBaAFEXroq/0ksuCMS1Ri6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIB
-# hjB5BggrBgEFBQcBAQRtMGswJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2lj
-# ZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29t
-# L0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENBLmNydDBFBgNVHR8EPjA8MDqgOKA2hjRo
-# dHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3JsMBEGA1UdIAQKMAgwBgYEVR0gADANBgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV
-# 5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVeqRq7IviHGmlUIu2kiHdtvRoU9BNKei8t
-# tzjv9P+Aufih9/Jy3iS8UgPITtAq3votVs/59PesMHqai7Je1M/RQ0SbQyHrlnKh
-# SLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO
-# 7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJaISfb8rbII01YBwCA8sgsKxYoA5AY8WY
-# IsGyWfVVa88nq2x2zm8jLfR+cWojayL/ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3
-# AamfV6peKOK5lDGCA4YwggOCAgEBMHcwYzELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
-# DkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2VydCBUcnVzdGVkIEc0IFJT
-# QTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQQIQC65mvFq6f5WHxvnpBOMzBDAN
-# BglghkgBZQMEAgIFAKCB4TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJ
-# KoZIhvcNAQkFMQ8XDTI0MTExNDA4MTAxNFowKwYLKoZIhvcNAQkQAgwxHDAaMBgw
-# FgQU29OF7mLb0j575PZxSFCHJNWGW0UwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQg
-# dnafqPJjLx9DCzojMK7WVnX+13PbBdZluQWTmEOPmtswPwYJKoZIhvcNAQkEMTIE
-# MLSuwVfDTTxGRvQDSMPd2+0MVSXxpGfKUs40ukSpQs4/eLeO2XQEhTpctyEgFpFt
-# azANBgkqhkiG9w0BAQEFAASCAgB+4LvAhfMztRN8LZYT8X6pmy3w3t/VEr0A4bQn
-# PdGGSF0PBuLtV2gBWhTmXQbeOndqmBVy4I4nW4ZVJd7VFSTY81XUe+pndF/XDwqJ
-# D3KOB7V+cS3HSo0rwGJgW630xxf0NXL8LyCM3lR/D2z2I0k8ot3xMXOzAT6BFH0D
-# p5dPIGfERo+3KnrLci8Ar7eK+WqlOqvXMAEBAMc5WEg1mDGCe57wk7eDe6fTSHUk
-# P2bkrgcXSuqDfN0Zj9X3VmlY619qraQLNvIVwQs5BI5dqotirhDfglCUrDiZNMaJ
-# G/KQtGqEIFviHnPRkmlpRFw5HaRjsS7IT5UR4xDWaBaIqmdjNXNppbxK9WTq8tti
-# kyIuFAOKQpTDPrPWm0V51mpxPq6kJCw5e3GsTSKZShq375ZqyZkE+J5JbbOZ7mMc
-# 6mQM7fjdTMsljkE38vEQLAJzAUXmNA2iZOdE7phad86XjC+aJNGu1wzz+Bz5n/l0
-# +ptNDIf924WfoEp/pl3lMYe3g54r2rJXGA0JQYNdsIDgiHzLcYcAJNoAyfD1DwS8
-# oL4QtGbYeEhzykaJNeIXv86fI4Q4xRmaUpup+xnJqUzisKBKwyYKOHxVkkIHTTZw
-# T90/VoqI4STWJpPwBItXb8mBhQsmEpwK2y8Cep2ToEqvgK9Wz3h0QQIWKTxXXJWg
-# owbtGg==
+# ARUwLwYJKoZIhvcNAQkEMSIEIHqNPOtt1IWYFkZ+pBbINK01C4VrIHodDzPKl+LP
+# uHpnMA0GCSqGSIb3DQEBAQUABIIBgL7ufaKCobBbMxUtmPf7dg/87eVK5a4B+47P
+# Ly3GbGRkDkQIAxTpQc6ngDsCXCSDOmBx3UiMT9oNQIYFXlX8O5vhjFEmujK7cmTE
+# 2faX64o/qR1E9as2f7wCffxfKhRDHHdolma0qoaWuYV+iJZdOh81d8yFvIZDoZmr
+# YgoHlcfy1B93w73mLoGk1sLXmdwvdbsGLiKqp2EZAa/dBU/NCBE+pCvvggJ4BJps
+# UMfJDMkOAL6pinDb8oryZcrkGmWuNmx7DaR4XtSra1YEyUb715R5Ral6kOegi2zV
+# pSUw2zjHb/AElapXJkjAyQ4AbN8WVdlseGhWbzJdnMRKAKEFsqRnhhSfShKTe6R1
+# RM0T0PDUKNaDYvMTw0mYUEskxX33xVY7LPbahzlWBHFmt0Eq5Q1/6IwHvTbhMntK
+# rpaVgvEPZ5DL/m9T6fpy1/GKM+PPh5iPmz1cih2UP4IRWT80t5Jm3ogGHhSsa31j
+# Y9UH1CwmHToGyWyWwKVQuT4XqJt22aGCF1swghdXBgorBgEEAYI3AwMBMYIXRzCC
+# F0MGCSqGSIb3DQEHAqCCFzQwghcwAgEDMQ8wDQYJYIZIAWUDBAICBQAwgYgGCyqG
+# SIb3DQEJEAEEoHkEdzB1AgEBBglghkgBhv1sBwEwQTANBglghkgBZQMEAgIFAAQw
+# M4p4Fqc8ffuCBSKVAxqhLMe/vVFiJBxD5kvFvvYs8nHPex5g7a2JMJc5wejmOAre
+# AhEA0mbSfPoLfNYFmuAjnRRHUBgPMjAyNDExMTgxMzQ1NTdaoIITAzCCBrwwggSk
+# oAMCAQICEAuuZrxaun+Vh8b56QTjMwQwDQYJKoZIhvcNAQELBQAwYzELMAkGA1UE
+# BhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2Vy
+# dCBUcnVzdGVkIEc0IFJTQTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQTAeFw0y
+# NDA5MjYwMDAwMDBaFw0zNTExMjUyMzU5NTlaMEIxCzAJBgNVBAYTAlVTMREwDwYD
+# VQQKEwhEaWdpQ2VydDEgMB4GA1UEAxMXRGlnaUNlcnQgVGltZXN0YW1wIDIwMjQw
+# ggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC+anOf9pUhq5Ywultt5lmj
+# tej9kR8YxIg7apnjpcH9CjAgQxK+CMR0Rne/i+utMeV5bUlYYSuuM4vQngvQepVH
+# VzNLO9RDnEXvPghCaft0djvKKO+hDu6ObS7rJcXa/UKvNminKQPTv/1+kBPgHGlP
+# 28mgmoCw/xi6FG9+Un1h4eN6zh926SxMe6We2r1Z6VFZj75MU/HNmtsgtFjKfITL
+# utLWUdAoWle+jYZ49+wxGE1/UXjWfISDmHuI5e/6+NfQrxGFSKx+rDdNMsePW6FL
+# rphfYtk/FLihp/feun0eV+pIF496OVh4R1TvjQYpAztJpVIfdNsEvxHofBf1BWka
+# dc+Up0Th8EifkEEWdX4rA/FE1Q0rqViTbLVZIqi6viEk3RIySho1XyHLIAOJfXG5
+# PEppc3XYeBH7xa6VTZ3rOHNeiYnY+V4j1XbJ+Z9dI8ZhqcaDHOoj5KGg4YuiYx3e
+# Ym33aebsyF6eD9MF5IDbPgjvwmnAalNEeJPvIeoGJXaeBQjIK13SlnzODdLtuThA
+# LhGtyconcVuPI8AaiCaiJnfdzUcb3dWnqUnjXkRFwLtsVAxFvGqsxUA2Jq/WTjbn
+# NjIUzIs3ITVC6VBKAOlb2u29Vwgfta8b2ypi6n2PzP0nVepsFk8nlcuWfyZLzBaZ
+# 0MucEdeBiXL+nUOGhCjl+QIDAQABo4IBizCCAYcwDgYDVR0PAQH/BAQDAgeAMAwG
+# A1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwIAYDVR0gBBkwFzAI
+# BgZngQwBBAIwCwYJYIZIAYb9bAcBMB8GA1UdIwQYMBaAFLoW2W1NhS9zKXaaL3WM
+# aiCPnshvMB0GA1UdDgQWBBSfVywDdw4oFZBmpWNe7k+SH3agWzBaBgNVHR8EUzBR
+# ME+gTaBLhklodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
+# RzRSU0E0MDk2U0hBMjU2VGltZVN0YW1waW5nQ0EuY3JsMIGQBggrBgEFBQcBAQSB
+# gzCBgDAkBggrBgEFBQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMFgGCCsG
+# AQUFBzAChkxodHRwOi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVz
+# dGVkRzRSU0E0MDk2U0hBMjU2VGltZVN0YW1waW5nQ0EuY3J0MA0GCSqGSIb3DQEB
+# CwUAA4ICAQA9rR4fdplb4ziEEkfZQ5H2EdubTggd0ShPz9Pce4FLJl6reNKLkZd5
+# Y/vEIqFWKt4oKcKz7wZmXa5VgW9B76k9NJxUl4JlKwyjUkKhk3aYx7D8vi2mpU1t
+# KlY71AYXB8wTLrQeh83pXnWwwsxc1Mt+FWqz57yFq6laICtKjPICYYf/qgxACHTv
+# ypGHrC8k1TqCeHk6u4I/VBQC9VK7iSpU5wlWjNlHlFFv/M93748YTeoXU/fFa9hW
+# JQkuzG2+B7+bMDvmgF8VlJt1qQcl7YFUMYgZU1WM6nyw23vT6QSgwX5Pq2m0xQ2V
+# 6FJHu8z4LXe/371k5QrN9FQBhLLISZi2yemW0P8ZZfx4zvSWzVXpAb9k4Hpvpi6b
+# Ue8iK6WonUSV6yPlMwerwJZP/Gtbu3CKldMnn+LmmRTkTXpFIEB06nXZrDwhCGED
+# +8RsWQSIXZpuG4WLFQOhtloDRWGoCwwc6ZpPddOFkM2LlTbMcqFSzm4cd0boGhBq
+# 7vkqI1uHRz6Fq1IX7TaRQuR+0BGOzISkcqwXu7nMpFu3mgrlgbAW+BzikRVQ3K2Y
+# HcGkiKjA4gi4OA/kz1YCsdhIBHXqBzR0/Zd2QwQ/l4Gxftt/8wY3grcc/nS//TVk
+# ej9nmUYu83BDtccHHXKibMs/yXHhDXNkoPIdynhVAku7aRZOwqw6pDCCBq4wggSW
+# oAMCAQICEAc2N7ckVHzYR6z9KGYqXlswDQYJKoZIhvcNAQELBQAwYjELMAkGA1UE
+# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
+# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MB4XDTIy
+# MDMyMzAwMDAwMFoXDTM3MDMyMjIzNTk1OVowYzELMAkGA1UEBhMCVVMxFzAVBgNV
+# BAoTDkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2VydCBUcnVzdGVkIEc0
+# IFJTQTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQTCCAiIwDQYJKoZIhvcNAQEB
+# BQADggIPADCCAgoCggIBAMaGNQZJs8E9cklRVcclA8TykTepl1Gh1tKD0Z5Mom2g
+# sMyD+Vr2EaFEFUJfpIjzaPp985yJC3+dH54PMx9QEwsmc5Zt+FeoAn39Q7SE2hHx
+# c7Gz7iuAhIoiGN/r2j3EF3+rGSs+QtxnjupRPfDWVtTnKC3r07G1decfBmWNlCnT
+# 2exp39mQh0YAe9tEQYncfGpXevA3eZ9drMvohGS0UvJ2R/dhgxndX7RUCyFobjch
+# u0CsX7LeSn3O9TkSZ+8OpWNs5KbFHc02DVzV5huowWR0QKfAcsW6Th+xtVhNef7X
+# j3OTrCw54qVI1vCwMROpVymWJy71h6aPTnYVVSZwmCZ/oBpHIEPjQ2OAe3VuJyWQ
+# mDo4EbP29p7mO1vsgd4iFNmCKseSv6De4z6ic/rnH1pslPJSlRErWHRAKKtzQ87f
+# SqEcazjFKfPKqpZzQmiftkaznTqj1QPgv/CiPMpC3BhIfxQ0z9JMq++bPf4OuGQq
+# +nUoJEHtQr8FnGZJUlD0UfM2SU2LINIsVzV5K6jzRWC8I41Y99xh3pP+OcD5sjCl
+# TNfpmEpYPtMDiP6zj9NeS3YSUZPJjAw7W4oiqMEmCPkUEBIDfV8ju2TjY+Cm4T72
+# wnSyPx4JduyrXUZ14mCjWAkBKAAOhFTuzuldyF4wEr1GnrXTdrnSDmuZDNIztM2x
+# AgMBAAGjggFdMIIBWTASBgNVHRMBAf8ECDAGAQH/AgEAMB0GA1UdDgQWBBS6Ftlt
+# TYUvcyl2mi91jGogj57IbzAfBgNVHSMEGDAWgBTs1+OC0nFdZEzfLmc/57qYrhwP
+# TzAOBgNVHQ8BAf8EBAMCAYYwEwYDVR0lBAwwCgYIKwYBBQUHAwgwdwYIKwYBBQUH
+# AQEEazBpMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdpY2VydC5jb20wQQYI
+# KwYBBQUHMAKGNWh0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRy
+# dXN0ZWRSb290RzQuY3J0MEMGA1UdHwQ8MDowOKA2oDSGMmh0dHA6Ly9jcmwzLmRp
+# Z2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRSb290RzQuY3JsMCAGA1UdIAQZMBcw
+# CAYGZ4EMAQQCMAsGCWCGSAGG/WwHATANBgkqhkiG9w0BAQsFAAOCAgEAfVmOwJO2
+# b5ipRCIBfmbW2CFC4bAYLhBNE88wU86/GPvHUF3iSyn7cIoNqilp/GnBzx0H6T5g
+# yNgL5Vxb122H+oQgJTQxZ822EpZvxFBMYh0MCIKoFr2pVs8Vc40BIiXOlWk/R3f7
+# cnQU1/+rT4osequFzUNf7WC2qk+RZp4snuCKrOX9jLxkJodskr2dfNBwCnzvqLx1
+# T7pa96kQsl3p/yhUifDVinF2ZdrM8HKjI/rAJ4JErpknG6skHibBt94q6/aesXmZ
+# gaNWhqsKRcnfxI2g55j7+6adcq/Ex8HBanHZxhOACcS2n82HhyS7T6NJuXdmkfFy
+# nOlLAlKnN36TU6w7HQhJD5TNOXrd/yVjmScsPT9rp/Fmw0HNT7ZAmyEhQNC3EyTN
+# 3B14OuSereU0cZLXJmvkOHOrpgFPvT87eK1MrfvElXvtCl8zOYdBeHo46Zzh3SP9
+# HSjTx/no8Zhf+yvYfvJGnXUsHicsJttvFXseGYs2uJPU5vIXmVnKcPA3v5gA3yAW
+# Tyf7YGcWoWa63VXAOimGsJigK+2VQbc61RWYMbRiCQ8KvYHZE/6/pNHzV9m8BPqC
+# 3jLfBInwAM1dwvnQI38AC+R2AibZ8GV2QqYphwlHK+Z/GqSFD/yYlvZVVCsfgPrA
+# 8g4r5db7qS9EFUrnEw4d2zc4GqEr9u3WfPwwggWNMIIEdaADAgECAhAOmxiO+dAt
+# 5+/bUOIIQBhaMA0GCSqGSIb3DQEBDAUAMGUxCzAJBgNVBAYTAlVTMRUwEwYDVQQK
+# EwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xJDAiBgNV
+# BAMTG0RpZ2lDZXJ0IEFzc3VyZWQgSUQgUm9vdCBDQTAeFw0yMjA4MDEwMDAwMDBa
+# Fw0zMTExMDkyMzU5NTlaMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2Vy
+# dCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lD
+# ZXJ0IFRydXN0ZWQgUm9vdCBHNDCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoC
+# ggIBAL/mkHNo3rvkXUo8MCIwaTPswqclLskhPfKK2FnC4SmnPVirdprNrnsbhA3E
+# MB/zG6Q4FutWxpdtHauyefLKEdLkX9YFPFIPUh/GnhWlfr6fqVcWWVVyr2iTcMKy
+# unWZanMylNEQRBAu34LzB4TmdDttceItDBvuINXJIB1jKS3O7F5OyJP4IWGbNOsF
+# xl7sWxq868nPzaw0QF+xembud8hIqGZXV59UWI4MK7dPpzDZVu7Ke13jrclPXuU1
+# 5zHL2pNe3I6PgNq2kZhAkHnDeMe2scS1ahg4AxCN2NQ3pC4FfYj1gj4QkXCrVYJB
+# MtfbBHMqbpEBfCFM1LyuGwN1XXhm2ToxRJozQL8I11pJpMLmqaBn3aQnvKFPObUR
+# WBf3JFxGj2T3wWmIdph2PVldQnaHiZdpekjw4KISG2aadMreSx7nDmOu5tTvkpI6
+# nj3cAORFJYm2mkQZK37AlLTSYW3rM9nF30sEAMx9HJXDj/chsrIRt7t/8tWMcCxB
+# YKqxYxhElRp2Yn72gLD76GSmM9GJB+G9t+ZDpBi4pncB4Q+UDCEdslQpJYls5Q5S
+# UUd0viastkF13nqsX40/ybzTQRESW+UQUOsxxcpyFiIJ33xMdT9j7CFfxCBRa2+x
+# q4aLT8LWRV+dIPyhHsXAj6KxfgommfXkaS+YHS312amyHeUbAgMBAAGjggE6MIIB
+# NjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBTs1+OC0nFdZEzfLmc/57qYrhwP
+# TzAfBgNVHSMEGDAWgBRF66Kv9JLLgjEtUYunpyGd823IDzAOBgNVHQ8BAf8EBAMC
+# AYYweQYIKwYBBQUHAQEEbTBrMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdp
+# Y2VydC5jb20wQwYIKwYBBQUHMAKGN2h0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNv
+# bS9EaWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcnQwRQYDVR0fBD4wPDA6oDigNoY0
+# aHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
+# LmNybDARBgNVHSAECjAIMAYGBFUdIAAwDQYJKoZIhvcNAQEMBQADggEBAHCgv0Nc
+# Vec4X6CjdBs9thbX979XB72arKGHLOyFXqkauyL4hxppVCLtpIh3bb0aFPQTSnov
+# Lbc47/T/gLn4offyct4kvFIDyE7QKt76LVbP+fT3rDB6mouyXtTP0UNEm0Mh65Zy
+# oUi0mcudT6cGAxN3J0TU53/oWajwvy8LpunyNDzs9wPHh6jSTEAZNUZqaVSwuKFW
+# juyk1T3osdz9HNj0d1pcVIxv76FQPfx2CWiEn2/K2yCNNWAcAgPLILCsWKAOQGPF
+# mCLBsln1VWvPJ6tsds5vIy30fnFqI2si/xK4VC0nftg62fC2h5b9W9FcrBjDTZ9z
+# twGpn1eqXijiuZQxggOGMIIDggIBATB3MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQK
+# Ew5EaWdpQ2VydCwgSW5jLjE7MDkGA1UEAxMyRGlnaUNlcnQgVHJ1c3RlZCBHNCBS
+# U0E0MDk2IFNIQTI1NiBUaW1lU3RhbXBpbmcgQ0ECEAuuZrxaun+Vh8b56QTjMwQw
+# DQYJYIZIAWUDBAICBQCggeEwGgYJKoZIhvcNAQkDMQ0GCyqGSIb3DQEJEAEEMBwG
+# CSqGSIb3DQEJBTEPFw0yNDExMTgxMzQ1NTdaMCsGCyqGSIb3DQEJEAIMMRwwGjAY
+# MBYEFNvThe5i29I+e+T2cUhQhyTVhltFMDcGCyqGSIb3DQEJEAIvMSgwJjAkMCIE
+# IHZ2n6jyYy8fQws6IzCu1lZ1/tdz2wXWZbkFk5hDj5rbMD8GCSqGSIb3DQEJBDEy
+# BDDQAqLDjZS66hUSzatar54X2dt/X6twy0n1HenlEoA/nO/7k2FDguLWt9eBqY3n
+# BkgwDQYJKoZIhvcNAQEBBQAEggIAjy4S87I9P6S2a0w3ZSbK3lntUZ1CSROrM71I
+# bOxHAjbidxdJ5zOSONzbhHDA+YGF+R04ldsCN4HMH3kRxZ+SdcpZZ6trLkaSf6/W
+# N5Ainp2vIFA6j9SlbVZDO9Sfu1KrMTbOh8Cr4EcvYO6cT6XQ+ZcEkU0HKdfjq6Pm
+# RRaqnrpWfE4+57GWLt7xahdJsuJiuiR7VkBlbxDIvMxbIZlCvK8l9S195/PDG70X
+# ppBlVP3YIm/WU8/zGxIj30gHptvyCNrqUA3+mTtIwSR+fOqo3VnJqVow+ImmVLMB
+# 4+22U04XQS5OxXrVp66hdWU/EexT3ZriAXqP+sOeKvehQRw49IRv8yCkbQQ6gYbF
+# tnms8WWGjohkewRaWLdNMZ+bwSZ2P0QjZvVCn+2WnaqNog1lDXWkf0mDHz9821aU
+# 6mr8Qhas37txalRoNStpLDNVFJt7Eyr2Jj1ZC24PJ9oV/UkcWXLlHQBJc2oYYZyh
+# DahTNLdaGWD9/p+C35exQmhtc/cClpTaC+s9yYCmTeVh2PM6koDVWP+EFYDsE5FN
+# o7R2Ez+FlOQSjHz1KheNsQOxXA2DeNeLvL1PjlMomXiAawKrnainYcMgdBaLeH0u
+# dSPQtbXSlQTksZwwMsXgQMOcPJj/wrswGZrgRGa+C4DaP/IIaRJFcUXEPr1hJ7nY
+# BLsFVGU=
 # SIG # End signature block

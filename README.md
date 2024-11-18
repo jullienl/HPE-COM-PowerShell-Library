@@ -34,7 +34,7 @@ For a complete list of cmdlets and their detailed usage, refer to the module's h
 
 ## Latest release
 
-1.0.8 |
+1.0.9 |
 ------------ |
 [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] |
 
