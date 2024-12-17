@@ -24,6 +24,8 @@ It covers the following steps:
   15. Add a ServiceNow instance to the Compute Ops Management instance
   16. Add OneView and Secure Gateway appliances
   17. Upgrade OneView appliances and set OneView server location
+  18. Unprovision the HPE GreenLake workspace by removing server devices from service assignments and removing all subscriptions for workspace re-allocation, and deleting service instances.
+  19. Disconnect from the HPE GreenLake environment
 
 .NOTES
 - This script cannot be used as is, as it contains many examples of how to use the library and provides several methods for the same task. 
@@ -47,7 +49,7 @@ $credentials = Get-Credential -UserName $MyEmail
   # Create your first workspace
   New-HPEGLWorkspace `
   -Name "<WorkspaceName>"  `
-  -Category 'Standard enterprise workspace' `
+  -Type 'Standard enterprise workspace' `
   -Email $MyEmail `
   -Street "<StreetAddress>" `
   -Street2 "<StreetAddress2>" `
@@ -56,7 +58,7 @@ $credentials = Get-Credential -UserName $MyEmail
   -Country "<Country>" `
   -State "<State>" `
   -PhoneNumber "<PhoneNumber>" 
-  # -> Automatically disconnect the session after creating the workspace
+  # -> This command automatically disconnects the session after creating the first and only workspace.
 
   # Connect to the new created workspace
   Connect-HPEGL -Credential $credentials -Workspace "My_first_workspace_name"
@@ -138,12 +140,12 @@ $credentials = Get-Credential -UserName $MyEmail
   Get-HPEGLLocation
 
 
-##################### Add a device subscription key ################################################################################################
+##################### Add a subscription key #######################################################################################################
 
-  New-HPEGLDeviceSubscription -SubscriptionKey "ABCDEFGH"
+  New-HPEGLSubscription -SubscriptionKey "ABCDEFGH"
   
-  # Check the list of device subscription keys
-  Get-HPEGLDeviceSubscription
+  # Check the list of subscription keys
+  Get-HPEGLSubscription
 
 
 ##################### Set auto compute device subscription #########################################################################################
@@ -157,11 +159,11 @@ $credentials = Get-Credential -UserName $MyEmail
   
 ##################### Set auto compute device subscription reassignment ############################################################################
 
-Set-HPEGLDeviceAutoReassign -Computes
-# Remove-HPEGLDeviceAutoReassign -Computes
+Set-HPEGLDeviceAutoReassignSubscription -Computes
+# Remove-HPEGLDeviceAutoReassignSubscription -Computes
 
 # Check the auto compute device subscription reassignment
-Get-HPEGLDeviceAutoReassign
+Get-HPEGLDeviceAutoReassignSubscription
 
 
 ##################### Add devices ##################################################################################################################
@@ -169,8 +171,8 @@ Get-HPEGLDeviceAutoReassign
 
   # [Method 1] - Add devices one by one #################################################################
   
-    Add-HPEGLDeviceCompute -SerialNumber "CZ12345678" -PartNumber "P28948-B21" -Tags "Country=FR, App=AI, Departement=IT" 
-    Add-HPEGLDeviceCompute -SerialNumber "DZ12345678" -PartNumber "P28948-B21" -Tags "Country=FR, App=AI, Departement=IT" 
+    Add-HPEGLDeviceCompute -SerialNumber "CZ12345678" -PartNumber "P28948-B21" -Tags "Country=FR, App=AI, Department=IT" 
+    Add-HPEGLDeviceCompute -SerialNumber "DZ12345678" -PartNumber "P28948-B21" -Tags "Country=FR, App=AI, Department=IT" 
 
     # Check the list of devices that have been added
     Get-HPEGLDevice 
@@ -225,28 +227,36 @@ Get-HPEGLDeviceAutoReassign
 
   # [Method 3] - Add devices using the Compute Ops Management Activation Key [Supported only with iLO5: version 3.09 or later and iLO6: version 1.64 or later] ################################
   
-    # The CSV file should contain the iLO IP address, a user account, password in the following format:
-    #
+  # With this method:
+  # 1- Compute devices are added to the HPE GreenLake workspace.
+  # 2- Compute devices are attached to the Compute Ops Management instance from which the provided activation key was generated.
+  # 3- Compute devices are assigned to the Compute Ops Management subscription key set by 'New-HPECOMServerActivationKey' or by the auto subscription policy using 'Set-HPEGLDeviceAutoSubscription'.
+  # 4- iLOs of the compute devices are connected to the Compute Ops Management instance from which the provided activation key was generated.
+   
+  # - Requirement: An activation key is required and can be generated using 'New-HPECOMServerActivationKey'. The COM activation key is not supported for iLO5 versions lower than v3.09 and iLO6 versions lower than v1.59 
+  # - You can use 'Get-HPECOMServerActivationKey' to retrieve all generated and valid activation keys for the different Compute Ops Management instances where you want the compute device to be connected.
+  
+  # The CSV file should contain the iLO IP address, a user account, password in the following format:
+  
     #    IP, Username, Password
     #    192.168.0.1, admin, password
     #    192.168.0.2, Administrator, password
     #    192.168.0.3, demo, password
-    #
-
+  
     $iLOs = import-csv Sample\iLOs.csv -Delimiter ","
 
     # Retrieve a valid subscription key with available quantity (required when 'Set-HPEGLDeviceAutoSubscription' is not used)
-    # $Subscription_Key = Get-HPEGLDeviceSubscription -ShowWithAvailableQuantity -ShowValid -FilterByDeviceType SERVER | select -First 1 -ExpandProperty subscription_key
+    # $Subscription_Key = Get-HPEGLSubscription -ShowWithAvailableQuantity -ShowValid -ShowDeviceSubscriptions -FilterBySubscriptionType Server | Select-Object -First 1 -ExpandProperty key
 
-    # Direct connection:
+    # A- Direct connection:
 
       # Generate an activation key for connecting servers to the Compute Ops Management service manager in the central european region [with iLO5: v3.09 or later - iLO6: v1.64 or later] 
       $Activation_Key = New-HPECOMServerActivationKey -Region $Region # -SubscriptionKey $Subscription_Key (required when 'Set-HPEGLDeviceAutoSubscription' is not used)
       
-    # Secure gateway connection:
+    # B- Secure gateway connection:
 
       # Generate an activation key for the Compute Ops Management secure gateway in the central european region 
-      $SecureGatewayName = Get-HPECOMAppliance -Region $Region -Category SecureGateway | select -first 1 -ExpandProperty name
+      $SecureGatewayName = Get-HPECOMAppliance -Region $Region -Type SecureGateway | Select-Object -first 1 -ExpandProperty name
       $Activation_Key = New-HPECOMServerActivationKey -Region $Region -SecureGateway $SecureGatewayName  # -SubscriptionKey $Subscription_Key (required when 'Set-HPEGLDeviceAutoSubscription' is not used)
       
     Get-HPECOMServerActivationKey -Region $Region
@@ -262,21 +272,23 @@ Get-HPEGLDeviceAutoReassign
         
         # 1- Connect iLO directly
         Connect-HPEGLDeviceComputeiLOtoCOM -iLOCredential $iLO_credential -IloIP $iLO.IP -ActivationKeyfromCOM $Activation_Key 
+
         # 2- Connect iLO through the COM secure gateway
         Connect-HPEGLDeviceComputeiLOtoCOM -iLOCredential $iLO_credential -IloIP $iLO.IP -ActivationKeyfromCOM $Activation_Key -IloProxyServer $SecureGatewayName -IloProxyPort 8080 
+        
         # 3- Connect iLO directly through a proxy 
         $iLO_secureString_Proxy_Password = Read-Host -Prompt "Enter the proxy password" -AsSecureString
         Connect-HPEGLDeviceComputeiLOtoCOM -iLOCredential $iLO_credential -IloIP $iLO.IP -ActivationKeyfromCOM $Activation_Key -IloProxyServer "webproxy.domain.com" -IloProxyPort 8080 -IloProxyUserName "<username>" -IloProxyPassword $iLO_secureString_Proxy_Password
   
       }
       catch {
-        "iLO {0} cannot be added ! Check your network access, iLO IP or credentials !" -f $iLO.IP
+        "iLO {0} cannot be connected to COM ! Check your network access, iLO IP or credentials !" -f $iLO.IP
         continue
       }          
     }
 
     # Add tags to all devices
-    Get-HPEGLDevice | Add-HPEGLDeviceTagToDevice -Tags "Country=FR, App=AI, Departement=IT" 
+    Get-HPEGLDevice | Add-HPEGLDeviceTagToDevice -Tags "Country=FR, App=AI, Department=IT" 
 
 
     # Check the list of devices that have been added
@@ -295,7 +307,7 @@ Get-HPEGLDeviceAutoReassign
 ##################### Set Device location ##########################################################################################################
 
   # Assign all devices to the location
-  Get-HPEGLdevice | ? tags -match "AI" | Set-HPEGLDeviceLocation -LocationName $LocationName 
+  Get-HPEGLdevice | Where-Object tags -match "AI" | Set-HPEGLDeviceLocation -LocationName $LocationName 
 
   # Or assign one device to the location
   Set-HPEGLDeviceLocation -DeviceSerialNumber "CZ12345678" -LocationName $LocationName 
@@ -306,22 +318,22 @@ Get-HPEGLDeviceAutoReassign
 ##################### Attach devices to a COM instance - Not required if [Method 3] was used ########################################################
 
   # Attach all devices to the COM instance
-  Get-HPEGLDevice -ShowRequireAssignment | Add-HPEGLDeviceToService -ServiceName "Compute Ops Management" -ServiceRegion "$Region" 
+  Get-HPEGLDevice -ShowRequireAssignment | Add-HPEGLDeviceToService -ServiceName "Compute Ops Management" -ServiceRegion $Region
 
   # Attach one device to a COM instance
-  Add-HPEGLDeviceToService -DeviceSerialNumber "CZ12345678"  -ServiceName "Compute Ops Management" -ServiceRegion "$Region" 
+  Add-HPEGLDeviceToService -DeviceSerialNumber "CZ12345678"  -ServiceName "Compute Ops Management" -ServiceRegion $Region
 
   # Get the list of devices that have a tag 'AI' 
-  Get-HPEGLdevice | ? tags -match "AI"
+  Get-HPEGLdevice | Where-Object tags -match "AI"
 
 
 ##################### Apply a device subscription key - Not required if auto-subscription is enabled or if [Method 3] was used ######################
 
   # Apply a subscription key to one device
-  Set-HPEGLDeviceSubscription -DeviceSerialNumber "CZ12345678" -SubscriptionKey $SubscriptionKey 
+  Add-HPEGLSubscriptionToDevice -SubscriptionKey $SubscriptionKey -DeviceSerialNumber "CZ12345678" 
 
   # Apply a subscription key to all devices without a subscription
-  Get-HPEGLdevice -ShowRequireAssignment | Set-HPEGLDeviceSubscription -SubscriptionKey $SubscriptionKey 
+  Get-HPEGLdevice -ShowRequireAssignment | Add-HPEGLSubscriptionToDevice -SubscriptionKey $SubscriptionKey 
 
   # Get the list of devices that are ready to be connected to COM
   Get-HPEGLdevice -ShowComputeReadyForCOMIloConnection 
@@ -388,8 +400,8 @@ Get-HPEGLDeviceAutoReassign
 ##################### Create a new server setting for firmware #####################################################################################
 
   $FirmwareSettingName = "Firmware-bundle-2024.04.00.01"
-  $Gen10_Firmware_Bundle = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion -Generation 10 | select -ExpandProperty releaseVersion
-  $Gen11_Firmware_Bundle = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion -Generation 11 | select -ExpandProperty releaseVersion
+  $Gen10_Firmware_Bundle = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion -Generation 10 | Select-Object -ExpandProperty releaseVersion
+  $Gen11_Firmware_Bundle = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion -Generation 11 | Select-Object -ExpandProperty releaseVersion
   New-HPECOMSettingServerFirmware -Region $Region -Name $FirmwareSettingName -Description "FW bundle for AI servers" -Gen10FirmwareBundleReleaseVersion $Gen10_Firmware_Bundle -Gen11FirmwareBundleReleaseVersion $Gen11_Firmware_Bundle 
 
   # Get the firmware setting
@@ -397,8 +409,6 @@ Get-HPEGLDeviceAutoReassign
 
 
 ##################### Create a new group ###########################################################################################################
-
-  # To find an existing firmware bundle
 
   $GroupName = "AI_Group"
 
@@ -419,7 +429,7 @@ Get-HPEGLDeviceAutoReassign
 
 ######################################### Add servers to new group #################################################################################
 
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" | Add-HPECOMServerToGroup -GroupName $GroupName  
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" | Add-HPECOMServerToGroup -GroupName $GroupName  
 
   # Check the group membership
   Get-HPECOMGroup -Region $Region -Name $GroupName -ShowMembers
@@ -429,8 +439,8 @@ Get-HPEGLDeviceAutoReassign
 
 ######################################### Disable iLO Ignore Security Settings for Default SSL Certificate In Use ##################################
   
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" |  Disable-HPECOMIloIgnoreSecuritySetting -DefaultSSLCertificateInUse 
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" |  Get-HPECOMServer -ShowSecurityParameters 
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" |  Disable-HPECOMIloIgnoreRiskSetting -DefaultSSLCertificateInUse 
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" |  Get-HPECOMServer -ShowSecurityParameters 
 
   # Check the status of the iLO Ignore Security Settings
   Get-HPECOMServer -Region $Region -Name "<servername>" -ShowSecurityParametersDetails 
@@ -441,7 +451,7 @@ Get-HPEGLDeviceAutoReassign
 
 ######################################### Run a job to collect servers inventory data ##############################################################
   
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" | New-HPECOMServerInventory -Async
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" | New-HPECOMServerInventory -Async
 
   # Check the status of jobs with the category 'Server' and the name 'GetFullServerInventory'
   Get-HPECOMJob -Region $Region -Category Server -Name GetFullServerInventory
@@ -458,20 +468,20 @@ Get-HPEGLDeviceAutoReassign
 
 ######################################### Set iLO auto firmware update for servers #################################################################
 
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" | ? autoIloFwUpdate -eq $False | Enable-HPECOMServerAutoiLOFirmwareUpdate 
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" | Where-Object autoIloFwUpdate -eq $False | Enable-HPECOMServerAutoiLOFirmwareUpdate 
 
   # Check the status of the iLO auto firmware update
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" | Get-HPECOMServer -ShowAutoiLOFirmwareUpdateStatus 
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" | Get-HPECOMServer -ShowAutoiLOFirmwareUpdateStatus 
 
 
 ######################################### Power actions on servers #########################################################################################
 
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" | Start-HPECOMServer -Async
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" | Stop-HPECOMServer -Async
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" | Restart-HPECOMServer -ScheduleTime (Get-Date).AddMinutes(60)  # Restart in 60 minutes
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" | Start-HPECOMServer -Async
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" | Stop-HPECOMServer -Async
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" | Restart-HPECOMServer -ScheduleTime (Get-Date).AddMinutes(60)  # Restart in 60 minutes
   
   # Check the status of the power state of servers
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" 
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" 
 
   # Check the list of job schedules 
   Get-HPECOMSchedule -Region $Region 
@@ -483,13 +493,13 @@ Get-HPEGLDeviceAutoReassign
 ######################################### Update server firmware  ##################################################################################
 
   # Get the latest firmware bundle for Gen10
-  $FW_Bundle_Release_Version = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion  -Generation 10 | select -ExpandProperty releaseVersion
+  $FW_Bundle_Release_Version = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion  -Generation 10 | Select-Object -ExpandProperty releaseVersion
 
   # Run a firmware update on all Gen10 servers (without a schedule)
-  Get-HPECOMServer -Region $Region | ? serverGeneration -match "10" | Update-HPECOMServerFirmware -FirmwareBundleReleaseVersion $FW_Bundle_Release_Version -InstallHPEDriversAndSoftware -AllowFirmwareDowngrade -Async
+  Get-HPECOMServer -Region $Region | Where-Object serverGeneration -match "10" | Update-HPECOMServerFirmware -FirmwareBundleReleaseVersion $FW_Bundle_Release_Version -InstallHPEDriversAndSoftware -AllowFirmwareDowngrade -Async
 
   # Run a firmware update on all servers with a specific tag (with a specified schedule)
-  Get-HPECOMServer -Region $Region | ? tags -match "AI" | Update-HPECOMServerFirmware -FirmwareBundleReleaseVersion $FW_Bundle_Release_Version -InstallHPEDriversAndSoftware -AllowFirmwareDowngrade -ScheduleTime (Get-date).AddDays(1) # Run in 1 day
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI" | Update-HPECOMServerFirmware -FirmwareBundleReleaseVersion $FW_Bundle_Release_Version -InstallHPEDriversAndSoftware -AllowFirmwareDowngrade -ScheduleTime (Get-date).AddDays(1) # Run in 1 day
 
   # Check the status of the firmware update job
   Get-HPECOMSchedule -Region $Region
@@ -537,7 +547,7 @@ Get-HPEGLDeviceAutoReassign
   Invoke-HPECOMGroupBiosConfiguration -Region $Region -GroupName $GroupName -Async
 
   # Apply BIOS configuration on servers with a specific tag
-  Get-HPECOMServer -Region $Region | ? tags -match "AI"| Invoke-HPECOMGroupBiosConfiguration -GroupName $GroupName -Async
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI"| Invoke-HPECOMGroupBiosConfiguration -GroupName $GroupName -Async
 
   # Get the status of all running jobs with the category 'Group'
   Get-HPECOMJob -Region $Region -Category Group -ShowRunning
@@ -549,7 +559,7 @@ Get-HPEGLDeviceAutoReassign
   Invoke-HPECOMGroupInternalStorageConfiguration -Region $Region -GroupName $GroupName -Async 
 
   # Apply internal storage configuration on servers with a specific tag
-  Get-HPECOMServer -Region $Region | ? tags -match "AI"| Invoke-HPECOMGroupInternalStorageConfiguration -GroupName $GroupName -Async
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI"| Invoke-HPECOMGroupInternalStorageConfiguration -GroupName $GroupName -Async
 
   # Get the status of all running jobs with the category 'Group'
   Get-HPECOMJob -Region $Region -Category Group -ShowRunning
@@ -561,7 +571,7 @@ Get-HPEGLDeviceAutoReassign
   Invoke-HPECOMGroupOSInstallation -Region $Region -GroupName $GroupName -ParallelInstallations -StopOnFailure -OSCompletionTimeoutMin 100 -Async
 
   # Run a group job to install OS only on servers with a specific tag
-  Get-HPECOMServer -Region $Region | ? tags -match "AI"| Invoke-HPECOMGroupOSInstallation -GroupName $GroupName -Async
+  Get-HPECOMServer -Region $Region | Where-Object tags -match "AI"| Invoke-HPECOMGroupOSInstallation -GroupName $GroupName -Async
 
   # Run a group job to install OS on all servers (with a 4 hours schedule)
   Invoke-HPECOMGroupOSInstallation -Region $Region -GroupName $GroupName -ParallelInstallations -StopOnFailure -OSCompletionTimeoutMin 100 -ScheduleTime (Get-Date).AddHours(4)
@@ -602,14 +612,29 @@ Get-HPEGLDeviceAutoReassign
   Get-HPECOMEmailNotificationPolicy -Region $Region 
 
 
-##################### Add ServiceNow ###############################################################################################################
+##################### ServiceNow integration #######################################################################################################
 
-  # Add a ServiceNow instance to the Compute Ops Management instance
-  New-HPECOMExternalService -Name MyServiceNow_Name -Region $Region -Description "This is my description" -Credential $credential -RefreshToken "541646646434684343" -OauthUrl "https://example.service-now.com/oauth_token.do" -IncidentUrl "https://example.service-now.com/api/now/import/u_demo_incident_inbound_api" -refreshTokenExpiryInDays 100 
+  # Create a ServiceNow integration in the Compute Ops Management instance.
+  $ServiceNowCredential = Get-Credential -Message "Enter your ServiceNow clientID and clientSecret"
+
+  New-HPECOMExternalService -Region $Region -ServiceNow -Name "ServiceNow integrastion" -Credential $ServiceNowCredential `
+  -Description "This is my ServiceNow integration" -RefreshToken "541646646434684343" -OauthUrl "https://example.service-now.com/oauth_token.do" `
+  -IncidentUrl "https://example.service-now.com/api/now/import/u_demo_incident_inbound_api" -refreshTokenExpiryInDays 100 
 
   # Get the list of external services that have been added
   Get-HPECOMExternalService -Region $Region 
 
+
+##################### Data Services Cloud Console integration #####################################################################################
+
+  # Create in the Compute Ops Management instance a Data Services Cloud Console integration configured in the US-west region.
+  $DSCCcredentials = Get-Credential -Message "Enter your clientID and clientSecret"
+
+  New-HPECOMExternalService -Region eu-central -DSCC -Name "Data Services Cloud Console integration" -Description "This is my DSCC service in US-West" -DSCCRegion "us-west" -Credential $DSCCcredentials
+
+  # Get the list of external services that have been added
+  Get-HPECOMExternalService -Region $Region 
+  
 
 ##################### Add OneView appliance ########################################################################################################
 
@@ -644,7 +669,7 @@ Get-HPEGLDeviceAutoReassign
 ##################### Upgrade OneView appliances  ##################################################################################################
 
   # Upgrade all OneView appliances (Synergy and VM) in the Compute Ops Management instance to latest FW bundle (if supported)
-  $Appliance_FW_Bundle_Release_Version = Get-HPECOMApplianceFirmwareBundle -Region $Region -LatestVersion | select -first 1 -ExpandProperty applianceVersion
+  $Appliance_FW_Bundle_Release_Version = Get-HPECOMApplianceFirmwareBundle -Region $Region -LatestVersion | Select-Object -first 1 -ExpandProperty applianceVersion
   $SupportedUpgrades = Get-HPECOMApplianceFirmwareBundle -Region $Region -LatestVersion -SupportedUpgrades
   $Appliances = Get-HPECOMAppliance -Region $Region 
 
@@ -673,6 +698,26 @@ Get-HPEGLDeviceAutoReassign
   Get-HPECOMServer -Region $Region -ConnectionType 'OneView managed' -ShowLocation
   
 
+#EndRegion
+
+
+#Region -------------------------------------------------------- GLP workspace cleaning -----------------------------------------------------------------------------------
+
+  # Remove server devices from service assignment
+  Get-HPEGLDevice -FilterByDeviceType SERVER | Remove-HPEGLDeviceFromService 
+
+  # Check the servers have been removed from their assignments
+  Get-HPEGLDevice -ShowRequireAssignment
+
+  # Remove all 'Server' type subscriptions from the workspace (in case you want to use the same keys for another workspace)
+  Get-HPEGLSubscription -FilterBySubscriptionType Server | Remove-HPEGLSubscription
+
+  # Check the subscription keys have been removed
+  Get-HPEGLDeviceSubscription
+
+  # Delete the COM service instance. This will remove all servers, groups, settings, and policies associated with the service instance.
+  Get-HPEGLService -ShowProvisioned -Name "Compute Ops Management" | Remove-HPEGLService
+  
 #EndRegion
 
 
