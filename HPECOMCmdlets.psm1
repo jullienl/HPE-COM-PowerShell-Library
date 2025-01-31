@@ -27,7 +27,7 @@ THE SOFTWARE.
 #>
 
 # Set PowerShell library version
-[Version]$ModuleVersion = '1.0.10'
+[Version]$ModuleVersion = '1.0.11'
 
 
 
@@ -106,6 +106,7 @@ Register-ArgumentCompleter -CommandName Set-HPEGLUserAccountDetails, Set-HPEGLUs
 #Region ---------------------------- VARIABLES -------------------------------------------------------------------------------------------------------------------------------------------  
 
 $HPEGLAPIbaseURL = 'https://global.api.greenlake.hpe.com'
+$HPEGLAPIOrgbaseURL = 'https://aquila-org-api.common.cloud.hpe.com'
 
 $HPEGLUIbaseURL = 'https://aquila-user-api.common.cloud.hpe.com'
 
@@ -223,6 +224,16 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 [String]$AuthnSessionUri = $HPEGLUIbaseURL + '/authn/v1/session'
 [String]$AuthnEndSessionUri = $HPEGLUIbaseURL + '/authn/v1/session/end-session'
 
+#SAML
+[String]$AuthnSAMLSSOUri = $HPEGLUIbaseURL + '/authn/v1/saml/config'
+[String]$AuthnSAMLSSOMetadataUri = $HPEGLUIbaseURL + '/authn/v1/saml/sp-metadata/'
+[String]$SAMLAttributesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/um/saml?domain='
+[String]$SAMLValidateDomainUri = $HPEGLUIbaseURL + '/authn/v1/saml/validate_domain?domain='
+[String]$SAMLValidateMetadataUri = $HPEGLUIbaseURL + '/authn/v1/saml/metadata/manual/'
+[String]$AuthnSAMLSSOConfigUri = $HPEGLUIbaseURL + '/authn/v1/saml/async/config'
+[String]$AuthnSAMLSSOConfigTaskTrackerUri = $HPEGLUIbaseURL + '/authn/v1/async-task-tracker/'
+[String]$AccountSAMLNotifyUsersUri = $HPEGLUIbaseURL + '/accounts/ui/v1/customer/saml/notify/'
+
 [String]$AuditLogsUri = $HPEGLAPIbaseURL + '/audit-log/v1/logs'
 # [String]$AuditLogsUri = $HPEGLUIbaseURL + '/auditlogs/ui/v1/search?app_slug=CCS'
 
@@ -231,11 +242,15 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 [String]$WorkspacesUri = $HPEGLAPIbaseURL + '/workspaces/v1/workspaces'
 
 [String]$NewWorkspaceUri = $HPEGLUIbaseURL + '/accounts/ui/v1/customer/signup'
-[String]$NewWorkspacev2Uri = $HPEGLAPIbaseURL + '/organizations/v2alpha1/workspaces'
+[String]$WorkspacesV2Uri = $HPEGLAPIOrgbaseURL + '/organizations/v2alpha1/workspaces'
 # [String]$UserLoadAccountUri = $HPEGLUIbaseURL + '/accounts/ui/v1/user/load-account/'
-[String]$WorkspacesListUri = $HPEGLUIbaseURL + '/authn/v1/session'
+
+# [String]$WorkspacesListUri = $HPEGLUIbaseURL + '/authn/v1/session'
+
 [String]$WorkspacesListUri = $HPEGLUIbaseURL + '/accounts/ui/v1/customer/list-accounts'
+
 [String]$CurrentWorkspaceUri = $HPEGLUIbaseURL + '/accounts/ui/v1/customer/profile/contact'
+
 
 #  Users - Roles - Permissions
 
@@ -258,9 +273,6 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 [String]$DevicesApplicationInstanceUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/devices/application-instance'
 [String]$DevicesATagsUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/devices/tags'
 [String]$DevicesLocationUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/locations'
-[String]$LocalGatewayUri = $HPEGLUIbaseURL + '/platform/acpmgr/getGateways'
-[String]$LocalGatewayAppUri = $HPEGLUIbaseURL + '/opg-proxy/v1/gateways/'
-
 
 #  License - Subscription
 
@@ -712,7 +724,7 @@ function Set-HPECOMJobTemplatesVariable {
             name        = "GetPowerMeterData"
         },
         @{
-            resourceUri = "/compute-ops-mgmt/v1beta2/job-templates/2c7de503-77af-4340-b68d-7a26e5359b8e"
+            resourceUri = "/api/compute/v1/job-templates/2c7de503-77af-4340-b68d-7a26e5359b8e"
             Id          = "2c7de503-77af-4340-b68d-7a26e5359b8e"
             name        = "GetSSOUrl"
         },
@@ -1207,6 +1219,8 @@ function Invoke-HPEGLWebRequest {
     .OUTPUTS
     The output of the cmdlet depends upon the format of the content that is retrieved.
     If the request returns JSON strings, Invoke-HPEGLWebRequest returns a PSObject that represents the strings.
+
+    $Global:HPEGLInvokeReturnData global variable is set to the response of the web request.
         
          
     #>
@@ -1276,10 +1290,14 @@ function Invoke-HPEGLWebRequest {
 
             if ($uri -match $HPEGLUIbaseURL) {
 
+                "[{0}] Detected URI: UI Doorway ------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
                 invoke-RestMethodWhatIf -Uri $Uri -Method $Method -Body $Body -WebSession $WebSession -ContentType 'application/json' -Cmdlet "Invoke-HPEGLWebRequest"
 
             }
             elseif ($uri -match $HPEOnepassbaseURL) {
+
+                "[{0}] Detected URI: HPE Onepass ------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                       
                 if ($null -ne $Body) {
 
@@ -1327,12 +1345,17 @@ function Invoke-HPEGLWebRequest {
 
             $retries = 0
 
-            while ($retries -lt $MaxRetries) {
+            $lastException = $null
+
+            $attempt = 0
+            $complete = $false
+
+            while (-not $complete -and $attempt -lt $MaxRetries) {          
 
                 #Region When using a UI Doorway URI
                 if ($uri -match $HPEGLUIbaseURL) {
 
-                    "[{0}] Detected URI: UI Doorway ------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    "[{0}] ------------------------------------ Detected URI: UI Doorway ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
                     # Process pagination for GET 
                     if ($Method -eq "GET" -or $Method -eq "POST") {
@@ -1377,7 +1400,7 @@ function Invoke-HPEGLWebRequest {
                             $url = $uri + "?limit=$pagination&offset=0"
                         }
 
-                        "[{0}] URI that has been generated: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $url | Write-Verbose
+                        # "[{0}] URI that has been generated: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $url | Write-Verbose
                         
                     }
                     else {
@@ -1386,8 +1409,7 @@ function Invoke-HPEGLWebRequest {
 
                     }
 
-                    "[{0}] About to make a '{1}' call to '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Method, $Url | Write-Verbose
-
+                    
                     if ($HPEGreenLakeSession.session.headers) {
 
                         "[{0}] Request headers: `n'{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($HPEGreenLakeSession.session.headers | Out-String) | Write-Verbose
@@ -1405,289 +1427,350 @@ function Invoke-HPEGLWebRequest {
                             $Payload = $Body | ConvertTo-Json -Depth 10
                     
                         }
-
-                        "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Payload | Write-Verbose
-                
                     }
-
-
+                    
+                    
                     try {
 
+                        "[{0}] About to make a '{1}' call to '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Method, $Url | Write-Verbose
+
+                        if ($payload) {
+                            "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Payload | Write-Verbose
+                        }
+                        else {
+                            "[{0}] No payload content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        }
+
                         $InvokeReturnData = Invoke-WebRequest -Uri $Url -Method $Method -Body $Body -WebSession $WebSession -ContentType $ContentType #-ErrorAction Stop
+
+                        # Create a global variable to store the Invoke-WebRequest response
+                        $Global:HPEGLInvokeReturnData = $InvokeReturnData
  
                         if ($InvokeReturnData -match "doctype html") {      
                             
                             "[{0}] HTML doctype response detected ! Throwing exception!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                     
                             throw [HtmlContentDetectedException]::new("Error! HTML content detected! Throwing exception!")
-                        }                       
+                        }   
+                        
+                        "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
+                        "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose   
+                       
+                        $complete = $true
                       
                     }
                     # Handle exceptions related to network operations
-                    catch [System.Net.WebException] {
+                    # catch [System.Net.WebException] {
 
-                        "[{0}] System.Net.WebException catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                        "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose                     
-    
-                        # Service Unavailable error
-                        if ($_.Exception.Response.StatusCode -eq 503) {
-                            $retries++
-                            # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
-                            $waitTime = 2
-                            "[{0}] Received 503. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            Start-Sleep -Seconds $waitTime
-                        }
-                        else {
+                    #     $attempt++    
                         
-                            "[{0}] Exception thrown!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    #     # Store the last exception
+                    #     $lastException = $_                        
     
-                            # Get Exception type
-                            $exception = $_.Exception
+                    #     # Service Unavailable error
+                    #     if ($_.Exception.Response.StatusCode -eq 503) {
+                    #         $retries++
+                    #         # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
+                    #         $waitTime = 2
+                    #         "[{0}] Received 503. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    #         Start-Sleep -Seconds $waitTime
+                    #     }
+                    #     else {
+                        
+                    #         "[{0}] Exception thrown!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+    
+                    #         # Get Exception type
+                    #         $exception = $_.Exception
 
-                            do {
-                                "[{0}] Exception Type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exception.GetType().Name | Write-Verbose
-                                $exception = $exception.InnerException
-                            } while ($exception)
+                    #         do {
+                    #             "[{0}] Exception Type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exception.GetType().Name | Write-Verbose
+                    #             $exception = $exception.InnerException
+                    #         } while ($exception)
     
-                            # Get exception stream
-                            $result = $_.Exception.Response.GetResponseStream()
-                            $reader = New-Object System.IO.StreamReader($result)
-                            $reader.BaseStream.Position = 0
-                            $reader.DiscardBufferedData()
-                            $responseBody = $reader.ReadToEnd() 
+                    #         # Get exception stream
+                    #         $result = $_.Exception.Response.GetResponseStream()
+                    #         $reader = New-Object System.IO.StreamReader($result)
+                    #         $reader.BaseStream.Position = 0
+                    #         $reader.DiscardBufferedData()
+                    #         $responseBody = $reader.ReadToEnd() 
     
-                            # "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseBody | Write-Verbose
+                    #         # "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseBody | Write-Verbose
                     
     
-                            if ($HPEGreenLakeSession.session.headers) {
-                                "[{0}] Request headers: " -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    #         if ($HPEGreenLakeSession.session.headers) {
+                    #             "[{0}] Request headers: " -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
     
-                                foreach ($Param in $HPEGreenLakeSession.session.headers.Keys) { 
+                    #             foreach ($Param in $HPEGreenLakeSession.session.headers.Keys) { 
                         
-                                    Write-Verbose "`t`t$Param : $($HPEGreenLakeSession.session.headers[$Param])" 
+                    #                 Write-Verbose "`t`t$Param : $($HPEGreenLakeSession.session.headers[$Param])" 
                          
-                                }
-                            }
+                    #             }
+                    #         }
     
-                            $response = $responseBody | ConvertFrom-Json
+                    #         $response = $responseBody | ConvertFrom-Json
                         
-                            $ResponseCode = $response.code
-                            $ResponseDetail = $response.detail
-                            $ResponseStatus = $Response.Status
+                    #         $ResponseCode = $response.code
+                    #         $ResponseDetail = $response.detail
+                    #         $ResponseStatus = $Response.Status
     
-                            if ($ResponseCode) {
-                                "[{0}] Request failed with the following Status: `n`tHTTPS Return Code = '{1}' `n`tHTTPS Return Code Description = '{2}' `n`tHTTPS Return Code Details = '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ResponseStatus, $ResponseCode, $ResponseDetail | write-verbose
-                            }  
+                    #         if ($ResponseCode) {
+                    #             "[{0}] Request failed with the following Status: `n`tHTTPS Return Code = '{1}' `n`tHTTPS Return Code Description = '{2}' `n`tHTTPS Return Code Details = '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ResponseStatus, $ResponseCode, $ResponseDetail | write-verbose
+                    #         }  
                     
-                            $StatusCode = [int]$_.Exception.Response.StatusCode
-                            $ExceptionCode = $_.Exception.Response.StatusCode.value__
+                    #         $StatusCode = [int]$_.Exception.Response.StatusCode
+                    #         $ExceptionCode = $_.Exception.Response.StatusCode.value__
                     
-                            if ($StatusCode -and -not $ResponseCode) {
-                                "[{0}] HTTPS Return Code = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $StatusCode | Write-Verbose
-                            }
-                            elseif ($ExceptionCode -and -not $ResponseCode) {
-                                "[{0}] HTTPS Return Code = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionCode | Write-Verbose
-                            }
+                    #         if ($StatusCode -and -not $ResponseCode) {
+                    #             "[{0}] HTTPS Return Code = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $StatusCode | Write-Verbose
+                    #         }
+                    #         elseif ($ExceptionCode -and -not $ResponseCode) {
+                    #             "[{0}] HTTPS Return Code = '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionCode | Write-Verbose
+                    #         }
     
     
-                            if ($ResponseStatus -and $ResponseCode -and $ResponseDetail) {
-                                Throw "Error '{0}' - '{1}' : '{2}'" -f $ResponseCode, $ResponseStatus, $ResponseDetail
-                            }
-                            elseif ($ResponseStatus -and $ResponseCode -and -not $ResponseDetail) {
-                                Throw "Error '{0}' - '{1}'" -f $ResponseCode, $ResponseStatus
-                            }
-                            elseif ($ResponseStatus -and -not $ResponseCode -and -not $ResponseDetail) {
-                                Throw "Error '{0}'" -f $ResponseStatus
-                            }
-                            elseif ($responseBody -match "Unauthorized" ) {
-                                Throw "Error - Session has expired or been closed! Connect-HPEGL must be executed again!"
-                            }
-                            elseif ($response.message ) {
-                                Throw "Error - $($response.message)"
-                            }
-                            elseif ($response.detail ) {
+                    #         if ($ResponseStatus -and $ResponseCode -and $ResponseDetail) {
+                    #             Throw "Error '{0}' - '{1}' : '{2}'" -f $ResponseCode, $ResponseStatus, $ResponseDetail
+                    #         }
+                    #         elseif ($ResponseStatus -and $ResponseCode -and -not $ResponseDetail) {
+                    #             Throw "Error '{0}' - '{1}'" -f $ResponseCode, $ResponseStatus
+                    #         }
+                    #         elseif ($ResponseStatus -and -not $ResponseCode -and -not $ResponseDetail) {
+                    #             Throw "Error '{0}'" -f $ResponseStatus
+                    #         }
+                    #         elseif ($responseBody -match "Unauthorized" ) {
+                    #             Throw "Error - Session has expired or been closed! Connect-HPEGL must be executed again!"
+                    #         }
+                    #         elseif ($response.message ) {
+                    #             Throw "Error - $($response.message)"
+                    #         }
+                    #         elseif ($response.detail ) {
     
-                                if ($response.detail.msg) {
+                    #             if ($response.detail.msg) {
     
-                                    $Detailmsg = ($response.detail | ForEach-Object { $_.msg + ": " + $_.type }) -join " AND "
+                    #                 $Detailmsg = ($response.detail | ForEach-Object { $_.msg + ": " + $_.type }) -join " AND "
     
-                                    Throw "Error - $Detailmsg"
-                                }
-                                else {
+                    #                 Throw "Error - $Detailmsg"
+                    #             }
+                    #             else {
     
-                                    Throw "Error - $($response.detail)"
-                                }
+                    #                 Throw "Error - $($response.detail)"
+                    #             }
     
-                            }
-                            else {
+                    #         }
+                    #         else {
     
-                                Throw "Error - $($response | Out-String)"
+                    #             Throw "Error - $($response | Out-String)"
      
-                            }
-                        }                   
-                    }
+                    #         }
+                    #     }                   
+                    # }
                     # Handle general runtime exceptions
-                    catch [System.Management.Automation.RuntimeException] {
+                    # catch [System.Management.Automation.RuntimeException] {
 
-                        "[{0}] System.Management.Automation.RuntimeException catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose    
-                        "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
+                    #     "[{0}] System.Management.Automation.RuntimeException catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose    
+                    #     "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
+                    #     "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
 
-                        # 'Request Timeout' error
-                        if ($_.Exception.Response.StatusCode -eq 408) {
-                            $retries++
-                            # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
-                            $waitTime = 2
-                            "[{0}] Received 408. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            Start-Sleep -Seconds $waitTime
-                        }
-                        # When 'Forbidden' error are not expected (issue with GLP?)
-                        elseif ($_.Exception.Response.StatusCode -eq 403) {
-                            $retries++
-                            # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
-                            $waitTime = 2
-                            "[{0}] Received 403. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            Start-Sleep -Seconds $waitTime
-                        }
-                        # When 'Internal Server Error' error 
-                        elseif ($_.Exception.Response.StatusCode -eq 500) {
-                            $retries++
-                            # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
-                            $waitTime = 2
-                            "[{0}] Received 500. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            Start-Sleep -Seconds $waitTime
-                        }
-                        else {
+                    #     # Store the last exception
+                    #     $lastException = $_                        
 
-                            # Convert JSON string to object
-                            try {
+                    #     # 'Request Timeout' error
+                    #     if ($_.Exception.Response.StatusCode -eq 408) {
+                    #         $retries++
+                    #         # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
+                    #         $waitTime = 2
+                    #         "[{0}] Received 408. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    #         Start-Sleep -Seconds $waitTime
+                    #     }
+                    #     # When 'Forbidden' error are not expected (issue with GLP?)
+                    #     elseif ($_.Exception.Response.StatusCode -eq 403) {
+                    #         $retries++
+                    #         # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
+                    #         $waitTime = 2
+                    #         "[{0}] Received 403. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    #         Start-Sleep -Seconds $waitTime
+                    #     }
+                    #     # When 'Internal Server Error' error 
+                    #     elseif ($_.Exception.Response.StatusCode -eq 500) {
+                    #         $retries++
+                    #         # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
+                    #         $waitTime = 2
+                    #         "[{0}] Received 500. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    #         Start-Sleep -Seconds $waitTime
+                    #     }
+                    #     else {
+
+                    #         # Convert JSON string to object
+                    #         try {
                                 
-                                $response = $_ | ConvertFrom-Json
+                    #             $response = $_ | ConvertFrom-Json
         
-                                $_ExceptionMessageDetails = [System.Collections.ArrayList]::new()
-                                $_ExceptionMessage = [System.Collections.ArrayList]::new()
+                    #             $_ExceptionMessageDetails = [System.Collections.ArrayList]::new()
+                    #             $_ExceptionMessage = [System.Collections.ArrayList]::new()
                     
-                                if ($response.detail) {
+                    #             if ($response.detail) {
         
-                                    foreach ($detail in $response.detail) {
+                    #                 foreach ($detail in $response.detail) {
         
-                                        # Capture the 'msg' property
-                                        $message = $detail.msg
-                                        $type = $detail.type
+                    #                     # Capture the 'msg' property
+                    #                     $message = $detail.msg
+                    #                     $type = $detail.type
         
-                                        $Info = [System.Collections.HashTable]@{
-                                            message = $message
-                                            type    = $type
-                                        }
+                    #                     $Info = [System.Collections.HashTable]@{
+                    #                         message = $message
+                    #                         type    = $type
+                    #                     }
         
-                                        [void]$_ExceptionMessageDetails.Add($Info)
+                    #                     [void]$_ExceptionMessageDetails.Add($Info)
         
-                                    }
+                    #                 }
         
-                                    if ($_ExceptionMessageDetails) {
+                    #                 if ($_ExceptionMessageDetails) {
                                         
-                                        "[{0}] Exception Message Details: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($_ExceptionMessageDetails | out-String) | Write-Verbose
-                                    }
+                    #                     "[{0}] Exception Message Details: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($_ExceptionMessageDetails | out-String) | Write-Verbose
+                    #                 }
         
-                                }
+                    #             }
         
-                                if ($response.message) {
+                    #             if ($response.message) {
         
-                                    [void]$_ExceptionMessage.add($response.message)
-                                }
+                    #                 [void]$_ExceptionMessage.add($response.message)
+                    #             }
 
-                                if ($response.errorDetails.length -ge 1 ) {
+                    #             if ($response.errorDetails.length -ge 1 ) {
 
-                                    foreach ($error in $response.errorDetails) {
+                    #                 foreach ($error in $response.errorDetails) {
                                     
-                                        if ($error.metadata.error) {
-                                            [void]$_ExceptionMessage.add($error.metadata.error)
+                    #                     if ($error.metadata.error) {
+                    #                         [void]$_ExceptionMessage.add($error.metadata.error)
 
-                                        }
-                                    }
+                    #                     }
+                    #                 }
                                     
-                                }
+                    #             }
                                 
-                            }
-                            catch {}
+                    #         }
+                    #         catch {}
 
-                            $ExceptionCode = $_.Exception.Response.StatusCode.value__
-                            $ExceptionText = $_.Exception.Response.StatusDescription + $_.Exception.Response.ReasonPhrase 
+                    #         $ExceptionCode = $_.Exception.Response.StatusCode.value__
+                    #         $ExceptionText = $_.Exception.Response.StatusDescription + $_.Exception.Response.ReasonPhrase 
 
 
-                            if ( $_ExceptionMessage) {
-                                "[{0}] Request failed with the following Status:`r`n`tHTTPS Return Code = '{1}' `r`n`tHTTPS Return Code Description = '{2}' `r`n`tHTTPS Return Message = '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionCode, $ExceptionText, ($_ExceptionMessage -join " - ") | write-verbose
-                            }
-                            else {
-                                "[{0}] Request failed with the following Status:`r`n`tHTTPS Return Code = '{1}' `r`n`tHTTPS Return Code Description = '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionCode, $ExceptionText | write-verbose
-                            }
+                    #         if ( $_ExceptionMessage) {
+                    #             "[{0}] Request failed with the following Status:`r`n`tHTTPS Return Code = '{1}' `r`n`tHTTPS Return Code Description = '{2}' `r`n`tHTTPS Return Message = '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionCode, $ExceptionText, ($_ExceptionMessage -join " - ") | write-verbose
+                    #         }
+                    #         else {
+                    #             "[{0}] Request failed with the following Status:`r`n`tHTTPS Return Code = '{1}' `r`n`tHTTPS Return Code Description = '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionCode, $ExceptionText | write-verbose
+                    #         }
                         
-                            if (-not $ExceptionCode ) {
+                    #         if (-not $ExceptionCode ) {
 
-                                $ExceptionCode = [int]$_.Exception.Response.StatusCode
-                            }
+                    #             $ExceptionCode = [int]$_.Exception.Response.StatusCode
+                    #         }
         
         
-                            if ( $ExceptionCode -eq 400 ) {
-                                Throw "Error status Code: 400 (Bad Request)"
+                    #         if ( $ExceptionCode -eq 400 ) {
+                    #             Throw "Error status Code: 400 (Bad Request)"
                             
-                            } 
+                    #         } 
                 
-                            elseif ( $ExceptionCode -eq 401 ) {
-                                Throw "Error status Code: 401 (Unauthorized) - Your session with HPE GreenLake doorway API has expired, please log in again using 'Connect-HPEGL'!"
+                    #         elseif ( $ExceptionCode -eq 401 ) {
+                    #             Throw "Error status Code: 401 (Unauthorized) - Your session with HPE GreenLake doorway API has expired, please log in again using 'Connect-HPEGL'!"
                                 
-                            } 
+                    #         } 
                             
-                            elseif ( $ExceptionCode -eq 403 ) {
-                                Throw "Error status Code: 403 (Forbidden) - Your session with HPE GreenLake doorway API has expired or you do not have sufficient rights to perform this action!"
+                    #         elseif ( $ExceptionCode -eq 403 ) {
+                    #             Throw "Error status Code: 403 (Forbidden) - Your session with HPE GreenLake doorway API has expired or you do not have sufficient rights to perform this action!"
                                 
-                            } 
+                    #         } 
                             
-                            elseif ( $ExceptionCode -eq 412 ) {
-                                Throw "Error status Code: 412 (Precondition failed) - Please verify the content of the payload request!"
+                    #         elseif ( $ExceptionCode -eq 412 ) {
+                    #             Throw "Error status Code: 412 (Precondition failed) - Please verify the content of the payload request!"
                                 
-                            } 
+                    #         } 
                             
-                            elseif ( $ExceptionCode -eq 408 ) {
-                                Throw "Error status Code: 408 (Request Timeout) - Please try again!"
+                    #         elseif ( $ExceptionCode -eq 408 ) {
+                    #             Throw "Error status Code: 408 (Request Timeout) - Please try again!"
                                 
-                            }
+                    #         }
                             
-                            else {
-                                Throw "Error status Code: {0} ({1})" -f $ExceptionCode, $ExceptionText
+                    #         else {
+                    #             Throw "Error status Code: {0} ({1})" -f $ExceptionCode, $ExceptionText
 
-                            }
-                        }
-                    }  
+                    #         }
+                    #     }
+                    # }  
                     catch [HtmlContentDetectedException] {
 
-                        "[{0}] HtmlContentDetectedException catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        $attempt++
+
+                        # Store the last exception
+                        $lastException = $_ 
+
+                        "[{0}] -------------------------------------------- HtmlContentDetectedException Catch triggered! ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
                         "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose                     
+
+                        if ($_.Exception.Response) {
+                            $statusCode = [int]$_.Exception.Response.StatusCode
+                            "[{0}] Received HTTP status code: '{1}'." -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode | Write-Verbose
+                        } else {
+                            "[{0}] No HTTP status code received." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $statusCode = "N/A"
+                        }
+                        
+                        
+                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
+                        "[{0}] --------------------------------------------------------------------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
+                                             
                         
                         # When HTML is detected, it means the session has expired or been closed
                         Throw "Error - Session has expired or been closed! Connect-HPEGL must be executed again!"
                     }                   
                     catch {
 
-                        "[{0}] Catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                        "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose                     
+                        $attempt++
 
-                        # Any other non-web-related exception will be caught here
-                        Throw "An unexpected error occurred: $_"
+                        # Store the last exception
+                        $lastException = $_                      
+                        
+                        "[{0}] -------------------------------------------- Catch triggered! ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
+                        "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
+
+                        if ($_.Exception.Response) {
+                            $statusCode = [int]$_.Exception.Response.StatusCode
+                            "[{0}] Received HTTP status code: '{1}'." -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode | Write-Verbose
+                        } else {
+                            "[{0}] No HTTP status code received." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $statusCode = "N/A"
+                        }
+                        
+                        
+                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
+                        "[{0}] --------------------------------------------------------------------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
+                        
+                        if ($statusCode -in 408, 500, 502, 503, 504) {
+                            "[{0}] HTTP error {1} encountered. Retrying in 1 second... (Attempt {2} of {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode, $attempt, $MaxRetries | Write-Verbose  
+                            Start-Sleep -Seconds 1
+                        }
+                        else {
+                            
+                            $ExceptionErrorMessage = $_.Exception.Message
+                            
+                            if ($ExceptionErrorMessage -eq "Unauthorized") {
+                                Throw "Error - Session has expired or been closed! Connect-HPEGL must be executed again!"
+                            }
+                            
+                            $complete = $true
+                        }      
                     }
-                    finally {
-                        $retries++
-                    }
+
                 }
                 #EndRegion
 
                 #Region When using an HPEOnepass URI
                 elseif ($uri -match $HPEOnepassbaseURL) {
 
-                    "[{0}] Detected URI: HPE Onepass ------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    "[{0}] ------------------------------------ Detected URI: HPE Onepass ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
                     if ($null -ne $Body) {
 
@@ -1720,58 +1803,53 @@ function Invoke-HPEGLWebRequest {
 
                         $InvokeReturnData = Invoke-WebRequest -Uri $Uri -Method $Method -Body $Payload -ContentType $ContentType #-ErrorAction Stop
 
-                    }
-                    catch [System.Net.WebException] {
+                        # Create a global variable to store the Invoke-WebRequest response
+                        $Global:HPEGLInvokeReturnData = $InvokeReturnData
 
-                        "[{0}] System.Net.WebException catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
+                        "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose   
 
-                        "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
+                        $complete = $true
 
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose     
-
-                        # Service Unavailable error
-                        if ($_.Exception.Response.StatusCode -eq 503) {
-                            $retries++
-                            # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
-                            $waitTime = 2
-                            Write-Host "Received 503. Retrying in $waitTime seconds..."
-                            Start-Sleep -Seconds $waitTime
-                        }
-                        else {
-                            # A WebException will be caught here if the web request fails
-                            Write-Warning "A Web Exception occurred: $_"
-                
-                            # To access more detailed information about the error:
-                            if ($_.Exception.Response) {
-                                $responseStream = $_.Exception.Response.GetResponseStream()
-                                $streamReader = New-Object System.IO.StreamReader($responseStream)
-                                $errorResponse = $streamReader.ReadToEnd()
-                                Write-Warning "Error Response: $errorResponse"
-                            }
-                        }
                     }
                     catch {
 
-                        "[{0}] Catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        $attempt++
+                        
+                        # Store the last exception
+                        $lastException = $_
 
+                        "[{0}] -------------------------------------------- Catch triggered! ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
                         "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
+    
+                        if ($_.Exception.Response) {
+                            $statusCode = [int]$_.Exception.Response.StatusCode
+                            "[{0}] Received HTTP status code: '{1}'." -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode | Write-Verbose
+                        } else {
+                            "[{0}] No HTTP status code received." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $statusCode = "N/A"
+                        }
+                        
+                        
+                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
+                        "[{0}] --------------------------------------------------------------------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
+                        
+                        if ($statusCode -in 408, 500, 502, 503, 504) {
+                            "[{0}] HTTP error {1} encountered. Retrying in 1 second... (Attempt {2} of {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode, $attempt, $MaxRetries | Write-Verbose  
+                            Start-Sleep -Seconds 1
+                        }
+                        else {
 
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose    
-
-                        # Any other non-web-related exception will be caught here
-                        Write-Error "An unexpected error occurred: $_"
+                            $complete = $true
+                        }
                     }
-                    finally {
-                        $retries++
-                    }
+                    
                 }
                 #EndRegion
                 
                 #Region When using an HPE GLP API URI
-                elseif ($uri -match $HPEGLAPIbaseURL) {
+                elseif ($uri -match $HPEGLAPIbaseURL -or $uri -match $HPEGLAPIOrgbaseURL) {
 
-                    "[{0}] Detected URI: GLP API URI ------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose     
-                    
                     # Process pagination for GET 
                     if ($Method -eq "GET") {
 
@@ -1819,12 +1897,25 @@ function Invoke-HPEGLWebRequest {
                    
                     }            
 
-                    "[{0}] About to make a '{1}' call to '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Method, $Url | Write-Verbose
+                    if ($uri -match "/organizations/") {
 
-                    $headers = @{} 
-                    $headers["Accept"] = "application/json"
-                    $headers["Content-Type"] = "application/json"
-                    $headers["Authorization"] = "Bearer $($HPEGreenLakeSession.glpApiAccessToken.access_token)"
+                        "[{0}] ------------------------------------ Detected URI: GLP /organizations API using v1.2 tokens : {1} ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLAPIOrgbaseURL | Write-Verbose     
+
+                        $headers = @{} 
+                        $headers["Accept"] = "application/json"
+                        $headers["Content-Type"] = "application/json"
+                        $headers["Authorization"] = "Bearer $($HPEGreenLakeSession.glpApiAccessTokenv1_2.access_token)"
+                    }
+                    else {
+
+                        "[{0}] ------------------------------------ Detected URI: GLP API using v1 tokens : {1} ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLAPIbaseURL | Write-Verbose     
+
+                        $headers = @{} 
+                        $headers["Accept"] = "application/json"
+                        $headers["Content-Type"] = "application/json"
+                        $headers["Authorization"] = "Bearer $($HPEGreenLakeSession.glpApiAccessToken.access_token)"
+                    }
+
 
                     "[{0}] Request headers: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | out-string) | Write-Verbose
 
@@ -1836,151 +1927,176 @@ function Invoke-HPEGLWebRequest {
                         else {
                             # Convert the body hashtable to a JSON string
                             $Payload = $Body | ConvertTo-Json -Depth 10
-                    
                         }
-                        "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Payload | Write-Verbose
-                
                     }
 
 
                     try {
+
+                        "[{0}] About to make a '{1}' call to '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Method, $Url | Write-Verbose      
+
+                        if ($payload) {
+                            "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Payload | Write-Verbose
+                        }
+                        else {
+                            "[{0}] No payload content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        }
               
                         $InvokeReturnData = Invoke-WebRequest -Uri $Url -Method $Method -Body $Body -ContentType $ContentType -Headers $headers #-ErrorAction Stop
+
+                        # Create a global variable to store the Invoke-WebRequest response
+                        $Global:HPEGLInvokeReturnData = $InvokeReturnData
+
+                        "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
+                        "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose   
+
+                        $complete = $true
                     
                     }
-                    catch [System.Net.WebException] {
+                    # catch [System.Net.WebException] {
 
-                        "[{0}] System.Net.WebException catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    #     "[{0}] System.Net.WebException catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-                        "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
+                    #     "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
 
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose     
+                    #     "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose     
+
+                    #     # Store the last exception
+                    #     $lastException = $_
                         
-                        # Service Unavailable error
-                        if ($_.Exception.Response.StatusCode -eq 503) {
-                            $retries++
-                            # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
-                            $waitTime = 2
-                            Write-Host "Received 503. Retrying in $waitTime seconds..."
-                            Start-Sleep -Seconds $waitTime
-                        }
-                        else {
+                    #     # Service Unavailable error
+                    #     if ($_.Exception.Response.StatusCode -eq 503) {
+                    #         $retries++
+                    #         # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
+                    #         $waitTime = 2
+                    #         Write-Host "Received 503. Retrying in $waitTime seconds..."
+                    #         Start-Sleep -Seconds $waitTime
+                    #     }
+                    #     else {
 
-                            if ($_.Exception.Response) {
+                    #         if ($_.Exception.Response) {
 
-                                $PSCmdlet.ThrowTerminatingError($_).Exception.Response
+                    #             $PSCmdlet.ThrowTerminatingError($_).Exception.Response
                                 
                                
-                            }
-                            else {
-                                Throw "No Response Received."
-                            }
-                        }
-                    }
+                    #         }
+                    #         else {
+                    #             Throw "No Response Received."
+                    #         }
+                    #     }
+                    # }
                     catch {
 
-                        "[{0}] Catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        $attempt++
 
-                        "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
-
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose     
+                        # Store the last exception
+                        $lastException = $_                      
                         
-                        # 'Request Timeout' error
-                        if ($_.Exception.Response.StatusCode -eq 408) {
-                            $retries++
-                            # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
-                            $waitTime = 2
-                            "[{0}] Received 408. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            Start-Sleep -Seconds $waitTime
+                        "[{0}] -------------------------------------------- Catch triggered! ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
+                        "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
+    
+                        if ($_.Exception.Response) {
+                            $statusCode = [int]$_.Exception.Response.StatusCode
+                            "[{0}] Received HTTP status code: '{1}'." -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode | Write-Verbose
+                        } 
+                        else {
+                            "[{0}] No HTTP status code received." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $statusCode = "N/A"
                         }
-                        # When 'Internal Server Error' error 
-                        elseif ($_.Exception.Response.StatusCode -eq 500) {
-                            $retries++
-                            # $waitTime = [math]::Pow(2, $retries) * $InitialDelaySeconds
-                            $waitTime = 2
-                            "[{0}] Received 500. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            Start-Sleep -Seconds $waitTime
+                        
+                        
+                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
+                        "[{0}] --------------------------------------------------------------------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
+                        
+
+                        if ($statusCode -in 408, 500, 502, 503, 504) {
+                            "[{0}] HTTP error {1} encountered. Retrying in 1 second... (Attempt {2} of {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode, $attempt, $MaxRetries | Write-Verbose  
+                            Start-Sleep -Seconds 1
                         }
                         else {
 
-                            if ($_.ErrorDetails) {
-    
-                                "[{0}] Error Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
-        
-                                $errorResponse = $_.ErrorDetails.Message | ConvertFrom-Json
-        
-                                # Write-Verbose  $errorResponse
-        
-                                $httpStatusCode = $errorResponse.httpStatusCode
-                                $Message = $errorResponse.message
-                               
-                                if ($errorResponse -and $errorResponse.errorDetails -and $errorResponse.errorDetails.Count -gt 0 -and 
-                                    $errorResponse.errorDetails[0].issues -and $errorResponse.errorDetails[0].issues.Count -gt 0 -and 
-                                    $errorResponse.errorDetails[0].issues[0].description) {
-                                
-                                    $Description = $errorResponse.errorDetails[0].issues[0].description
-                                    $Subject = $errorResponse.errorDetails[0].issues[0].subject
-        
-                                }                    
-        
-                                if ($errorResponse -and $errorResponse.errorDetails -and $errorResponse.errorDetails.Count -gt 0 -and 
-                                    $errorResponse.errorDetails[0].metadata -and $errorResponse.errorDetails[0].metadata.details) {
-                                
-                                    $Description = $errorResponse.errorDetails[0].metadata.details
-                                }                       
-                                       
-                            }                       
-    
-                            if ($httpStatusCode -eq 404) {
-    
-                                Write-Error $errorResponse
-                                Throw "Resource not found (404) -  $message"
-                                
-                            }
-                            elseif ($Message -eq "Unauthorized") {
-    
-                                "[{0}] Error response message: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $message | Write-Verbose
+                            $ExceptionErrorMessage = $_.Exception.Message
+                        
+                            if ($ExceptionErrorMessage -eq "Unauthorized") {
                                 Throw "Error - Session has expired or been closed! Connect-HPEGL must be executed again!"
-    
-    
                             }
-                            elseif ($Message) {
-    
-                                "[{0}] Error response message: '{1}' - HTTP status code: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Message, $httpStatusCode | Write-Verbose
-    
-                                if ($Description -and $Subject) {
-                                    
-                                    "[{0}] Error subject: '{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Subject | Write-Verbose
-                                    "[{0}] Error description: '{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Description | Write-Verbose
-                                    Throw "Error: '$message' - HTTP status code: '$httpStatusCode' - Subject: '$Subject' - Description: '$Description'"
-    
-                                }
-                                elseif ($Description) {
-    
-                                    "[{0}] Error description: '{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Description | Write-Verbose
-                                    Throw "Error: '$message' - HTTP status code: '$httpStatusCode' - Description: '$Description'"
-    
-                                }
-                                else {
-                                    Throw "Error: '$message' - HTTP status code: '$httpStatusCode'"
-                                    
-                                }
-    
-    
-                            }
-                            else {
-    
-                                "[{0}] Error: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
-                                Throw $_
 
-                            }
+                            $complete = $true
+
+                            # if ($_.ErrorDetails) {
+    
+                            #     "[{0}] Error Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
+        
+                            #     $errorResponse = $_.ErrorDetails.Message | ConvertFrom-Json
+        
+                            #     # Write-Verbose  $errorResponse
+        
+                            #     $httpStatusCode = $errorResponse.httpStatusCode
+                            #     $Message = $errorResponse.message
+                               
+                            #     if ($errorResponse -and $errorResponse.errorDetails -and $errorResponse.errorDetails.Count -gt 0 -and 
+                            #         $errorResponse.errorDetails[0].issues -and $errorResponse.errorDetails[0].issues.Count -gt 0 -and 
+                            #         $errorResponse.errorDetails[0].issues[0].description) {
+                                
+                            #         $Description = $errorResponse.errorDetails[0].issues[0].description
+                            #         $Subject = $errorResponse.errorDetails[0].issues[0].subject
+        
+                            #     }                    
+        
+                            #     if ($errorResponse -and $errorResponse.errorDetails -and $errorResponse.errorDetails.Count -gt 0 -and 
+                            #         $errorResponse.errorDetails[0].metadata -and $errorResponse.errorDetails[0].metadata.details) {
+                                
+                            #         $Description = $errorResponse.errorDetails[0].metadata.details
+                            #     }                       
+                                       
+                            # }                       
+    
+                            # if ($httpStatusCode -eq 404) {
+    
+                            #     Write-Error $errorResponse
+                            #     Throw "Resource not found (404) -  $message"
+                                
+                            # }
+                            # elseif ($Message -eq "Unauthorized") {
+    
+                            #     "[{0}] Error response message: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $message | Write-Verbose
+                            #     Throw "Error - Session has expired or been closed! Connect-HPEGL must be executed again!"
+    
+    
+                            # }
+                            # elseif ($Message) {
+    
+                            #     "[{0}] Error response message: '{1}' - HTTP status code: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Message, $httpStatusCode | Write-Verbose
+    
+                            #     if ($Description -and $Subject) {
+                                    
+                            #         "[{0}] Error subject: '{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Subject | Write-Verbose
+                            #         "[{0}] Error description: '{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Description | Write-Verbose
+                            #         Throw "Error: '$message' - HTTP status code: '$httpStatusCode' - Subject: '$Subject' - Description: '$Description'"
+    
+                            #     }
+                            #     elseif ($Description) {
+    
+                            #         "[{0}] Error description: '{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Description | Write-Verbose
+                            #         Throw "Error: '$message' - HTTP status code: '$httpStatusCode' - Description: '$Description'"
+    
+                            #     }
+                            #     else {
+                            #         Throw "Error: '$message' - HTTP status code: '$httpStatusCode'"
+                                    
+                            #     }
+    
+    
+                            # }
+                            # else {
+    
+                            #     "[{0}] Error: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
+                            #     Throw $_
+
+                            # }
                         }
-
                     }
-                    finally {
-                        $retries++
-                    }
-                    
+                   
                 }
                 #EndRegion
 
@@ -1988,9 +2104,7 @@ function Invoke-HPEGLWebRequest {
                     Throw "Error - Invalid URI! The URI must be a valid HPE GreenLake API URI!"
                 }
             
-              
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
-                "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose                    
+                 
     
                 #Region Manage the response content
                 if ($InvokeReturnData) {                 
@@ -2041,7 +2155,9 @@ function Invoke-HPEGLWebRequest {
     
                                         for ($i = 1; $i -lt $Numberofpages; $i++) {
                                         
-                                            $Offset += $pagination
+                                            $Offset += [int]$pagination
+
+                                            "[{0}] Offset defined: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Offset | Write-Verbose
     
                                             # URI modification to support pagination with Get-HPEGLWorkspace
                                             if ($queryParameters["count_per_page"]) {
@@ -2063,6 +2179,9 @@ function Invoke-HPEGLWebRequest {
                                             try {
                                        
                                                 $InvokeReturnData = Invoke-WebRequest -Uri $Url -Method $Method -Body $Body -WebSession $WebSession -ContentType $ContentType #-ErrorAction Stop
+
+                                                # Create a global variable to store the Invoke-WebRequest response
+                                                $Global:HPEGLInvokeReturnData = $InvokeReturnData
     
                                                 "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
                                                 "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose   
@@ -2152,7 +2271,7 @@ function Invoke-HPEGLWebRequest {
     
                                         for ($i = 1; $i -lt $Numberofpages; $i++) {
                                         
-                                            $Offset += $pagination
+                                            $Offset += [int]$pagination
     
                                             if ($uriobj.Query -ne "") {
                                                 
@@ -2169,6 +2288,9 @@ function Invoke-HPEGLWebRequest {
                                             try {
                                        
                                                 $InvokeReturnData = Invoke-WebRequest -Uri $Url -Method $Method -Body $Body -ContentType $ContentType -Headers $headers #-ErrorAction Stop
+
+                                                # Create a global variable to store the Invoke-WebRequest response
+                                                $Global:HPEGLInvokeReturnData = $InvokeReturnData
     
                                                 "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
                                                 "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose   
@@ -2248,11 +2370,82 @@ function Invoke-HPEGLWebRequest {
 
             }
            
-            $msg = "Max retries exeeced after receiving Error {0} - {1} - Message: {2}" -f $_.Exception.Response.StatusCode, $ReasonPhrase, $ExceptionErrorMessage
-            Throw $msg
+            
+            if ($lastException) {
 
-            # throw "Connection error! Please reconnect using 'Connect-HPEGL' cmdlet."
-            # throw "Max retries exceeded after receiving multiple exception errors."
+                # If the request was not completed after retries          
+                if (-not $complete) {
+                    "[{0}] Retry loop was triggered and reached the maximum of retries - Retries={1} - MaxRetries={2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $attempt, $MaxRetries | Write-Verbose
+                }  
+
+                try {
+                    $errorData = $lastException | ConvertFrom-Json
+                }
+                catch {                    
+                }
+                
+                if ($errorData){
+
+                    # Construct the custom exception message
+                    $exceptionMessage = [System.Collections.ArrayList]::new()
+
+                    # Checking icontent of errorDetails
+                    foreach ($detail in $errorData.errorDetails) {
+
+                        # if details exist
+                        if ($detail.metadata.details) {
+                            $detailsMessage = [System.Text.RegularExpressions.Regex]::Unescape($detail.metadata.details)
+                            "[{0}] Message captured: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $detailsMessage  | Write-Verbose
+                            [void]$exceptionMessage.add($detailsMessage)
+                        }
+
+                        # if error exist
+                        if ($detail.metadata.error) {
+                            $detailsMessage = [System.Text.RegularExpressions.Regex]::Unescape($detail.metadata.error)
+                            "[{0}] Message captured: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $detailsMessage  | Write-Verbose
+                            [void]$exceptionMessage.add($detailsMessage)
+                        }
+
+                        # if issues exist
+                        if ($detail.issues.description) {
+                            $detailsMessage = [System.Text.RegularExpressions.Regex]::Unescape($detail.issues.description)
+                            "[{0}] Message captured: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $detailsMessage  | Write-Verbose
+                            [void]$exceptionMessage.add($detailsMessage)
+                        }
+                    }       
+                    
+                    if ($exceptionMessage.count -gt 0) {
+                        $exceptionMessage = $exceptionMessage -join " - "
+                    }
+                    
+
+                    # Decode the Unicode escape sequences in the message as there is usually Unicode Escape Sequence (e.g. \u003c) in the message
+                    if ($errorData.message) {
+                        $Message = [System.Text.RegularExpressions.Regex]::Unescape($errorData.message)
+                    }
+                    else {
+                        $Message =  [System.Text.RegularExpressions.Regex]::Unescape($errorData)
+                    }
+
+                                        
+                    if($exceptionMessage -gt 0){
+
+                        $msg = "{0} - {1}" -f  $Message, $exceptionMessage
+                    }   
+                    else {
+                        
+                        $msg = "{0}" -f $Message 
+
+                    }                 
+        
+                    Throw $msg
+
+                    
+                }
+                else {
+                    Throw $lastException
+                }
+            }   
         }     
     }         
 }
@@ -2295,7 +2488,7 @@ function Invoke-HPECOMWebRequest {
     Switch parameter to show the user what would happen if the cmdlet was to run without actually running it.
 
     .EXAMPLE
-   
+    Invoke-HPECOMWebRequest -Uri "/compute-ops/v1beta2/job-templates" -Region "us-west" -Method "GET"
 
     .INPUTS
     None. You cannot pipe objects to this Cmdlet.
@@ -2303,6 +2496,8 @@ function Invoke-HPECOMWebRequest {
     .OUTPUTS
     The output of the cmdlet depends upon the format of the content that is retrieved.
     If the request returns JSON strings, Invoke-HPEGLWebRequest returns a PSObject that represents the strings.
+
+    $HPECOMInvokeReturnData global variable is set to the response of the web request.
         
          
     #>
@@ -2475,17 +2670,12 @@ function Invoke-HPECOMWebRequest {
 
         #Region Construction for Invoke-Webrequest
         else {
-
-            $retries = 0
-
-            "[{0}] About to make a '{1}' call to '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Method, $Url | Write-Verbose      
             
             $headers = @{} 
             $headers["Accept"] = "application/json"
             $headers["Authorization"] = "Bearer $($comApiAccessToken)"
-            
+
             "[{0}] Request headers: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($headers | ConvertTo-Json) | Write-Verbose
-            # "[{0}] Content-Type is set to '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ContentType | Write-Verbose      
            
             if ($body) {
                 # If body is JSON
@@ -2494,114 +2684,80 @@ function Invoke-HPECOMWebRequest {
                 }
                 else {
                     # Convert the body hashtable to a JSON string
-                    $Payload = $Body | ConvertTo-Json -Depth 10
-                
-                }
-                "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Payload | Write-Verbose
-            
+                    $Payload = $Body | ConvertTo-Json -Depth 10                
+                }            
             }
 
+            $lastException = $null
 
-            while ($retries -lt $MaxRetries) {
+            $attempt = 0
+            $complete = $false
+
+            while (-not $complete -and $attempt -lt $MaxRetries) {          
 
                 try {
               
+                    "[{0}] About to make a '{1}' call to '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Method, $Url | Write-Verbose      
+
+                    if ($payload) {
+                        "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Payload | Write-Verbose
+                    }
+                    else {
+                        "[{0}] No payload content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    }
+
                     $InvokeReturnData = Invoke-WebRequest -Uri $Url -Method $Method -Headers $headers -Body $Body -ContentType $ContentType
-                    
+
+                    # Create a global variable to store the Invoke-WebRequest response
+                    $Global:HPECOMInvokeReturnData = $InvokeReturnData
+                   
                     "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
                     "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose    
-
+                    
+                    $complete = $true
                     
                 }
-                catch [System.Net.WebException] {
-                    "[{0}] System.Net.WebException catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                    "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
-                    "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
-                
-                    if ($null -ne $_.Exception.Response) {
-                        $httpStatusCode = [int]$_.Exception.Response.StatusCode
-                        $ReasonPhrase = $_.Exception.Response.ReasonPhrase
-                        "[{0}] HTTP status code: {1} - {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $httpStatusCode, $ReasonPhrase | Write-Verbose 
-                
-                        if ($httpStatusCode -eq 503) {
-                            $retries++
-                            $waitTime = 2
-                            Write-Host "Received 503. Retrying in $waitTime seconds..."
-                            Start-Sleep -Seconds $waitTime
-                        }
-                        else {
-                            $PSCmdlet.ThrowTerminatingError($_)
-                        }
-                    }
-                    else {
-                        Throw "No Response Received."
-                    }
-                }
                 catch {
-                    "[{0}] Catch triggered!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
+
+                    $attempt++
+
+                    # Store the last exception
+                    $lastException = $_                      
+                    
+                    "[{0}] -------------------------------------------- Catch triggered! ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
                     "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
+
+                    if ($_.Exception.Response) {
+                        $statusCode = [int]$_.Exception.Response.StatusCode
+                        "[{0}] Received HTTP status code: '{1}'." -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode | Write-Verbose
+                    } 
+                    else {
+                        "[{0}] No HTTP status code received." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        $statusCode = "N/A"
+                    }
+                    
+                    
                     "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
-                
-                    $httpStatusCode = 0
-                    $ReasonPhrase = $null
-                    $ExceptionErrorMessage = $_.Exception.Message
-                    $Description = $null
-                    $Subject = $null
-                
-                    if ($null -ne $_.Exception.Response) {
-                        $httpStatusCode = [int]$_.Exception.Response.StatusCode         
-                        $ReasonPhrase = $_.Exception.Response.ReasonPhrase                        
-                        "[{0}] HTTP status code: {1} - ReasonPhrase: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $httpStatusCode, $ReasonPhrase | Write-Verbose 
-                
-                        try {
-                            $ExceptionJsonRawContent = $_.Exception.Response.Content | ConvertFrom-Json
-                            $ExceptionErrorMessage = $ExceptionJsonRawContent.message
-                            "[{0}] Error response message content: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExceptionErrorMessage | Write-Verbose
-                
-                            if ($ExceptionJsonRawContent.errorDetails) {
-                                $errorResponse = $ExceptionJsonRawContent.errorDetails
-                                $Description = $errorResponse.description
-                                $Subject = $errorResponse.subject
-                                "[{0}] Error description: {1} - Subject: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Description, $Subject | Write-Verbose
-                            }
-                        }
-                        catch {
-                            "[{0}] Unable to read the error response content." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                        }
+                    "[{0}] --------------------------------------------------------------------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
+                    
+
+                    if ($statusCode -in 408, 500, 502, 503, 504) {
+                        "[{0}] HTTP error {1} encountered. Retrying in 1 second... (Attempt {2} of {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode, $attempt, $MaxRetries | Write-Verbose  
+                        Start-Sleep -Seconds 1
                     }
                     else {
-                        "[{0}] Unable to read the error response content." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                    }
-                
-                    if ($httpStatusCode -eq 408 -or $httpStatusCode -eq 500) {
-                        $retries++
-                        $waitTime = 2
-                        "[{0}] Received {1}. Retrying in $waitTime seconds..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $httpStatusCode | Write-Verbose
-                        Start-Sleep -Seconds $waitTime
-                    }
-                    else {
+                        
+                        $ExceptionErrorMessage = $_.Exception.Message
+                        
                         if ($ExceptionErrorMessage -eq "Unauthorized") {
                             Throw "Error - Session has expired or been closed! Connect-HPEGL must be executed again!"
                         }
-                        else {
-
-                            $exceptionMessage = "HTTP Code: $httpStatusCode Reason: $ReasonPhrase Error: $ExceptionErrorMessage"
-                            $exception = New-Object System.Exception($exceptionMessage)
-                            $errorRecord = New-Object System.Management.Automation.ErrorRecord($exception, $httpStatusCode, [System.Management.Automation.ErrorCategory]::InvalidOperation, $null)
-                            $errorRecord.Exception.Data.Add("HttpCode", $httpStatusCode)
-                            $errorRecord.Exception.Data.Add("ErrorDetails", $ExceptionErrorMessage)
-                            if ($ReasonPhrase) { $errorRecord.Exception.Data.Add("ReasonPhrase", $ReasonPhrase) }
-                            if ($Description) { $errorRecord.Exception.Data.Add("Description", $Description) }
-                            if ($Subject) { $errorRecord.Exception.Data.Add("Subject", $Subject) }
-                            "[{0}] Custom error record object: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorRecord | Write-Verbose
-                            Throw $errorRecord
-                        }
-                    }
+                        
+                        $complete = $true
+                    }                       
                 }
-                finally {
-                    $retries++
-                }  
             
+                #Region Manage the response content
                 if ($InvokeReturnData) {
             
                     try {
@@ -2614,8 +2770,7 @@ function Invoke-HPECOMWebRequest {
                             "[{0}] Response detected with an 'OK' response!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                             return           
                         }   
-    
-                    
+                        
                         # If the 'items' property exists with an empty array, return nothing 
                         if ($InvokeReturnData.count -eq 0 -and $InvokeReturnData.items -is [System.Collections.IEnumerable]) {
     
@@ -2644,7 +2799,7 @@ function Invoke-HPECOMWebRequest {
 
                                     for ($i = 1; $i -lt $Numberofpages; $i++) {
                                     
-                                        $Offset += $pagination
+                                        $Offset += [int]$pagination
                             
                                         if ($uriobj.Query -ne "") {
                                             
@@ -2660,6 +2815,9 @@ function Invoke-HPECOMWebRequest {
                                     
                                         try {
                                             $InvokeReturnData = Invoke-WebRequest -Uri $Url -Method $Method -Headers $headers -Body $Body -ContentType $ContentType
+
+                                            # Create a global variable to store the Invoke-WebRequest response
+                                            $Global:HPECOMInvokeReturnData = $InvokeReturnData
 
                                             "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
                                             "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-verbose   
@@ -2715,14 +2873,86 @@ function Invoke-HPECOMWebRequest {
                         
                     }                    
                 }  
+                #EndRegion
+
             }
-            
-            $msg = "Max retries exeeced after receiving Error {0} - {1} - Message: {2}" -f $httpStatusCode, $ReasonPhrase, $ExceptionErrorMessage
-            Throw $msg
+         
+            if ($lastException) {
+
+                # If the request was not completed after retries          
+                if (-not $complete) {
+                    "[{0}] Retry loop was triggered and reached the maximum of retries - Retries={1} - MaxRetries={2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $attempt, $MaxRetries | Write-Verbose
+                }  
+
+                try {
+                    $errorData = $lastException | ConvertFrom-Json
+                }
+                catch {                    
+                }
                 
+                if ($errorData){
+
+                    # Construct the custom exception message
+                    $exceptionMessage = [System.Collections.ArrayList]::new()
+
+                    # Checking icontent of errorDetails
+                    foreach ($detail in $errorData.errorDetails) {
+
+                        # if details exist
+                        if ($detail.metadata.details) {
+                            $detailsMessage = [System.Text.RegularExpressions.Regex]::Unescape($detail.metadata.details)
+                            "[{0}] Message captured: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $detailsMessage  | Write-Verbose
+                            [void]$exceptionMessage.add($detailsMessage)
+                        }
+
+                        # if error exist
+                        if ($detail.metadata.error) {
+                            $detailsMessage = [System.Text.RegularExpressions.Regex]::Unescape($detail.metadata.error)
+                            "[{0}] Message captured: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $detailsMessage  | Write-Verbose
+                            [void]$exceptionMessage.add($detailsMessage)
+                        }
+
+                        # if issues exist
+                        if ($detail.issues.description) {
+                            $detailsMessage = [System.Text.RegularExpressions.Regex]::Unescape($detail.issues.description)
+                            "[{0}] Message captured: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $detailsMessage  | Write-Verbose
+                            [void]$exceptionMessage.add($detailsMessage)
+                        }
+                    }       
+                    
+                    if ($exceptionMessage.count -gt 0) {
+                        $exceptionMessage = $exceptionMessage -join " - "
+                    }
+                    
+
+                    # Decode the Unicode escape sequences in the message as there is usually Unicode Escape Sequence (e.g. \u003c) in the message
+                    if ($errorData.message) {
+                        $Message = [System.Text.RegularExpressions.Regex]::Unescape($errorData.message)
+                    }
+                    else {
+                        $Message =  [System.Text.RegularExpressions.Regex]::Unescape($errorData)
+                    }
+
+                                        
+                    if($exceptionMessage -gt 0){
+
+                        $msg = "{0} - {1}" -f  $Message, $exceptionMessage
+                    }   
+                    else {
+                        
+                        $msg = "{0}" -f $Message 
+
+                    }                      
+        
+                    Throw $msg
+
+                    
+                }
+                else {
+                    Throw $lastException
+                }
+            }                        
         }
-        #EndRegion
-                 
     }         
 }
 
@@ -3562,6 +3792,7 @@ To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/
             userSessionIdleTimeout   = $Null
             apiCredentials           = [System.Collections.ArrayList]::new()
             glpApiAccessToken        = [System.Collections.ArrayList]::new()
+            glpApiAccessTokenv1_2    = [System.Collections.ArrayList]::new()
             comApiAccessToken        = [System.Collections.ArrayList]::new()
             ccsSid                   = $Null
             onepassSid               = $onepassSid
@@ -4446,7 +4677,7 @@ When a new valid connection is established with a workspace, ${Global:HPEGreenLa
                     if ($_.Exception.Response.StatusCode -eq "Unauthorized") {
 
                         "[{0}] Error: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
-                        Write-Warning "GLP session refresh was unsuccessful. Cmdlets using the UI Doorway API will fail. Please reconnect using 'Connect-HPEGL' to continue using these cmdlets."                       
+                        throw "The GLP session refresh was unsuccessful due to prolonged inactivity. Please reconnect using 'Connect-HPEGL' to continue using the HPECOMCmdlets module."
     
                     }
                     elseif ($_.ErrorDetails.Message) {
@@ -4940,7 +5171,6 @@ When a new valid connection is established with a workspace, ${Global:HPEGreenLa
                             access_token  = $response.access_token 
                             expires_in    = $response.expires_in
                             creation_time = (Get-Date)
-
                         }
 
                         # Check if the access token for the current credential already exists
@@ -4956,6 +5186,44 @@ When a new valid connection is established with a workspace, ${Global:HPEGreenLa
                         # Add the new credential
                         [void]$global:HPEGreenLakeSession.glpApiAccessToken.add($ServiceAPICredential)
                         "[{0}] GLP API access token has been set in `$HPEGreenLakeSession.glpApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+
+                        # ------------ Create a session for GLP to generate a v1.2 token (used for v2 workspace API) ----------------
+
+                        "[{0}] Create a GLP session to generate a v1.2 token (used for v2 workspace API)" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-verbose
+                        
+                        $WorkspaceId = $HPEGreenLakeSession.workspaceId
+                        
+                        $tokenIssuerv2uri = $HPEGLAPIbaseURL + "/authorization/v2/oauth2/" + $WorkspaceId + "/token"
+
+                        "[{0}] About to execute POST request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $tokenIssuerv2uri | Write-Verbose
+                        "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($payload | convertto-json) | Write-Verbose
+
+                        $response2 = Invoke-RestMethod -Method Post -Uri $tokenIssuerv2uri -Body $Payload -ContentType 'application/x-www-form-urlencoded' 
+
+                        "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response2 | Write-verbose
+
+                        $ServiceAPICredential = [PSCustomObject]@{
+                            name          = $CurrentCredential.name
+                            access_token  = $response2.access_token 
+                            expires_in    = $response2.expires_in
+                            creation_time = (Get-Date)
+                        }
+
+                        # Check if the access token v1.2 for the current credential already exists
+                        $existingCredential = $global:HPEGreenLakeSession.glpApiAccessTokenv1_2 | Where-Object { $_.name -eq $CurrentCredential.name }
+                    
+                        if ($existingCredential) {
+                            # Remove the existing credential
+                            $global:HPEGreenLakeSession.glpApiAccessTokenv1_2.Remove($existingCredential)
+                            "[{0}] Previous access token v1.2 for '{1}' removed!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CurrentCredential.name | Write-Verbose
+
+                        }
+
+                        # Add the new credential
+                        [void]$global:HPEGreenLakeSession.glpApiAccessTokenv1_2.add($ServiceAPICredential)
+                        "[{0}] GLP API access token v1.2 has been set in `$HPEGreenLakeSession.glpApiAccessTokenv1_2` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                        
 
                     }
             
@@ -5191,19 +5459,22 @@ Function Get-HPECOMActivity {
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
-    .PARAMETER JobResourceUri
-    Optional parameter that can be used to specify the Uri of a job to display.
+    .PARAMETER ResourceUri
+    Optional parameter that can be used to specify the Uri of a resource to display.
 
-    .PARAMETER Name 
-    Optional parameter that can be used to display the activities of a specific activity name.
+    .PARAMETER SourceName
+    Optional parameter that can be used to display the activities of a specific source name (e.g. server name, group name, etc).
+    
+    .PARAMETER Category 
+    Optional parameter that can be used to display the activities of a specific category. Auto-completion (Tab key) is supported for this parameter, providing a list of categories.
     
     .PARAMETER ShowLastMonth
     This switch parameter can be used to display the activities of the last month.
 
-    .PARAMETER Category 
-    Optional parameter that can be used to display the activities of a specific category. Auto-completion (Tab key) is supported for this parameter, providing a list of categories.
-
-    .PARAMETER NoLimit
+    .PARAMETER ShowLastThreeMonths
+    This switch parameter can be used to display the activities of the last three months.
+    
+    .PARAMETER ShowAll
     This switch parameter can be used to display the total number of activities. Be aware, however, that this may take some time, depending on your history.
 
     .PARAMETER WhatIf 
@@ -5220,17 +5491,22 @@ Function Get-HPECOMActivity {
     Return the last month activities resources located in the central european region.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -Name CZJ11105MV 
+    Get-HPECOMActivity -Region eu-central -SourceName CZJ11105MV 
 
     Retrieve the last seven days activities resources for a server specified by its serial number.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -Name CZJ11105MV -ShowLastMonth
+    Get-HPECOMActivity -Region eu-central -SourceName CZJ11105MV -ShowLastMonth
 
     Retrieve the last month activities resources for a server specified by its serial number.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -Name RHEL92-1_server_group -nolimit
+    Get-HPECOMActivity -Region eu-central -SourceName CZJ11105MV -ShowLastThreeMonths
+
+    Retrieve the last three months activities resources for a server specified by its serial number.
+
+    .EXAMPLE
+    Get-HPECOMActivity -Region eu-central -SourceName "ESXi_group" -ShowAll
 
     Retrieve all activities data for a group specified by its name.
 
@@ -5240,17 +5516,17 @@ Function Get-HPECOMActivity {
     Retrieve the last seven days activities data for a specific category.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -Name "ESXi_group" -Category Job
+    Get-HPECOMActivity -Region eu-central -SourceName "ESXi_group" -Category Job
 
     Retrieve the last seven days activities data for a specific category and a specific server group.
 
     .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Name ESX-1 | Get-HPECOMActivity 
+    Get-HPECOMServer -Region eu-central -SourceName ESX-1 | Get-HPECOMActivity 
 
     Retrieve last seven days activities data for a server named 'ESX-1' in the "eu-central" region.
 
     .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Name CZJ11105MV | Get-HPECOMActivity -ShowLastMonth
+    Get-HPECOMServer -Region eu-central -SourceName CZJ11105MV | Get-HPECOMActivity -ShowLastMonth
 
     Retrieve last last month activities data for a server with the serial number 'CZJ11105MV' in the "eu-central" region.
 
@@ -5260,29 +5536,20 @@ Function Get-HPECOMActivity {
     Retrieve the most recent activity data for all "ProLiant DL385 Gen10 Plus" servers in the "us-west" region that are currently powered on and connected.
        
     .EXAMPLE
-    Get-HPECOMGroup -Region us-west -Name Production_AI_Systems | Get-HPECOMActivity -NoLimit
+    Get-HPECOMGroup -Region eu-central | Get-HPECOMActivity -ShowLastMonth
 
-    Retrieve all activities data for a group named 'Production_AI_Systems' in the "us-west" region.
+    Retrieve last last month activities data for all groups in the "eu-central" region.
     
     .EXAMPLE
-    'HOL11', 'HOL21' | Get-HPECOMActivity -Region us-west 
-
-    Retrieve the last 7 days activities data for the servers named 'HOL11' and 'HOL21' in the "us-west" region.
-
-    .EXAMPLE
-    $task = Update-HPECOMServeriLOFirmware -Region eu-central -ServerSerialNumber CZJ1233444  -Async
-    $job = $task | Get-HPECOMJob 
-    $activity = $task | Get-HPECOMActivity 
-    $task | Wait-HPECOMJobComplete
+    $job = Update-HPECOMServeriLOFirmware -Region eu-central -ServerSerialNumber CZJ1233444 -Async
+    $job | Get-HPECOMJob 
+    $job | Get-HPECOMActivity 
+    $job | Wait-HPECOMJobComplete
 
     This example retrieves the job resource created by the 'Update-HPECOMServeriLOFirmware' cmdlet in the central EU region.
     Then it retrieves the activity resource associated with the job.
     Then it waits for the job to complete.
 
-    .EXAMPLE
-    Get-HPECOMJob -Region eu-central -Name "IloOnlyFirmwareUpdate" | Select-Object -First 1 | Get-HPECOMActivity 
-
-    Retrieve the activity data for the most recent job named 'IloOnlyFirmwareUpdate' in the "eu-central" region.
 
     .INPUTS
     System.String, System.String[]
@@ -5294,7 +5561,7 @@ Function Get-HPECOMActivity {
 
     
    #>
-    [CmdletBinding(DefaultParameterSetName = 'JobResourceUri')]
+    [CmdletBinding(DefaultParameterSetName = 'ShowAll')]
     Param( 
     
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
@@ -5315,29 +5582,21 @@ Function Get-HPECOMActivity {
             })]
         [String]$Region,  
 
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ShowLastMonth')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'NoLimit')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'JobResourceUri')]        
-        [String]$Name,
-
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ShowLastMonth')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'NoLimit')]
-        [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'JobResourceUri')]        
+        [Parameter (ParameterSetName = 'ShowLastMonth')]
+        [Parameter (ParameterSetName = 'ShowLastThreeMonths')]
+        [Parameter (ParameterSetName = 'ShowAll')]
+        # [Alias('associatedResource')]
         [String]$SourceName,
 
-        [Parameter (ParameterSetName = 'ShowLastMonth')]
-        [Switch]$ShowLastMonth,
-
-        # Pipeline is supported but it requires to change the default parameter set to JobResourceUri but then 
-        # it generates an error when -Name and -Category parameters are used alone as the parameter set name cannot then be identified. 
-        # So I had to add the parameter set name JobResourceUri to the -Name and -Category parameters to avoid this issue + clear the $Name PS bound parameter if pipeline input
-        [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'JobResourceUri')] 
-        [Alias('ResourceUri')]
-        [string]$JobResourceUri,
+        [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'ShowLastMonth')] 
+        [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'ShowLastThreeMonths')]
+        [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'ShowAll')]
+        [Alias('JobUri', 'JobResourceUri')]
+        [string]$ResourceUri,
 
         [Parameter (ParameterSetName = 'ShowLastMonth')]
-        [Parameter (ParameterSetName = 'NoLimit')]
-        [Parameter (ParameterSetName = 'JobResourceUri')]
+        [Parameter (ParameterSetName = 'ShowLastThreeMonths')]
+        [Parameter (ParameterSetName = 'ShowAll')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 $environments = @('"External service"', 'Filter', 'Firmware', 'Group', 'Job', '"OneView Appliance"', 'Report', 'Schedule', 'Server', 'Setting', 'Subscription', '"User Preferences"', 'Webhook')
@@ -5347,20 +5606,26 @@ Function Get-HPECOMActivity {
                 }
             })]
         [ValidateScript({
-                $validOptions = @('External service', 'Filter', 'Firmware', 'Group', 'Job', 'OneView Appliance', 'Report', 'Schedule', 'Server', 'Setting', 'Subscription', 'User Preferences', 'Webhook')
-                
-                if ($validOptions -contains $_) {
-                    $True
-                }
-                else {
-                    throw "'$_' is not a valid option."
-                }
-                
+            $validOptions = @('External service', 'Filter', 'Firmware', 'Group', 'Job', 'OneView Appliance', 'Report', 'Schedule', 'Server', 'Setting', 'Subscription', 'User Preferences', 'Webhook')
+            # case sensitive comparison as lower case is not supported for the category
+            if ($validOptions -ccontains $_) {
+                $True
+            }
+            else {
+                throw "'$_' is not a valid option."
+            }
+            
             })]
         [String]$Category,
         
-        [Parameter (ParameterSetName = 'NoLimit')]
-        [switch]$NoLimit,
+        [Parameter (ParameterSetName = 'ShowLastMonth')]
+        [Switch]$ShowLastMonth,
+
+        [Parameter (ParameterSetName = 'ShowLastThreeMonths')]
+        [Switch]$ShowLastThreeMonths,        
+
+        [Parameter (ParameterSetName = 'ShowAll')]
+        [switch]$ShowAll,
 
         [Switch]$WhatIf
        
@@ -5373,32 +5638,14 @@ Function Get-HPECOMActivity {
         
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        # Validate the job object
-
-        if ($JobResourceUri) {
-
-            if ($JobResourceUri -match '^/compute-ops-mgmt/[^/]+/jobs/[^/]+$') {
-
-                "[{0}] Processing job resource uri: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $JobResourceUri | Write-Verbose       
-
-            }
-
-            else {
-
-                $ErrorMessage = "Invalid job resourceUri provided. Please verify the job object you are passing and try again."         
-                $ErrorRecord = New-ErrorRecord InvalidResourceUri InvalidArgument -TargetObject 'Job' -Message $ErrorMessage -TargetType $JobResourceUri.GetType().Name
-                $PSCmdlet.ThrowTerminatingError($ErrorRecord )
-
-            }  
-        }
-
         $todayMinusSevenDays = (Get-Date).AddDays(-7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") 
-        $todayMinusThirtyDays = (Get-Date).AddDays(-30).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") 
+        $todayMinusOneMonth = (Get-Date).AddMonths(-1).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $todayMinusThreeMonths = (Get-Date).AddMonths(-3).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
         # Construct the filter query
         $filterSevenDays = "createdAt gt $todayMinusSevenDays"
-        $filterThirtyDays = "createdAt gt $todayMinusThirtyDays"
-      
+        $filterOneMonth = "createdAt gt $todayMinusOneMonth"
+        $filterThreeMonths = "createdAt gt $todayMinusThreeMonths"
       
     }
       
@@ -5406,12 +5653,7 @@ Function Get-HPECOMActivity {
     Process {
       
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-
-        # If pipeline input, then don't take name PS bound parameter into account as it stores the name of the job and not the displayName of a resource
-        if ($JobResourceUri) {
-            $Name = $null
-        }
-
+       
         $Uri = $COMActivitiesUri
 
         # Helper function to add a filter to the URI
@@ -5432,27 +5674,60 @@ Function Get-HPECOMActivity {
                 $Uri + "?filter=$Filter"
             }
         }
-        
+
         # Add filters based on parameters
-        if ($SourceName) {
+        if ($ResourceUri) {
+
+            
+            # Use different filters based on the resourceUri
+            # For servers, use associatedServerId
+            if ($ResourceUri -match '^/compute-ops-mgmt/[^/]+/servers/[^/]+$') {
+                
+                # Id of server contains a + sign that needs to be URL-encoded
+                $ResourceId = [System.Web.HttpUtility]::UrlEncode($ResourceUri.Split("/")[-1])
+
+                $Uri = Add-FilterToUri -Uri $Uri -Filter "associatedServerId eq '$ResourceId'" 
+
+            }
+            # For jobs, use source/resourceUri (in v1beta2) or source/resourceId (in v1 or soon in v1beta2)
+            else {
+
+                # encode the resourceId as appliance includes a + sign
+                $ResourceId = [System.Web.HttpUtility]::UrlEncode($ResourceUri.Split("/")[-1])
+                
+                $Uri = Add-FilterToUri -Uri $Uri -Filter "contains(source/resourceUri, '$ResourceId')" # good for v1beta2
+                # $Uri = Add-FilterToUri -Uri $Uri -Filter "contains(source/resourceId, '$ResourceId')" # good for v1beta2 (future addition of resourceId in the source object)
+                # $Uri = Add-FilterToUri -Uri $Uri -Filter "source/resourceId eq '$ResourceId'" # good for v1
+                
+                # Not using the following as the source resourceUri is not always the same as the job resourceUri
+                # A job created with a specific API version is not identified in Activity with the same job version as initially created.  
+                # $Uri = Add-FilterToUri -Uri $Uri -Filter "source/resourceUri eq '$ResourceUri'"
+            }
+
+        }
+        elseif ($SourceName) {
             $Uri = Add-FilterToUri -Uri $Uri -Filter "source/displayName eq '$SourceName'"
         } 
-        # Cannot be used as a job created with a specific API version is not identified in Activity with the same job version as initially created. Case 
-        # elseif ($JobResourceUri) {
-        #     $Uri = Add-FilterToUri -Uri $Uri -Filter "source/resourceUri eq '$JobResourceUri'"
-        # }
-        
+       
         if ($Category) {
             $Uri = Add-FilterToUri -Uri $Uri -Filter "source/type eq '$Category'"
         }
         
-        # Filter 30 days
-        if ($ShowLastMonth) {
-            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterThirtyDays
-        } 
+
         # Filter 7 days except for the other cases
-        elseif (-not $NoLimit -and -not $JobResourceUri) {
+        if (-not $ShowAll -and -not $ShowLastMonth -and -not $ShowLastThreeMonths) {
             $Uri = Add-FilterToUri -Uri $Uri -Filter $filterSevenDays
+        }
+        # Filter 1 month
+        elseif ($ShowLastMonth) {
+            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterOneMonth
+        } 
+        # Filter 3 months
+        elseif ($ShowLastThreeMonths) {
+            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterThreeMonths
+        }
+        elseif ($ShowAll) {
+            # No filter
         }
 
         try {
@@ -5467,17 +5742,27 @@ Function Get-HPECOMActivity {
        
         if ($Null -ne $CollectionList) {     
 
-            if ($JobResourceUri) {
+            # Add formattedmessage to object
+            foreach ($Item in $CollectionList) {
 
-                $JobID = $JobResourceUri.Split("/")[-1]
+                if ($Item.message) {
 
-                $CollectionList = $CollectionList | Where-Object { $_.source.resourceUri -match $JobID } | Select-Object -First 1
-            }
+                    # Decode the Unicode escape sequences in the message as there is usually Unicode Escape Sequence (e.g. \u003c) in the message
+                    $_ActivityMessage = [System.Text.RegularExpressions.Regex]::Unescape($Item.message)
+                    
+                    # Format the message (split the message into an array, filter out the blank lines, and then use the -join operator to join the lines with " - ")
+                    $FormattedActivityMessage = ($_ActivityMessage -split "`r?`n" | Where-Object { $_ -ne "" }) 
 
-            if ($Name) {
+                    if ($FormattedActivityMessage.Count -gt 1) {
+                        $FormattedActivityMessage = $FormattedActivityMessage -join " - "
+                    }
+                }
+                else {
+                    $FormattedActivityMessage = $null
+                }
 
-                $CollectionList = $CollectionList | Where-Object { $_.name -match $Name }
-
+                $Item | Add-Member -type NoteProperty -name formattedmessage -value $FormattedActivityMessage
+                    
             }
 
             # Add region to object
@@ -5498,9 +5783,7 @@ Function Get-HPECOMActivity {
 
             return
                 
-        }     
-
-    
+        }         
     }
 }
 
@@ -10946,7 +11229,7 @@ Function Remove-HPECOMGroup {
             
             if ($Force) {
 
-                $Uri = $COMGroupsUri + "/" + $GroupID + "?Force=true"
+                $Uri = $COMGroupsUri + "/" + $GroupID + "?force=true"
             }
             else {
                 
@@ -12967,21 +13250,16 @@ function Wait-HPECOMJobComplete {
         "[{0}] Job URI: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $jobResource.resourceuri | Write-Verbose
 
         # Get activity resource message generated by the job        
-        $_ActivityMessage = Get-HPECOMActivity -Region $Region -JobResourceUri $jobResource.resourceuri | Select-Object -ExpandProperty message
-         
-        # Format the message (split the message into an array, filter out the blank lines, and then use the -join operator to join the lines with " - ")
-        $FormattedActivityMessage = ($_ActivityMessage -split "`r?`n" | Where-Object { $_ -ne "" }) -join " - "
+        $_Message = Get-HPECOMActivity -Region $Region -JobResourceUri $jobResource.resourceuri | Select-Object -ExpandProperty formattedmessage
 
         # Add message to object
-        $jobResource | Add-Member -type NoteProperty -name message -value $FormattedActivityMessage
+        $jobResource | Add-Member -type NoteProperty -name message -value $_Message
 
         [void]$JobCollection.Add($jobResource)
 
     }
 
     End {
-
-
 
         $ReturnData = Invoke-RepackageObjectWithType -RawObject $JobCollection -ObjectName "COM.Jobs"    
 
@@ -13023,7 +13301,7 @@ Function Get-HPECOMJob {
     .PARAMETER ShowLastMonth
     Optional switch parameter that can be used to display the jobs of the last month.  
 
-    .PARAMETER NoLimit
+    .PARAMETER ShowAll
     This switch parameter can be used to display the total number of jobs. Be aware, however, that this may take some time, depending on your history.
 
     .PARAMETER WhatIf 
@@ -13055,12 +13333,12 @@ Function Get-HPECOMJob {
     Return the last month jobs resources of type 'server' located in the central EU region.
 
     .EXAMPLE
-    Get-HPECOMJob -Region eu-central -Category Analyze -NoLimit
+    Get-HPECOMJob -Region eu-central -Category Analyze -ShowAll
 
     Return all jobs resources of type 'Analyze' located in the western US region.
 
     .EXAMPLE
-    Get-HPECOMJob -Region us-west -NoLimit
+    Get-HPECOMJob -Region us-west -ShowAll
 
     Return all jobs resources located in the western US region. 
 
@@ -13070,10 +13348,10 @@ Function Get-HPECOMJob {
     Return the job resource with the specified resource URI located in the western US region. 
 
     .EXAMPLE
-    $task = Update-HPECOMServeriLOFirmware -Region eu-central -ServerSerialNumber CZJ1233444  -Async
-    $job = $task | Get-HPECOMJob 
-    $activity = $task | Get-HPECOMActivity 
-    $task | Wait-HPECOMJobComplete
+    $job = Update-HPECOMServeriLOFirmware -Region eu-central -ServerSerialNumber CZJ1233444 -Async
+    $job | Get-HPECOMJob 
+    $job | Get-HPECOMActivity 
+    $job | Wait-HPECOMJobComplete
 
     This example retrieves the job resource created by the 'Update-HPECOMServeriLOFirmware' cmdlet in the central EU region.
     Then it retrieves the activity resource associated with the job.
@@ -13109,18 +13387,10 @@ Function Get-HPECOMJob {
         [Parameter (ParameterSetName = 'ShowPending')]
         [Parameter (ParameterSetName = 'ShowRunning')]
         [Parameter (ParameterSetName = 'ShowLastMonth')]
-        [Parameter (ParameterSetName = 'NoLimit')]
+        [Parameter (ParameterSetName = 'ShowLastThreeMonths')]
+        [Parameter (ParameterSetName = 'ShowAll')]
         [Parameter (ParameterSetName = 'JobResourceUri')]
         [String]$Name,
-
-        [Parameter (ParameterSetName = 'ShowRunning')]
-        [Switch]$ShowRunning,
-        
-        [Parameter (ParameterSetName = 'ShowPending')]
-        [Switch]$ShowPending,
-        
-        [Parameter (ParameterSetName = 'ShowLastMonth')]
-        [Switch]$ShowLastMonth,
         
         # Pipeline is supported but it requires to change the default parameter set to JobResourceUri but then 
         # it generates an error when -Name and -Category parameters are used alone as the parameter set name cannot then be identified. 
@@ -13132,7 +13402,8 @@ Function Get-HPECOMJob {
         [Parameter (ParameterSetName = 'ShowPending')]
         [Parameter (ParameterSetName = 'ShowRunning')]
         [Parameter (ParameterSetName = 'ShowLastMonth')]
-        [Parameter (ParameterSetName = 'NoLimit')]
+        [Parameter (ParameterSetName = 'ShowLastThreeMonths')]
+        [Parameter (ParameterSetName = 'ShowAll')]
         [Parameter (ParameterSetName = 'JobResourceUri')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
@@ -13144,9 +13415,21 @@ Function Get-HPECOMJob {
             })]
         [ValidateSet ('Analyze', 'Filter', 'Group', 'Oneview-appliance', 'Report', 'Server', 'Server-hardware', 'Setting')]
         [string]$Category,
+        
+        [Parameter (ParameterSetName = 'ShowRunning')]
+        [Switch]$ShowRunning,
+        
+        [Parameter (ParameterSetName = 'ShowPending')]
+        [Switch]$ShowPending,
+        
+        [Parameter (ParameterSetName = 'ShowLastMonth')]
+        [Switch]$ShowLastMonth,
 
-        [Parameter (ParameterSetName = 'NoLimit')]
-        [Switch]$NoLimit,
+        [Parameter (ParameterSetName = 'ShowLastThreeMonths')]
+        [Switch]$ShowLastThreeMonths,
+
+        [Parameter (ParameterSetName = 'ShowAll')]
+        [Switch]$ShowAll,
 
         [Switch]$WhatIf
        
@@ -13179,11 +13462,13 @@ Function Get-HPECOMJob {
 
         # Get today's date in ISO 8601 format (UTC)
         $todayMinusSevenDays = (Get-Date).AddDays(-7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") 
-        $todayMinusThirtyDays = (Get-Date).AddDays(-30).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") 
+        $todayMinusOneMonth = (Get-Date).AddMonths(-1).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $todayMinusThreeMonths = (Get-Date).AddMonths(-3).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 
         # Construct the filter query
         $filterSevenDays = "createdAt gt $todayMinusSevenDays"
-        $filterThirtyDays = "createdAt gt $todayMinusThirtyDays"
+        $filterOneMonth = "createdAt gt $todayMinusOneMonth"
+        $filterThreeMonths = "createdAt gt $todayMinusThreeMonths"
 
 
     }
@@ -13236,15 +13521,21 @@ Function Get-HPECOMJob {
             $Uri = Add-FilterToUri -Uri $Uri -Filter "state eq 'PENDING'"
         }
 
-        # Filter 30 days
-        if ($ShowLastMonth) {
-            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterThirtyDays
-        } 
         # Filter 7 days except for the other cases
-        elseif (-not $NoLimit -and -not $JobResourceUri -and -not $ShowRunning -and -not $ShowPending) {
+        if (-not $ShowAll -and -not $JobResourceUri -and -not $ShowRunning -and -not $ShowPending -and -not $ShowLastMonth -and -not $ShowLastThreeMonths) {
             $Uri = Add-FilterToUri -Uri $Uri -Filter $filterSevenDays
         }
-
+        # Filter 1 month
+        elseif ($ShowLastMonth) {
+            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterOneMonth
+        } 
+        # Filter 3 months
+        elseif ($ShowLastThreeMonths) {
+            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterThreeMonths
+        }
+        elseif ($ShowAll) {
+            # No filter
+        }
 
         try {
             [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
@@ -21192,8 +21483,14 @@ function New-HPECOMServerInventory {
             if ($Filters.Count -gt 0) {
                 $data = @{
                     filters = $Filters
+                    is_activity_message_needed = $true
                 }
-            }                      
+            }   
+            else {
+                $data = @{
+                    is_activity_message_needed = $true
+                }
+            }                   
 
             if ($ScheduleTime) {
 
@@ -33469,6 +33766,7 @@ Function New-HPECOMSettingServerOSImage {
         - Microsoft Windows
         - Red Hat Enterprise Linux
         - Suse Linux
+        - Ubuntu Linux
 
     Note: Compute Ops Management can detect completion of operating system install via HPE Agentless Management Service. 
           Ensure that the operating system image includes HPE Agentless Management Service utility.
@@ -33554,7 +33852,7 @@ Function New-HPECOMSettingServerOSImage {
                     [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
                 }
             })]
-        [ValidateSet ('MICROSOFT_WINDOWS', 'VMWARE_ESXI', 'RHEL', 'SUSE_LINUX', 'CUSTOM')]
+        [ValidateSet ('MICROSOFT_WINDOWS', 'VMWARE_ESXI', 'RHEL', 'SUSE_LINUX', 'UBUNTU_LINUX', 'CUSTOM')]
         [String]$OperatingSystem,
         
         [Parameter (Mandatory, ParameterSetName = 'SingleImage')]
@@ -36320,9 +36618,10 @@ Function Get-HPECOMServer {
         # Format response with Repackage Object With Type
         if ($Null -ne $CollectionList) {     
             
-            # Add region and serverName to object
+            # Add region, serverName and iLOIPAddress to object
             $CollectionList | Add-Member -type NoteProperty -name region -value $Region
             $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serverName -value $_.name }
+            $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name iLOIPAddress -value $_.hardware.bmc.ip}
 
             if ($ConnectionType) {
                    
@@ -36657,7 +36956,8 @@ Function Get-HPECOMServer {
                             
                         }
                         elseif (-Not $GroupName) {
-                            $GroupName = "No group"
+                            $GroupName = ""
+                            # $GroupName = "No group"
                         }
 
                         
@@ -36881,6 +37181,366 @@ Function Get-HPECOMServer {
 }
 
 
+Function Get-HPECOMServeriLOSSO {
+    <#
+    .DESCRIPTION
+    Obtain an iLO SSO Token URL or iLO session object to authenticate to an iLO.
+
+    The generated SSO token or session object can be used with other HPE libraries that support iLO session tokens, such as the HPEiLOCmdlets module. 
+    This allows for seamless integration and interaction with iLOs, enabling tasks such as running native iLO API RedFish calls or using the HPEiLOCmdlets module for various iLO operations.
+
+    Important note: SSO is not currently supported on servers managed by HPE OneView.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER SerialNumber
+    The serial number of the server for which the iLO SSO token will be generated.
+
+    .PARAMETER GenerateXAuthToken 
+    Generates an iLO session object that can be used later to configure the iLO via native RedFish calls (compliant with the X-Auth-Token header) or via the HPEiLOCmdlets (compliant with the XAuthToken parameter of Connect-HPEiLO).
+
+    .PARAMETER RemoteConsoleOnly
+    Generates an SSO URL Token for accessing the Remote Console.
+
+    .PARAMETER SkipCertificateValidation
+    Optional parameter that can be used to skip certificate validation checks, including all validations such as expiration, revocation, trusted root authority, etc.
+
+    [WARNING]: Using this parameter is not secure and is not recommended. This switch is only intended to be used against known hosts using a self-signed certificate for testing purposes. Use at your own risk.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    # Get server information
+    $server = Get-HPECOMServer -Region eu-central -Name ESX-Gen10P-1.lj.lab
+
+    # Get iLO IP
+    $iLO_IP = $server.hardware.bmc.ip
+
+    # Generate an iLO SSO Object that can then be used with the HPEiLOCmdlets module.
+    $SSOObject = $server | Get-HPECOMServeriLOSSO -GenerateXAuthToken  -SkipCertificateValidation
+
+    # Get iLO SSO Token
+    $iLOSessionKey = $SSOObject."X-Auth-Token"
+
+    # Connect to iLO using HPEiLOCmdlets module and the iLO SSO Token
+    $connection = Connect-HPEiLO -Address $iLO_IP -XAuthToken $SSOObject."X-Auth-Token" -DisableCertificateAuthentication
+
+    # Get iLO User Information
+    (Get-HPEiLOUser -Connection $connection).userinformation
+
+    This example shows how to generate an iLO SSO Object that can then be used with the HPEiLOCmdlets module to connect to an iLO and retrieve user information.
+
+    .EXAMPLE
+    Get-HPECOMServeriLOSSO -Region eu-central -SerialNumber "CZ2311004H" -GenerateXAuthToken  -SkipCertificateValidation
+
+    Generate an iLO SSO Object that can then be used with the HPEiLOCmdlets module, skipping certificate validation.
+    [WARNING]: Using this parameter is not secure and is not recommended. This switch is only intended to be used against known hosts using a self-signed certificate for testing purposes. Use at your own risk.
+
+    .EXAMPLE
+    $SSOObject = Get-HPECOMServer -Region eu-central -Name ESX-Gen10P-1.lj.lab | Get-HPECOMServeriLOSSO
+
+    Generate an iLO SSO Object for the server named 'ESX-Gen10P-1.lj.lab' located in the Central European region.
+
+    .EXAMPLE
+    $SSOObject = Get-HPECOMServer -Region eu-central -Name CZ1234567 | Get-HPECOMServeriLOSSO -GenerateXAuthToken 
+
+    Generate an iLO SSO Object that can then be used with the HPEiLOCmdlets module.
+
+    .EXAMPLE
+    $SSOObjects = Get-HPECOMServer -Region eu-central | Get-HPECOMServeriLOSSO
+
+    Generate iLO SSO Objects for all servers located in the Central European region.
+
+    .INPUTS
+    System.String, System.String[]
+        A single string object or a list of string objects representing the server's names.
+    System.Collections.ArrayList
+        List of servers from 'Get-HPECOMServer'.
+
+    .OUTPUTS
+    System.Management.Automation.PSCustomObject
+        SSO URL Object
+
+    System.Array
+        Multiple SSO URL objects.
+
+    System.Management.Automation.PSCustomObject
+        The session object generated for the iLO
+    #>
+
+    [CmdletBinding(DefaultParameterSetName = 'SerialNumberGenerateXAuthToken ')]
+    Param( 
+    
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                if ($HPECOMAPICredentialRegions -contains $_) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $HPECOMAPICredentialRegions global variable and create completions
+                $HPECOMAPICredentialRegions | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumberGenerateXAuthToken ')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumberRemoteConsoleOnly')]
+        [alias('serial')]
+        [String]$SerialNumber,
+        
+        [Parameter (ParameterSetName = 'SerialNumberGenerateXAuthToken ')]
+        [Switch]$GenerateXAuthToken ,
+
+        [Parameter (ParameterSetName = 'SerialNumberRemoteConsoleOnly')]
+        [Switch]$RemoteConsoleOnly,
+
+        [Switch]$SkipCertificateValidation,
+        
+        [Switch]$WhatIf
+        
+    ) 
+
+    Begin {
+  
+        $Caller = (Get-PSCallStack)[1].Command
+        
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $_JobTemplateName = 'GetSSOUrl'
+
+        $JobTemplateUri = $HPECOMjobtemplatesUris | Where-Object name -eq $_JobTemplateName | ForEach-Object resourceuri
+
+        $Uri = $COMJobsUri  
+
+        $ObjectStatusList = [System.Collections.ArrayList]::new()
+
+        $PSversion = $PSVersionTable.PSVersion.ToString().Split('.')[0]
+
+        if ($SkipCertificateValidation) {
+
+            if ($PSVersion -eq 5) {
+
+                # Adding type to trust self-signed iLO certificates 
+                add-type -TypeDefinition  @"
+                using System.Net;
+                using System.Security.Cryptography.X509Certificates;
+                public class TrustAllCertsPolicy : ICertificatePolicy {
+                    public bool CheckValidationResult(
+                        ServicePoint srvPoint, X509Certificate certificate,
+                        WebRequest request, int certificateProblem) {
+                        return true;
+                    }
+                }
+"@
+        
+                [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCertsPolicy
+
+            }
+        }
+   
+    }
+      
+    Process {
+      
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $objStatus = [pscustomobject]@{               
+            associatedResource = $SerialNumber
+        }
+
+        # Add tracking object to the list of object status list
+        [void]$ObjectStatusList.Add($objStatus)
+       
+    }
+
+    End {
+        
+        "[{0}] ObjectStatusList content '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList | out-string) | Write-Verbose
+
+        try {
+            
+            $Servers = Get-HPECOMServer -Region $Region
+       
+        }
+        catch {
+
+            $PSCmdlet.ThrowTerminatingError($_)
+            
+        }
+         
+        foreach ($Resource in $ObjectStatusList) {
+            
+            $Server = $Servers | Where-Object serialNumber -eq $Resource.associatedResource
+            
+            if (-not $Server) {
+                
+                Throw "Server with serial number '$($Resource.associatedResource)' not found in the region '$Region'."
+
+            } 
+            else {     
+                
+                $_serverResourceUri = $Server.resourceUri
+                $_serverIloIpAddress = $Server.hardware.bmc.ip
+                
+                # Test network connectivity with iLO
+                $IsILOAccessible = (New-Object System.Net.NetworkInformation.Ping).Send($_serverIloIpAddress, 4000) 
+
+                "[{0}] PING iLO '{1}' test result: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_serverIloIpAddress, $IsILOAccessible.status | Write-Verbose
+    
+                if ($Server.connectionType -eq "ONEVIEW") {
+
+                    Throw "iLO SSO is currently not supported on servers managed by HPE OneView."
+                }
+                elseif ($server.state.connected -ne $True) {
+
+                    Throw "The server's iLO is not connected to COM. Please connect your iLO to Compute Ops Management first."
+                }
+                elseif ($IsILOAccessible.Status -ne "Success") {
+                    
+                    throw "The server's iLO IP address '$($_serverIloIpAddress)' is not reachable. Please ensure your are connected to the iLO network."
+                }
+
+                $payload = @{
+                    jobTemplateUri = $JobTemplateUri
+                    resourceUri    = $_serverResourceUri
+                    data           = @{
+                        iloTargetUrl = $_serverIloIpAddress
+                    }
+                }
+
+                $payload = ConvertTo-Json $payload -Depth 10 
+
+                try {
+        
+                    $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -Method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf
+                    
+                    "[{0}] Running Wait-HPECOMJobComplete -Region '{1}' -Job '{2}' -Timeout '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, ($_resp.resourceuri), $Timeout | Write-Verbose
+            
+                    if (-not $Whatif) {
+
+                        $_resp = Wait-HPECOMJobComplete -Region $Region -Job $_resp.resourceuri -Timeout 20 
+                        
+                        "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+                        
+                        $ssoResourceUri = $_resp.statusDetails.sso_resource_uri
+                        
+                        "[{0}] ssoResourceUri returned: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ssoResourceUri | Write-Verbose
+                        
+                        $ssoUrlContent = Invoke-HPECOMWebRequest -Region $Region -Uri $ssoResourceUri -Method GET 
+                        
+                        $ssoUrl = $ssoUrlContent.sso_url
+
+                        "[{0}] SSO URL returned: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ssoUrl | Write-Verbose
+                       
+                        if ($GenerateXAuthToken  -or $RemoteConsoleOnly) {
+                            
+                            # Make an HTTP request to the SSO URL
+                            "[{0}] About to run GET with the SSO URL..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose  
+
+                            if ($SkipCertificateValidation) {
+
+                                "[{0}] PowerShell version detected: {1} with SkipCertificateValidation" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PSVersion | Write-Verbose  
+                                
+                                if ($PSVersion -eq 7) {   
+                                    
+                                    $response = Invoke-WebRequest -Uri $ssoUrl -Method Get -SessionVariable session -SkipCertificateCheck -ErrorAction Stop
+                                }
+                                else {           
+                                    
+                                    $response = Invoke-WebRequest -Uri $ssoUrl -Method Get -SessionVariable session -ErrorAction Stop
+                                }                            
+                            }
+                            else {
+
+                                "[{0}] PowerShell version detected: {1} without SkipCertificateValidation" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PSVersion | Write-Verbose  
+                
+                                $response = Invoke-WebRequest -Uri $ssoUrl -Method Get -SessionVariable session -ErrorAction Stop
+                            }
+
+                            "[{0}] Received status code response: {1} - Description: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response.StatusCode, $response.StatusDescription | Write-verbose           
+        
+                            $cookies = $session.Cookies.GetCookies($ssoUrl)
+        
+                            "[{0}] Cookies content from response headers:" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        
+                            foreach ($cookie in $cookies) { 
+                                
+                                "[{0}] {1} = {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $cookie.name, $cookie.value | Write-Verbose
+                                
+                                # Extract the 'sessionKey' cookie value
+                                if ($cookie.name -match 'sessionKey') {
+                                    
+                                    $sessionKey = $cookie.Value 
+                                    
+                                    "[{0}] `$sessionKey = {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $sessionKey | Write-Verbose
+                                    
+                                }
+                            }       
+                        }
+                    
+                        if ($GenerateXAuthToken ) {
+                        
+                            # Extract the base URL using regex
+                            $baseUrl = $ssoUrl -replace "^(https://[^/]+).*", '$1/'
+
+                            "[{0}] X-Auth-Token extracted from SSO URL: {1} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $baseUrl | Write-Verbose
+
+                            $rootUri = $baseUrl + "/rest/v1"
+                            
+                            $object = [PSCustomObject]@{
+                                rootUri        = $rootUri
+                                'X-Auth-Token' = $sessionKey
+                            }
+
+                            return $object
+
+                        }
+                        elseif ($RemoteConsoleOnly) {
+                            
+                            # Extract the IP address using regex
+                            $ipAddress = $ssoUrl -replace "https://([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+).*", '$1'
+
+                            $RemoteConsoleUrl = "hplocons://addr=" + $ipAddress + "&sessionkey=" + $sessionKey
+        
+                            $object = [PSCustomObject]@{
+                                remoteConsoleUrl = $RemoteConsoleUrl                            
+                            }
+                            
+                            return $object
+
+                        }
+                        else {
+                            
+                            $object = [PSCustomObject]@{
+                                iloSsoUrl = $ssoUrl                            
+                            }
+                            
+                            return $object
+                        }   
+                    }                                                        
+                }                    
+                catch {
+                    
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+            }
+        }
+    }
+}
+
+
+
 Function Enable-HPECOMServerAutoiLOFirmwareUpdate {
     <#
     .SYNOPSIS
@@ -36888,6 +37548,8 @@ Function Enable-HPECOMServerAutoiLOFirmwareUpdate {
 
     .DESCRIPTION
     This Cmdlet can be used to enable the iLO automatic firmware update for a specified server in a region.    
+
+    The iLO automatic firmware update status can be checked using 'Get-HPECOMServer -Region eu-central -ShowAutoiLOFirmwareUpdateStatus -Name <nameserver>' 
         
     .PARAMETER Region 
     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to enable the automatic iLO firmware update
@@ -37107,6 +37769,8 @@ Function Disable-HPECOMServerAutoiLOFirmwareUpdate {
 
     .DESCRIPTION
     This Cmdlet can be used to disable the iLO automatic firmware update for a specified server in a region.    
+
+    The iLO automatic firmware update status can be checked using 'Get-HPECOMServer -Region eu-central -ShowAutoiLOFirmwareUpdateStatus -Name <nameserver>' 
         
     .PARAMETER Region 
     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to disable the automatic iLO firmware update.
@@ -37716,7 +38380,7 @@ Function Remove-HPECOMServerActivationKey {
 
         if (-not $_ActivationKey) {
                 
-            "[{0}] Activation key '{1}' is not present in the '{2}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ActivationKey, $Region | Write-Verbose
+            "[{0}] Activation key '{1}' cannot be found in the '{2}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ActivationKey, $Region | Write-Verbose
 
             if ($WhatIf) {
 
@@ -40843,15 +41507,15 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             
             if ( -not $device) {
                 # Must return a message if device is not found
-                $objStatus.Status = "Warning"
-                $objStatus.Details = "Device is not present in the HPE GreenLake workspace"
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Device cannot be found in the HPE GreenLake workspace"
                 [void] $iLOConnectionStatus.add($objStatus)
                 return
                 
             }
             elseif (-not $device.ccs_region) {
                 # Must return a message if device is not assigned to COM
-                $objStatus.Status = "Warning"
+                $objStatus.Status = "Failed"
                 $objStatus.Details = "Device is not assigned to any service instance!"
                 [void] $iLOConnectionStatus.add($objStatus)
                 return
@@ -40859,7 +41523,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             }
             elseif (-not $device.subscription_key) {
                 # Must return a message if device has no subscription
-                $objStatus.Status = "Warning"
+                $objStatus.Status = "Failed"
                 $objStatus.Details = "Device has not been attached to any subscription!"
                 [void] $iLOConnectionStatus.add($objStatus)
                 return
@@ -40868,8 +41532,21 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         }
          
 
-        #Region----------------------------------------------------------- Create iLO session     
+        #Region----------------------------------------------------------- Create iLO session -----------------------------------------------------------    
       
+        # Test network connectivity with iLO
+        $IsILOAccessible = (New-Object System.Net.NetworkInformation.Ping).Send($IloIP, 4000) 
+
+        "[{0}] PING iLO '{1}' test result: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $IsILOAccessible.status | Write-Verbose
+
+        if ($IsILOAccessible.Status -ne "Success") {
+            $objStatus.Status = "Failed"
+            $objStatus.Details = "iLO is not reachable. Please ensure your are connected to the iLO network."
+            [void] $iLOConnectionStatus.add($objStatus)
+            return       
+        }
+
+
         $iLOBaseURL = "https://$IloIP"
             
         $AddURI = "/redfish/v1/SessionService/Sessions/"
@@ -40943,7 +41620,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         
         #endregion
 
-        #Region----------------------------------------------------------- Get System information
+        #Region----------------------------------------------------------- Get System information -----------------------------------------------------------
                 
         $Headers = [System.Collections.Hashtable]@{
             'X-Auth-Token'  = $XAuthToken
@@ -40993,7 +41670,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         "[{0}] '{1}' - iLO generation: {2} - Version: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $iLOGeneration, $iLOFWVersion | Write-Verbose
         
         #EndRegion
-        #Region----------------------------------------------------------- iLO Firmware validation with COM activation key
+        #Region----------------------------------------------------------- iLO Firmware validation with COM activation key -----------------------------------------------------------
         # Check if the iLO firmware version is compatible with the COM activation key
         # Servers running earlier versions of iLO 5 and iLO 6 can be activated by using the HPE GreenLake workspace ID.
         # COM activation key is not supported if iLO5 lower than v3.09 and if iLO6 lower than v1.59.
@@ -41154,16 +41831,16 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                         $objStatus.ProxySettingsStatus = "Complete"
                         $objStatus.ProxySettingsDetails = "iLO proxy server settings modified successfully!"
                     }
-                
+                    else {
+                        "[{0}] '{1}' -- iLO '{2}' proxy server settings modification error!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP | Write-Verbose
+                        $objStatus.ProxySettingsStatus = "Failed"
+                        $objStatus.ProxySettingsDetails = $msg                        
+                    }                
 
                 }
                 catch {
 
-                    $err = (New-Object System.IO.StreamReader( $_.Exception.Response.GetResponseStream() )).ReadToEnd() 
-                    $msg = $err.error.'@Message.ExtendedInfo'.MessageId
-
-                    "[{0}] '{1}' -- iLO '{2}' proxy server settings cannot be configured! Error: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
-
+                    "[{0}] '{1}' -- iLO '{2}' proxy server settings cannot be configured! Error: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $_ | Write-Verbose
 
                     $objStatus.ProxySettingsStatus = "Failed"
                     $objStatus.ProxySettingsDetails = $_.Exception.message 
@@ -41209,68 +41886,73 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             "[{0}] '{1}' -- iLO '{2}' - Body content: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $Body | Write-Verbose
     
             $currentDate = Get-Date 
+                        
+            $counter = 1
+
+            # Define the spinning cursor characters
+            $spinner = @('|', '/', '-', '\')
             
-            try {
-                
-                $counter = 1
+            # Get the current width of the terminal window                
+            $terminalWidth = (Get-Host).UI.RawUI.WindowSize.Width                    
+            
+            # Create a clear line string based on the terminal width to ensure the entire line is overwritten
+            if (-not $psISE) {
+                $clearLine = " " * ($terminalWidth - 1)
+            }
 
-                # Define the spinning cursor characters
-                $spinner = @('|', '/', '-', '\')
-                
-                # Get the current width of the terminal window                
-                $terminalWidth = (Get-Host).UI.RawUI.WindowSize.Width                    
-                
-                # Create a clear line string based on the terminal width to ensure the entire line is overwritten
-                if (-not $psISE) {
-                    $clearLine = " " * ($terminalWidth - 1)
-                }
+            if ($SkipCertificateValidation) {
 
-                if ($SkipCertificateValidation) {
+                if ($PSVersion -eq 7) {
 
-                    if ($PSVersion -eq 7) {
-
-                        $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
-                    }
-                    else {
-                        $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
-
-                    }
+                    $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
                 }
                 else {
-
                     $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
+
                 }
+            }
+            else {
 
-                "[{0}] '{1}' -- iLO '{2}' - Status of the iLO connection to COM: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $CloudConnectStatus | Write-Verbose
+                $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers).Oem.Hpe.CloudConnect.CloudConnectStatus
+            }
+
+            "[{0}] '{1}' -- iLO '{2}' - Status of the iLO connection to COM: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $CloudConnectStatus | Write-Verbose
 
 
-                if ($CloudConnectStatus -ne "Connected") {
+            if ($CloudConnectStatus -ne "Connected") {
+
+                do {
                     
-                    do {
+                    try {
+                        
+                        "[{0}] '{1}' -- iLO '{2}' - About to run POST {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $url | Write-Verbose
 
                         if ($SkipCertificateValidation) {
 
                             if ($PSVersion -eq 7) {
 
-                                $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop -SkipCertificateCheck
+                                $iLOConnectiontoCOMResponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -SkipCertificateCheck -ErrorAction SilentlyContinue
                             }
                             else {
-                                $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop 
+                                $iLOConnectiontoCOMResponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction SilentlyContinue
 
                             }                            
                         }
                         else {
                             
-                            $iLOConnectiontoCOMRresponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction Stop 
+                            $iLOConnectiontoCOMResponse = Invoke-RestMethod -Method POST -Uri $url -Body $Body -Headers $Headers -ErrorAction SilentlyContinue
                         }
 
                         $subcounter = 0
                         
                         do {                            
                             
+                            "[{0}] '{1}' -- iLO '{2}' - About to run GET {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ( $iLObaseURL + "/redfish/v1/Managers/1/") | Write-Verbose
+
                             if ($SkipCertificateValidation) {
 
                                 if ($PSVersion -eq 7) {
+
 
                                     $CloudConnectStatus = (Invoke-RestMethod -Method GET -uri ( $iLObaseURL + "/redfish/v1/Managers/1/") -Headers $Headers -SkipCertificateCheck).Oem.Hpe.CloudConnect.CloudConnectStatus
                                 }
@@ -41300,38 +41982,59 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                             }
                             
                             $subcounter++
-                            Start-Sleep -Milliseconds 1000
+                            Start-Sleep -Seconds 2
                             
                         } while ($CloudConnectStatus -eq "ConnectionInProgress")
                         
                         # Increment counter
                         $counter++
+                        Start-Sleep -Seconds 1
+
+                    } 
+                    catch {
+                   
+                        "[{0}] Catch triggered! {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
                         
-                    } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)       
-
-                    
-                    if ($iLOConnectiontoCOMRresponse) {
-                        "[{0}] '{1}' -- iLO '{2}' - Response to the attempt to connect to COM: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($iLOConnectiontoCOMRresponse | Out-String ) | Write-Verbose
-                        
-                        if ( $iLOConnectiontoCOMRresponse.error.'@Message.ExtendedInfo'.MessageId ) {
-
-                            $msg = $iLOConnectiontoCOMRresponse.error.'@Message.ExtendedInfo'.MessageId
-                            "[{0}] '{1}' -- iLO '{2}' - Response: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
-
-                            if ($iLOConnectiontoCOMRresponse.error.'@Message.ExtendedInfo'.MessageId -notmatch "Success") {
-                    
-                                "[{0}] '{1}' -- iLO '{2}' - Error to the attempt to connect to COM!: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($iLOConnectiontoCOMRresponse.error.'@Message.ExtendedInfo'.MessageId ) | Write-Verbose
-                                
-                                $objStatus.iLOConnectionStatus = "Failed"
-                                $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management!"
-                                $objStatus.Exception = "Error: {0}" -f ($iLOConnectiontoCOMRresponse.error.'@Message.ExtendedInfo'.MessageId )
-                                $objStatus.Status = "Failed"
-                                [void] $iLOConnectionStatus.add($objStatus)
-                                return                        
-                            }
+                        # Check if the error message indicates "Connection in progress"
+                        if ($_ -match "Connection in progress") {
+                            Write-Verbose "Connection in progress, retrying..."
+                            Start-Sleep -Seconds 5
+                        } 
+                        else {
+                            Write-Error "An error occurred: $_"
+                            $objStatus.iLOConnectionStatus = "Failed"
+                            $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! Check the iLO logs."
+                            $objStatus.Exception = "Error: '{0}'" -f $_
+                            $objStatus.Status = "Failed"
+                            [void] $iLOConnectionStatus.add($objStatus)
+                            break
                         }
                     }
-                }
+                        
+                } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)       
+
+                    
+                if ($iLOConnectiontoCOMResponse) {
+                    "[{0}] '{1}' -- iLO '{2}' - Response to the attempt to connect to COM: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($iLOConnectiontoCOMResponse | Out-String ) | Write-Verbose
+                    
+                    if ( $iLOConnectiontoCOMResponse.error.'@Message.ExtendedInfo'.MessageId ) {
+
+                        $msg = $iLOConnectiontoCOMResponse.error.'@Message.ExtendedInfo'.MessageId
+                        "[{0}] '{1}' -- iLO '{2}' - Response: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
+
+                        if ($iLOConnectiontoCOMResponse.error.'@Message.ExtendedInfo'.MessageId -notmatch "Success") {
+                
+                            "[{0}] '{1}' -- iLO '{2}' - Error to the attempt to connect to COM!: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, ($iLOConnectiontoCOMResponse.error.'@Message.ExtendedInfo'.MessageId ) | Write-Verbose
+                            
+                            $objStatus.iLOConnectionStatus = "Failed"
+                            $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management!"
+                            $objStatus.Exception = "Error: {0}" -f ($iLOConnectiontoCOMResponse.error.'@Message.ExtendedInfo'.MessageId )
+                            $objStatus.Status = "Failed"
+                            [void] $iLOConnectionStatus.add($objStatus)
+                            return                        
+                        }
+                    }
+                }                
                 else {
                     $msg = "AlreadyConnected"
 
@@ -41454,32 +42157,8 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                         $objStatus.iLOConnectionStatus = "Complete"
                         $objStatus.iLOConnectionDetails = "iLO successfully connected to Compute Ops Management!"
                     }
-                }        
-            }
-            catch {
-                        
-                # "`r$clearLine`r[{0}] -- iLO '{1}' - Failed!" -f $SerialNumber, $IloIP, $CloudConnectStatus | Write-Host -ForegroundColor Yellow
-                
-                if ($null -ne $_.Exception.Response -and $null -ne $_.Exception.Response.GetResponseStream()) {
-                    $err = (New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())).ReadToEnd()
-                    $msg = $err.error.'@Message.ExtendedInfo'.MessageId
-
-                }
-                else {
-                    $msg = "$_"
-                }
-
-                "[{0}] '{1}' -- iLO '{2}' cannot be connected to Compute Ops Management! Error: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SerialNumber, $IloIP, $msg | Write-Verbose
-            
-                $objStatus.iLOConnectionStatus = "Failed"
-                $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! Check that the iLO is not under the control of HPE OneView. If it is, you can force the connection using the -DisconnectiLOfromOneView switch."
-                $objStatus.Exception = "Error: '{0}'" -f $msg
-                $objStatus.Status = "Failed"
-                [void] $iLOConnectionStatus.add($objStatus)
-                return
-            }
-
-            
+                }   
+            }                 
         }
         else {
             
@@ -43172,7 +43851,7 @@ System.Collections.ArrayList
                         }
                         elseif ($ExistingTags | Where-Object name -ne $_tag.name) {
 
-                            "[{0}] '{1}' tag is not present" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Tag.name | write-verbose
+                            "[{0}] '{1}' tag cannot be found" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Tag.name | write-verbose
 
                             [void]$TagsToBeCreated.Add($_Tag)
 
@@ -45526,8 +46205,6 @@ Function Set-HPEGLLocation {
             $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.NSDE" 
             Return $ObjectStatusList
         }
-
-
     }
 }
 
@@ -46928,7 +47605,7 @@ Function New-HPEGLService {
                         # Add region to the global variable for the argument completer for the Region parameter of *HPECOM* cmdlets
                         # [void]$Global:HPECOMAPICredentialRegions.add($region)
 
-                        # "{0}: Added '{1}' region to the global variable `$HPECOMAPICredentialRegions used for the argument completer for the Region parameter of *HPECOM* cmdlets." -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+                        # "[{0}] Added '{1}' region to the global variable `$HPECOMAPICredentialRegions used for the argument completer for the Region parameter of *HPECOM* cmdlets." -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
 
                         #Region- Generate new COM API client credential using template $APIClientCredentialTemplateName in $region
                   
@@ -47042,7 +47719,9 @@ Function Remove-HPEGLService {
     This Cmdlet can be used to remove a service from a region. This action is irreversible and cannot be canceled or undone once the process has begun. All users will lose access, and it will permanently delete all device and user data.
 
     The cmdlet issues a message at runtime to warn the user of the irreversible impact of this action and asks for a confirmation for the removal of the service.
-        
+    
+    If the user confirms the action, the service is deleted. If the user cancels the action, the service is not deleted.
+    
     .PARAMETER Name 
     The name of the available service to remove. This value can be retrieved from 'Get-HPEGLService -ShowProvisioned'.
         
@@ -47202,54 +47881,65 @@ Function Remove-HPEGLService {
     
                         if (-not $WhatIf) {
         
-                            "{0}: '{1}' service successfully removed from '{2}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+                            "[{0}] '{1}' service successfully removed from '{2}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
     
                             $objStatus.Status = "Complete"
                             $objStatus.Details = "Service successfully removed from '$Region' region"
     
                             if ($name -eq "Compute Ops Management") {
                                 
-                                # Remove region from the global variable for the argument completer for the Region parameter of *HPECOM* cmdlets
+                                "[{0}] ------------------------------------- Remove COM API client credential objects from global variables -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                
+                                # Remove COM API client credential for $region (no longer required)
+                                # When a service is removed, associated API credentials are automatically removed from the workspace.
+                                # Adding a short sleep to allow the API credentials to be removed before attempting to remove them manually.
+                                # Start-Sleep -Seconds 3
+                                # $COMinstanceAPIcredential = Get-HPEGLAPICredential | Where-Object { $_.name -match $APIClientCredentialTemplateName -and $_.name -match "COM" -and $_.name -match $Region }
+
+                                # if ($COMinstanceAPIcredential) {
+
+                                #     "[{0}]  COM API client credential found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $COMinstanceAPIcredential.name | Write-Verbose
+                                #     Remove-HPEGLAPICredential -Name $COMinstanceAPIcredential.name -Force | Out-Null
+
+                                # }
+                                # else {
+
+                                #     "[{0}] No COM API client credential found!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $COMinstanceAPIcredential.name | Write-Verbose
+                                # }
+
+                                
+
+                                # 1- Remove region object from $HPECOMAPICredentialRegions (used for the argument completer for the -Region parameter of *HPECOM* cmdlets)
+
+                                "[{0}] ------- Deleting COM '{1}' region from `$HPECOMAPICredentialRegions" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                               
                                 [void]$Global:HPECOMAPICredentialRegions.remove($region)
-    
-                                "{0}: Removed '{1}' $Region region from the global variable `$HPECOMAPICredentialRegions used for the argument completer for the Region parameter of *HPECOM* cmdlets." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                                "[{0}] COM '{1}' region has been removed from `$HPECOMAPICredentialRegions global variable" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
                                 
-                                #Region- Remove COM API client credential for $region
-                                "[{0}] ------------------------------------- Remove COM API client credential -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                
 
-                                $COMinstanceAPIcredential = Get-HPEGLAPICredential | Where-Object { $_.name -match $APIClientCredentialTemplateName -and $_.name -match "COM" -and $_.name -match $Region }
-
-                                if ($COMinstanceAPIcredential) {
-
-                                    "{0}: COM API client credential found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $COMinstanceAPIcredential.name | Write-Verbose
-                                    Remove-HPEGLAPICredential -Name $COMinstanceAPIcredential.name -Force | Out-Null
-
-                                }
-                                else {
-
-                                    "{0}: No COM API client credential found!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $COMinstanceAPIcredential.name | Write-Verbose
-                                }
-
-                                "[{0}] ------- Deleting '{1}' temporary API client credentials for region '{2}' in `$HPEGreenLakeSession.apiCredentials" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
-                                # Remove access token from $HPEGreenLakesession.comApiAccessToken
-                                # It will remove client_id / client_secret from $HPEGreenLakesession.apiCredentials
-                                                         
+                                # 2- Remove API credential object from $HPEGreenLakesession.apiCredentials
+                                
+                                "[{0}] ------- Deleting '{1}' temporary API client credential for region '{2}' in `$HPEGreenLakeSession.apiCredentials" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+                                
                                 $comApiCredential = $HPEGreenLakeSession.apiCredentials | Where-Object { $_.name -match $APIClientCredentialTemplateName -and $_.name -match "COM" -and $_.region -match $Region }                          
-                                "[{0}] COM API Credential found for '{1}' in `$HPEGreenLakeSession.apiCredentials: `n{2} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, $comApiCredential | Write-Verbose
-                                
+                                "[{0}] COM API credential found for '{1}' in `$HPEGreenLakeSession.apiCredentials: `n{2} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, $comApiCredential | Write-Verbose
                                 [void]$global:HPEGreenLakeSession.apiCredentials.remove($comApiCredential)
-
                                 "[{0}] COM API credential has been removed from `$HPEGreenLakeSession.apiCredentials` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-    
+
+
+
+                                # 3- Remove access token object from $HPEGreenLakesession.comApiAccessToken
+
+                                "[{0}] ------- Deleting '{1}' temporary API client credential for region '{2}' in `$HPEGreenLakeSession.comApiAccessToken" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+
                                 $comApiAccessToken = $HPEGreenLakeSession.comApiAccessToken | Where-Object { $_.name -match $APIClientCredentialTemplateName -and $_.name -match "COM" -and $_.name -match $Region }
-                                "[{0}] COM Access Token found: `n{1} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $comApiAccessToken | Write-Verbose
-                                
+                                "[{0}] COM access token found for '{1}' in `$HPEGreenLakeSession.comApiAccessToken: `n{2} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, $comApiAccessToken | Write-Verbose
                                 [void]$global:HPEGreenLakeSession.comApiAccessToken.remove($comApiAccessToken)
-                                
                                 "[{0}] COM API access token has been removed from `$HPEGreenLakeSession.comApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
     
                             }
-                            #endregion
+                            
                         }  
                     }
                     catch {
@@ -47264,7 +47954,7 @@ Function Remove-HPEGLService {
                 }
                 else {
     
-                    "{0}: User cancelled the deletion of the service instance '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                    "[{0}] User cancelled the deletion of the service instance '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
     
                     if ($WhatIf) {
                         $ErrorMessage = "Operation cancelled by the user!"
@@ -47298,53 +47988,65 @@ Function Remove-HPEGLService {
 
                     if (-not $WhatIf) {
     
-                        "{0}: Service successfully removed from '{1}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+                        "[{0}] Service successfully removed from '{1}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
 
                         $objStatus.Status = "Complete"
                         $objStatus.Details = "Service successfully removed from '$Region' region"
 
                         if ($name -eq "Compute Ops Management") {
 
-                            # Remove region from the global variable for the argument completer for the Region parameter of *HPECOM* cmdlets
+                            "[{0}] ------------------------------------- Remove COM API client credential objects from global variables -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                
+                            # Remove COM API client credential for $region (no longer required)
+                            # When a service is removed, associated API credentials are automatically removed from the workspace.
+                            # Adding a short sleep to allow the API credentials to be removed before attempting to remove them manually.
+                            # Start-Sleep -Seconds 3
+                            # $COMinstanceAPIcredential = Get-HPEGLAPICredential | Where-Object { $_.name -match $APIClientCredentialTemplateName -and $_.name -match "COM" -and $_.name -match $Region }
+
+                            # if ($COMinstanceAPIcredential) {
+
+                            #     "[{0}]  COM API client credential found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $COMinstanceAPIcredential.name | Write-Verbose
+                            #     Remove-HPEGLAPICredential -Name $COMinstanceAPIcredential.name -Force | Out-Null
+
+                            # }
+                            # else {
+
+                            #     "[{0}] No COM API client credential found!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $COMinstanceAPIcredential.name | Write-Verbose
+                            # }
+
+                            
+
+                            # 1- Remove region object from $HPECOMAPICredentialRegions (used for the argument completer for the -Region parameter of *HPECOM* cmdlets)
+
+                            "[{0}] ------- Deleting COM '{1}' region from `$HPECOMAPICredentialRegions" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                           
                             [void]$Global:HPECOMAPICredentialRegions.remove($region)
-    
-                            "{0}: Removed '{1}' $Region region from the global variable `$HPECOMAPICredentialRegions used for the argument completer for the Region parameter of *HPECOM* cmdlets." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
-                             
-                            #Region- Remove COM API client credential for $region
-                            "[{0}] ------------------------------------- Remove COM API client credential -------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            "[{0}] COM '{1}' region has been removed from `$HPECOMAPICredentialRegions global variable" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                            
+                            
 
-                            $COMinstanceAPIcredential = Get-HPEGLAPICredential | Where-Object { $_.name -match $APIClientCredentialTemplateName -and $_.name -match "COM" -and $_.name -match $Region }
-
-                            if ($COMinstanceAPIcredential) {
-
-                                "{0}: COM API client credential found: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $COMinstanceAPIcredential.name | Write-Verbose
-                                Remove-HPEGLAPICredential -Name $COMinstanceAPIcredential.name -Force | Out-Null
-                            }
-                            else {
-
-                                "{0}: No COM API client credential found!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $COMinstanceAPIcredential.name | Write-Verbose
-                            }
-
-                            "[{0}] ------- Deleting '{1}' temporary API client credentials for region '{2}' in `$HPEGreenLakeSession.apiCredentials" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
-                            # Remove access token from $HPEGreenLakesession.comApiAccessToken
-                            # It will remove client_id / client_secret from $HPEGreenLakesession.apiCredentials
-                                                      
+                            # 2- Remove API credential object from $HPEGreenLakesession.apiCredentials
+                            
+                            "[{0}] ------- Deleting '{1}' temporary API client credential for region '{2}' in `$HPEGreenLakeSession.apiCredentials" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+                            
                             $comApiCredential = $HPEGreenLakeSession.apiCredentials | Where-Object { $_.name -match $APIClientCredentialTemplateName -and $_.name -match "COM" -and $_.region -match $Region }                          
-                            "[{0}] COM API Credential found for '{1}' in `$HPEGreenLakeSession.apiCredentials: `n{2} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, $comApiCredential | Write-Verbose
-                             
+                            "[{0}] COM API credential found for '{1}' in `$HPEGreenLakeSession.apiCredentials: `n{2} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, $comApiCredential | Write-Verbose
                             [void]$global:HPEGreenLakeSession.apiCredentials.remove($comApiCredential)
-
                             "[{0}] COM API credential has been removed from `$HPEGreenLakeSession.apiCredentials` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
- 
+
+
+
+                            # 3- Remove access token object from $HPEGreenLakesession.comApiAccessToken
+
+                            "[{0}] ------- Deleting '{1}' temporary API client credential for region '{2}' in `$HPEGreenLakeSession.comApiAccessToken" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+
                             $comApiAccessToken = $HPEGreenLakeSession.comApiAccessToken | Where-Object { $_.name -match $APIClientCredentialTemplateName -and $_.name -match "COM" -and $_.name -match $Region }
-                            "[{0}] COM Access Token found: `n{1} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $comApiAccessToken | Write-Verbose
-                             
+                            "[{0}] COM access token found for '{1}' in `$HPEGreenLakeSession.comApiAccessToken: `n{2} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region, $comApiAccessToken | Write-Verbose
                             [void]$global:HPEGreenLakeSession.comApiAccessToken.remove($comApiAccessToken)
-                             
                             "[{0}] COM API access token has been removed from `$HPEGreenLakeSession.comApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
                         }
-                        #endregion
+                        
                     }  
                 }
                 catch {
@@ -48354,7 +49056,7 @@ Function New-HPEGLAPIcredential {
 
                         [void]$Global:HPECOMAPICredentialRegions.Add($ServiceAPICredential.region)       
                         
-                        "{0}: Added '{1}' region to the global variable `$HPECOMAPICredentialRegions used for the argument completer for the Region parameter of *HPECOM* cmdlets." -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $ServiceAPICredential.region | Write-Verbose
+                        "[{0}] Added '{1}' region to the global variable `$HPECOMAPICredentialRegions used for the argument completer for the Region parameter of *HPECOM* cmdlets." -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $ServiceAPICredential.region | Write-Verbose
 
                     }
                 
@@ -48379,13 +49081,9 @@ Function New-HPEGLAPIcredential {
                         $ServiceAPICredentialJson | Out-File ($Location + '\' + $_filename)
                         "[{0}] API Client credential file '{1}' successfully created in '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_filename, ((get-Item ($Location + '\' + $_filename)).DirectoryName) | Write-Verbose
                         $objStatus.Encrypted = $False
-    
                         
                     }
-        
                 }
-                
-
             }
             catch {
 
@@ -48584,7 +49282,7 @@ Function Remove-HPEGLAPICredential {
             # If the credential being deleted is one of the temporary ones used by the library, send a warning and delete the entry in the tracking object $HPECOMAPICredentialRegions
             if (($HPEGreenLakeSession.apiCredentials | Where-Object name -eq $Name) -and $Name -match $APIClientCredentialTemplateName -and -not $Force) {
 
-                "{0}: Credential '{1}' is used by the module and is attempted to be removed!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name | Write-Verbose
+                "[{0}] Credential '{1}' is used by the module and is attempted to be removed!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name | Write-Verbose
 
                 $title = "You are about to delete an API credential used by this module to interact with a service instance. Confirm that you would like to remove '{0}'" -f $name
                 $question = "This action will impact all actions because there will be no more access to this service instance. Are you sure you want to proceed?"
@@ -48594,7 +49292,7 @@ Function Remove-HPEGLAPICredential {
 
                 if ($decision -eq 0) {
 
-                    "{0}: User confirmed the deletion of the API credential '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name | Write-Verbose
+                    "[{0}] User confirmed the deletion of the API credential '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name | Write-Verbose
 
                     try {
                     
@@ -48633,12 +49331,12 @@ Function Remove-HPEGLAPICredential {
                     if ($APIcredential.application_name -eq "Compute Ops Management") {
 
                         [void]$Global:HPECOMAPICredentialRegions.Remove($APIcredential.region)       
-                        "{0}: Removed '{1}' region from the global variable `$HPECOMAPICredentialRegions used for the argument completer for the Region parameter of *HPECOM* cmdlets." -f $MyInvocation.InvocationName.ToString().ToUpper(), $APIcredential.region | Write-Verbose
+                        "[{0}] Removed '{1}' region from the global variable `$HPECOMAPICredentialRegions used for the argument completer for the Region parameter of *HPECOM* cmdlets." -f $MyInvocation.InvocationName.ToString().ToUpper(), $APIcredential.region | Write-Verbose
                     }
                 }
                 else {
 
-                    "{0}: User cancelled the deletion of the API credential '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name | Write-Verbose
+                    "[{0}] User cancelled the deletion of the API credential '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name | Write-Verbose
 
                     $objStatus.Status = "Warning"
                     $objStatus.Details = "Operation cancelled by the user! API credential not deleted!"
@@ -49239,17 +49937,17 @@ Function Remove-HPEGLSubscription {
 
 
         if (-not $SubscriptionKeyFound) {
-            # Must return a message if subscription already present
-            "[{0}] Subscription '{1}' is not present in the workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SubscriptionKey | Write-Verbose
+            # Must return a message if subscription not present
+            "[{0}] Subscription '{1}' cannot be found in the workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SubscriptionKey | Write-Verbose
         
             if ($WhatIf) {
-                $ErrorMessage = "Subscription '{0}': Resource is not present in the workspace!" -f $SubscriptionKey
+                $ErrorMessage = "Subscription '{0}': Resource cannot be found in the workspace!" -f $SubscriptionKey
                 Write-warning $ErrorMessage
                 return
             }
             else {
                 $objStatus.Status = "Warning"
-                $objStatus.Details = "Subscription is not present in the workspace!"
+                $objStatus.Details = "Subscription cannot be found in the workspace!"
             }
         }
         elseif (-not $SubscriptionKeyNotConsumed) {
@@ -49288,7 +49986,7 @@ Function Remove-HPEGLSubscription {
                 if (-not $WhatIf) {
 
                     $objStatus.Status = "Complete"
-                    $objStatus.Details = "Device subscription successfully removed from HPE GreenLake platform"
+                    $objStatus.Details = "Device subscription successfully removed from the workspace"
                     
                 }
                 
@@ -49297,7 +49995,7 @@ Function Remove-HPEGLSubscription {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Device subscription was not removed from the HPE GreenLake platform"
+                    $objStatus.Details = "Failed to remove the device subscription from the workspace."
                     $objStatus.Exception = $_.Exception.message 
                 }
             
@@ -56096,7 +56794,7 @@ Function Set-HPEGLUserAccountPassword {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $userid = (Get-HPEGLUserAccountDetails).id
+        $userid = (Get-HPEGLUserAccountDetails -Raw).id
         $Uri = $HPEOnepassbaseURL + "/v2-change-password-okta/" + $userid 
         
         $UserPasswordChangeStatus = [System.Collections.ArrayList]::new()
@@ -56272,7 +56970,9 @@ Function Get-HPEGLWorkspace {
 
         $AllCollection = [System.Collections.ArrayList]::new()
         
+        # $Uri = $WorkspacesV2Uri 
         $Uri = $WorkspacesListUri + "?count_per_page=5"
+        
         
         # GET WORKSPACES (if any) [Does not include the currently connected workspace]
 
@@ -56303,6 +57003,8 @@ Function Get-HPEGLWorkspace {
             
         }
             
+        # "[{0}] Content of all workspaces except current one: `n {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($AllCollection | Out-String) | Write-Verbose
+
         # GET CURRENT WORKSPACE (if any)
         
         if ($HPEGreenLakeSession.workspace) {
@@ -56531,7 +57233,11 @@ Function New-HPEGLWorkspace {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
                 
+        # Workspace v1
         $Uri = $NewWorkspaceUri
+        # Workspace v2 but it requirs to be connected first to a v2 workspace !
+        # $Uri = $WorkspacesV2Uri
+        
         
         $WorkspaceCreationStatus = [System.Collections.ArrayList]::new()
         
@@ -56848,12 +57554,13 @@ Function New-HPEGLWorkspace {
             # Create payload  
 
             $Payload = [PSCustomObject]@{
-                workspace_type = $WorkspaceType
-                company_name   = $Name
-                created_by     = $HPEGreenLakeSession.username
-                email          = $Email
-                phone_number   = $PhoneNumber
-                address        = @{
+                workspace_type   = $WorkspaceType
+                company_name     = $Name
+                created_by       = $HPEGreenLakeSession.username
+                email            = $Email
+                phone_number     = $PhoneNumber
+                iam_v2_workspace = $false   # $true to create a v2 workspace
+                address          = @{
                     street_address   = $Street
                     street_address_2 = $Street2
                     city             = $City
@@ -56940,7 +57647,6 @@ Function New-HPEGLWorkspace {
 
     }
 }
-
 
 
 Function Set-HPEGLWorkspace {
@@ -57241,6 +57947,1476 @@ Function Set-HPEGLWorkspace {
     }
 }
 
+
+Function Get-HPEGLWorkspaceSAMLSSODomain {
+    <#
+    .SYNOPSIS
+    Retrieves details of the SAML SSO domain.
+
+    .DESCRIPTION
+    This function retrieves information about the SAML SSO domain configured in the workspace. It can return SAML attributes, download the metadata file for a specified domain, and extract the X509 certificate from the metadata file if requested.
+
+    .PARAMETER DomainName
+    Specifies the name of the SAML SSO domain.
+
+    .PARAMETER ShowSAMLAttributes
+    If specified, returns the SAML attributes for the specified domain.
+
+    .PARAMETER ShowSPCertificate
+    If specified, returns the Service Provider (SP, i.e., HPE GreenLake) X509 certificate.
+
+    .PARAMETER ShowIDPCertificate
+    If specified, returns the Identity Provider (IdP) X509 certificate.
+
+    .PARAMETER DownloadServiceProviderMetadata
+    If specified, downloads the SAML SSO metadata file of the Service Provider (SP, i.e., HPE GreenLake) to the specified file path. This metadata is used by Identity Providers (IdPs) like ADFS to establish trust and facilitate Single Sign-On (SSO) interactions.
+
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be executed, without actually sending the request. Useful for understanding the native REST API interactions with GLP.
+
+    .EXAMPLE
+    Get-HPEGLWorkspaceSAMLSSODomain
+
+    Retrieves all SAML SSO domains configured in the workspace.
+
+    .EXAMPLE
+    Get-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com"
+
+    Returns the SAML SSO domain "example.com" details.
+
+    .EXAMPLE
+    Get-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -ShowSAMLAttributes
+
+    Retrieves the SAML attributes for the SAML SSO domain "example.com".
+
+    .EXAMPLE
+    Get-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -ShowSPCertificate
+
+    Returns the Service Provider (SP, i.e., HPE GreenLake) X509 certificate for the SAML SSO domain "example.com".
+
+    .EXAMPLE
+    Get-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -ShowIDPCertificate
+
+    Returns the Identity Provider (IdP) X509 certificate for the SAML SSO domain "example.com".
+
+    .EXAMPLE
+    Get-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -DownloadServiceProviderMetadata "C:\path\to\metadata.xml"
+
+    Downloads the metadata file for the SAML SSO domain "example.com" to the specified file path.
+
+    #>
+
+    [CmdletBinding(DefaultParameterSetName = "Default")]
+    Param(
+        [Parameter(ParameterSetName = "Default")]
+        [Parameter(Mandatory, ParameterSetName = "DomainNameSAMLAttributes")]
+        [Parameter(Mandatory, ParameterSetName = "DomainNameSP")]
+        [Parameter(Mandatory, ParameterSetName = "DomainNameIDP")]
+        [Parameter(Mandatory, ParameterSetName = "DomainNameMetadataDownload")]
+        [String]$DomainName,
+
+        [Parameter(ParameterSetName = "DomainNameSAMLAttributes")]
+        [switch]$ShowSAMLAttributes,
+        
+        [Parameter(ParameterSetName = "DomainNameSP")]
+        [switch]$ShowSPCertificate,
+
+        [Parameter(ParameterSetName = "DomainNameIDP")]
+        [switch]$ShowIDPCertificate,
+
+        [Parameter(ParameterSetName = "DomainNameMetadataDownload")]
+        [String]$DownloadServiceProviderMetadata,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+        $Caller = (Get-PSCallStack)[1].Command
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $ReturnData = [System.Collections.ArrayList]::new()
+        
+        $Uri = $AuthnSAMLSSOUri 
+        
+
+        try {
+          
+            [Array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf
+
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+
+        if ($Collection.domains.count -gt 0) {
+
+            $Collection = $Collection.domains
+        }     
+        else {
+            $Collection = $Null
+        }
+        
+
+        if ($Null -ne $Collection ) {
+
+            if ($DomainName) {
+                
+                $DomainFound = $Collection | Where-Object domain -eq $DomainName
+
+                if (($DomainFound -or ($DomainFound -and $ShowIDPCertificate)) -and -not $ShowSAMLAttributes -and -not $ShowSPCertificate -and -not $DownloadServiceProviderMetadata) {
+
+                    $Uri = $AuthnSAMLSSOUri + "/" + $DomainName
+
+                    [Array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf
+
+                    if ($ShowIDPCertificate) {
+
+                        $ReturnData = $Collection.saml_idp_config.signing_certificate
+
+                    }
+                    else {
+                        
+                        $ReturnData = Invoke-RepackageObjectWithType -RawObject $Collection -ObjectName "Workspace.SAML.Domain.Details"    
+                    }
+
+                    return $ReturnData  
+
+                }
+                elseif ($DomainFound -and $ShowSAMLAttributes) {
+
+                    $uri = $SAMLAttributesUri + $DomainFound.domain
+                    
+                    try {
+                        $SAMLAttributes = (Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf)
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                    }
+
+                    if ($SAMLAttributes) {
+
+                        # Add the GLP application to the applications property as it does not exist
+                        $GLP_object = [PSCustomObject]@{
+                            application_id   = "00000000-0000-0000-0000-000000000000"
+                            application_name = "HPE GreenLake platform"
+                        }
+
+                        $SAMLAttributes.applications += $GLP_object
+
+                        # Add the missing properties to each applications item
+                        foreach ($currentItemName in $SAMLAttributes.applications) {
+                            $currentItemName | Add-Member -Type NoteProperty -Name "entity_id" -Value $SAMLAttributes.entity_id	
+                            $currentItemName | Add-Member -Type NoteProperty -Name "sign_on_url" -Value $SAMLAttributes.sign_on_url		
+                            $currentItemName | Add-Member -Type NoteProperty -Name "platform_customer_id" -Value $SAMLAttributes.platform_customer_id			
+                        }
+
+                        $ReturnData = Invoke-RepackageObjectWithType -RawObject $SAMLAttributes.applications -ObjectName "Workspace.SAML.Attributes"    
+
+                        return $ReturnData
+
+                    }
+                    else {
+
+                        return
+
+                    }
+
+                }
+                elseif ($DomainFound -and ($DownloadServiceProviderMetadata -or $ShowSPCertificate)) {
+
+                    $Uri = $AuthnSAMLSSOMetadataUri + $DomainFound.domain
+            
+                    try {
+                        [string]$MetadataURL = (Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf).metadata_url
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                    }
+        
+                    if ($MetadataURL) {
+    
+                        [xml]$MetadataFile = Invoke-WebRequest -Method GET -Uri $MetadataURL
+        
+                        if ($ShowSPCertificate) {
+                            return $MetadataFile.EntityDescriptor.SPSSODescriptor.KeyDescriptor.KeyInfo.X509Data.X509Certificate
+                        }
+                        elseif ($DownloadServiceProviderMetadata) {
+                            $MetadataFile.Save($DownloadServiceProviderMetadata)
+                            Write-Output "Metadata file '$DownloadServiceProviderMetadata' successfully downloaded." 
+                        }
+                        else {
+                            return $MetadataFile
+                        }
+                    }
+                    else {
+                        return
+                    }
+    
+                }
+                elseif (($DownloadServiceProviderMetadata -or $ShowSPCertificate -or $ShowSAMLAttributes -or $ShowIDPCertificate) -and -not $DomainFound) {
+
+                    "[{0}] SAML SSO Domain '{1}' cannot be found!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName | Write-Verbose
+        
+                    $ErrorMessage = "SAML SSO Domain '{0}': Resource cannot be found in the workspace!" -f $DomainName
+                    Write-Warning $ErrorMessage
+                    return
+                }
+                else {
+
+                    return
+
+                }
+                
+            }            
+            else {
+                
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $Collection -ObjectName "Workspace.SAML.Domain"    
+                
+                $ReturnData = $ReturnData | Sort-Object { $_.domain }
+                
+                return $ReturnData  
+
+            }
+        }    
+        else {
+            Return
+        } 
+    }
+}
+
+
+Function New-HPEGLWorkspaceSAMLSSODomain {
+    <#
+    .SYNOPSIS
+    Adds a SAML SSO domain to the workspace.
+
+    .DESCRIPTION
+    Configures a SAML SSO domain in the workspace to enable Single Sign-On (SSO). The SSO connection can be used for authentication only or can also provide role information via the SAML response.
+    
+    The SAML SSO domain must be a private domain that you own, such as example.com, mycompany.com, or mydomain.com. Public domains like facebook.com, gmail.com, outlook.com, or yahoo.com cannot be used to configure SSO. 
+    
+    The domain must have at least one verified user belonging to it defined in the workspace.
+    
+    .PARAMETER DomainName
+    Specifies the name of the SAML SSO domain to create. There must be at least one verified user belonging to the domain.
+
+    .PARAMETER AuthorizationMethod
+    Specifies the authorization method for the SAML SSO domain. Supported values are "SAML" or "Locally-managed".
+    - SAML: Use the SSO SAML response for session-based authorization.
+    - Locally-managed: Manage authorization locally via the GreenLake Platform.
+
+    .PARAMETER MetadataSource
+    Specifies the source of the metadata file for the SAML SSO domain. The metadata file can be provided as a file path or a URL. The metadata file must be in XML format.
+
+    .PARAMETER EmailAttribute
+    Optional attribute to set the email mapping attribute. The default value is "NameId", which is commonly used by identity providers.
+
+    .PARAMETER FirstNameAttribute
+    Optional attribute to set the first name mapping attribute. The default value is "FirstName", which is commonly used by identity providers. Set this attribute if your identity provider uses a different attribute. If your identity provider does not have SAML attributes for these values, you can ignore this parameter.
+
+    .PARAMETER LastNameAttribute
+    Optional attribute to set the last name mapping attribute. The default value is "LastName", which is commonly used by identity providers. Set this attribute if your identity provider uses a different attribute. If your identity provider does not have SAML attributes for these values, you can ignore this parameter.
+
+    .PARAMETER GreenLakeAttribute
+    SAML attribute name for the HPE GreenLake attribute. This is required when SAML is being used for authorization. The default value is "hpe_ccs_attribute".
+
+    .PARAMETER IdleSessionTimeout
+    Specifies the amount of time in minutes a user can be inactive before a session ends. Idle time cannot exceed 1,440 minutes (24 hours).
+
+    .PARAMETER RecoveryUserPassword
+    Specifies the recovery user password. The password must be at least 8 characters long and include upper-case, lower-case, number, and symbol.
+
+    .PARAMETER PointOfContactEmail
+    Specifies the point of contact email that will be used to regain access to your account if you forget your password.
+
+    .PARAMETER DisableRecoveryUser
+    Disables the recovery user for the SAML SSO domain.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    $PlainTextPassword = "YourPlainTextPassword!10"
+    $SecurePassword = ConvertTo-SecureString -String $PlainTextPassword -AsPlainText -Force
+    New-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -AuthorizationMethod SAML -MetadataSource "C:\Documents\federationmetadata.xml" -RecoveryUserSecurePassword $SecurePassword -PointOfContactEmail leonhard.euler@mathematician.com
+    
+    Adds a new SAML SSO domain named "example.com" with a specified metadata file provided as a file path, a recovery user password, and a point of contact email. The SAML SSO domain is configured for SAML-based authorization, i.e., the SSO SAML response defines the session-based authorization.
+
+    .EXAMPLE
+    New-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -AuthorizationMethod Locally-managed -MetadataSource "https://example.com/federationmetadata/2007-06/federationmetadata.xml" -RecoveryUserSecurePassword $SecurePassword -PointOfContactEmail leonhard.euler@mathematician.com
+    
+    Adds a new SAML SSO domain named "example.com" with the specified metadata file provided as a URL, a recovery user password, and a point of contact email. The SAML SSO domain is configured for locally-managed authorization, i.e., authorization is managed locally via the GreenLake Platform.
+
+    .EXAMPLE
+    New-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -AuthorizationMethod Locally-managed -MetadataSource "https://example.com/federationmetadata/2007-06/federationmetadata.xml" -DisableRecoveryUser
+    
+    Adds a new SAML SSO domain named "example.com" with the specified metadata file provided as a URL and disables the recovery user for the SAML SSO domain. The SAML SSO domain is configured for locally-managed authorization, i.e., authorization is managed locally via the GreenLake Platform.
+
+    .INPUTS
+    Pipeline input is not supported.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following keys:
+        * Name - The name of the SAML SSO domain to add.
+        * RecoveryUserEmail - The email of the generated recovery user (if not disabled).
+        * Status - The status of the creation attempt (Failed for HTTP error return; Complete if deployment is successful; Warning if no action is needed).
+        * Details - More information about the status.
+        * Exception - Information about any exceptions generated during the operation.
+#>
+
+    [CmdletBinding(DefaultParameterSetName = "MetadataFileEnableRecoveryUser")]
+    Param( 
+
+        [Parameter (Mandatory, ParameterSetName = "MetadataFileEnableRecoveryUser")]
+        [Parameter (Mandatory, ParameterSetName = "MetadataFileDisableRecoveryUser")]
+        [String]$DomainName,
+
+        [Parameter (Mandatory)]
+        [ValidateSet("SAML", "Locally-managed")]
+        [String]$AuthorizationMethod,
+
+        [Parameter (Mandatory, ValueFromPipeline, ParameterSetName = "MetadataFileEnableRecoveryUser")]
+        [Parameter (Mandatory, ValueFromPipeline, ParameterSetName = "MetadataFileDisableRecoveryUser")]
+        [String]$MetadataSource,
+
+        [String]$EmailAttribute = "NameId", 
+        
+        [String]$FirstNameAttribute = "FirstName",
+        
+        [String]$LastNameAttribute = "LastName",
+        
+        [String]$GreenLakeAttribute = "hpe_ccs_attribute",
+
+        [ValidateScript({
+                if ($_ -le 1440) {
+                    $true
+                }
+                else {
+                    throw "Idle time cannot exceed 1,440 minutes (24 hours)."
+                }
+            })]
+        [Int]$IdleSessionTimeout = 60,
+
+        [Parameter (Mandatory, ParameterSetName = "MetadataFileEnableRecoveryUser")]
+        [SecureString]$RecoveryUserSecurePassword,
+
+        [Parameter (Mandatory, ParameterSetName = "MetadataFileEnableRecoveryUser")]
+        [validatescript({ if ($_ -as [Net.Mail.MailAddress]) { $true } else { Throw "The Parameter value is not an email address. Please correct the value and try again." } })]
+        [String]$PointOfContactEmail,
+
+        [Parameter (Mandatory, ParameterSetName = "MetadataFileDisableRecoveryUser")]
+        [switch]$DisableRecoveryUser,
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = $ApplicationProvisioningUri  
+
+        $AddSAMLSSODomainStatus = [System.Collections.ArrayList]::new()
+
+        
+        
+    }
+    
+    Process {
+        
+        
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+        
+        if ($RecoveryUserSecurePassword) {
+
+            # Convert SecureString to plain text
+            $RecoveryUserPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($RecoveryUserSecurePassword))
+            
+            if ($RecoveryUserPassword -notmatch '^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$') {
+                throw "The recovery user password must be at least 8 characters long and include upper-case, lower-case, number, and symbol."
+            }
+        }
+        
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+  
+            Name              = $DomainName
+            RecoveryUserEmail = $Null
+            Status            = $Null
+            Details           = $Null
+            Exception         = $Null
+                                  
+        }      
+
+        # Validate domain name
+        try {
+
+            "[{0}] Validating SAML SSO domain '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName | Write-Verbose
+
+            $uri = $SAMLValidateDomainUri + $DomainName
+            $ValidateDomain = Invoke-HPEGLWebRequest -Uri $Uri -method 'Get' 
+
+        }
+        catch { 
+
+            if ($_ -match "Error status Code: 412") {
+
+                if ($WhatIf) {
+                    $ErrorMessage = "Domain {0} already claimed by the user for the workspace" -f $DomainName
+                    Write-warning $ErrorMessage
+                    return
+                }
+                else {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Domain {0} already claimed by the user for the workspace" -f $DomainName
+                    $objStatus.Exception = $_.Exception.message
+
+                }
+            }
+        }
+        
+        if ($ValidateDomain.message -ne "Domain valid." -or $objStatus.Status -eq "Failed") {
+
+            # Must return a message if domain is not valid 
+            "[{0}] SAML SSO domain '{1}' is not valid!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName | Write-Verbose
+
+            if ($WhatIf) {
+                $ErrorMessage = "SAML SSO domain '{0}' is not valid! Error: {1}" -f $DomainName, $ValidateDomain.message
+                Write-warning $ErrorMessage
+                return
+            }
+            else {
+
+                if ($objStatus.Status -ne "Failed") {
+
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "SAML SSO domain is not valid!"
+                    $objStatus.Exception = $ValidateDomain.message
+                }
+            }
+        }
+        else {
+
+            $FileFound = $false
+
+            # Check if the MetadataSource is a URL
+            if ($MetadataSource -match '^https?://') {
+
+                "[{0}] MetadataSource detected as a URL" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                # Read the XML file from the URL
+                try {
+                    [xml]$MetadataXMLFile = Invoke-WebRequest -Uri $MetadataSource -UseBasicParsing -Method Get -ContentType 'application/xml' | Select-Object -ExpandProperty Content
+                    
+                    "[{0}] MetadataSource file has been found!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                    $FileFound = $True
+                }
+                catch {
+                    $MetadataXMLFile = $Null
+                }
+
+            }
+            else {
+
+                "[{0}] MetadataSource detected as a file" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                # Test the path of the XML file 
+                $FileFound = Test-Path -Path $MetadataSource
+
+                if ($FileFound -eq $True) {
+
+                    "[{0}] MetadataSource file has been found!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                    [xml]$MetadataXMLFile = Get-Content $MetadataSource -Raw
+
+                }
+            }
+        
+
+            if ($FileFound -eq $False) {
+
+                "[{0}] Error! MetadataSource cannot be found!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                # Must return a message if Metadata file is not found
+                if ($WhatIf) {
+                    $ErrorMessage = "Metadata XML file cannot be found at '{0}'" -f $MetadataSource
+                    Write-warning $ErrorMessage
+                    return
+                }
+                else {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Metadata file cannot be found at $MetadataSource"
+                }                
+
+            } 
+            else {
+                
+                "[{0}] Metadata file content: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $MetadataXMLFile | Write-Verbose
+    
+                $EntityID = $MetadataXMLFile.EntityDescriptor.entityID
+                $LoginURL = $MetadataXMLFile.EntityDescriptor.IDPSSODescriptor.SingleSignOnService | Where-Object { $_.Binding -eq "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" } | Select-Object -ExpandProperty Location
+                $LogoutURL = $MetadataXMLFile.EntityDescriptor.IDPSSODescriptor.SingleLogoutService | Where-Object { $_.Binding -eq "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect" } | Select-Object -ExpandProperty Location
+                $SigningCertificate = $MetadataXMLFile.EntityDescriptor.IDPSSODescriptor.KeyDescriptor | Where-Object { $_.use -eq "signing" } | Select-Object -ExpandProperty KeyInfo | Select-Object -ExpandProperty X509Data | Select-Object -ExpandProperty X509Certificate
+
+           
+                # Valid metadata file
+    
+                $SamlIDPConfig = [PSCustomObject]@{
+                    entity_id           = $EntityID
+                    login_url           = $LoginURL
+                    logout_url          = $LogoutURL
+                    signing_certificate = $SigningCertificate
+                   
+                }
+                
+                $Payload = $SamlIDPConfig | ConvertTo-Json -Depth 5
+    
+                try {
+    
+                    $uri = $SAMLValidateMetadataUri + $DomainName
+                    $ValidateMetadata = Invoke-HPEGLWebRequest -Uri $Uri -method 'Post' -ContentType application/json -Body $Payload
+        
+                }
+                catch {    
+                    $PSCmdlet.ThrowTerminatingError($_)
+            
+                }
+    
+                if ($ValidateMetadata.message -ne "Metadata Valid") {
+                    # Must return a message if domain is not valid 
+                    "[{0}] Metadata is not valid!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        
+                    if ($WhatIf) {
+                        $ErrorMessage = "Metadata is not valid! Message: {1} - Error code: {2}" -f $ValidateMetadata.message, $ValidateMetadata.error_code
+                        Write-warning $ErrorMessage
+                        return
+                    }
+                    else {
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details = "Metadata is not valid! Message: {0}" -f $ValidateMetadata.message
+                        $objStatus.Exception = $ValidateMetadata.error_code
+                    }
+                }
+                else {
+    
+                    if ($AuthorizationMethod -eq "SAML") {
+                        
+                        $SSOMode = "AUTHORIZATION"
+                    }
+                    else {
+                        $SSOMode = "AUTHENTICATION_ONLY"
+                    }
+    
+    
+                    if ($DisableRecoveryUser) {
+
+                        if ($AuthorizationMethod -eq "Locally-Managed") {
+                            
+                            $Payload = [PSCustomObject]@{
+                                domain               = $DomainName
+                                authorization_method = $AuthorizationMethod
+                                saml_idp_config      = $SamlIDPConfig
+                                attribute_mapping    = @{
+                                    email                = $EmailAttribute
+                                    first_name           = $FirstNameAttribute
+                                    last_name            = $LastNameAttribute
+                                    idle_session_timeout = $IdleSessionTimeout
+                                }
+                                recovery_user        = $Null
+                                sso_mode             = $SSOMode
+        
+                            } | ConvertTo-Json -Depth 5
+                        }
+                        else {
+
+                            $Payload = [PSCustomObject]@{
+                                domain               = $DomainName
+                                authorization_method = $AuthorizationMethod
+                                saml_idp_config      = $SamlIDPConfig
+                                attribute_mapping    = @{
+                                    email                = $EmailAttribute
+                                    first_name           = $FirstNameAttribute
+                                    last_name            = $LastNameAttribute
+                                    idle_session_timeout = $IdleSessionTimeout
+                                    hpe_ccs_attribute    = $GreenLakeAttribute
+                                }
+                                recovery_user        = $Null
+                                sso_mode             = $SSOMode
+        
+                            } | ConvertTo-Json -Depth 5
+                        }
+                    }
+                    else {
+    
+                        # Create recovery user email account using workspace ID       
+                        $RecoveryUserEmail = "sso_re_" + $HPEGreenLakeSession.workspaceId + "@" + $DomainName
+    
+                        $objStatus.RecoveryUserEmail = $RecoveryUserEmail
+
+                        if ($AuthorizationMethod -eq "Locally-Managed") {
+
+                            $Payload = [PSCustomObject]@{
+                                domain               = $DomainName
+                                authorization_method = $AuthorizationMethod
+                                saml_idp_config      = $SamlIDPConfig
+                                attribute_mapping    = @{
+                                    email                = $EmailAttribute
+                                    first_name           = $FirstNameAttribute
+                                    last_name            = $LastNameAttribute
+                                    idle_session_timeout = $IdleSessionTimeout
+                                }
+                                recovery_user        = @{
+                                    username       = $RecoveryUserEmail
+                                    password       = $RecoveryUserPassword
+                                    recovery_email = $PointOfContactEmail
+                                    
+                                }
+                                sso_mode             = $SSOMode
+                            } | ConvertTo-Json -Depth 5
+                        }
+                        else {
+                            
+                            $Payload = [PSCustomObject]@{
+                                domain               = $DomainName
+                                authorization_method = $AuthorizationMethod
+                                saml_idp_config      = $SamlIDPConfig
+                                attribute_mapping    = @{
+                                    email                = $EmailAttribute
+                                    first_name           = $FirstNameAttribute
+                                    last_name            = $LastNameAttribute
+                                    idle_session_timeout = $IdleSessionTimeout
+                                    hpe_ccs_attribute    = $GreenLakeAttribute
+                                }
+                                recovery_user        = @{
+                                    username       = $RecoveryUserEmail
+                                    password       = $RecoveryUserPassword
+                                    recovery_email = $PointOfContactEmail
+                                    
+                                }
+                                sso_mode             = $SSOMode
+                            } | ConvertTo-Json -Depth 5
+                        }        
+                    }
+        
+                    $Uri = $AuthnSAMLSSOConfigUri 
+    
+    
+                    try {
+    
+                        $counter = 1
+    
+                        # Define the spinning cursor characters
+                        $spinner = @('|', '/', '-', '\')
+                        
+                        # Get the current width of the terminal window                
+                        $terminalWidth = (Get-Host).UI.RawUI.WindowSize.Width                    
+                        
+                        # Create a clear line string based on the terminal width to ensure the entire line is overwritten
+                        if (-not $psISE) {
+                            $clearLine = " " * ($terminalWidth - 1)
+                        }   
+    
+                        $Response = Invoke-HPEGLWebRequest -Method 'POST' -Body $Payload -Uri $Uri -WhatIfBoolean $WhatIf
+
+                        if (-not $WhatIf) {
+
+                            $TaskTrackingId = $Response.task_tracking_id
+        
+                            $Uri = $AuthnSAMLSSOConfigTaskTrackerUri + $TaskTrackingId 
+            
+                            do {
+            
+                                $subcounter = 0
+            
+                                do {
+            
+                                    $TaskTrackingStatus = Invoke-HPEGLWebRequest -Uri $Uri -method GET 
+            
+                                    # Calculate the current spinner character
+                                    $spinnerChar = $spinner[$subcounter % $spinner.Length]
+                                    
+                                    # Display the spinner character, replacing the previous content
+                                    $output = "Adding SAML SSO domain '{0}' to the workspace: {1} {2}" -f $DomainName, $TaskTrackingStatus.Status, $spinnerChar
+            
+                                    if (-not $psISE) {
+                                        Write-Host "`r$clearLine`r$output" -NoNewline -ForegroundColor Yellow
+                                    }
+                                    else {
+                                        Write-Host "$output" -ForegroundColor Yellow
+                                    }
+            
+                                    $subcounter++
+                                    Start-Sleep -Seconds 1
+                                    
+                                    
+                                } while (
+                                    $TaskTrackingStatus.Status -eq "IN_PROGRESS"
+                                )
+            
+                                # Increment counter
+                                $counter++
+            
+                            } until ($TaskTrackingStatus.Status -eq "DONE" -or $counter -gt 10)       
+        
+                            # Clear the message after do/until is complete
+                            if (-not $psISE) {
+                                "`r$clearLine`r" | Write-Host -NoNewline                    
+                            }
+                            
+                            if ($counter -gt 10) {
+                                
+                                $objStatus.Status = "Failed"
+                                $objStatus.Details = "Failed to add the SAML SSO domain to the workspace."
+        
+                            }
+                            else {
+        
+                                "[{0}] Adding SAML SSO domain '{1}' to the workspace... status: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName, $TaskTrackingStatus.Status | Write-Verbose
+                                
+                                if (-not $WhatIf) {
+        
+                                    $objStatus.Status = $TaskTrackingStatus.status
+                                    $objStatus.Details = $TaskTrackingStatus.response.data.message
+                                    
+                                }
+                            }
+                        }    
+                    }
+                    catch {
+    
+                        if (-not $WhatIf) {
+    
+                            # Clear the message after do/until is complete
+                            if (-not $psISE) {
+                                "`r$clearLine`r" | Write-Host -NoNewline                    
+                            }
+        
+                            $objStatus.Status = "Failed"
+                            $objStatus.Details = "Failed to add the SAML SSO domain to the workspace."
+                            $objStatus.Exception = $_.Exception.message 
+                        }
+                    }   
+                }
+            }
+        }
+
+        [void] $AddSAMLSSODomainStatus.add($objStatus)
+
+    }
+
+    end {
+
+        if (-not $WhatIf) {
+
+            if ($AddSAMLSSODomainStatus | Where-Object { $_.Status -eq "Failed" }) {
+  
+                write-error "Failed to add one or more SAML SSO domains."
+          
+            }
+
+            $AddSAMLSSODomainStatus = Invoke-RepackageObjectWithType -RawObject $AddSAMLSSODomainStatus -ObjectName "ObjStatus.NRSDE" 
+            Return $AddSAMLSSODomainStatus
+        }
+    }
+}
+
+
+Function Set-HPEGLWorkspaceSAMLSSODomain {
+    <#
+    .SYNOPSIS
+    Sets details of the SAML SSO domain.
+
+    .DESCRIPTION
+    This function modifies the SAML SSO information of a domain configured in the workspace. It can set the SAML attributes, upload the metadata file for a specified domain, and update the X509 certificate if requested.
+
+    .PARAMETER DomainName
+    Specifies the name of the SAML SSO domain to set.
+
+    .PARAMETER X509Certificate
+    Specifies the new X509 certificate for the specified domain.
+
+    .PARAMETER EmailAttribute
+    Specifies the new email address attribute for the specified domain.
+
+    .PARAMETER FirstNameAttribute
+    Specifies the new first name attribute for the specified domain.
+
+    .PARAMETER LastNameAttribute
+    Specifies the new last name attribute for the specified domain.
+
+    .PARAMETER GreenLakeAttribute
+    Specifies the new HPE GreenLake attribute for the specified domain.
+
+    .PARAMETER IdleSessionTimeout
+    Specifies the new idle session timeout attribute for the specified domain.
+
+    .PARAMETER LoginURL
+    Specifies the new login URL for the specified domain.
+
+    .PARAMETER LogoutURL
+    Specifies the new logout URL for the specified domain.
+
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be executed, without actually sending the request. Useful for understanding the native REST API interactions with GLP.
+
+    .EXAMPLE
+    $certificate = "MIIE5DCCAsygAwIBAgIQUK3zqnGiHrNBkAvI5tS8bDANBgkqhkiG9w0BAQsFADAuMSwwKgYDVQQDEyN....xkUqNXSHY="
+    Set-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -X509Certificate $certificate
+
+    Sets the new X509 certificate for the SAML SSO domain "example.com".
+
+    .EXAMPLE
+    Set-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -EmailAttribute "email"
+
+    Sets the new email address attribute for the SAML SSO domain "example.com".
+
+    .EXAMPLE
+    Set-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -FirstNameAttribute "FirstName"
+
+    Sets the new first name attribute for the SAML SSO domain "example.com".
+
+    .EXAMPLE
+    Set-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -LastNameAttribute "LastName"
+
+    Sets the new last name attribute for the SAML SSO domain "example.com".
+
+    .EXAMPLE
+    Set-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -GreenLakeAttribute "GreenLakeAttribute"
+
+    Sets the new HPE GreenLake attribute for the SAML SSO domain "example.com".
+
+    .EXAMPLE
+    Set-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" -IdleSessionTimeout 30
+
+    Sets the new idle session timeout attribute for the SAML SSO domain "example.com".
+
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory)]
+        [String]$DomainName,
+
+        [String]$X509Certificate,
+
+        [String]$EmailAttribute,
+
+        [String]$FirstNameAttribute,
+
+        [String]$LastNameAttribute,
+
+        [String]$GreenLakeAttribute,
+
+        [String]$LoginURL,
+
+        [String]$LogoutURL,
+
+        [Int]$IdleSessionTimeout,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+       
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $ObjectStatusList = [System.Collections.ArrayList]::new()
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            Name      = $DomainName
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+                          
+        }
+        
+
+        [void] $ObjectStatusList.add($objStatus)
+
+    }
+
+    end {
+
+        try {
+            
+            $DomainFound = Get-HPEGLWorkspaceSAMLSSODomain -DomainName $DomainName
+            
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)                
+        }
+        
+        
+        foreach ($Object in $ObjectStatusList) {
+            
+            $Uri = $AuthnSAMLSSOConfigUri
+
+            if (-not $DomainFound) {
+
+                # Must return a message if domain not found
+                $Object.Status = "Failed"
+                $Object.Details = "SAML SSO domain cannot be found in the workspace!"
+
+                if ($WhatIf) {
+                    $ErrorMessage = "SAML SSO domain '{0}': Resource cannot be found in the workspace!" -f $Object.Name
+                    Write-warning $ErrorMessage
+                    continue
+                }
+
+            }
+            else {
+
+                if ($PSBoundParameters.ContainsKey('EmailAttribute')) {
+
+                    $DomainFound.attribute_mapping.email = $EmailAttribute
+                
+                }
+
+                if ($PSBoundParameters.ContainsKey('FirstNameAttribute')) {
+
+                    $DomainFound.attribute_mapping.first_name = $FirstNameAttribute
+                
+                }
+
+                if ($PSBoundParameters.ContainsKey('LastNameAttribute')) {
+
+                    $DomainFound.attribute_mapping.last_name = $LastNameAttribute
+                
+                }
+
+                if ($PSBoundParameters.ContainsKey('GreenLakeAttribute')) {
+
+                    $DomainFound.attribute_mapping.hpe_ccs_attribute = $GreenLakeAttribute
+                
+                }
+
+                if ($PSBoundParameters.ContainsKey('IdleSessionTimeout')) {
+
+                    $DomainFound.attribute_mapping.idle_session_timeout = $IdleSessionTimeout
+                
+                }
+
+                if ($PSBoundParameters.ContainsKey('X509Certificate')) {
+
+                    $DomainFound.saml_idp_config.signing_certificate = $X509Certificate
+                
+                }
+      
+                if ($PSBoundParameters.ContainsKey('LoginURL')) {
+
+                    $DomainFound.saml_idp_config.login_url = $LoginURL
+                
+                }
+      
+                if ($PSBoundParameters.ContainsKey('LogoutURL')) {
+
+                    $DomainFound.saml_idp_config.logout_url = $LogoutURL
+                
+                }
+
+                
+                $DomainFound | Add-Member -Type NoteProperty -Name "auth_method" -Value "SAML / SSO"
+                $DomainFound | Add-Member -Type NoteProperty -Name "edited" -Value $True
+                
+                # Exclude the PSObject.TypeNames property
+                $DomainFound = $DomainFound | Select-Object -Property * -ExcludeProperty PSObject.TypeNames
+
+                $Payload = $DomainFound | ConvertTo-Json -Depth 5
+
+                try {
+
+                    $counter = 1
+    
+                    # Define the spinning cursor characters
+                    $spinner = @('|', '/', '-', '\')
+                    
+                    # Get the current width of the terminal window                
+                    $terminalWidth = (Get-Host).UI.RawUI.WindowSize.Width                    
+                    
+                    # Create a clear line string based on the terminal width to ensure the entire line is overwritten
+                    if (-not $psISE) {
+                        $clearLine = " " * ($terminalWidth - 1)
+                    }   
+                    
+                    $Response = Invoke-HPEGLWebRequest -Method PUT -Uri $Uri -Body $Payload -WhatIfBoolean $WhatIf
+
+                    if (-not $WhatIf) {
+
+                        $TaskTrackingId = $Response.task_tracking_id
+        
+                        $Uri = $AuthnSAMLSSOConfigTaskTrackerUri + $TaskTrackingId 
+        
+                        do {
+        
+                            $subcounter = 0
+        
+                            do {
+        
+                                $TaskTrackingStatus = Invoke-HPEGLWebRequest -Uri $Uri -method GET 
+        
+                                # Calculate the current spinner character
+                                $spinnerChar = $spinner[$subcounter % $spinner.Length]
+                                
+                                # Display the spinner character, replacing the previous content
+                                $output = "Setting SAML SSO domain '{0}': {1} {2}" -f $DomainName, $TaskTrackingStatus.Status, $spinnerChar
+        
+                                if (-not $psISE) {
+                                    Write-Host "`r$clearLine`r$output" -NoNewline -ForegroundColor Yellow
+                                }
+                                else {
+                                    Write-Host "$output" -ForegroundColor Yellow
+                                }
+        
+                                $subcounter++
+                                Start-Sleep -Seconds 1
+                                
+                                
+                            } while (
+                                $TaskTrackingStatus.Status -eq "IN_PROGRESS"
+                            )
+        
+                            # Increment counter
+                            $counter++
+        
+                        } until ($TaskTrackingStatus.Status -eq "DONE" -or $counter -gt 10)       
+    
+                        # Clear the message after do/until is complete
+                        if (-not $psISE) {
+                            "`r$clearLine`r" | Write-Host -NoNewline                    
+                        }
+                        
+                        if ($counter -gt 10) {
+                            
+                            $objStatus.Status = "Failed"
+                            $objStatus.Details = "Failed to set the SAML SSO domain."
+    
+                        }
+                        else {
+    
+                            "[{0}] SAML SSO domain '{1}' successfully updated. Status: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName, $TaskTrackingStatus.Status | Write-Verbose
+                            
+                            if (-not $WhatIf) {
+    
+                                $objStatus.Status = $TaskTrackingStatus.status
+                                $objStatus.Details = $TaskTrackingStatus.response.data.message
+                                
+                            }
+                        }
+                    }
+                }
+                catch {
+
+                    if (-not $WhatIf) {
+
+                        # Clear the message after do/until is complete
+                        if (-not $psISE) {
+                            "`r$clearLine`r" | Write-Host -NoNewline                    
+                        }
+
+                        $Object.Status = "Failed"
+                        $Object.Details = "SAML SSO domain cannot be updated!"
+                        $Object.Exception = $_.Exception.message 
+                    }
+                }
+            }
+        }
+
+        if (-not $WhatIf) {
+
+            if ($ObjectStatusList | Where-Object { $_.Status -eq "Failed" }) {
+  
+                write-error "One or more SAML SSO domain failed the modification attempt!"
+          
+            }
+
+            $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.NSDE" 
+            Return $ObjectStatusList
+        }
+    }
+}
+
+
+Function Remove-HPEGLWorkspaceSAMLSSODomain {
+    <#
+    .SYNOPSIS
+    Removes a SAML SSO domain.
+
+    .DESCRIPTION
+    This function removes a SAML SSO domain from the workspace. It can remove the domain by name or by the domain object.
+
+    .PARAMETER DomainName
+    Specifies the name of the SAML SSO domain to remove.
+
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be executed, without actually sending the request. Useful for understanding the native REST API interactions with GLP.
+
+   .EXAMPLE
+    Remove-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com"
+
+    Removes the SAML SSO domain "example.com" from the workspace.
+
+    .EXAMPLE
+    Get-HPEGLWorkspaceSAMLSSODomain -DomainName "example.com" | Remove-HPEGLWorkspaceSAMLSSODomain 
+
+    Removes the SAML SSO domain "example.com" from the workspace.
+    
+    .INPUTS
+    System.Collections.ArrayList
+        A list of domains obtained from 'Get-HPEGLWorkspaceSAMLSSODomain'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following keys:
+        * Name - The name of the SAML SSO domain attempted to be removed.
+        * Status - The status of the removal attempt (Failed for HTTP error return; Complete if removal is successful).
+        * Details - More information about the status.
+        * Exception - Information about any exceptions generated during the operation.
+
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [alias("domain")]
+        [String]$DomainName,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+       
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $RemoveSAMLSSODomainStatus = [System.Collections.ArrayList]::new()
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        try {
+            $DomainNameFound = Get-HPEGLWorkspaceSAMLSSODomain -DomainName $DomainName
+
+        }
+        catch {    
+            $PSCmdlet.ThrowTerminatingError($_)
+        
+        }
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            Name      = $DomainName
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+                          
+        }
+
+        if (-not $DomainNameFound) {
+            # Must return a message if domain not present
+            "[{0}] SAML SSO domain '{1}' cannot be found in the workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName | Write-Verbose
+        
+            if ($WhatIf) {
+                $ErrorMessage = "SAML SSO domain '{0}': Resource cannot be found in the workspace!" -f $DomainName
+                Write-warning $ErrorMessage
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "SAML SSO domain cannot be found in the workspace!"
+            }
+        }
+        else {
+           
+            $Uri = $AuthnSAMLSSOConfigUri + "/" + $DomainName 
+
+            try {
+
+                $counter = 1
+
+                # Define the spinning cursor characters
+                $spinner = @('|', '/', '-', '\')
+                
+                # Get the current width of the terminal window                
+                $terminalWidth = (Get-Host).UI.RawUI.WindowSize.Width                    
+                
+                # Create a clear line string based on the terminal width to ensure the entire line is overwritten
+                if (-not $psISE) {
+                    $clearLine = " " * ($terminalWidth - 1)
+                }
+
+
+                $Response = Invoke-HPEGLWebRequest -Uri $Uri -method DELETE -WhatIfBoolean $WhatIf 
+
+                $TaskTrackingId = $Response.task_tracking_id
+
+                $Uri = $AuthnSAMLSSOConfigTaskTrackerUri + $TaskTrackingId 
+
+                do {
+
+                    $subcounter = 0
+
+                    do {
+
+                        $TaskTrackingStatus = Invoke-HPEGLWebRequest -Uri $Uri -method GET 
+
+                        # Calculate the current spinner character
+                        $spinnerChar = $spinner[$subcounter % $spinner.Length]
+                        
+                        # Display the spinner character, replacing the previous content
+                        $output = "Removing SAML SSO domain '{0}' from the workspace: {1} {2}" -f $DomainName, $TaskTrackingStatus.Status, $spinnerChar
+
+                        if (-not $psISE) {
+                            Write-Host "`r$clearLine`r$output" -NoNewline -ForegroundColor Yellow
+                        }
+                        else {
+                            Write-Host "$output" -ForegroundColor Yellow
+                        }
+
+                        $subcounter++
+                        Start-Sleep -Seconds 1
+                        
+                        
+                    } while (
+                        $TaskTrackingStatus.Status -eq "IN_PROGRESS"
+                    )
+
+                    # Increment counter
+                    $counter++
+
+                } until ($TaskTrackingStatus.Status -eq "DONE" -or $counter -gt 10)       
+                
+                # Clear the message after do/until is complete
+                if (-not $psISE) {
+                    "`r$clearLine`r" | Write-Host -NoNewline                    
+                }
+                
+                if ($counter -gt 10) {
+                    
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Failed to remove the SAML SSO domain from the workspace."
+
+                }
+                else {
+
+                    "[{0}] Removing SAML SSO domain '{1}' from the workspace... status: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName, $TaskTrackingStatus.Status | Write-Verbose
+                    
+                    if (-not $WhatIf) {
+
+                        $objStatus.Status = $TaskTrackingStatus.status
+                        $objStatus.Details = $TaskTrackingStatus.response.data.message
+                        
+                    }
+                }
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    # Clear the message after do/until is complete
+                    if (-not $psISE) {
+                        "`r$clearLine`r" | Write-Host -NoNewline                    
+                    }
+
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Failed to remove the SAML SSO domain from the workspace."
+                    $objStatus.Exception = $_.Exception.message 
+                }
+            
+            }   
+        } 
+
+        [void] $RemoveSAMLSSODomainStatus.add($objStatus)
+
+
+
+    }
+
+    end {
+
+
+        if (-not $WhatIf) {
+
+            if ($RemoveSAMLSSODomainStatus | Where-Object { $_.Status -eq "Failed" }) {
+  
+                write-error "Failed to delete one or more SAML SSO domains."
+          
+            }
+
+            $RemoveSAMLSSODomainStatus = Invoke-RepackageObjectWithType -RawObject $RemoveSAMLSSODomainStatus -ObjectName "ObjStatus.NSDE" 
+            Return $RemoveSAMLSSODomainStatus
+        }
+    }
+}
+
+
+Function Send-HPEGLWorkspaceSAMLSSODomainNotifications {
+    <#
+    .SYNOPSIS
+    Send a notification to all active users part of the SAML SSO domain that has been enabled in the workspace. 
+
+    .DESCRIPTION
+    This function sends an email to notify all active users part of a configured SAML SSO Domain that Single sign-on (SSO) has been enabled for the workspace in HPE GreenLake.
+    
+    .PARAMETER DomainName
+    Specifies the name of the SAML SSO domain to send the notification.
+
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be executed, without actually sending the request. Useful for understanding the native REST API interactions with GLP.
+
+   .EXAMPLE
+    Send-HPEGLWorkspaceSAMLSSODomainNotifications -DomainName "example.com"
+
+    Sends a notification to all active users part of the SAML SSO domain "example.com" that SSO has been enabled for the workspace.
+
+    .EXAMPLE
+    Get-HPEGLWorkspaceSAMLSSODomain | Send-HPEGLWorkspaceSAMLSSODomainNotifications
+
+    Sends a notification to all active users in the various SAML SSO domains, informing them that SSO has been enabled for the workspace.
+
+    .INPUTS
+    System.Collections.ArrayList
+        List of domains retrieved using 'Get-HPEGLWorkspaceSAMLSSODomain'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following keys:
+        * Name - The name of the SAML SSO domain where the notification was sent.
+        * Status - The status of the notification attempt (Failed for HTTP error return; Complete if successful).
+        * Details - More information about the status.
+        * Exception - Information about any exceptions generated during the operation.
+
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [alias("domain")]
+        [String]$DomainName,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+       
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $SAMLSSODomainNotificationStatus = [System.Collections.ArrayList]::new()
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        try {
+            $DomainNameFound = Get-HPEGLWorkspaceSAMLSSODomain -DomainName $DomainName
+
+        }
+        catch {    
+            $PSCmdlet.ThrowTerminatingError($_)
+        
+        }
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            Name      = $DomainName
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+                          
+        }
+
+        if (-not $DomainNameFound) {
+            # Must return a message if domain not present
+            "[{0}] SAML SSO domain '{1}' cannot be found in the workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName | Write-Verbose
+        
+            if ($WhatIf) {
+                $ErrorMessage = "SAML SSO domain '{0}': Resource cannot be found in the workspace!" -f $DomainName
+                Write-warning $ErrorMessage
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "SAML SSO domain cannot be found in the workspace!"
+            }
+        }
+        else {
+           
+            $Uri = $AccountSAMLNotifyUsersUri + $DomainName 
+
+            try {
+
+                $Response = Invoke-HPEGLWebRequest -Uri $Uri -method POST -WhatIfBoolean $WhatIf 
+
+                if ($HPEGLInvokeReturnData.StatusCode -eq 204) {
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "Notification sent successfully to users of the SAML SSO domain."
+                } 
+                else {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Unexpected response code: $($HPEGLInvokeReturnData.StatusCode)"
+                }
+                
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = "Failed to send the notification to users of the SAML SSO domain."
+                    $objStatus.Exception = $_.Exception.message 
+                }            
+            }   
+        } 
+
+        [void] $SAMLSSODomainNotificationStatus.add($objStatus)
+
+
+
+    }
+
+    end {
+
+        if (-not $WhatIf) {
+
+            if ($SAMLSSODomainNotificationStatus | Where-Object { $_.Status -eq "Failed" }) {
+  
+                write-error "Failed to send the notification to users of the SAML SSO domain."
+          
+            }
+
+            $SAMLSSODomainNotificationStatus = Invoke-RepackageObjectWithType -RawObject $SAMLSSODomainNotificationStatus -ObjectName "ObjStatus.NSDE" 
+            Return $SAMLSSODomainNotificationStatus
+        }
+    }
+}
+
+
 #EndRegion
 
 
@@ -57270,14 +59446,17 @@ Function Get-HPEGLAuditLog {
     
     .PARAMETER Category 
     An optional parameter to filter audit logs by category. A predefined incomplete list of HPE GreenLake and Compute Ops Management categories is provided via completion tab.
-
-   .PARAMETER ShowLastMonth 
-    An optional parameter to retrieve the last thirty days audit logs.
-
+    
     .PARAMETER SearchString 
     An optional parameter to filter audit logs using a free-text search to perform a comprehensive search across all properties for audit logs.
+
+    .PARAMETER ShowLastMonth 
+    An optional parameter to retrieve the last thirty days audit logs.
+
+    .PARAMETER ShowLastThreeMonths
+    An optional parameter to retrieve the last ninety days audit logs.
     
-    .PARAMETER NoLimit
+    .PARAMETER ShowAll
     A parameter to return all audit logs without any limit. Be aware, however, that this may take some time, depending on your audit log history.
 
     .PARAMETER WhatIf 
@@ -57302,6 +59481,11 @@ Function Get-HPEGLAuditLog {
     Get-HPEGLAuditLog -Category Authorization -ShowLastMonth
     
     Retrieves the last thirty days audit logs for the "Authorization" category.
+
+    .EXAMPLE
+    Get-HPEGLAuditLog -Category Authorization -ShowAll
+
+    Retrieves all audit logs for the "Authorization" category.
     
     .EXAMPLE
     Get-HPEGLAuditLog -UserEmail Leonhard.Euler@mathematician.com -Category 'Customer Management'
@@ -57421,11 +59605,13 @@ Function Get-HPEGLAuditLog {
         )]
         [String]$Category,
         
-        [Switch]$ShowLastMonth,
-
         [String]$SearchString,
         
-        [switch]$NoLimit,
+        [Switch]$ShowLastMonth,
+
+        [Switch]$ShowLastThreeMonths,
+        
+        [switch]$ShowAll,
             
         [Switch]$WhatIf
 
@@ -57440,11 +59626,12 @@ Function Get-HPEGLAuditLog {
             
         $todayMinusSevenDays = (Get-Date).AddDays(-7).ToUniversalTime().ToString("yyyy-MM-dTHH:mm:ss.0Z")
         $todayMinusThirtyDays = (Get-Date).AddMonths(-1).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.0Z")
+        $todayMinusThreeMonths = (Get-Date).AddMonths(-3).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.0Z")
 
         # Construct the filter query
         $filterSevenDays = "createdAt ge '$todayMinusSevenDays'"
         $filterThirtyDays = "createdAt ge '$todayMinusThirtyDays'"
-
+        $filterThreeMonths = "createdAt ge '$todayMinusThreeMonths'"
     }
 
     Process {
@@ -57512,7 +59699,10 @@ Function Get-HPEGLAuditLog {
         if ($ShowLastMonth) {
             $Uri = Add-FilterToUri -Uri $Uri -Filter $filterThirtyDays
         }
-        elseif (-not $NoLimit) {
+        elseif($ShowLastThreeMonths){
+            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterThreeMonths
+        }
+        elseif (-not $ShowAll) {
             $Uri = Add-FilterToUri -Uri $Uri -Filter $filterSevenDays
         }
 
@@ -57595,10 +59785,10 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 
 
 # SIG # Begin signature block
-# MIIsEQYJKoZIhvcNAQcCoIIsAjCCK/4CAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItlAYJKoZIhvcNAQcCoIIthTCCLYECAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBFc938cWEgHacx
-# o+Kk1EFRoeCfmUAuaAFEoA5JeD1gUKCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDeVT8UkRIX1N0i
+# vkYkZzJrBd0EG+ppI1AwprHUPHJLRKCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -57691,144 +59881,152 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 # lLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQ
 # ZH3pwWvqURR8AgQdULUvrxjUYbHHj95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWU
 # H3fTv1Y8Wdho698YADR7TNx8X8z2Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63
-# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2RwxghnxMIIZ7QIBATBpMFQx
+# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2Rwxght0MIIbcAIBATBpMFQx
 # CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNVBAMT
 # IlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYCEQDzfDeB/ajwfQYd
 # ZdJTJuKyMA0GCWCGSAFlAwQCAQUAoHwwEAYKKwYBBAGCNwIBDDECMAAwGQYJKoZI
 # hvcNAQkDMQwGCisGAQQBgjcCAQQwHAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcC
-# ARUwLwYJKoZIhvcNAQkEMSIEIGwckYbDU2kcw7g3l7PhkXDZHfewiPmaJbgXuMvx
-# XWHsMA0GCSqGSIb3DQEBAQUABIIBgCRRJtF45JomAthkGJEgQ2tRqJrSmMOaXFkM
-# ErIkWWnlWjQIxyauljdZHsC2Of4p+x8TU+oNAb5hbHeP6v+qCLTexWYqUWyKG+IN
-# PwQsgdgIxTODgkHZuxa+kTTgI5qbDY+lsF8rykJfmIxpNborTPin4atPgduDV0Z/
-# 7tWFGksRZbjSrVSX9IdjD5j54kO2/JfszCSEJs7owIhBgSxiOhU3Ka3rpmvntjbS
-# NWlS1PjAZjV29NdJn5DqjrXwe6wnIvhfDeBrMdXmluS6Gd4bP+qRLiOnZ565i29e
-# mDZmz1aBRre5ObOQKXD3PsCZmVNnKdynuYOslJjYyrEtncPO5b6WYRb3fI69pIvD
-# ez0q8zHUoaMl+RMEwBi10yKxkBDyuZgPD0rC8sI/qaiD1m1GeLaZq8NOoajJpDxJ
-# hRBklIJvnKUZucrfmqf+pTN3Er65rxbDrjNsj6Cfrx9wv4pS+LjCLMD9YL9MTXKe
-# 8KA+cYi8Np0YHs46HRlcRkvDTHiNgaGCF1swghdXBgorBgEEAYI3AwMBMYIXRzCC
-# F0MGCSqGSIb3DQEHAqCCFzQwghcwAgEDMQ8wDQYJYIZIAWUDBAICBQAwgYgGCyqG
-# SIb3DQEJEAEEoHkEdzB1AgEBBglghkgBhv1sBwEwQTANBglghkgBZQMEAgIFAAQw
-# vOTQD2Q+AmZlDWo+dnm3QgrNeh4VrQ8cPzxcanu0HLvur5wwhY0ezKTUzwBzqD48
-# AhEAgknou6/OkIu3mgFcXoGHOhgPMjAyNDEyMTcxNTUyMTlaoIITAzCCBrwwggSk
-# oAMCAQICEAuuZrxaun+Vh8b56QTjMwQwDQYJKoZIhvcNAQELBQAwYzELMAkGA1UE
-# BhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2Vy
-# dCBUcnVzdGVkIEc0IFJTQTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQTAeFw0y
-# NDA5MjYwMDAwMDBaFw0zNTExMjUyMzU5NTlaMEIxCzAJBgNVBAYTAlVTMREwDwYD
-# VQQKEwhEaWdpQ2VydDEgMB4GA1UEAxMXRGlnaUNlcnQgVGltZXN0YW1wIDIwMjQw
-# ggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC+anOf9pUhq5Ywultt5lmj
-# tej9kR8YxIg7apnjpcH9CjAgQxK+CMR0Rne/i+utMeV5bUlYYSuuM4vQngvQepVH
-# VzNLO9RDnEXvPghCaft0djvKKO+hDu6ObS7rJcXa/UKvNminKQPTv/1+kBPgHGlP
-# 28mgmoCw/xi6FG9+Un1h4eN6zh926SxMe6We2r1Z6VFZj75MU/HNmtsgtFjKfITL
-# utLWUdAoWle+jYZ49+wxGE1/UXjWfISDmHuI5e/6+NfQrxGFSKx+rDdNMsePW6FL
-# rphfYtk/FLihp/feun0eV+pIF496OVh4R1TvjQYpAztJpVIfdNsEvxHofBf1BWka
-# dc+Up0Th8EifkEEWdX4rA/FE1Q0rqViTbLVZIqi6viEk3RIySho1XyHLIAOJfXG5
-# PEppc3XYeBH7xa6VTZ3rOHNeiYnY+V4j1XbJ+Z9dI8ZhqcaDHOoj5KGg4YuiYx3e
-# Ym33aebsyF6eD9MF5IDbPgjvwmnAalNEeJPvIeoGJXaeBQjIK13SlnzODdLtuThA
-# LhGtyconcVuPI8AaiCaiJnfdzUcb3dWnqUnjXkRFwLtsVAxFvGqsxUA2Jq/WTjbn
-# NjIUzIs3ITVC6VBKAOlb2u29Vwgfta8b2ypi6n2PzP0nVepsFk8nlcuWfyZLzBaZ
-# 0MucEdeBiXL+nUOGhCjl+QIDAQABo4IBizCCAYcwDgYDVR0PAQH/BAQDAgeAMAwG
-# A1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwIAYDVR0gBBkwFzAI
-# BgZngQwBBAIwCwYJYIZIAYb9bAcBMB8GA1UdIwQYMBaAFLoW2W1NhS9zKXaaL3WM
-# aiCPnshvMB0GA1UdDgQWBBSfVywDdw4oFZBmpWNe7k+SH3agWzBaBgNVHR8EUzBR
-# ME+gTaBLhklodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
-# RzRSU0E0MDk2U0hBMjU2VGltZVN0YW1waW5nQ0EuY3JsMIGQBggrBgEFBQcBAQSB
-# gzCBgDAkBggrBgEFBQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMFgGCCsG
-# AQUFBzAChkxodHRwOi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVz
-# dGVkRzRSU0E0MDk2U0hBMjU2VGltZVN0YW1waW5nQ0EuY3J0MA0GCSqGSIb3DQEB
-# CwUAA4ICAQA9rR4fdplb4ziEEkfZQ5H2EdubTggd0ShPz9Pce4FLJl6reNKLkZd5
-# Y/vEIqFWKt4oKcKz7wZmXa5VgW9B76k9NJxUl4JlKwyjUkKhk3aYx7D8vi2mpU1t
-# KlY71AYXB8wTLrQeh83pXnWwwsxc1Mt+FWqz57yFq6laICtKjPICYYf/qgxACHTv
-# ypGHrC8k1TqCeHk6u4I/VBQC9VK7iSpU5wlWjNlHlFFv/M93748YTeoXU/fFa9hW
-# JQkuzG2+B7+bMDvmgF8VlJt1qQcl7YFUMYgZU1WM6nyw23vT6QSgwX5Pq2m0xQ2V
-# 6FJHu8z4LXe/371k5QrN9FQBhLLISZi2yemW0P8ZZfx4zvSWzVXpAb9k4Hpvpi6b
-# Ue8iK6WonUSV6yPlMwerwJZP/Gtbu3CKldMnn+LmmRTkTXpFIEB06nXZrDwhCGED
-# +8RsWQSIXZpuG4WLFQOhtloDRWGoCwwc6ZpPddOFkM2LlTbMcqFSzm4cd0boGhBq
-# 7vkqI1uHRz6Fq1IX7TaRQuR+0BGOzISkcqwXu7nMpFu3mgrlgbAW+BzikRVQ3K2Y
-# HcGkiKjA4gi4OA/kz1YCsdhIBHXqBzR0/Zd2QwQ/l4Gxftt/8wY3grcc/nS//TVk
-# ej9nmUYu83BDtccHHXKibMs/yXHhDXNkoPIdynhVAku7aRZOwqw6pDCCBq4wggSW
-# oAMCAQICEAc2N7ckVHzYR6z9KGYqXlswDQYJKoZIhvcNAQELBQAwYjELMAkGA1UE
-# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
-# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MB4XDTIy
-# MDMyMzAwMDAwMFoXDTM3MDMyMjIzNTk1OVowYzELMAkGA1UEBhMCVVMxFzAVBgNV
-# BAoTDkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2VydCBUcnVzdGVkIEc0
-# IFJTQTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQTCCAiIwDQYJKoZIhvcNAQEB
-# BQADggIPADCCAgoCggIBAMaGNQZJs8E9cklRVcclA8TykTepl1Gh1tKD0Z5Mom2g
-# sMyD+Vr2EaFEFUJfpIjzaPp985yJC3+dH54PMx9QEwsmc5Zt+FeoAn39Q7SE2hHx
-# c7Gz7iuAhIoiGN/r2j3EF3+rGSs+QtxnjupRPfDWVtTnKC3r07G1decfBmWNlCnT
-# 2exp39mQh0YAe9tEQYncfGpXevA3eZ9drMvohGS0UvJ2R/dhgxndX7RUCyFobjch
-# u0CsX7LeSn3O9TkSZ+8OpWNs5KbFHc02DVzV5huowWR0QKfAcsW6Th+xtVhNef7X
-# j3OTrCw54qVI1vCwMROpVymWJy71h6aPTnYVVSZwmCZ/oBpHIEPjQ2OAe3VuJyWQ
-# mDo4EbP29p7mO1vsgd4iFNmCKseSv6De4z6ic/rnH1pslPJSlRErWHRAKKtzQ87f
-# SqEcazjFKfPKqpZzQmiftkaznTqj1QPgv/CiPMpC3BhIfxQ0z9JMq++bPf4OuGQq
-# +nUoJEHtQr8FnGZJUlD0UfM2SU2LINIsVzV5K6jzRWC8I41Y99xh3pP+OcD5sjCl
-# TNfpmEpYPtMDiP6zj9NeS3YSUZPJjAw7W4oiqMEmCPkUEBIDfV8ju2TjY+Cm4T72
-# wnSyPx4JduyrXUZ14mCjWAkBKAAOhFTuzuldyF4wEr1GnrXTdrnSDmuZDNIztM2x
-# AgMBAAGjggFdMIIBWTASBgNVHRMBAf8ECDAGAQH/AgEAMB0GA1UdDgQWBBS6Ftlt
-# TYUvcyl2mi91jGogj57IbzAfBgNVHSMEGDAWgBTs1+OC0nFdZEzfLmc/57qYrhwP
-# TzAOBgNVHQ8BAf8EBAMCAYYwEwYDVR0lBAwwCgYIKwYBBQUHAwgwdwYIKwYBBQUH
-# AQEEazBpMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdpY2VydC5jb20wQQYI
-# KwYBBQUHMAKGNWh0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRy
-# dXN0ZWRSb290RzQuY3J0MEMGA1UdHwQ8MDowOKA2oDSGMmh0dHA6Ly9jcmwzLmRp
-# Z2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRSb290RzQuY3JsMCAGA1UdIAQZMBcw
-# CAYGZ4EMAQQCMAsGCWCGSAGG/WwHATANBgkqhkiG9w0BAQsFAAOCAgEAfVmOwJO2
-# b5ipRCIBfmbW2CFC4bAYLhBNE88wU86/GPvHUF3iSyn7cIoNqilp/GnBzx0H6T5g
-# yNgL5Vxb122H+oQgJTQxZ822EpZvxFBMYh0MCIKoFr2pVs8Vc40BIiXOlWk/R3f7
-# cnQU1/+rT4osequFzUNf7WC2qk+RZp4snuCKrOX9jLxkJodskr2dfNBwCnzvqLx1
-# T7pa96kQsl3p/yhUifDVinF2ZdrM8HKjI/rAJ4JErpknG6skHibBt94q6/aesXmZ
-# gaNWhqsKRcnfxI2g55j7+6adcq/Ex8HBanHZxhOACcS2n82HhyS7T6NJuXdmkfFy
-# nOlLAlKnN36TU6w7HQhJD5TNOXrd/yVjmScsPT9rp/Fmw0HNT7ZAmyEhQNC3EyTN
-# 3B14OuSereU0cZLXJmvkOHOrpgFPvT87eK1MrfvElXvtCl8zOYdBeHo46Zzh3SP9
-# HSjTx/no8Zhf+yvYfvJGnXUsHicsJttvFXseGYs2uJPU5vIXmVnKcPA3v5gA3yAW
-# Tyf7YGcWoWa63VXAOimGsJigK+2VQbc61RWYMbRiCQ8KvYHZE/6/pNHzV9m8BPqC
-# 3jLfBInwAM1dwvnQI38AC+R2AibZ8GV2QqYphwlHK+Z/GqSFD/yYlvZVVCsfgPrA
-# 8g4r5db7qS9EFUrnEw4d2zc4GqEr9u3WfPwwggWNMIIEdaADAgECAhAOmxiO+dAt
-# 5+/bUOIIQBhaMA0GCSqGSIb3DQEBDAUAMGUxCzAJBgNVBAYTAlVTMRUwEwYDVQQK
-# EwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xJDAiBgNV
-# BAMTG0RpZ2lDZXJ0IEFzc3VyZWQgSUQgUm9vdCBDQTAeFw0yMjA4MDEwMDAwMDBa
-# Fw0zMTExMDkyMzU5NTlaMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2Vy
-# dCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lD
-# ZXJ0IFRydXN0ZWQgUm9vdCBHNDCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoC
-# ggIBAL/mkHNo3rvkXUo8MCIwaTPswqclLskhPfKK2FnC4SmnPVirdprNrnsbhA3E
-# MB/zG6Q4FutWxpdtHauyefLKEdLkX9YFPFIPUh/GnhWlfr6fqVcWWVVyr2iTcMKy
-# unWZanMylNEQRBAu34LzB4TmdDttceItDBvuINXJIB1jKS3O7F5OyJP4IWGbNOsF
-# xl7sWxq868nPzaw0QF+xembud8hIqGZXV59UWI4MK7dPpzDZVu7Ke13jrclPXuU1
-# 5zHL2pNe3I6PgNq2kZhAkHnDeMe2scS1ahg4AxCN2NQ3pC4FfYj1gj4QkXCrVYJB
-# MtfbBHMqbpEBfCFM1LyuGwN1XXhm2ToxRJozQL8I11pJpMLmqaBn3aQnvKFPObUR
-# WBf3JFxGj2T3wWmIdph2PVldQnaHiZdpekjw4KISG2aadMreSx7nDmOu5tTvkpI6
-# nj3cAORFJYm2mkQZK37AlLTSYW3rM9nF30sEAMx9HJXDj/chsrIRt7t/8tWMcCxB
-# YKqxYxhElRp2Yn72gLD76GSmM9GJB+G9t+ZDpBi4pncB4Q+UDCEdslQpJYls5Q5S
-# UUd0viastkF13nqsX40/ybzTQRESW+UQUOsxxcpyFiIJ33xMdT9j7CFfxCBRa2+x
-# q4aLT8LWRV+dIPyhHsXAj6KxfgommfXkaS+YHS312amyHeUbAgMBAAGjggE6MIIB
-# NjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBTs1+OC0nFdZEzfLmc/57qYrhwP
-# TzAfBgNVHSMEGDAWgBRF66Kv9JLLgjEtUYunpyGd823IDzAOBgNVHQ8BAf8EBAMC
-# AYYweQYIKwYBBQUHAQEEbTBrMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdp
-# Y2VydC5jb20wQwYIKwYBBQUHMAKGN2h0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNv
-# bS9EaWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcnQwRQYDVR0fBD4wPDA6oDigNoY0
-# aHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
-# LmNybDARBgNVHSAECjAIMAYGBFUdIAAwDQYJKoZIhvcNAQEMBQADggEBAHCgv0Nc
-# Vec4X6CjdBs9thbX979XB72arKGHLOyFXqkauyL4hxppVCLtpIh3bb0aFPQTSnov
-# Lbc47/T/gLn4offyct4kvFIDyE7QKt76LVbP+fT3rDB6mouyXtTP0UNEm0Mh65Zy
-# oUi0mcudT6cGAxN3J0TU53/oWajwvy8LpunyNDzs9wPHh6jSTEAZNUZqaVSwuKFW
-# juyk1T3osdz9HNj0d1pcVIxv76FQPfx2CWiEn2/K2yCNNWAcAgPLILCsWKAOQGPF
-# mCLBsln1VWvPJ6tsds5vIy30fnFqI2si/xK4VC0nftg62fC2h5b9W9FcrBjDTZ9z
-# twGpn1eqXijiuZQxggOGMIIDggIBATB3MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQK
-# Ew5EaWdpQ2VydCwgSW5jLjE7MDkGA1UEAxMyRGlnaUNlcnQgVHJ1c3RlZCBHNCBS
-# U0E0MDk2IFNIQTI1NiBUaW1lU3RhbXBpbmcgQ0ECEAuuZrxaun+Vh8b56QTjMwQw
-# DQYJYIZIAWUDBAICBQCggeEwGgYJKoZIhvcNAQkDMQ0GCyqGSIb3DQEJEAEEMBwG
-# CSqGSIb3DQEJBTEPFw0yNDEyMTcxNTUyMTlaMCsGCyqGSIb3DQEJEAIMMRwwGjAY
-# MBYEFNvThe5i29I+e+T2cUhQhyTVhltFMDcGCyqGSIb3DQEJEAIvMSgwJjAkMCIE
-# IHZ2n6jyYy8fQws6IzCu1lZ1/tdz2wXWZbkFk5hDj5rbMD8GCSqGSIb3DQEJBDEy
-# BDC0sw+0qyA7xFolgEQs12ijTfgI6cQxRu0JGRzbIC/9NLlpp2vjd7AByrFRB/B5
-# mMQwDQYJKoZIhvcNAQEBBQAEggIAm4U8jAXMcJLmWvAsLxKaPzcrgtakisThu4gi
-# dwCX1P4wbp+a7GpSFqTRqttiMdeoSDW04YL1OBbGS9mXF9VrhiV6x9KYxhq0ZgyE
-# PkhC/5WYH0i+i/3rhWAELScVVJGGwrxWKmdyK5rwaPAUUY0H7yfuUj/6ZPN5zzUg
-# W0BfI9DKzmURZzKJUnF0anIJZePF1BZeEu5mA40cslXjGlRJGP8xeU2OF97teOuU
-# jiix40wfWbERrTYJSu/pi8gOp0jMcWDejeqkhNeBzNkuM+yb2jUgRkBrhbqueYzP
-# Jqtu5hChN2J8fsMjiMFmAY3MhJjFc3AUAVoNASyfBcVkXWig5ulgw93zWHxKz+cA
-# vAzLpaLMBpFibwTilPiZtfFHibbhbJpmT8ny9tOWsIT9etozUU5uSvHwMMzVstEu
-# 7FBLQVDi/EO2BeCXmwtu3q9yPJzmraCGLSLgnnLRHdnE4qFd2n+ClGvmau+BkIC0
-# Ui+ZEUUx39ythcbiElgy2ZzjzezoIVebe6AAL9BsRGM6HWpCTtnnI8eKL0CUhk8R
-# 1VE4kvGgAX8tdwQw74DEKcnrj9a2SPKpayWiBA6B7AZyX/Ar/ju8iKPwTE08JgEo
-# H/DGw8O/fWxuLMoz0otz9a/wJaUN9PCleuSjkJORS2K7Wrdv7R0c9nB62PDqs4L/
-# kyBQstc=
+# ARUwLwYJKoZIhvcNAQkEMSIEIGgd98+jzsMOaxGFZI2ydakAe8bCQMOmrtD/9Oln
+# O/hyMA0GCSqGSIb3DQEBAQUABIIBgKrmWo/6a/NV4i5brY+3uekNxmpZUSWtdTpN
+# 6JP9hyHTwrMtKDCiE3FoyyS4aNAPIPUonDafR1kuu9wPdS4l+fOKqwUZDBhBEh4u
+# aUA7AH5xnVAS9+k6wWyZHtoB0LV8b9gcP1stNc4fqQivwAjAvsG4YZLX5ud6MHOS
+# b3AOiuTtdX0BqylCQAnCUERuy2MczkEthQ7OB4NpvDl6yR/EAIIrdcIJjYaXtz5Y
+# gzPzZeLZLNO03EeKpywJuWxiyZT1/V16vWq0q/lD+v3qxq6b32cBVWnhmVGyeH8J
+# k3e83xz69aF7j8CM3Nh9gPeEuwSu4gh/0mhEQc1MQHEzh3RZ4LoLurrzGn7cz8gx
+# ljh26ZCVEDIlglIH2rPMsczOJ9ZOM/D96ltMhqX/acW6B67X3xPE6wyVrc45KdJQ
+# U8hi1ZX970fnIzc+qiW3567SetCOF0rSRPd2fNHAOlMsDDVqaDArluQHZj50zg18
+# 0ynISy1Afg2pebywff9dmaVPQAkZl6GCGN4wghjaBgorBgEEAYI3AwMBMYIYyjCC
+# GMYGCSqGSIb3DQEHAqCCGLcwghizAgEDMQ8wDQYJYIZIAWUDBAICBQAwggEDBgsq
+# hkiG9w0BCRABBKCB8wSB8DCB7QIBAQYKKwYBBAGyMQIBATBBMA0GCWCGSAFlAwQC
+# AgUABDAAA5rbt4cTxXpcUfcyemP/aGdrV91NI3mmfjHNTl9X+sVdvskawrTVbA0j
+# zWEpxsICFBM119VSa3i9q3lWuvwMc86eTYbOGA8yMDI1MDEzMTE2MzIxMFqgcqRw
+# MG4xCzAJBgNVBAYTAkdCMRMwEQYDVQQIEwpNYW5jaGVzdGVyMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgU2lnbmVyIFIzNaCCEv8wggZdMIIExaADAgECAhA6UmoshM5V5h1l/MwS
+# 2OmJMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0
+# aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBp
+# bmcgQ0EgUjM2MB4XDTI0MDExNTAwMDAwMFoXDTM1MDQxNDIzNTk1OVowbjELMAkG
+# A1UEBhMCR0IxEzARBgNVBAgTCk1hbmNoZXN0ZXIxGDAWBgNVBAoTD1NlY3RpZ28g
+# TGltaXRlZDEwMC4GA1UEAxMnU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBT
+# aWduZXIgUjM1MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAjdFn9MFI
+# m739OEk6TWGBm8PY3EWlYQQ2jQae45iWgPXUGVuYoIa1xjTGIyuw3suUSBzKiyG0
+# /c/Yn++d5mG6IyayljuGT9DeXQU9k8GWWj2/BPoamg2fFctnPsdTYhMGxM06z1+F
+# t0Bav8ybww21ii/faiy+NhiUM195+cFqOtCpJXxZ/lm9tpjmVmEqpAlRpfGmLhNd
+# kqiEuDFTuD1GsV3jvuPuPGKUJTam3P53U4LM0UCxeDI8Qz40Qw9TPar6S02XExlc
+# 8X1YsiE6ETcTz+g1ImQ1OqFwEaxsMj/WoJT18GG5KiNnS7n/X4iMwboAg3IjpcvE
+# zw4AZCZowHyCzYhnFRM4PuNMVHYcTXGgvuq9I7j4ke281x4e7/90Z5Wbk92RrLcS
+# 35hO30TABcGx3Q8+YLRy6o0k1w4jRefCMT7b5mTxtq5XPmKvtgfPuaWPkGZ/tbxI
+# nyNDA7YgOgccULjp4+D56g2iuzRCsLQ9ac6AN4yRbqCYsG2rcIQ5INTyI2JzA2w1
+# vsAHPRbUTeqVLDuNOY2gYIoKBWQsPYVoyzaoBVU6O5TG+a1YyfWkgVVS9nXKs8hV
+# ti3VpOV3aeuaHnjgC6He2CCDL9aW6gteUe0AmC8XCtWwpePx6QW3ROZo8vSUe9AR
+# 7mMdu5+FzTmW8K13Bt8GX/YBFJO7LWzwKAUCAwEAAaOCAY4wggGKMB8GA1UdIwQY
+# MBaAFF9Y7UwxeqJhQo1SgLqzYZcZojKbMB0GA1UdDgQWBBRo76QySWm2Ujgd6kM5
+# LPQUap4MhTAOBgNVHQ8BAf8EBAMCBsAwDAYDVR0TAQH/BAIwADAWBgNVHSUBAf8E
+# DDAKBggrBgEFBQcDCDBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDCDAlMCMGCCsG
+# AQUFBwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAIwSgYDVR0f
+# BEMwQTA/oD2gO4Y5aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGlj
+# VGltZVN0YW1waW5nQ0FSMzYuY3JsMHoGCCsGAQUFBwEBBG4wbDBFBggrBgEFBQcw
+# AoY5aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1w
+# aW5nQ0FSMzYuY3J0MCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0aWdvLmNv
+# bTANBgkqhkiG9w0BAQwFAAOCAYEAsNwuyfpPNkyKL/bJT9XvGE8fnw7Gv/4SetmO
+# kjK9hPPa7/Nsv5/MHuVus+aXwRFqM5Vu51qfrHTwnVExcP2EHKr7IR+m/Ub7Pama
+# eWfle5x8D0x/MsysICs00xtSNVxFywCvXx55l6Wg3lXiPCui8N4s51mXS0Ht85fk
+# Xo3auZdo1O4lHzJLYX4RZovlVWD5EfwV6Ve1G9UMslnm6pI0hyR0Zr95QWG0MpNP
+# P0u05SHjq/YkPlDee3yYOECNMqnZ+j8onoUtZ0oC8CkbOOk/AOoV4kp/6Ql2gEp3
+# bNC7DOTlaCmH24DjpVgryn8FMklqEoK4Z3IoUgV8R9qQLg1dr6/BjghGnj2XNA8u
+# jta2JyoxpqpvyETZCYIUjIs69YiDjzftt37rQVwIZsfCYv+DU5sh/StFL1x4rgNj
+# 2t8GccUfa/V3iFFW9lfIJWWsvtlC5XOOOQswr1UmVdNWQem4LwrlLgcdO/YAnHqY
+# 52QwnBLiAuUnuBeshWmfEb5oieIYMIIGFDCCA/ygAwIBAgIQeiOu2lNplg+RyD5c
+# 9MfjPzANBgkqhkiG9w0BAQwFADBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2Vj
+# dGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1w
+# aW5nIFJvb3QgUjQ2MB4XDTIxMDMyMjAwMDAwMFoXDTM2MDMyMTIzNTk1OVowVTEL
+# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMj
+# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBDQSBSMzYwggGiMA0GCSqGSIb3
+# DQEBAQUAA4IBjwAwggGKAoIBgQDNmNhDQatugivs9jN+JjTkiYzT7yISgFQ+7yav
+# jA6Bg+OiIjPm/N/t3nC7wYUrUlY3mFyI32t2o6Ft3EtxJXCc5MmZQZ8AxCbh5c6W
+# zeJDB9qkQVa46xiYEpc81KnBkAWgsaXnLURoYZzksHIzzCNxtIXnb9njZholGw9d
+# jnjkTdAA83abEOHQ4ujOGIaBhPXG2NdV8TNgFWZ9BojlAvflxNMCOwkCnzlH4oCw
+# 5+4v1nssWeN1y4+RlaOywwRMUi54fr2vFsU5QPrgb6tSjvEUh1EC4M29YGy/SIYM
+# 8ZpHadmVjbi3Pl8hJiTWw9jiCKv31pcAaeijS9fc6R7DgyyLIGflmdQMwrNRxCul
+# Vq8ZpysiSYNi79tw5RHWZUEhnRfs/hsp/fwkXsynu1jcsUX+HuG8FLa2BNheUPtO
+# cgw+vHJcJ8HnJCrcUWhdFczf8O+pDiyGhVYX+bDDP3GhGS7TmKmGnbZ9N+MpEhWm
+# biAVPbgkqykSkzyYVr15OApZYK8CAwEAAaOCAVwwggFYMB8GA1UdIwQYMBaAFPZ3
+# at0//QET/xahbIICL9AKPRQlMB0GA1UdDgQWBBRfWO1MMXqiYUKNUoC6s2GXGaIy
+# mzAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUEDDAK
+# BggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAwTAYDVR0fBEUwQzBBoD+gPYY7
+# aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1waW5n
+# Um9vdFI0Ni5jcmwwfAYIKwYBBQUHAQEEcDBuMEcGCCsGAQUFBzAChjtodHRwOi8v
+# Y3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2
+# LnA3YzAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZI
+# hvcNAQEMBQADggIBABLXeyCtDjVYDJ6BHSVY/UwtZ3Svx2ImIfZVVGnGoUaGdlto
+# X4hDskBMZx5NY5L6SCcwDMZhHOmbyMhyOVJDwm1yrKYqGDHWzpwVkFJ+996jKKAX
+# yIIaUf5JVKjccev3w16mNIUlNTkpJEor7edVJZiRJVCAmWAaHcw9zP0hY3gj+fWp
+# 8MbOocI9Zn78xvm9XKGBp6rEs9sEiq/pwzvg2/KjXE2yWUQIkms6+yslCRqNXPjE
+# nBnxuUB1fm6bPAV+Tsr/Qrd+mOCJemo06ldon4pJFbQd0TQVIMLv5koklInHvyaf
+# 6vATJP4DfPtKzSBPkKlOtyaFTAjD2Nu+di5hErEVVaMqSVbfPzd6kNXOhYm23EWm
+# 6N2s2ZHCHVhlUgHaC4ACMRCgXjYfQEDtYEK54dUwPJXV7icz0rgCzs9VI29DwsjV
+# ZFpO4ZIVR33LwXyPDbYFkLqYmgHjR3tKVkhh9qKV2WCmBuC27pIOx6TYvyqiYbnt
+# inmpOqh/QPAnhDgexKG9GX/n1PggkGi9HCapZp8fRwg8RftwS21Ln61euBG0yONM
+# 6noD2XQPrFwpm3GcuqJMf0o8LLrFkSLRQNwxPDDkWXhW+gZswbaiie5fd/W2ygct
+# o78XCSPfFWveUOSZ5SqK95tBO8aTHmEa4lpJVD7HrTEn9jb1EGvxOb1cnn0CMIIG
+# gjCCBGqgAwIBAgIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQwFADCBiDEL
+# MAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNl
+# eSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMT
+# JVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA
+# iJ3YuUVnnR3d6LkmgZpUVMB8SQWbzFoVD9mUEES0QUCBdxSZqdTkdizICFNeINCS
+# JS+lV1ipnW5ihkQyC0cRLWXUJzodqpnMRs46npiJPHrfLBOifjfhpdXJ2aHHsPHg
+# gGsCi7uE0awqKggE/LkYw3sqaBia67h/3awoqNvGqiFRJ+OTWYmUCO2GAXsePHi+
+# /JUNAax3kpqstbl3vcTdOGhtKShvZIvjwulRH87rbukNyHGWX5tNK/WABKf+Gnoi
+# 4cmisS7oSimgHUI0Wn/4elNd40BFdSZ1EwpuddZ+Wr7+Dfo0lcHflm/FDDrOJ3rW
+# qauUP8hsokDoI7D/yUVI9DAE/WK3Jl3C4LKwIpn1mNzMyptRwsXKrop06m7NUNHd
+# lTDEMovXAIDGAvYynPt5lutv8lZeI5w3MOlCybAZDpK3Dy1MKo+6aEtE9vtiTMzz
+# /o2dYfdP0KWZwZIXbYsTIlg1YIetCpi5s14qiXOpRsKqFKqav9R1R5vj3NgevsAs
+# vxsAnI8Oa5s2oy25qhsoBIGo/zi6GpxFj+mOdh35Xn91y72J4RGOJEoqzEIbW3q0
+# b2iPuWLA911cRxgY5SJYubvjay3nSMbBPPFsyl6mY4/WYucmyS9lo3l7jk27MAe1
+# 45GWxK4O3m3gEFEIkv7kRmefDR7Oe2T1HxAnICQvr9sCAwEAAaOCARYwggESMB8G
+# A1UdIwQYMBaAFFN5v1qqK0rPVIDh2JvAnfKyA2bLMB0GA1UdDgQWBBT2d2rdP/0B
+# E/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAT
+# BgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAwUAYDVR0fBEkw
+# RzBFoEOgQYY/aHR0cDovL2NybC51c2VydHJ1c3QuY29tL1VTRVJUcnVzdFJTQUNl
+# cnRpZmljYXRpb25BdXRob3JpdHkuY3JsMDUGCCsGAQUFBwEBBCkwJzAlBggrBgEF
+# BQcwAYYZaHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkqhkiG9w0BAQwFAAOC
+# AgEADr5lQe1oRLjlocXUEYfktzsljOt+2sgXke3Y8UPEooU5y39rAARaAdAxUeiX
+# 1ktLJ3+lgxtoLQhn5cFb3GF2SSZRX8ptQ6IvuD3wz/LNHKpQ5nX8hjsDLRhsyeIi
+# Jsms9yAWnvdYOdEMq1W61KE9JlBkB20XBee6JaXx4UBErc+YuoSb1SxVf7nkNtUj
+# PfcxuFtrQdRMRi/fInV/AobE8Gw/8yBMQKKaHt5eia8ybT8Y/Ffa6HAJyz9gvEOc
+# F1VWXG8OMeM7Vy7Bs6mSIkYeYtddU1ux1dQLbEGur18ut97wgGwDiGinCwKPyFO7
+# ApcmVJOtlw9FVJxw/mL1TbyBns4zOgkaXFnnfzg4qbSvnrwyj1NiurMp4pmAWjR+
+# Pb/SIduPnmFzbSN/G8reZCL4fvGlvPFk4Uab/JVCSmj59+/mB2Gn6G/UYOy8k60m
+# KcmaAZsEVkhOFuoj4we8CYyaR9vd9PGZKSinaZIkvVjbH/3nlLb0a7SBIkiRzfPf
+# S9T+JesylbHa1LtRV9U/7m0q7Ma2CQ/t392ioOssXW7oKLdOmMBl14suVFBmbzrt
+# 5V5cQPnwtd3UOTpS9oCG+ZZheiIvPgkDmA8FzPsnfXW5qHELB43ET7HHFHeRPRYr
+# MBKjkb8/IN7Po0d0hQoF4TeMM+zYAJzoKQnVKOLg8pZVPT8xggSRMIIEjQIBATBp
+# MFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNV
+# BAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2AhA6UmoshM5V
+# 5h1l/MwS2OmJMA0GCWCGSAFlAwQCAgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZI
+# hvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI1MDEzMTE2MzIxMFowPwYJKoZIhvcN
+# AQkEMTIEMJRdRO/mvamh/OKKr+s5ORTJ+qYe7uBkvmUnQnSXflfN6pfrSwpmNKG5
+# mYkSYbcSazCCAXoGCyqGSIb3DQEJEAIMMYIBaTCCAWUwggFhMBYEFPhgmBmm+4gs
+# 9+hSl/KhGVIaFndfMIGHBBTGrlTkeIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQsw
+# CQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVT
+# ZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HI
+# Plz0x+M/MIG8BBSFPWMtk4KCYXzQkDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkG
+# A1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBD
+# aXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVT
+# RVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7Pd
+# NsvJdWgwDQYJKoZIhvcNAQEBBQAEggIABaAqdgnpqawmrfI4JH0X1njIsBXzo+Cx
+# a1WBlKu86zLFxRwQt+ZNpV2MtKr8YSNIuZxQhFH0EJ7Ql1wFUyiNJwLQj+iGqC3L
+# G9gzrcNSF/MWu1owOR7lAIxN2MQIerfBhGL3pksLhKSdE3pbJULefNZ8+QRC2QGX
+# PCaicQRxaZNwrwSCD66pOteKfECd5AOkhzp6zA2kVo0QTCezbv8GfBbl3lp2mWz6
+# /ok41mR39FdSxiRlKjeyu4GRKCfEXrhoRc4JDm2TJVH6K1MezRDjbse2glV1JFmI
+# 9UCFq4G+4f3IOLKRKDhcygBsPbs2T60Qgt+He/qnnDza/X6QJUhtprim9wmz2F43
+# e+Fe61GA8PvyQyInpbWvL/9e1NGm1/7Z1Op8mckLsNgAnZib1HiC7BNq1rgAYsgy
+# 918a4PVu6AHJY4UykDpPge7vKAbu8CMVTePuWfo45UtzdGgNKq8RRHHhzWkTkuOW
+# RId+f69Y0ssndcDsx1y4ZyHm0NAnhpjHDlCJK0Hvgj0dWsnlFGDRNPjMzXrezuFh
+# 9p5DmOnbyLEctoxBCwX8sPcKruv3kmu43YoVoRhz0+nr0cM4aXH9dASxV4Hq1FuG
+# Ph6Jgf+Jd/zrWvAqp43OGjJZemgh5pnkcs1PN+aAWYY08Drv7r/rhz+NJUUFgyQw
+# Q6A4FTr94QQ=
 # SIG # End signature block

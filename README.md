@@ -34,7 +34,7 @@ For a complete list of cmdlets and their detailed usage, refer to the module's h
 
 ## Latest release
 
-1.0.10 |
+1.0.11 |
 ------------ |
 [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] |
 
@@ -45,7 +45,7 @@ For a complete list of cmdlets and their detailed usage, refer to the module's h
 - **Supported PowerShell Editions**: This library supports both PowerShell Desktop and PowerShell Core editions.
 - **HPE Account**: An HPE Account is necessary to connect to the HPE GreenLake platform and any Compute Ops Management services.
      
-    > **Note**: If you do not have an HPE Account, you can create one [here](https://common.cloud.hpe.com). To learn how to create an HPE account, see [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.102en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
+    > **Note**: If you do not have an HPE Account, you can create one [here](https://common.cloud.hpe.com). To learn how to create an HPE account, see [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.112en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
 
     > **Note**: To interact with an HPE GreenLake workspace and a Compute Ops Management instance using this library, you must have at least the ***Observer*** role for both ***HPE GreenLake Platform*** and ***Compute Ops Management*** service managers. This role grants view-only privileges. For modification capabilities, you need either the ***Operator*** (view and edit privileges) or the ***Administrator*** (view, edit, and delete privileges) role. Alternatively, you can create a custom role that meets your specific access requirements.
 
@@ -179,7 +179,7 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 
 ## Want more?
 
-* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.102en_us)
+* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.112en_us)
 * [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 
