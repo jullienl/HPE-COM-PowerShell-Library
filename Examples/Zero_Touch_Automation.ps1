@@ -46,7 +46,7 @@ It covers the following steps:
 
 # HPE account Credentials
 $MyHPEAccount = "email@domain.com"
-$GLP_EncryptedPassword = "01000000d08c9ddf0115d1118c7a00c04fc297eb01000000401054b1edbad54aac18d5b980b68341000000000200000000001066000000010000200000001bd07c88cb0985add8da771cf8ef858a7e863abdaac4e38ecc0cb2c80a100e9d000000000e8000000002000020000000317ee404ee631874e2c068f489a886f5bbe608de011fdaa54b74a894c011985b400000003497df812458ff6c9d9ca39074a73257592c8e2464bf0149a194098ba1fbdab04c9a75a15506e8b896ff8871fbb1f191430bd65232815884e2bc26c4ff8dc88b40000000ce1aa6e53223a34421c609e3bf473169a428663ce5c20122a220310951d5a8e5adfa6df59a6205ce272bd758c83d6b8c5adb22a45653d592f38b7a3f0bb25c49"
+$MyHPEAccountSecuredPassword = Read-Host -AsSecureString "Enter password for your HPE account '$MyHPEAccount'"
 
 # Workspace name to create
 $WorkspaceName = "HPEWorkspace_1524014010"
@@ -144,8 +144,7 @@ if ($pingResult.Status[1] -ne 'Success') {
 
 #Region -------------------------------------------------------- Connection to HPE GreenLake -----------------------------------------------------------------------------------------
 
-$GLP_SecurePassword = ConvertTo-SecureString $GLP_EncryptedPassword
-$GLPcredentials = New-Object System.Management.Automation.PSCredential ($MyHPEAccount, $GLP_SecurePassword)
+$GLPcredentials = New-Object System.Management.Automation.PSCredential ($MyHPEAccount, $MyHPEAccountSecuredPassword)
 
 Connect-HPEGL -Credential $GLPcredentials
 
@@ -217,7 +216,7 @@ $resp = New-HPEGLSubscription -SubscriptionKey $COMSubscriptionKey
 $resp = Set-HPEGLDeviceAutoSubscription -ComputeSubscriptionTier ENHANCED
 "`n[Set COM automatic device subscription] - Status: {0} - Details: {1}" -f $resp.Status, $resp.Details
   
-# Generate a Compute Ops Management activation key for connecting servers to the Compute Ops Management service manager in the central european region [with iLO5: v3.09 or later - iLO6: v1.64 or later] 
+# Generate a Compute Ops Management activation key for connecting servers to the Compute Ops Management service manager in the central european region [with iLO5: v3.09 or later - iLO6: v1.59 or later] 
 
 $ActivationKey = New-HPECOMServerActivationKey -Region $Region 
 "`n[Generate COM activation key] - Key generated: {0}" -f $ActivationKey
