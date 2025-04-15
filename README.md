@@ -1,3 +1,5 @@
+<meta name="google-site-verification" content="tdQsYBxtSn7NYbx4mvZuoSkHaqBeU9GPUCnOYc_cIWI" />
+
 # HPE Compute Ops Management PowerShell Library 
 
 The HPE Compute Ops Management PowerShell library provides a set of cmdlets to manage and automate your HPE GreenLake environment. This library allows users to interact with HPE GreenLake and Compute Ops Management services directly from the PowerShell command line, enabling seamless integration into your existing automation workflows.
