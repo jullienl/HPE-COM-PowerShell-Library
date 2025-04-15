@@ -2,9 +2,14 @@
 
 # HPE Compute Ops Management PowerShell Library 
 
-The HPE Compute Ops Management PowerShell library provides a set of cmdlets to manage and automate your HPE GreenLake environment. This library allows users to interact with HPE GreenLake and Compute Ops Management services directly from the PowerShell command line, enabling seamless integration into your existing automation workflows.
+The HPE Compute Ops Management PowerShell library (`HPECOMCmdlets`) offers a comprehensive suite of cmdlets designed to manage and automate your HPE GreenLake environment. By leveraging this library, users can seamlessly interact with HPE GreenLake and Compute Ops Management services directly from the PowerShell command line, enabling efficient integration into existing automation workflows and enhancing operational efficiency.
 
 Development is ongoing, and the library will be continuously updated to support new features as they are released by HPE.
+
+
+🔗 [PowerShell Gallery](https://www.powershellgallery.com/packages/HPECOMCmdlets)
+
+📝 [Blog: PowerShell Library for HPE Compute Ops Management](https://jullienl.github.io/PowerShell-library-for-HPE-GreenLake)
 
 
 ## Key Features
@@ -76,7 +81,6 @@ For a complete list of cmdlets and their detailed usage, refer to the module's h
         >   - As a workaround, invite a user with an email address that is not associated with any SAML SSO domains configured in the workspace. This can be done via the HPE GreenLake GUI under `User Management` by selecting `Invite Users`. Assign the HPE GreenLake Account Administrator role to the invited user. Once the invitation is accepted, the user can set a password and use these credentials to log in with `Connect-HPEGL`.
         
     
-> **Note**: Managed Service Provider (MSP) workspaces are currently not supported.
 
 ## Installation 
 
