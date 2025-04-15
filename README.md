@@ -9,7 +9,7 @@ Development is ongoing, and the library will be continuously updated to support 
 
 This library provides a variety of key features for managing HPE GreenLake and Compute Ops Management. Here are the main features:
 
-- **Authentication**: Connect to HPE GreenLake using single-factor authentication with or without an existing workspace.
+- **Authentication**: Establish secure connections to HPE GreenLake using Single Sign-On (SSO) or single/multi-factor authentication. Whether you have an existing workspace or not, the library supports flexible authentication methods to suit your needs.
 - **Workspace Management**: Create and manage HPE GreenLake workspaces.
 - **Session Tracking**: Automatically track sessions with the global session tracker `$HPEGreenLakeSession`.
 - **User Management**: Invite and manage users within your HPE GreenLake environment, assign roles.
@@ -34,25 +34,47 @@ For a complete list of cmdlets and their detailed usage, refer to the module's h
 
 ## Latest release
 
-1.0.11 |
+1.0.12 |
 ------------ |
 [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] |
 
 
 ## Requirements
 
-- **PowerShell Version**: Version 5.1 or higher is required, but version 7 or later is highly recommended for optimal performance and compatibility.
-- **Supported PowerShell Editions**: This library supports both PowerShell Desktop and PowerShell Core editions.
+- **Supported PowerShell Version**: 7 or higher. 
+
+    > **Note**: PowerShell version 5 is no longer supported. 
+
+- **Supported PowerShell Editions**: PowerShell Core version 7 or higher.
+
+    > **Note**: PowerShell Core is cross-platform and compatible with Windows, macOS, and Linux. 
+
+    > **Note**: PowerShell Desktop (Windows PowerShell 5.1) is not supported.
+
 - **HPE Account**: An HPE Account is necessary to connect to the HPE GreenLake platform and any Compute Ops Management services.
      
-    > **Note**: If you do not have an HPE Account, you can create one [here](https://common.cloud.hpe.com). To learn how to create an HPE account, see [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.112en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
+    > **Note**: If you do not have an HPE Account, you can create one [here](https://common.cloud.hpe.com). To learn how to create an HPE account, see [Getting started with HPE GreenLake](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.122en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
 
     > **Note**: To interact with an HPE GreenLake workspace and a Compute Ops Management instance using this library, you must have at least the ***Observer*** role for both ***HPE GreenLake Platform*** and ***Compute Ops Management*** service managers. This role grants view-only privileges. For modification capabilities, you need either the ***Operator*** (view and edit privileges) or the ***Administrator*** (view, edit, and delete privileges) role. Alternatively, you can create a custom role that meets your specific access requirements.
 
-    > **Note**: The library supports only single-factor authentication. Multi-factor authentication (MFA) and SAML Single Sign-On (SSO) are not supported. Users who use SSO with HPE GreenLake cannot log in using an email from a configured SAML domain via the `Connect-HPEGL` cmdlet. As a workaround, invite a user with an email that does not belong to any SAML SSO domains configured in the workspace. To do this, go to the HPE GreenLake GUI, click on `User Management` in the quick links panel, and press the `Invite Users` button. Enter an email address that does not belong to any SAML SSO domains, select the HPE GreenLake Account Administrator role, and press the `Send invite` button. Once you receive the email, accept the invitation, and you will be directed to the HPE GreenLake interface to set a password. You can then use this email address and password to log in with `Connect-HPEGL`.
-    
-    > **Note**: You do not need an existing HPE GreenLake workspace to connect. You can create a new workspace after your first connection using the `New-HPEGLWorkspace` cmdlet.
+- **Supported authentication methodes**:
+    - **Single-factor** authentication.
+    - **Multi-factor** authentication (MFA) using **Google Authenticator** or **Okta Verify**. 
 
+        > **Note**: To use MFA, ensure that the **Okta Verify** or **Google Authenticator** app is installed on your **mobile device** and properly linked to your account before initiating the connection process.   
+        > - MFA with security keys or biometric authenticators is not supported. 
+        >   - If your HPE GreenLake account is configured to use only security keys or biometric authenticators for MFA, you must enable either Google Authenticator or Okta Verify in your account settings to use this library.
+        > - For accounts with Google Authenticator enabled, you will be prompted to enter the verification code. 
+        > - For accounts with Okta Verify enabled, you will need to approve the push notification on your phone.
+        > - If both Google Authenticator and Okta Verify are enabled, the library defaults to using Okta Verify push notifications.  
+
+    - **SAML Single Sign-On** (SSO) but exclusively with **Okta**. 
+        > **Note**: To use SSO, ensure that the **Okta Verify** app is installed on your **mobile device** and properly linked to your account before initiating the connection process. 
+        > - Users leveraging SAML SSO through other identity providers cannot authenticate directly using their corporate credentials with the `Connect-HPEGL` cmdlet. 
+        >   - As a workaround, invite a user with an email address that is not associated with any SAML SSO domains configured in the workspace. This can be done via the HPE GreenLake GUI under `User Management` by selecting `Invite Users`. Assign the HPE GreenLake Account Administrator role to the invited user. Once the invitation is accepted, the user can set a password and use these credentials to log in with `Connect-HPEGL`.
+        
+    
+> **Note**: Managed Service Provider (MSP) workspaces are currently not supported.
 
 ## Installation 
 
@@ -94,6 +116,8 @@ If you don't have a workspace yet, use:
 ```sh
 Connect-HPEGL -Credential $credentials 
 ```
+
+ > **Note**: You do not need an existing HPE GreenLake workspace to connect. You can create a new workspace after your first connection using the `New-HPEGLWorkspace` cmdlet.
 
 If you have multiple workspaces assigned to your account and are unsure which one to connect to, use:
 
@@ -179,7 +203,7 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 
 ## Want more?
 
-* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.112en_us)
+* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.122en_us)
 * [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 
