@@ -86,6 +86,9 @@ IP, Username, Password
 # Tags to assign to devices
 $Tags = "Country=FR, App=AI, Department=IT" 
 
+# Secure Gateway (if any) to use for iLO connections (optional)
+# $SecureGateway = "sg01.domain.com
+
 # Server BIOS setting name
 $BiosSettingName = "Custom-Bios-For-AI"
 $WorkloadProfileName = "Virtualization - Max Performance"
@@ -97,8 +100,7 @@ $OSSettingOSType = "CUSTOM"  # MICROSOFT_WINDOWS, RHEL, SUSE_LINUX, VMWARE_ESXI
 $OSVolumeName = "OSVolume_" + $OSSettingName
 
 # Server internal storage setting name
-$InternalStorageSettingName = "RAID-1"
-$InternalStorageRAID = "RAID1" # RAID1, RAID5
+$InternalStorageSettingName = "RAID1&5-For-AI"
 
 # Server firmware setting name
 $FirmwareSettingName = "Firmware-bundle-2024.04.00.01"
@@ -216,9 +218,15 @@ $resp = New-HPEGLSubscription -SubscriptionKey $COMSubscriptionKey
 $resp = Set-HPEGLDeviceAutoSubscription -ComputeSubscriptionTier ENHANCED
 "`n[Set COM automatic device subscription] - Status: {0} - Details: {1}" -f $resp.Status, $resp.Details
   
+# Add a Secure Gateway appliance (optional)
+
+$resp = New-HPECOMAppliance -Region us-west -SecureGateway 
+"`n[Adding Secure Gateway] - Status: {0} - Details: {1}" -f $resp.Status, $resp.Details
+# Returns the activation key to use in the secure gateway console to connect the appliance to Compute Ops Management.
+
 # Generate a Compute Ops Management activation key for connecting servers to the Compute Ops Management service manager in the central european region [with iLO5: v3.09 or later - iLO6: v1.59 or later] 
 
-$ActivationKey = New-HPECOMServerActivationKey -Region $Region 
+$ActivationKey = New-HPECOMServerActivationKey -Region $Region # -SecureGateway
 "`n[Generate COM activation key] - Key generated: {0}" -f $ActivationKey
 
 # Add and connect compute devices using the Compute Ops Management activation key, this operation includes the following steps:
@@ -234,7 +242,9 @@ $SerialNumberList = @()
 ForEach ($iLO in $iLOs) {             
     $iLOSecurePassword = ConvertTo-SecureString $ILO.Password -AsPlainText -Force
     $iLOCredential = New-Object System.Management.Automation.PSCredential ($iLO.Username, $iLOSecurePassword)
-    $resp = Connect-HPEGLDeviceComputeiLOtoCOM -iLOCredential $iLOCredential -IloIP $iLO.IP -ActivationKeyfromCOM $ActivationKey -SkipCertificateValidation    
+    
+    $resp = Connect-HPEGLDeviceComputeiLOtoCOM -iLOCredential $iLOCredential -IloIP $iLO.IP -ActivationKeyfromCOM $ActivationKey -SkipCertificateValidation  # -IloProxyServer $SecureGateway -IloProxyPort "8080"
+        
     "`n[Connect iLO '{0}' to COM] - Status: {1} - Details: {2}" -f $resp.iLO, $resp.iLOConnectionStatus, $resp.iLOConnectionDetails
     $SerialNumberList += $resp.SerialNumber
 }
@@ -322,9 +332,11 @@ $resp = New-HPECOMSettingServerBios -Region $Region -Name $BiosSettingName -Work
 "`n[Create a new server setting for BIOS] - Status: {0} - Details: {1}" -f $resp.Status, $resp.Details
 
 # Create a new server setting for INTERNAL STORAGE  
+$volume1 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID5 -DriveTechnology NVME_SSD -IOPerformanceMode -ReadCachePolicy OFF -WriteCachePolicy WRITE_THROUGH -SizeinGB 100 -DrivesNumber 3 -SpareDriveNumber 2
+$volume2 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID1 -DriveTechnology SAS_HDD
+$resp = New-HPECOMSettingServerInternalStorage -Region $Region -Name $InternalStorageSettingName -Description "My server setting for the AI servers" -Volume $volume1,$volume2 
 
-$resp = New-HPECOMSettingServerInternalStorage -Region $Region -Name $InternalStorageSettingName -RAID $InternalStorageRAID -EntireDisk 
-"`n[Create a new server setting for INTERNAL STORAGE] - Status: {0} - Details: {1}" -f $resp.Status, $resp.Details
+"`n[Create a new server setting for INTERNAL STORAGE with 2 x volumes] - Status: {0} - Details: {1}" -f $resp.Status, $resp.Details
 
 # Create a new server setting for OS 
 

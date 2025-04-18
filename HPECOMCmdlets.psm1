@@ -27,7 +27,7 @@ THE SOFTWARE.
 #>
 
 # Set PowerShell library version
-[Version]$ModuleVersion = '1.0.12'
+[Version]$ModuleVersion = '1.0.13'
 
 # Set the module version as a global variable
 $Global:HPECOMCmdletsModuleVersion = $ModuleVersion
@@ -134,8 +134,7 @@ $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 
 #  Activation-Tokens-Keys
 
-[String]$COMActivationTokensUri = '/compute-ops-mgmt/v1beta1/activation-tokens'
-[String]$COMActivationKeysUri = '/compute-ops-mgmt/v1beta1/activation-keys'
+# [String]$COMActivationTokensUri = '/compute-ops-mgmt/v1beta1/activation-tokens'
 
 #  Activities
 
@@ -3123,6 +3122,8 @@ Function Connect-HPEGL {
          --------------------------------------------------------------------------------------------------------------------
          | userName                  | String             | Username used for authentication                                |
          --------------------------------------------------------------------------------------------------------------------
+         | name                      | String             | Name of the user used for authentication                        |
+         --------------------------------------------------------------------------------------------------------------------
          | workspaceId               | String             | Workspace ID                                                    |
          --------------------------------------------------------------------------------------------------------------------
          | workspace                 | String             | Workspace name                                                  |
@@ -4230,6 +4231,12 @@ Function Connect-HPEGL {
 
                 "[{0}] Raw response for `$responseStep45: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($responseStep45 | ConvertTo-Json -Depth 50) | Write-Verbose
 
+                # Capture user details
+                "[{0}] Retrieving user details for the current session" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $Name = ($responseStep45).user.value.profile.firstName + " " +  ($responseStep45).user.value.profile.lastName
+                "[{0}] User name to save to the current session object: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose      
+
+
                 $completedSteps++
 
                 Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Verification via Okta Verify ($methodType) completed successfully." -Id 0
@@ -4506,7 +4513,7 @@ Function Connect-HPEGL {
                 $responseccsauthclient = Invoke-webrequest $url -Method 'POST' -Body $payload -ContentType 'application/json' -ErrorAction stop -SessionVariable auth_session
                     
                 "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseccsauthclient.StatusCode, $responseccsauthclient.StatusDescription | Write-verbose
-                "[{0}] Raw response for `$responseccsauthclient: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseccsauthclient | Write-verbose
+                "[{0}] Raw response for `$responseccsauthclient: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $responseccsauthclient | Write-verbose          
                 
             }
             catch {
@@ -4709,15 +4716,18 @@ Function Connect-HPEGL {
                 throw "Connection error! Invalid HPE GreenLake username or password! Status: $_status"
             }
         
-            # Capture authentication issuer data
-        
+            # Capture user details
+            "[{0}] Retrieving user details for the current session" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            $Name = ($responseccsauthclient.Content | Convertfrom-Json)._embedded.user.profile.firstName + " " +  ($responseccsauthclient.Content | Convertfrom-Json)._embedded.user.profile.lastName
+            "[{0}] User name to save to the current session object: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose      
+
+            # Capture authentication issuer data        
             $Global:Oath2IssuerId = ($responseccsauthclient.Content | Convertfrom-Json)._embedded.authentication.issuer.id
             "[{0}] Oath2 Issuer Id: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Oath2IssuerId | write-Verbose
             $Global:Oath2IssuerUri = ($responseccsauthclient.Content | Convertfrom-Json)._embedded.authentication.issuer.uri
             "[{0}] Oath2 Issuer Uri: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Oath2IssuerUri | write-Verbose
             
-            # Capture href redirection
-        
+            # Capture href redirection        
             $href = ($responseccsauthclient.Content | Convertfrom-Json)._links.next.href
             # href is usually like: "https://auth.hpe.com/login/token/redirect?stateToken=00kJygvJiy92zrYIXhROhpXMiF2NsC6zAT3SjF5XhF"
         
@@ -4949,7 +4959,7 @@ Function Connect-HPEGL {
 
         Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Running Step 7 / 8" -Id 0 
         "About to Set HPEGreenLakeSession global variable" | Write-Verbose
-         
+        
         $Global:HPEGreenLakeSession = [System.Collections.ArrayList]::new()
             
         $SessionInformation = [PSCustomObject]@{
@@ -4958,6 +4968,7 @@ Function Connect-HPEGL {
             oauth2IdToken            = $Oauth2IdToken
             oauth2RefreshToken       = $Oauth2RefreshToken
             username                 = $UserName
+            name                     = $Name
             workspaceId              = $Null
             workspace                = $Null
             workspacesCount          = $Null
@@ -16372,8 +16383,17 @@ function Update-HPECOMServerFirmware {
     .PARAMETER InstallHPEDriversAndSoftware
     Specifies whether to install HPE drivers and software during the firmware update.
 
+    .PARAMETER WaitForPowerOfforReboot
+    Enable this to cause the update to wait for the user to reboot or power off the server before performing the installation.
+    
+    Note: Server reboot or power off must be performed outside of Compute Ops Management console.
+
+    .PARAMETER WaitForPowerOfforRebootTimeout
+    Specifies the timeout duration (in hours) to wait for the user to power off or reboot the server. If the timeout expires, the firmware update will be canceled. 
+    The default timeout duration is 4 hours.    
+
     .PARAMETER PowerOffAfterUpdate
-    Specifies whether to power off the server after the firmware update.
+    Specifies whether to power off the server after the firmware update is complete.
 
     .PARAMETER DisablePrerequisiteCheck
     Specifies whether to disable the prerequisites check before running the firmware update.
@@ -16424,6 +16444,13 @@ function Update-HPECOMServerFirmware {
     This command creates a schedule to update the firmware of a server with the serial number `DZ12312312` in the `eu-central` region using firmware bundle release version `2024.04.00.01`. 
     The update is scheduled to occur six months from the current date and includes installing HPE drivers and software while allowing firmware downgrade.
     The command also powers off the server after the update.
+
+    .EXAMPLE
+    Update-HPECOMServerFirmware -Region eu-central -ServerSerialNumber DZ12312312 -FirmwareBundleReleaseVersion "2024.04.00.01" -WaitForPowerOfforReboot -WaitForPowerOfforRebootTimeout 24 
+
+    This command updates the firmware on a server with serial number `DZ12312312` located in the `eu-central` region using firmware bundle release version `2024.04.00.01`.
+    The cmdlet waits for the user to power off or reboot the server before performing the installation, with a timeout of 24 hours.
+    After 24 hours, if the server is not powered off or rebooted, the firmware update will be canceled.
 
     .EXAMPLE
     Get-HPECOMServer -Region eu-central -Model "ProLiant DL360 Gen10 Plus" | Update-HPECOMServerFirmware -FirmwareBundleReleaseVersion 2024.04.00.02 -ScheduleTime (Get-Date).AddDays(4) -InstallHPEDriversAndSoftware  -AllowFirmwareDowngrade
@@ -16505,6 +16532,11 @@ function Update-HPECOMServerFirmware {
         [DateTime]$ScheduleTime,
 
         [switch]$InstallHPEDriversAndSoftware,
+
+        [switch]$WaitForPowerOfforReboot,
+
+        [ValidateSet(1, 2, 4, 8, 12, 24)]
+        [int]$WaitForPowerOfforRebootTimeout = 4,
 
         [switch]$PowerOffAfterUpdate,
 
@@ -16747,6 +16779,13 @@ function Update-HPECOMServerFirmware {
                 }
                 else {
 
+                    if ($WaitForPowerOfforReboot) {
+                        $WaitPowerOff = $true
+                    }
+                    else {
+                        $WaitPowerOff = $false
+                    }
+
                     if ($AllowFirmwareDowngrade) {
                         $Downgrade = $true
                     }
@@ -16776,11 +16815,13 @@ function Update-HPECOMServerFirmware {
                     }
             
                     $data = @{
-                        bundle_id          = $BundleID
-                        downgrade          = $Downgrade
-                        install_sw_drivers = $InstallSwDrivers
-                        power_off          = $PowerOff
-                        prerequisite_check = $PrerequisiteCheck
+                        bundle_id                               = $BundleID
+                        downgrade                               = $Downgrade
+                        install_sw_drivers                      = $InstallSwDrivers
+                        power_off                               = $PowerOff
+                        prerequisite_check                      = $PrerequisiteCheck
+                        wait_for_power_off_or_reboot            = $WaitPowerOff
+                        wait_for_power_off_or_reboot_timeout    = $WaitForPowerOfforRebootTimeout
                     }
     
                     if ($ScheduleTime) {
@@ -17486,6 +17527,18 @@ function Update-HPECOMGroupFirmware {
     - (Get-Date).AddHours(3)
     Example for using a specific date string:
     - "2024-05-20 08:00:00"
+    
+    .PARAMETER InstallHPEDriversAndSoftware
+    Specifies whether to install HPE drivers and software during the firmware update.
+
+    .PARAMETER WaitForPowerOfforReboot
+    Enable this to cause the update to wait for the user to reboot or power off the server before performing the installation.
+    
+    Note: Server reboot or power off must be performed outside of Compute Ops Management console.
+
+    .PARAMETER WaitForPowerOfforRebootTimeout
+    Specifies the timeout duration (in hours) to wait for the user to power off or reboot the server. If the timeout expires, the firmware update will be canceled. 
+    The default timeout duration is 4 hours.  
 
     .PARAMETER SerialUpdates
     Specifies to perform the firmware updates to each server in the group in serial (instead of parallel by default). 
@@ -17495,9 +17548,6 @@ function Update-HPECOMGroupFirmware {
     When StopOnFailure is not used, the update continues after a failure. When used, the update stops after a failure and the remaining servers in the group will not be updated. 
     
     Note: This switch is only applicable for serial firmware updates (i.e. when SerialUpdates switch is used). 
-    
-    .PARAMETER InstallHPEDriversAndSoftware
-    Specifies whether to install HPE drivers and software during the firmware update.
 
     .PARAMETER PowerOffAfterUpdate
     Specifies whether to power off the server after the firmware update.
@@ -17536,6 +17586,13 @@ function Update-HPECOMGroupFirmware {
     Update-HPECOMGroupFirmware -Region eu-central -GroupName ESXi_800 -ServerSerialNumber 'CZ2311004H' -AllowFirmwareDowngrade 
 
     This command updates the firmware for a specific server with the serial number `CZ2311004H` in a group named `ESXi_800` located in the `eu-central` region. It allows firmware downgrade.
+
+    .EXAMPLE
+    Update-HPECOMGroupFirmware -Region eu-central -GroupName ESXi_800 -WaitForPowerOfforReboot -WaitForPowerOfforRebootTimeout 8 
+
+    This command updates in parallel the firmware for all servers in a group named `ESXi_800` located in the `eu-central` region. 
+    It waits for the user to power off or reboot the server before performing the installation. The timeout for waiting is set to 8 hours.
+    After 8 hours, if the server is not powered off or rebooted, the firmware update will be canceled.
 
     .EXAMPLE
     Get-HPECOMServer -Region eu-central | Where-Object {$_.serialNumber -eq "CZ12312312" -or $_.serialNumber -eq "DZ12312312"}  | Update-HPECOMGroupFirmware -GroupName  ESXi_800 -AllowFirmwareDowngrade -Async
@@ -17648,18 +17705,22 @@ function Update-HPECOMGroupFirmware {
             })]
         [DateTime]$ScheduleTime,
         
-        
-        [switch]$AllowFirmwareDowngrade,
-        
         [switch]$InstallHPEDriversAndSoftware,
-        
+
+        [switch]$WaitForPowerOfforReboot,
+
+        [ValidateSet(1, 2, 4, 8, 12, 24)]
+        [int]$WaitForPowerOfforRebootTimeout = 4,
+                
         [switch]$PowerOffAfterUpdate,
         
         [switch]$DisablePrerequisiteCheck,
-
+        
         [switch]$SerialUpdates,
-
+        
         [switch]$StopOnFailure,
+
+        [switch]$AllowFirmwareDowngrade,
 
         [Parameter (ParameterSetName = 'Async')]
         [switch]$Async,
@@ -17686,6 +17747,12 @@ function Update-HPECOMGroupFirmware {
         $ServersList = [System.Collections.ArrayList]::new()
         $ServerIdsList = [System.Collections.ArrayList]::new()
 
+        if ($WaitForPowerOfforReboot) {
+            $WaitPowerOff = $true
+        }
+        else {
+            $WaitPowerOff = $false
+        }
 
         if ($AllowFirmwareDowngrade) {
             $Downgrade = $true
@@ -17842,25 +17909,29 @@ function Update-HPECOMGroupFirmware {
             if (-not $Parallel -and -not $ServerIdsList) {
 
                 $data = @{
-                    parallel           = $Parallel
-                    stopOnFailure      = $StopOnFailureValue
-                    downgrade          = $Downgrade
-                    installSWDrivers   = $InstallSwDrivers
-                    powerOff           = $PowerOff
-                    prerequisite_check = $PrerequisiteCheck
+                    parallel                                = $Parallel
+                    stopOnFailure                           = $StopOnFailureValue
+                    downgrade                               = $Downgrade
+                    installSWDrivers                        = $InstallSwDrivers
+                    powerOff                                = $PowerOff
+                    prerequisite_check                      = $PrerequisiteCheck
+                    wait_for_power_off_or_reboot            = $WaitPowerOff
+                    wait_for_power_off_or_reboot_timeout    = $WaitForPowerOfforRebootTimeout
                 }
 
             }
             elseif (-not $Parallel -and $ServerIdsList) {
 
                 $data = @{
-                    parallel           = $Parallel
-                    stopOnFailure      = $StopOnFailureValue
-                    downgrade          = $Downgrade
-                    installSWDrivers   = $InstallSwDrivers
-                    powerOff           = $PowerOff
-                    prerequisite_check = $PrerequisiteCheck
-                    devices            = $ServerIdsList
+                    parallel                                = $Parallel
+                    stopOnFailure                           = $StopOnFailureValue
+                    downgrade                               = $Downgrade
+                    installSWDrivers                        = $InstallSwDrivers
+                    powerOff                                = $PowerOff
+                    prerequisite_check                      = $PrerequisiteCheck
+                    devices                                 = $ServerIdsList
+                    wait_for_power_off_or_reboot            = $WaitPowerOff
+                    wait_for_power_off_or_reboot_timeout    = $WaitForPowerOfforRebootTimeout
                 }
 
             }
@@ -17869,23 +17940,27 @@ function Update-HPECOMGroupFirmware {
             elseif ($Parallel -and -not $ServerIdsList) {
 
                 $data = @{
-                    parallel           = $Parallel
-                    downgrade          = $Downgrade
-                    installSWDrivers   = $InstallSwDrivers
-                    powerOff           = $PowerOff
-                    prerequisite_check = $PrerequisiteCheck
+                    parallel                                = $Parallel
+                    downgrade                               = $Downgrade
+                    installSWDrivers                        = $InstallSwDrivers
+                    powerOff                                = $PowerOff
+                    prerequisite_check                      = $PrerequisiteCheck
+                    wait_for_power_off_or_reboot            = $WaitPowerOff
+                    wait_for_power_off_or_reboot_timeout    = $WaitForPowerOfforRebootTimeout
                 }
 
             }
             elseif ($Parallel -and $ServerIdsList) {
 
                 $data = @{
-                    parallel           = $Parallel
-                    downgrade          = $Downgrade
-                    installSWDrivers   = $InstallSwDrivers
-                    powerOff           = $PowerOff
-                    prerequisite_check = $PrerequisiteCheck
-                    devices            = $ServerIdsList
+                    parallel                                = $Parallel
+                    downgrade                               = $Downgrade
+                    installSWDrivers                        = $InstallSwDrivers
+                    powerOff                                = $PowerOff
+                    prerequisite_check                      = $PrerequisiteCheck
+                    devices                                 = $ServerIdsList
+                    wait_for_power_off_or_reboot            = $WaitPowerOff
+                    wait_for_power_off_or_reboot_timeout    = $WaitForPowerOfforRebootTimeout
                 }
 
             }
@@ -24742,11 +24817,16 @@ Function Get-HPECOMSetting {
    
     Return the server settings resources for the OS category located in the Central EU region.
 
+    .EXAMPLE
+    Get-HPECOMSetting -Region eu-central -Name RAID-FOR_AI -ShowVolumes
+
+    Return the volumes associated with the server internal storage setting named 'RAID-FOR_AI' located in the central EU region.
+
     .INPUTS
     None. You cannot pipe objects to this Cmdlet.
 
    #>
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'default')]
     Param( 
         [Parameter (Mandatory)] 
         [ValidateScript({
@@ -24766,6 +24846,8 @@ Function Get-HPECOMSetting {
             })]
         [String]$Region,  
 
+        [Parameter(ParameterSetName = 'default')]
+        [Parameter(Mandatory, ParameterSetName = 'ShowVolumes')]
         [String]$Name,
 
         [ArgumentCompleter({
@@ -24791,6 +24873,9 @@ Function Get-HPECOMSetting {
                 
             })]    
         [String]$Category,
+
+        [Parameter(ParameterSetName = 'ShowVolumes')]
+        [Switch]$ShowVolumes,
         
         [Switch]$WhatIf
        
@@ -24959,6 +25044,13 @@ Function Get-HPECOMSetting {
             }
             else {
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings"    
+                
+            }
+
+            if ($ShowVolumes) {
+                
+                $CollectionList = $CollectionList.volumes | Sort-Object { $_.raidType }    
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings.STORAGE.volumes"
                 
             }
 
@@ -34419,6 +34511,277 @@ Function Set-HPECOMSettingServerBios {
 }
 
 
+Function New-HPECOMSettingServerInternalStorageVolume {
+    <#
+    .SYNOPSIS
+    Create volumes to be used with Set-HPECOMSettingServerInternalStorage to create a server internal storage setting. 
+
+    .DESCRIPTION
+    This Cmdlet creates a volume object that is required to create a server internal storage setting using Set-HPECOMSettingServerInternalStorage.
+
+    .PARAMETER RAID
+    Specifies the RAID type:
+        - RAID0: Uses disk striping. Optimized for I/O speed and efficient use of physical disk capacity, but provides no data redundancy.
+          Requires a minimum of 1 drive. You can add drives in increments of 1 up to 32 drives.
+
+        - RAID1: Uses disk mirroring. Optimized for data redundancy and I/O speed, but uses more physical disk drives.
+          Requires 2 drives.
+
+        - RAID10: Combines RAID0 and RAID1. Optimized for performance and fault tolerance.
+          Requires a minimum of 4 drives. You can add drives in increments of 2 up to 32 drives.
+
+        - RAID1Triple: Uses disk mirroring with three copies of data. Optimized for data redundancy and I/O speed.
+          Requires 3 drives.
+
+        - RAID10Triple: Combines RAID0 and RAID1 with three copies of data. Optimized for performance and fault tolerance.
+          Requires a minimum of 6 drives. You can add drives in increments of 3 up to 30 drives.
+
+        - RAID5: Uses disk striping with parity. Optimized for performance and fault tolerance.
+          Requires a minimum of 3 drives. You can add drives in increments of 1 up to 32 drives.
+
+        - RAID50: Combines RAID0 and RAID1 with parity. Optimized for performance and fault tolerance. 
+          Requires a minimum of 6 drives. You can add drives in increments of 2 up to 32 drives.
+
+        - RAID6: Uses disk striping with parity. Optimized for performance and fault tolerance.
+          Requires a minimum of 4 drives. You can add drives in increments of 1 up to 32 drives.
+
+        - RAID60: Combines RAID0 and RAID1 with parity. Optimized for performance and fault tolerance.
+          Requires a minimum of 8 drives. You can add drives in increments of 2 up to 32 drives.
+
+    .PARAMETER DrivesNumber
+    Specifies the number of drives to be used. The default value is the minimum number of drives required for the selected RAID type.
+
+    .PARAMETER DriveTechnology
+    Specifies the drive technology. Selecting a drive technology value helps you to prepare volumes for future use. 
+    For example, you might want to use SAS SSD drives to create a volume for OS installation, or use a SATA HDD drive for a long-term data storage solution. 
+    Supported values: SAS HDD, SAS SSD, SATA HDD, SATA SDD, NVMe SSD
+
+    .PARAMETER SpareDriveNumber
+    Specifies the number of spare drives to be added to the volume. The default value is 0. 
+    This option is not supported with RAID 0. Spare drives will not be accessible to other volumes defined within the same server setting.
+
+    .PARAMETER SizeinGB
+    Creates a volume using the full drive capacity of the selected drives.
+    When not used, a volume using the full drive capacity of the selected drives is created.
+
+    .PARAMETER IOPerformanceMode   
+    Specifies the I/O performance mode for the internal storage server setting.
+    I/O performance mode is an intelligent I/O passthrough mechanism for SSD arrays. This feature can boost storage subsystem and application performance, especially for applications that use high random read/write operation workloads.
+
+    By default, this feature is set to 'Not managed', which means that Compute Ops Management does not set any value for the feature. When this feature is not managed through Compute Ops Management, the default value set by the controller is used.
+
+    .PARAMETER ReadCachePolicy   
+    Specifies the read cache policy for the internal storage server setting.
+    Read cache policy controls the behavior when a server reads from a volume. When read caching is enabled, I/O performance is improved by satisfying read requests from the controller memory instead of from physical disks.
+
+    By default, this feature is set to 'Not managed', which means that Compute Ops Management does not set any value for the feature. When this feature is not managed through Compute Ops Management, the default value set by the controller is used.
+
+    .PARAMETER WriteCachePolicy   
+    Specifies the write cache policy for the internal storage server setting.
+    Write cache policy controls the behavior when a server writes to a volume. Data can be written to the cache and storage at the same time, or it can be written to the cache first, and then written to the storage later.
+
+    By default, this feature is set to 'Not managed', which means that Compute Ops Management does not set any value for the feature. When this feature is not managed through Compute Ops Management, the default value set by the controller is used.
+
+    .PARAMETER WhatIf 
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    $volume1 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID5 -DriveTechnology NVME_SSD -IOPerformanceMode -ReadCachePolicy OFF -WriteCachePolicy WRITE_THROUGH -SizeinGB 100 -DrivesNumber 3 -SpareDriveNumber 2
+    $volume2 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID1 -DriveTechnology SAS_HDD
+    New-HPECOMSettingServerInternalStorage -Region eu-central -Name "RAID_CONF_FOR_AI_SERVERS" -Description "My server setting for the AI servers" -Volume $volume1,$volume2 
+
+    This example demonstrates how to create two internal storage volumes. The first volume is a RAID5 configuration with NVMe SSD drives, I/O performance mode enabled, and a size of 100GB. 
+    The second volume is a RAID1 configuration with SAS HDD drives. Finally, the volumes are used to create a server setting named 'RAID_CONF_FOR_AI_SERVERS' in the central European region. 
+    This server setting is created using the 'New-HPECOMSettingServerInternalStorage' Cmdlet, which allows for the configuration of internal storage settings for servers.  
+
+    .INPUTS
+    Pipeline input is not supported.
+
+    .OUTPUTS
+    [PSCustomObject]@{
+        raidType           = $RAID
+        capacityInGiB      = $SizeinGB
+        driveCount         = $DrivesNumber
+        spareDriveCount    = $SpareDriveNumber
+        driveTechnology    = $DriveTechnology
+        ioPerfModeEnabled  = $IOPerformanceMode
+        readCachePolicy    = $ReadCachePolicy
+        writeCachePolicy   = $WriteCachePolicy
+    }
+        
+        
+
+    #>
+
+    [CmdletBinding()]
+    Param(        
+        [Parameter (Mandatory)]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $RAIDs = @('RAID0', 'RAID1', 'RAID1_TRIPLE', 'RAID10', 'RAID10_TRIPLE', 'RAID5', 'RAID50', 'RAID6', 'RAID60')
+                $filteredRAIDs = $RAIDs | Where-Object { $_ -like "$wordToComplete*" }
+                return $filteredRAIDs | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [ValidateSet ('RAID0', 'RAID1', 'RAID1_TRIPLE', 'RAID10', 'RAID10_TRIPLE', 'RAID5', 'RAID50', 'RAID6', 'RAID60')]
+        [String]$RAID,
+
+        [Int]$DrivesNumber,
+
+        [ArgumentCompleter({
+            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+            $RAIDs = @('SAS_HDD', 'SAS_SSD', 'SATA_HDD', 'SATA_SSD', 'NVME_SSD')
+            $filteredRAIDs = $RAIDs | Where-Object { $_ -like "$wordToComplete*" }
+            return $filteredRAIDs | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+        })]
+        [ValidateSet ('SAS_HDD', 'SAS_SSD', 'SATA_HDD', 'SATA_SSD', 'NVME_SSD')]
+        [String]$DriveTechnology,
+
+        [Int]$SpareDriveNumber,
+
+        [Int]$SizeinGB,
+
+        [ArgumentCompleter({
+            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+            $RAIDs = @('ENABLED', 'DISABLED')
+            $filteredRAIDs = $RAIDs | Where-Object { $_ -like "$wordToComplete*" }
+            return $filteredRAIDs | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+        })]
+        [ValidateSet ('ENABLED', 'DISABLED')]
+        [String]$IOPerformanceMode,
+
+        [ArgumentCompleter({
+            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+            $RAIDs = @('READ_AHEAD', 'ADAPTIVE_READ_AHEAD', 'OFF')
+            $filteredRAIDs = $RAIDs | Where-Object { $_ -like "$wordToComplete*" }
+            return $filteredRAIDs | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+        })]
+        [ValidateSet ('PROTECTED_WRITE_BACK', 'UNPROTECTED_WRITE_BACK', 'WRITE_THROUGH', 'OFF')]
+        [String]$ReadCachePolicy,
+
+        [ArgumentCompleter({
+            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+            $RAIDs = @('PROTECTED_WRITE_BACK', 'UNPROTECTED_WRITE_BACK', 'WRITE_THROUGH', 'OFF')
+            $filteredRAIDs = $RAIDs | Where-Object { $_ -like "$wordToComplete*" }
+            return $filteredRAIDs | ForEach-Object {
+                [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+            }
+        })]
+        [ValidateSet ('PROTECTED_WRITE_BACK', 'UNPROTECTED_WRITE_BACK', 'WRITE_THROUGH', 'OFF')]
+        [String]$WriteCachePolicy,
+
+        [Switch]$WhatIf
+       
+    ) 
+    Begin {
+        # Initialize the volume object
+        $volume = [PSCustomObject]@{
+            raidType           = $RAID
+            capacityInGiB      = $null
+            driveCount         = $null
+            spareDriveCount    = $null
+            driveTechnology    = $null
+            ioPerfModeEnabled  = $null
+            readCachePolicy    = $null
+            writeCachePolicy   = $null
+        }
+    }
+
+    Process {
+
+        if ($RAID -eq "RAID0" -and $SpareDriveNumber -gt 0) {
+            Write-Error "RAID0 does not support spare drives!"
+            return
+        }
+
+        if ($PSBoundParameters.ContainsKey('SizeinGB')) {
+            $volume.capacityInGiB = $SizeinGB
+        }
+       
+        if ($PSBoundParameters.ContainsKey('DrivesNumber')) {
+            $volume.driveCount = $DrivesNumber
+        }
+        else {
+            if ($RAID -eq "RAID0") {
+                $volume.driveCount = 1
+            }
+            elseif ($RAID -eq "RAID1") {
+                $volume.driveCount = 2
+            }
+            elseif ($RAID -eq "RAID10") {
+                $volume.driveCount = 4
+            }
+            elseif ($RAID -eq "RAID1Triple") {
+                $volume.driveCount = 3
+            }
+            elseif ($RAID -eq "RAID10Triple") {
+                $volume.driveCount = 6
+            }
+            elseif ($RAID -eq "RAID5") {
+                $volume.driveCount = 3
+            }
+            elseif ($RAID -eq "RAID50") {
+                $volume.driveCount = 6
+            }   
+            elseif ($RAID -eq "RAID6") {
+                $volume.driveCount = 4
+            }
+            elseif ($RAID -eq "RAID60") {
+                $volume.driveCount = 8
+            } 
+        }
+
+        if ($PSBoundParameters.ContainsKey('SpareDriveNumber')) {
+            $volume.spareDriveCount = $SpareDriveNumber
+        }
+
+        if ($PSBoundParameters.ContainsKey('DriveTechnology')) {
+            $volume.driveTechnology = $DriveTechnology
+        }
+
+        if ($PSBoundParameters.ContainsKey('IOPerformanceMode')) {
+            
+            if ($IOPerformanceMode -eq "ENABLED") {
+                $IOPerformanceModeBoolean = $true
+            }
+            elseif ($IOPerformanceMode -eq "DISABLED") {
+                $IOPerformanceModeBoolean = $false
+            }
+
+            $volume.ioPerfModeEnabled = $IOPerformanceModeBoolean
+        }
+
+        if ($PSBoundParameters.ContainsKey('ReadCachePolicy')) {
+            $volume.readCachePolicy = $ReadCachePolicy
+        }
+        
+        if ($PSBoundParameters.ContainsKey('WriteCachePolicy')) {
+            $volume.writeCachePolicy = $WriteCachePolicy
+        }
+
+        if ($WhatIf) {
+            Write-Host "WhatIf: Would create volume object with properties:"
+            $volume | Format-List
+            return
+        }
+
+        # Output the volume object
+        $volume
+    }
+
+    End {
+        # No cleanup needed
+    }
+}
+
+
 Function New-HPECOMSettingServerInternalStorage {
     <#
     .SYNOPSIS
@@ -34440,33 +34803,35 @@ Function New-HPECOMSettingServerInternalStorage {
     .PARAMETER Description
     Provides a description for the internal storage server setting.
 
-    .PARAMETER RAID
-    Specifies the RAID type:
-        - RAID0: Uses disk striping, optimized for I/O speed and efficient physical disk capacity use, but offers no data redundancy. Utilizes one drive.
-        - RAID1: Uses disk mirroring, optimized for data redundancy and I/O speed, but uses more physical disks. Utilizes two drives.
-        - RAID5: Uses disk striping with parity, optimized for performance and fault tolerance. Utilizes three drives.
-        
-    .PARAMETER SizeinGB
-    Specifies the OS volume size in GB. A suitable disk(s) will be selected and the volume created.
-
-    .PARAMETER EntireDisk
-    A switch parameter that specifies using the entire disk when creating the volume.
-
+   .PARAMETER Volumes
+    Specifies the volumes to be included in the internal storage server setting. 
+    This parameter accepts an array of volume objects created using the 'New-HPECOMSettingServerInternalStorageVolume' cmdlet.
+     
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. Useful for understanding the native REST API calls used by COM.
 
     .EXAMPLE
-    New-HPECOMSettingServerInternalStorage -Region eu-central -Name "RAID-1" -RAID RAID1 -Description "My RAID1 server setting for the OS" -SizeinGB 100 
+    $volume1 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID5 -DriveTechnology NVME_SSD -IOPerformanceMode -ReadCachePolicy OFF -WriteCachePolicy WRITE_THROUGH -SizeinGB 100 -DrivesNumber 3 -SpareDriveNumber 2 
+    $volume2 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID1 -DriveTechnology SAS_HDD 
+    New-HPECOMSettingServerInternalStorage -Region "eu-central" -Name "MyStorage" -Description "My storage description" -Volumes $volume1, $volume2 
 
-    Creates a new RAID1 internal storage server setting named 'RAID-1' with a size of 100GB in the central European region.
+    Creates a new internal storage server setting named "MyStorage" in the "eu-central" region with the specified description and volumes.
+    The volumes are created using the 'New-HPECOMSettingServerInternalStorageVolume' cmdlet.    
 
     .EXAMPLE
-    New-HPECOMSettingServerInternalStorage -Region eu-central -Name "RAID-5" -RAID RAID5 -EntireDisk 
+    New-HPECOMSettingServerInternalStorageVolume -RAID RAID1 -DriveTechnology SAS_HDD | New-HPECOMSettingServerInternalStorage -Region eu-central -Name "RAID-FOR_AI" -Description MyDescription 
 
-    Creates a new RAID5 internal storage server setting named 'RAID-5' in the central European region, utilizing the entire disk.
+    Creates a new internal storage server setting named "RAID-FOR_AI" in the "eu-central" region using the specified volume provided through the pipeline, along with a description.
+    The volume is created using the 'New-HPECOMSettingServerInternalStorageVolume' cmdlet.
+
+    .EXAMPLE
+    $volume1, $Volume2 | New-HPECOMSettingServerInternalStorage -Region eu-central -Name "RAID-FOR_AI"
+
+    Creates a new internal storage server setting named "RAID-FOR_AI" in the "eu-central" region using the specified volumes provided through the pipeline.
 
     .INPUTS
-    Pipeline input is not supported.
+    Pipeline input is supported. The input must be an array of volume objects created using the 'New-HPECOMSettingServerInternalStorageVolume' cmdlet.
+    The input can be passed directly to the 'Volumes' parameter.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -34476,9 +34841,7 @@ Function New-HPECOMSettingServerInternalStorage {
         * Status - The creation attempt's status (Failed for HTTP error return; Complete if successful; Warning if no action is needed).
         * Details - Additional information about the status.
         * Exception - Information about any exceptions generated during the operation.
-
-     
-
+        
     #>
 
 
@@ -34509,23 +34872,8 @@ Function New-HPECOMSettingServerInternalStorage {
         [ValidateScript({ $_.Length -le 1000 })]
         [String]$Description,    
         
-        [Parameter (Mandatory)]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $RAIDs = @('RAID0', 'RAID1', 'RAID5')
-                $filteredRAIDs = $RAIDs | Where-Object { $_ -like "$wordToComplete*" }
-                return $filteredRAIDs | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [ValidateSet ('RAID0', 'RAID1', 'RAID5')]
-        [String]$RAID,
-        
-        [Parameter (Mandatory, ParameterSetName = 'Size')]
-        [Int]$SizeinGB,
-
-        [Parameter (Mandatory, ParameterSetName = 'EntireDisk')]
-        [Switch]$EntireDisk,
+        [Parameter (Mandatory, ValueFromPipeline)]
+        [Object]$Volumes,
 
         [Switch]$WhatIf
        
@@ -34537,17 +34885,24 @@ Function New-HPECOMSettingServerInternalStorage {
         "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
         $Uri = $COMSettingsUri
-        $NewServerSettingInternalStorageStatus = [System.Collections.ArrayList]::new()
-        
+
+        $VolumesObject = [System.Collections.ArrayList]::new()
+
     }
 
     Process {
 
         "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
 
-        # Build object for the output
-        $objStatus = [pscustomobject]@{
-  
+        [void] $VolumesObject.add($Volumes)
+
+    
+    }
+    
+    End {
+
+          # Build object for the output
+          $objStatus = [pscustomobject]@{
             Name      = $Name
             Region    = $Region                            
             Status    = $Null
@@ -34571,7 +34926,7 @@ Function New-HPECOMSettingServerInternalStorage {
             if ($WhatIf) {
                 $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
                 Write-warning $ErrorMessage
-                return
+                Return
             }
             else {
                 $objStatus.Status = "Warning"
@@ -34579,17 +34934,14 @@ Function New-HPECOMSettingServerInternalStorage {
             }
         }
         else {
+            # Setting resource is not present, proceed to create it
+            "[{0}] Setting '{1}' is not present in the '{2}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
 
             # Build payload
 
-            if ($EntireDisk) {
-                $SizeinGB = -1
-            }
-
             $Settings = @{ 
                 DEFAULT = @{
-                    raidType       = $RAID
-                    volumeSizeInGB = $SizeinGB
+                    volumes = @($VolumesObject | ForEach-Object { $_ })
                 }
             }
 
@@ -34597,7 +34949,6 @@ Function New-HPECOMSettingServerInternalStorage {
                 name           = $Name
                 category       = "STORAGE"
                 description    = $Description
-                platformFamily = "ANY"
                 settings       = $Settings                  
             }
 
@@ -34629,30 +34980,20 @@ Function New-HPECOMSettingServerInternalStorage {
 
                 }
             } 
-
-        }      
-
-        [void] $NewServerSettingInternalStorageStatus.add($objStatus)
-
-    
-    }
-    
-    End {
-       
+        }
 
         if (-not $WhatIf ) {
 
-            if ($NewServerSettingInternalStorageStatus | Where-Object { $_.Status -eq "Failed" }) {
+            if ($objStatus | Where-Object { $_.Status -eq "Failed" }) {
   
-                write-error "One or more internal storage server settings failed the creation attempt!"
+                Write-Error "Failed to create the internal storage server setting. Please review the details for further information."
           
             }
             
-            $NewServerSettingInternalStorageStatus = Invoke-RepackageObjectWithType -RawObject $NewServerSettingInternalStorageStatus -ObjectName "COM.objStatus.NSDE"    
+            $NewServerSettingInternalStorageStatus = Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.objStatus.NSDE"    
             Return $NewServerSettingInternalStorageStatus
         
         }
-
     }
 }
 
@@ -34679,18 +35020,9 @@ Function Set-HPECOMSettingServerInternalStorage {
 
     .PARAMETER Description
     Specifies a new description of the internal storage server setting.
-
-    .PARAMETER RAID
-    Specifies the RAID type:
-        - RAID0: Uses disk striping. Optimized for I/O speed and efficient use of physical disk capacity, but provides no data redundancy.
-        - RAID1: Uses disk mirroring. Optimized for data redundancy and I/O speed, but uses more physical disk drives.
-        - RAID5: Uses disk striping with parity. Optimized for performance and fault tolerance.
-
-    .PARAMETER SizeinGB
-    Specifies OS volume size in GB. When used, a suitable disk(s) will be selected and the volume will be created.
-
-    .PARAMETER EntireDisk
-    Switch parameter to specify the use of the entire disk. When used, a volume would be created using all the disks on the server.
+    
+    .PARAMETER Volumes   
+    Specifies the volumes to be associated with the internal storage server setting. This parameter allows for detailed configuration of storage volumes, including RAID type and size.
 
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -34706,14 +35038,21 @@ Function Set-HPECOMSettingServerInternalStorage {
     This example updates the description of the internal storage server setting "RAID1" in the "eu-central" region, describing it as "Local storage settings using RAID1 and entire disk for OS".
 
     .EXAMPLE
-    Set-HPECOMSettingServerInternalStorage -Region eu-central -Name "RAID1" -NewName "RAID-5" -RAID RAID5 -SizeinGB 150
-    
-    This example changes the name of the internal storage server setting from "RAID1" to "RAID-5", sets the RAID type to RAID5, and specifies the OS volume size as 150 GB in the "eu-central" region.
+    $volume1 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID5 -DriveTechnology NVME_SSD -IOPerformanceMode -ReadCachePolicy OFF -WriteCachePolicy WRITE_THROUGH -SizeinGB 100 -DrivesNumber 3 -SpareDriveNumber 2 
+    $volume2 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID1 -DriveTechnology SAS_HDD 
+    Set-HPECOMSettingServerInternalStorage -Region eu-central -Name "AI_SERVER_RAID1&5" -Volumes $volume1, $volume2 
+
+    This example changes the volumes configuration of the internal storage server setting named "AI_SERVER_RAID1&5" in the "eu-central" region.
 
     .EXAMPLE
     Get-HPECOMSetting -Region eu-central -Category Storage | Set-HPECOMSettingServerInternalStorage -EntireDisk 
     
     This example retrieves all storage settings from the "eu-central" region and pipes them to update the internal storage server setting to use the entire disk.
+
+    .EXAMPLE
+    Get-HPECOMSetting -Region eu-central -Category Storage -Name 'AI_SERVER_RAID1' | Set-HPECOMSettingServerInternalStorage -Volumes $volume1 
+
+    This example retrieves the internal storage server setting named "AI_SERVER_RAID1" from the "eu-central" region and updates its volumes configuration to use the specified volume object created using the 'New-HPECOMSettingServerInternalStorageVolume' cmdlet.
 
     .INPUTS
     System.Collections.ArrayList
@@ -34759,24 +35098,8 @@ Function Set-HPECOMSettingServerInternalStorage {
         
         [ValidateScript({ $_.Length -le 1000 })]
         [String]$Description,    
-        
-        # [Parameter (Mandatory)]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $RAIDs = @('RAID0', 'RAID1', 'RAID5')
-                $filteredRAIDs = $RAIDs | Where-Object { $_ -like "$wordToComplete*" }
-                return $filteredRAIDs | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [ValidateSet ('RAID0', 'RAID1', 'RAID5')]
-        [String]$RAID,
-        
-        [Parameter (ParameterSetName = 'Size')]
-        [Int]$SizeinGB,
-
-        [Parameter (ParameterSetName = 'EntireDisk')]
-        [switch]$EntireDisk,
+                
+        [Object]$Volumes,
 
         [Switch]$WhatIf
        
@@ -34841,6 +35164,10 @@ Function Set-HPECOMSettingServerInternalStorage {
                 $Name = $NewName
             }
 
+            if (-not $Volumes){
+                $Volumes = $SettingResource.volumes
+            }
+
             if (-not $PSBoundParameters.ContainsKey('Description')) {
 	    
                 if ($SettingResource.description) {
@@ -34852,23 +35179,12 @@ Function Set-HPECOMSettingServerInternalStorage {
                 }
             }            
 
-            if (-not $EntireDisk -and -not $SizeinGB) {
-                $SizeinGB = $SettingResource.settings.default.volumeSizeInGB
-            }
-            elseif ($EntireDisk) {
-                $SizeinGB = -1
-            }
-
-            if (-not $RAID) {
-                $RAID = $SettingResource.settings.default.raidType
-            }
 
             # Build payload
 
             $Settings = @{ 
                 DEFAULT = @{
-                    raidType       = $RAID
-                    volumeSizeInGB = $SizeinGB
+                    volumes = @($Volumes)
                 }
             }
 
@@ -34876,7 +35192,6 @@ Function Set-HPECOMSettingServerInternalStorage {
                 name           = $Name
                 category       = "STORAGE"
                 description    = $Description
-                platformFamily = "ANY"
                 settings       = $Settings                  
             }
 
@@ -34886,7 +35201,6 @@ Function Set-HPECOMSettingServerInternalStorage {
 
                 $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method PATCH -body $payload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf 
 
-
                 if (-not $WhatIf ) {
     
                     "[{0}] Setting update raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
@@ -34895,7 +35209,6 @@ Function Set-HPECOMSettingServerInternalStorage {
                     
                     $objStatus.Status = "Complete"
                     $objStatus.Details = "Internal storage server setting successfully updated in $Region region"
-
 
                 }
             }
@@ -34934,7 +35247,6 @@ Function Set-HPECOMSettingServerInternalStorage {
 
     }
 }
-
 
 
 Function New-HPECOMSettingServerOSImage {
@@ -35216,7 +35528,6 @@ Function New-HPECOMSettingServerOSImage {
 
     }
 }
-
 
 
 Function Set-HPECOMSettingServerOSImage {
@@ -35551,7 +35862,6 @@ Function Set-HPECOMSettingServerOSImage {
 
     }
 }
-
 
 
 Function New-HPECOMSettingServerFirmware {
@@ -37167,6 +37477,14 @@ Function Get-HPECOMServer {
     
     .PARAMETER ShowAlerts 
     Optional parameter that can be used to get the server alerts. 
+
+    .PARAMETER ShowServersWithRecentSupportCases
+    Optional parameter that can be used to get the servers with recent support cases.
+    This parameter can be useful for identifying servers that have had recent issues or support cases opened, allowing for proactive management and resolution of potential problems.
+
+    .PARAMETER ShowSupportCases
+    Optional parameter to retrieve HPE support cases automatically generated by Compute Ops Management for issues related to the specified server. 
+    If no support cases are found for the specified server, the cmdlet returns no output.
     
     .PARAMETER ShowNotificationStatus 
     Optional parameter that can be used to get the server notification status. 
@@ -37373,6 +37691,7 @@ Function Get-HPECOMServer {
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SecurityParametersWithNameForbidFilters')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AdapterToSwitchPortMappingsName')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AlertsName')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ShowSupportCasesName')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupFirmwareDeviationName')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SecurityParametersDetailsName')]
         [String]$Name,
@@ -37459,6 +37778,12 @@ Function Get-HPECOMServer {
         
         [Parameter (ParameterSetName = 'AlertsName')]
         [Switch]$ShowAlerts,
+
+        [Parameter (ParameterSetName = 'ShowServersWithRecentSupportCases')]
+        [Switch]$ShowServersWithRecentSupportCases,
+
+        [Parameter (ParameterSetName = 'ShowSupportCasesName')]
+        [Switch]$ShowSupportCases,
         
         [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsName')]
         [Switch]$ShowAdapterToSwitchPortMappings,
@@ -37507,6 +37832,7 @@ Function Get-HPECOMServer {
         [Parameter (ParameterSetName = 'LocationWithoutName')]
         [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
         [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
+        [Parameter (ParameterSetName = 'ShowServersWithRecentSupportCases')]
         [ValidateScript({ $_ -le 100 })]
         [int]$Limit,
 
@@ -37633,6 +37959,7 @@ Function Get-HPECOMServer {
         # Set $Uri
         if (       
             $ShowAlerts `
+                -or $ShowSupportCases `
                 -or ($ShowExternalStorageDetails -and $Name) `
                 -or ($ShowNotificationStatus -and $Name) `
                 -or $ShowSecurityParametersDetails `
@@ -37642,7 +37969,7 @@ Function Get-HPECOMServer {
                 
 
             try {
-                [Array]$Server = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region
+                [Array]$Server = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region               
 
                 if ($Null -eq $Server) { 
                 
@@ -37656,7 +37983,7 @@ Function Get-HPECOMServer {
                     
                     $ServerID = $Server.id
                         
-                    "[{0}] ID found for server name '{1}': '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $ServerID | Write-Verbose
+                    "[{0}] ID found for server name '{1}': '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $ServerID | Write-Verbose                  
                         
                 }
             }
@@ -37717,6 +38044,70 @@ Function Get-HPECOMServer {
             try {
                 [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
     
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+                   
+            }
+
+        }
+        elseif ($ShowSupportCases) {
+
+            # Get server info
+            $Uri = $COMServersUIDoorwayUri + "/" + $ServerID 
+
+            # Invoke the web request using the UI Doorway URL - Needed to get support case information
+            "[{0}] Invoke web request using the UI Doorway URL to get support case information: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Uri | Write-Verbose
+            
+            try {
+                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
+    
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+                   
+            }
+
+            # Get server alerts
+            $Uri = $COMServersUIDoorwayUri + "/" + $ServerID + "/alerts?offset=0&limit=800"
+
+            # Invoke the web request using the UI Doorway URL - Needed to get support case information
+            "[{0}] Invoke web request using the UI Doorway URL to get support case information: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Uri | Write-Verbose
+            
+            try {
+                [Array]$AlertsCollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf              
+
+                $ListofCases = [System.Collections.ArrayList]::new()
+
+                foreach ($alert in $AlertsCollectionList) {
+
+                    $Object = [PSCustomObject]@{
+                        name = $CollectionList.name
+                        serialnumber = $CollectionList.hardware.serialNumber
+                        model = $CollectionList.hardware.model
+                        iloIpAddress = $CollectionList.hardware.bmc.ip
+                        description = $Null
+                        resolution = $Null
+                        message = $Null
+                        caseId  = $Null
+                        caseState = $Null
+                        caseURL = $Null
+                        createdAt = $Null
+                    }
+
+                    if ($null -ne $alert.case_.Id) {
+
+                        $Object.description = $alert.description
+                        $Object.resolution = $alert.resolution
+                        $Object.message = $alert.message
+                        $Object.caseId = $alert.case_.caseId
+                        $Object.caseState = $alert.case_.caseState
+                        $Object.caseURL = $alert.case_.caseURL
+                        $Object.createdAt = $alert.createdAt
+                        
+                        [void]$ListofCases.Add($Object)                     
+                    }
+                }
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
@@ -37790,12 +38181,42 @@ Function Get-HPECOMServer {
             }
                     
         }
-        # Request with no $ServerID in URI
+        # Requests with no $ServerID in URI
+        elseif ($ShowServersWithRecentSupportCases){
+            try {
+
+                # Get server with recent created cases
+                # $uri = $COMServersUri + "?limit=100&sort=hardware/health/summary desc&filter=(supportCaseCount_ gt 0)" # Not supported
+                $uri = "/ui-doorway/compute/v2/servers?limit=100&sort=hardware/health/summary desc&filter=(supportCaseCount_ gt 0)"
+
+                $FilterList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
+
+                $CollectionList = $FilterList.items
+                "[{0}] List of server names with recent support cases: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($CollectionList.name) | Write-Verbose
+                
+                # Convert to PSCustomObject array
+                $structuredArray = $CollectionList | ForEach-Object {
+                    if ($_ -is [hashtable]) {
+                        [PSCustomObject]$_
+                    } else {
+                        [PSCustomObject]@{ Name = $_; Value = $null }
+                    }
+                }
+
+                $CollectionList = $structuredArray
+
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+               
+            }
+
+        }
         else {
 
             try {
                 [Array]$AllCollection = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf
-
+                
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
@@ -37846,6 +38267,20 @@ Function Get-HPECOMServer {
                 $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
 
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.Alert"    
+                
+            }
+            elseif ($ShowServersWithRecentSupportCases) {
+
+                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.Id -split '\+')[1] }
+                # $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
+
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.WithSupportCases"    
+                # $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers"    
+
+            }
+            elseif ($ShowSupportCases) {
+
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $ListofCases -ObjectName "COM.Servers.Support"    
                 
             }
             elseif ($ShowExternalStorageDetails) {
@@ -38331,8 +38766,9 @@ Function Get-HPECOMServer {
 
                     # "[{0}] Item: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
                     
-                    # Add serial number to object
+                    # Add serial number and part number to object
                     $Item | Add-Member -type NoteProperty -name serialNumber -value ($Item.Id -split '\+')[1]  
+                    $Item | Add-Member -type NoteProperty -name partNumber -value $Item.hardware.productId  
 
                     # "[{0}] added SN: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Item.Id -split '\+')[1]   | Write-Verbose
 
@@ -39299,19 +39735,20 @@ Function New-HPECOMServerActivationKey {
     The activation key will expire in 1 hour and can then be used with 'Connect-HPEGLDeviceComputeiLOtoCOM'
     
     .EXAMPLE
-    Get-HPEGLSubscription -ShowWithAvailableQuantity -ShowValid -FilterBySubscriptionType Server | select -First 1 -ExpandProperty key | New-HPECOMServerActivationKey -Region eu-central
-
-    This command retrieves the first available server subscription key that is valid and with available quantity and then generates an activation key required to add servers to a Compute Ops Management service instance in the "eu-central" region.
-
+    $Activation_Key = New-HPECOMServerActivationKey -Region eu-central -ExpirationInHours 2 -SecureGateway "sg01.domain.lab"
+    
+    This command generates an activation key required to add servers to a Compute Ops Management service instance in the "eu-central" region using the secure gateway "sg01.domain.labm". 
+    The activation key will expire in 2 hours and can then be used with 'Connect-HPEGLDeviceComputeiLOtoCOM'.
+    
     .EXAMPLE
-    $Activation_Key = Get-HPEGLSubscription -ShowWithAvailableQuantity -ShowValid -FilterBySubscriptionType Server | Select-Object -First 1 | New-HPECOMServerActivationKey -Region eu-central
+    Get-HPECOMAppliance -Region eu-central -Type SecureGateway -Name sg01.domain.lab | New-HPECOMServerActivationKey
 
-    This command retrieves the first available server subscription key that is valid and with available quantity and then generates an activation key required to add servers to a Compute Ops Management service instance in the "eu-central" region.
-    The activation key will expire in 1 hour and can then be used with 'Connect-HPEGLDeviceComputeiLOtoCOM'
+    This command retrieves the secure gateway "sg01.domain.lab" and generates an activation key required to add servers via secure gateway to a Compute Ops Management service instance in the "eu-central" region.
+    The activation key will expire in 1 hour and can then be used with 'Connect-HPEGLDeviceComputeiLOtoCOM'.
 
     .INPUTS
-    HPEGreenLake.License
-        A subscription key object from 'Get-HPEGLSubscription -ShowWithAvailableQuantity -ShowValid -FilterBySubscriptionType Server | Select-Object -First 1'
+    HPEGreenLake.COM.Appliances
+        A Secure Gateway object from 'Get-HPECOMAppliance -Region $Region -Type SecureGateway'.
 
     .OUTPUTS
     System.String
@@ -39339,10 +39776,10 @@ Function New-HPECOMServerActivationKey {
             })]
         [String]$Region,  
 
-        [String]$SecureGateway,
-
         [Parameter (ValueFromPipelineByPropertyName, ValueFromPipeline)] 
-        [alias('key')]
+        [alias('name')]
+        [object]$SecureGateway,
+
         [String]$SubscriptionKey,
 
         [ValidateScript({
@@ -39378,31 +39815,44 @@ Function New-HPECOMServerActivationKey {
         if ($SecureGateway) {
 
             try {
-                $SecureGatewayFound = Get-HPECOMAppliance -Region $Region -Name $SecureGateway
+                # Check $SecureGateway object type 
+                if ($SecureGateway -is [string]) {
+                    "[{0}] SecureGateway parameter is a string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    $SecureGatewayResource = Get-HPECOMAppliance -Region $Region -Type SecureGateway -Name $SecureGateway
+                    $SecureGatewayResourceUri = $SecureGatewayResource.resourceUri
+                    $SecureGatewayName = $SecureGatewayResource.name
+                }
+                else {
+                    "[{0}] SecureGateway parameter is a PSCustomObject." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    $SecureGatewayResourceUri = $SecureGateway.resourceUri
+                    "[{0}] Secure Gateway URI: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayResourceUri | Write-Verbose
+                    $SecureGatewayName = $SecureGateway.name
+                    "[{0}] Secure Gateway name: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName | Write-Verbose
+                }
+           
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
             }
 
-            If (-not $SecureGatewayFound) {
+            If (-not $SecureGatewayResourceUri) {
 
                 # Must return a message if secure gateway not found
-                "[{0}] Secure Gateway  '{1}' cannot be found in the Compute Ops Management instance" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGateway | Write-Verbose
+                "[{0}] Secure Gateway '{1}' cannot be found in the Compute Ops Management instance" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName | Write-Verbose
     
-                $ErrorMessage = "Secure Gateway '{0}' cannot be found in the Compute Ops Management instance!" -f $SecureGateway
+                $ErrorMessage = "Secure Gateway '{0}' cannot be found in the Compute Ops Management instance!" -f $SecureGatewayName
                 Write-warning $ErrorMessage
                 return               
             }
             else {
         
-                $Uri = $COMActivationTokensUri
-
-                $SecureGatewayID = $SecureGatewayFound.deviceId
+                $Uri = $COMActivationKeysUri
 
                 $body = @{
-                    expirationInHours  = $ExpirationInHours
-                    subscriptionKey    = $SubscriptionKey   
-                    gatewayApplianceId = $SecureGatewayID      
+                    expirationInHours   = $ExpirationInHours
+                    subscriptionKey     = $SubscriptionKey   
+                    applianceUri        = $SecureGatewayResourceUri      
+                    targetDevice     = 'ILO'
                 } | ConvertTo-Json
         
             }
@@ -45735,6 +46185,9 @@ Function New-HPEGLLocation {
     .PARAMETER OperationsContactPhone
     (Optional) Sets the operations contact phone number for the location.
 
+    .PARAMETER ValidationCycle
+    Specifies how often you would like to validate this location. Valid validation cycle is 6, 12 or 18 months.
+
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
 
@@ -45916,6 +46369,11 @@ Function New-HPEGLLocation {
         })]
         [String]$OperationsContactPhone,    
 
+        [Parameter (Mandatory, ParameterSetName = "Default")]
+        [Parameter (Mandatory, ParameterSetName = "ShippingReceiving")]
+        [ValidateSet('6', '12', '18')]
+        [String]$ValidationCycle,
+
         [Switch]$WhatIf
     ) 
 
@@ -45980,7 +46438,8 @@ Function New-HPEGLLocation {
                 $PrimaryContactName = $PrimaryContactInfo.contact.first_name + " " + $PrimaryContactInfo.contact.last_name
             }
             else {
-                Throw "$PrimaryContactEmail contact email cannot be found in the HPE GreenLake workspace!"
+                Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
+                $PrimaryContactName= "NONGLP"
             }
 
             if ($ShippingReceivingContactEmail) {
@@ -45992,7 +46451,9 @@ Function New-HPEGLLocation {
 
                 }
                 else {
-                    Throw "$ShippingReceivingContactEmail contact email cannot be found in the HPE GreenLake workspace!"
+                    Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
+                    $ShippingReceivingContactName= "NONGLP"
+
                 }
             }
             
@@ -46005,7 +46466,8 @@ Function New-HPEGLLocation {
 
                 }
                 else {
-                    Throw "$SecurityContactEmail contact email cannot be found in the HPE GreenLake workspace!"
+                    Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
+                    $SecurityContactName = "NONGLP"
                 }
             }
             
@@ -46018,7 +46480,8 @@ Function New-HPEGLLocation {
 
                 }
                 else {
-                    Throw "$OperationsContactEmail contact email cannot be found in the HPE GreenLake workspace!"
+                    Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
+                    $OperationsContactName = "NONGLP"
                 }
             }
 
@@ -46113,11 +46576,15 @@ Function New-HPEGLLocation {
             # Building payload
 
             $Payload = [PSCustomObject]@{
-                name        = $Name
-                description = $Description
-                type        = "building"
-                addresses   = $LocationAddressList
-                contacts    = $ContactsList
+                name                = $Name
+                description         = $Description
+                type                = "building"
+                addresses           = $LocationAddressList
+                contacts            = $ContactsList
+                validated           = $true
+                validation_cycle    = $ValidationCycle
+                validated_by_email  = $HPEGreenLakeSession.username
+                validated_by_name   = $HPEGreenLakeSession.name
 
             } | ConvertTo-Json -Depth 5
    
@@ -47528,15 +47995,15 @@ Function Set-HPEGLDeviceLocation {
     Assigns the devices with the provided list of serial numbers to the 'London' location using pipeline input.
 
     .EXAMPLE
-    Get-HPEGLDevice -FilterByDeviceType SERVER -SearchString "Gen11" | Set-HPEGLDeviceLocation -LocationName London 
+    Get-HPECOMServer -Region eu-central -name CW12312334 | Set-HPEGLDeviceLocation -LocationName Boston 
 
-    Assigns all 'Gen11' server devices to the 'London' location.
-
+    Assigns the Cpmpute Ops Management server in the central european region with the serial number 'CW12312334' to the 'Boston' location.
+        
     .INPUTS
     System.String, System.String[]
         A single string object or a list of string objects that represent the device's serial numbers. 
     System.Collections.ArrayList
-        List of devices(s) from 'Get-HPEGLDevice'.
+        List of devices(s) from 'Get-HPEGLDevice' or from 'Get-HPECOMServer'.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -47556,7 +48023,7 @@ Function Set-HPEGLDeviceLocation {
         [String]$LocationName,
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [Alias('serial_number')]
+        [Alias('serial_number', 'serialnumber')]
         [String]$DeviceSerialNumber,
 
         [Switch]$WhatIf
@@ -47780,11 +48247,16 @@ Function Remove-HPEGLDeviceLocation {
 
     Unassign all 'Gen11' server devices from their physical location.
 
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -name CW12312334 | Remove-HPEGLDeviceLocation
+
+    Unassign the Compute Ops Management server in the central european region with the serial number 'CW12312334' from its physical location.
+
     .INPUTS
     System.String, System.String[]
         A single string object or a list of string objects that represent the device's serial numbers. 
     System.Collections.ArrayList
-        List of devices(s) from 'Get-HPEGLDevice'.
+        List of devices(s) from 'Get-HPEGLDevice' or 'Get-HPECOMServer'.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -47793,7 +48265,6 @@ Function Remove-HPEGLDeviceLocation {
         * Status - Status of the unassignment attempt (Failed for http error return; Complete if unassignment is successful; Warning if no action is needed) 
         * Details - More information about the status 
         * Exception: Information about any exceptions generated during the operation.
-
     
    #>
 
@@ -47801,7 +48272,7 @@ Function Remove-HPEGLDeviceLocation {
     Param( 
  
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [Alias('serial_number')]
+        [Alias('serial_number', 'serialnumber')]
         [String]$DeviceSerialNumber,
 
         [Switch]$WhatIf
@@ -49791,12 +50262,14 @@ Function Get-HPEGLAPIcredential {
 Function New-HPEGLAPIcredential {
     <#
     .SYNOPSIS
-    Creates API client credentials for a service instance.
+    Creates personal API clients for a service instance.
 
     .DESCRIPTION
-    This Cmdlet generates API client credentials for HPE GreenLake or an HPE GreenLake service instance.
+    This Cmdlet generates personal API clients for HPE GreenLake or an HPE GreenLake service instance.
 
-    API client credentials are used to generate access tokens required for accessing workspace data. You can maintain a maximum of 5 credentials.
+    Personal API clients allow you to programmatically generate access tokens for accessing HPE GreenLake APIs using your own identity and roles. 
+    
+    You can maintain a maximum of 7 personal API clients.
 
     The prerequisite for generating an API access token is that the service instance must be provisioned/added to the user's workspace. 
     The user must have the necessary role to perform the intended operation in the service instance.
@@ -50042,7 +50515,7 @@ Function New-HPEGLAPIcredential {
             } 
         }      
 
-        # Check if credential already exists or if more than 5 credentials
+        # Check if credential already exists or if more than 7 credentials
 
         # "------ About to run: Get-HPEGLAPICredential -Name '{0}'" -f $CredentialName | Write-Verbose
         # $Credentials = Get-HPEGLAPICredential
@@ -50065,19 +50538,19 @@ Function New-HPEGLAPIcredential {
             }
             
         }
-        elseif ($Numberofcredentials -ge 5) {
+        elseif ($Numberofcredentials -ge 7) {
 
-            "[{0}] API credential '{1}' cannot be created because you have reached the maximum of 5 credentials" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CredentialName | Write-Verbose
+            "[{0}] API credential '{1}' cannot be created because you have reached the maximum of 7 personal API clients" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CredentialName | Write-Verbose
 
             if ($WhatIf) {
-                $ErrorMessage = "API credential '{0}': Resource cannot be created because you have reached the maximum of 5 credentials" -f $CredentialName
+                $ErrorMessage = "API credential '{0}': Resource cannot be created because you have reached the maximum of 7 personal API clients" -f $CredentialName
                 Write-warning $ErrorMessage
                 return
             }
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = "API credential cannot be created!"
-                $objStatus.Exception = "You have reached the maximum of 5 API credentials!"
+                $objStatus.Exception = "You have reached the maximum of 7 personal API clients!"
             }
 
 
@@ -60898,10 +61371,10 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 
 
 # SIG # Begin signature block
-# MIIsEAYJKoZIhvcNAQcCoIIsATCCK/0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItngYJKoZIhvcNAQcCoIItjzCCLYsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCC5WJeG0/eFUv53
-# oHpceW8yPhg0hlchWSpU+BZfIbDCgKCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDV1io+8YP4ZwNn
+# pvQY3u4x/SbqabzRzyDyjAq6UTOfVqCCEXYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -60994,144 +61467,152 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 # lLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQ
 # ZH3pwWvqURR8AgQdULUvrxjUYbHHj95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWU
 # H3fTv1Y8Wdho698YADR7TNx8X8z2Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63
-# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2RwxghnwMIIZ7AIBATBpMFQx
+# Syatatvx157YK9hlcPmVoa1oDE5/L9Uo2bC5a4CH2Rwxght+MIIbegIBATBpMFQx
 # CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNVBAMT
 # IlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYCEQDzfDeB/ajwfQYd
 # ZdJTJuKyMA0GCWCGSAFlAwQCAQUAoHwwEAYKKwYBBAGCNwIBDDECMAAwGQYJKoZI
 # hvcNAQkDMQwGCisGAQQBgjcCAQQwHAYKKwYBBAGCNwIBCzEOMAwGCisGAQQBgjcC
-# ARUwLwYJKoZIhvcNAQkEMSIEIDrI4qOBM3bPhcxITGAqZsMpMdw2JuqSQpYr19Ue
-# EuD1MA0GCSqGSIb3DQEBAQUABIIBgLePUEq8qt17Pl0QeJc9625Wv4UFK74o9l4i
-# Vp6P2DiQvObsgIbJaMTcY7HXIgtQxhNy/j259bJizNcrqVNl4puMS6Ybop9/5dH0
-# vHl2uW6zyjPL8gBe6DlcShBNuzbqggj+ZMjNx0y4i0Wi1WFZltHOWcRBXNou+G8c
-# gf1jW7/v/OEDaguUHWtdciGsFsp6OsV9zQF4Kb6zFNKRMcmFpmx7PIhKU4bTAly0
-# /ToBXrYDFtnhtW72oAISfKKN8x0VJPwss3rzZMxzyX7KQHXo/+DrhuTk8VwSY1eT
-# MY/xVZeNPkSZ60T9Ntjgtv2w3FQfIfakz45U5MknuKdp6Q8W9HihnIYGgm5sf9nR
-# nyjLf96qbhSh/+0GpGpiCKTC/ooNHYwK0XyJttQFGIcOqfrAaJedfBPkyRZFA5Hd
-# GUCkSXNiQRnl97YDjEMNWnOwvcEiS41BlPgERILmM2ssAClC6ckDvRYXu1GafE4+
-# tlAf34BENBtkX7yMwAyMw0a5CpHNT6GCF1owghdWBgorBgEEAYI3AwMBMYIXRjCC
-# F0IGCSqGSIb3DQEHAqCCFzMwghcvAgEDMQ8wDQYJYIZIAWUDBAICBQAwgYcGCyqG
-# SIb3DQEJEAEEoHgEdjB0AgEBBglghkgBhv1sBwEwQTANBglghkgBZQMEAgIFAAQw
-# ZPwjmE9HOs5flvB1nYJpsHPSysQutGqqtNX1g/yb8gjYiKPPcTtdJT4vJi2ztw/u
-# AhAeFNQGZBgKbaIlGLWSX3uQGA8yMDI1MDQxNTEzNTk0NlqgghMDMIIGvDCCBKSg
-# AwIBAgIQC65mvFq6f5WHxvnpBOMzBDANBgkqhkiG9w0BAQsFADBjMQswCQYDVQQG
-# EwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0
-# IFRydXN0ZWQgRzQgUlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMB4XDTI0
-# MDkyNjAwMDAwMFoXDTM1MTEyNTIzNTk1OVowQjELMAkGA1UEBhMCVVMxETAPBgNV
-# BAoTCERpZ2lDZXJ0MSAwHgYDVQQDExdEaWdpQ2VydCBUaW1lc3RhbXAgMjAyNDCC
-# AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAL5qc5/2lSGrljC6W23mWaO1
-# 6P2RHxjEiDtqmeOlwf0KMCBDEr4IxHRGd7+L660x5XltSVhhK64zi9CeC9B6lUdX
-# M0s71EOcRe8+CEJp+3R2O8oo76EO7o5tLuslxdr9Qq82aKcpA9O//X6QE+AcaU/b
-# yaCagLD/GLoUb35SfWHh43rOH3bpLEx7pZ7avVnpUVmPvkxT8c2a2yC0WMp8hMu6
-# 0tZR0ChaV76Nhnj37DEYTX9ReNZ8hIOYe4jl7/r419CvEYVIrH6sN00yx49boUuu
-# mF9i2T8UuKGn9966fR5X6kgXj3o5WHhHVO+NBikDO0mlUh902wS/Eeh8F/UFaRp1
-# z5SnROHwSJ+QQRZ1fisD8UTVDSupWJNstVkiqLq+ISTdEjJKGjVfIcsgA4l9cbk8
-# Smlzddh4EfvFrpVNnes4c16Jidj5XiPVdsn5n10jxmGpxoMc6iPkoaDhi6JjHd5i
-# bfdp5uzIXp4P0wXkgNs+CO/CacBqU0R4k+8h6gYldp4FCMgrXdKWfM4N0u25OEAu
-# Ea3JyidxW48jwBqIJqImd93NRxvd1aepSeNeREXAu2xUDEW8aqzFQDYmr9ZONuc2
-# MhTMizchNULpUEoA6Vva7b1XCB+1rxvbKmLqfY/M/SdV6mwWTyeVy5Z/JkvMFpnQ
-# y5wR14GJcv6dQ4aEKOX5AgMBAAGjggGLMIIBhzAOBgNVHQ8BAf8EBAMCB4AwDAYD
-# VR0TAQH/BAIwADAWBgNVHSUBAf8EDDAKBggrBgEFBQcDCDAgBgNVHSAEGTAXMAgG
-# BmeBDAEEAjALBglghkgBhv1sBwEwHwYDVR0jBBgwFoAUuhbZbU2FL3MpdpovdYxq
-# II+eyG8wHQYDVR0OBBYEFJ9XLAN3DigVkGalY17uT5IfdqBbMFoGA1UdHwRTMFEw
-# T6BNoEuGSWh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRH
-# NFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcmwwgZAGCCsGAQUFBwEBBIGD
-# MIGAMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5kaWdpY2VydC5jb20wWAYIKwYB
-# BQUHMAKGTGh0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0
-# ZWRHNFJTQTQwOTZTSEEyNTZUaW1lU3RhbXBpbmdDQS5jcnQwDQYJKoZIhvcNAQEL
-# BQADggIBAD2tHh92mVvjOIQSR9lDkfYR25tOCB3RKE/P09x7gUsmXqt40ouRl3lj
-# +8QioVYq3igpwrPvBmZdrlWBb0HvqT00nFSXgmUrDKNSQqGTdpjHsPy+LaalTW0q
-# VjvUBhcHzBMutB6HzeledbDCzFzUy34VarPnvIWrqVogK0qM8gJhh/+qDEAIdO/K
-# kYesLyTVOoJ4eTq7gj9UFAL1UruJKlTnCVaM2UeUUW/8z3fvjxhN6hdT98Vr2FYl
-# CS7Mbb4Hv5swO+aAXxWUm3WpByXtgVQxiBlTVYzqfLDbe9PpBKDBfk+rabTFDZXo
-# Uke7zPgtd7/fvWTlCs30VAGEsshJmLbJ6ZbQ/xll/HjO9JbNVekBv2Tgem+mLptR
-# 7yIrpaidRJXrI+UzB6vAlk/8a1u7cIqV0yef4uaZFORNekUgQHTqddmsPCEIYQP7
-# xGxZBIhdmm4bhYsVA6G2WgNFYagLDBzpmk9104WQzYuVNsxyoVLObhx3RugaEGru
-# +SojW4dHPoWrUhftNpFC5H7QEY7MhKRyrBe7ucykW7eaCuWBsBb4HOKRFVDcrZgd
-# waSIqMDiCLg4D+TPVgKx2EgEdeoHNHT9l3ZDBD+XgbF+23/zBjeCtxz+dL/9NWR6
-# P2eZRi7zcEO1xwcdcqJsyz/JceENc2Sg8h3KeFUCS7tpFk7CrDqkMIIGrjCCBJag
-# AwIBAgIQBzY3tyRUfNhHrP0oZipeWzANBgkqhkiG9w0BAQsFADBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwHhcNMjIw
-# MzIzMDAwMDAwWhcNMzcwMzIyMjM1OTU5WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UE
-# ChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMTMkRpZ2lDZXJ0IFRydXN0ZWQgRzQg
-# UlNBNDA5NiBTSEEyNTYgVGltZVN0YW1waW5nIENBMIICIjANBgkqhkiG9w0BAQEF
-# AAOCAg8AMIICCgKCAgEAxoY1BkmzwT1ySVFVxyUDxPKRN6mXUaHW0oPRnkyibaCw
-# zIP5WvYRoUQVQl+kiPNo+n3znIkLf50fng8zH1ATCyZzlm34V6gCff1DtITaEfFz
-# sbPuK4CEiiIY3+vaPcQXf6sZKz5C3GeO6lE98NZW1OcoLevTsbV15x8GZY2UKdPZ
-# 7Gnf2ZCHRgB720RBidx8ald68Dd5n12sy+iEZLRS8nZH92GDGd1ftFQLIWhuNyG7
-# QKxfst5Kfc71ORJn7w6lY2zkpsUdzTYNXNXmG6jBZHRAp8ByxbpOH7G1WE15/teP
-# c5OsLDnipUjW8LAxE6lXKZYnLvWHpo9OdhVVJnCYJn+gGkcgQ+NDY4B7dW4nJZCY
-# OjgRs/b2nuY7W+yB3iIU2YIqx5K/oN7jPqJz+ucfWmyU8lKVEStYdEAoq3NDzt9K
-# oRxrOMUp88qqlnNCaJ+2RrOdOqPVA+C/8KI8ykLcGEh/FDTP0kyr75s9/g64ZCr6
-# dSgkQe1CvwWcZklSUPRR8zZJTYsg0ixXNXkrqPNFYLwjjVj33GHek/45wPmyMKVM
-# 1+mYSlg+0wOI/rOP015LdhJRk8mMDDtbiiKowSYI+RQQEgN9XyO7ZONj4KbhPvbC
-# dLI/Hgl27KtdRnXiYKNYCQEoAA6EVO7O6V3IXjASvUaetdN2udIOa5kM0jO0zbEC
-# AwEAAaOCAV0wggFZMBIGA1UdEwEB/wQIMAYBAf8CAQAwHQYDVR0OBBYEFLoW2W1N
-# hS9zKXaaL3WMaiCPnshvMB8GA1UdIwQYMBaAFOzX44LScV1kTN8uZz/nupiuHA9P
-# MA4GA1UdDwEB/wQEAwIBhjATBgNVHSUEDDAKBggrBgEFBQcDCDB3BggrBgEFBQcB
-# AQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggr
-# BgEFBQcwAoY1aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1
-# c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybDMuZGln
-# aWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAI
-# BgZngQwBBAIwCwYJYIZIAYb9bAcBMA0GCSqGSIb3DQEBCwUAA4ICAQB9WY7Ak7Zv
-# mKlEIgF+ZtbYIULhsBguEE0TzzBTzr8Y+8dQXeJLKftwig2qKWn8acHPHQfpPmDI
-# 2AvlXFvXbYf6hCAlNDFnzbYSlm/EUExiHQwIgqgWvalWzxVzjQEiJc6VaT9Hd/ty
-# dBTX/6tPiix6q4XNQ1/tYLaqT5Fmniye4Iqs5f2MvGQmh2ySvZ180HAKfO+ovHVP
-# ulr3qRCyXen/KFSJ8NWKcXZl2szwcqMj+sAngkSumScbqyQeJsG33irr9p6xeZmB
-# o1aGqwpFyd/EjaDnmPv7pp1yr8THwcFqcdnGE4AJxLafzYeHJLtPo0m5d2aR8XKc
-# 6UsCUqc3fpNTrDsdCEkPlM05et3/JWOZJyw9P2un8WbDQc1PtkCbISFA0LcTJM3c
-# HXg65J6t5TRxktcma+Q4c6umAU+9Pzt4rUyt+8SVe+0KXzM5h0F4ejjpnOHdI/0d
-# KNPH+ejxmF/7K9h+8kaddSweJywm228Vex4Ziza4k9Tm8heZWcpw8De/mADfIBZP
-# J/tgZxahZrrdVcA6KYawmKAr7ZVBtzrVFZgxtGIJDwq9gdkT/r+k0fNX2bwE+oLe
-# Mt8EifAAzV3C+dAjfwAL5HYCJtnwZXZCpimHCUcr5n8apIUP/JiW9lVUKx+A+sDy
-# Divl1vupL0QVSucTDh3bNzgaoSv27dZ8/DCCBY0wggR1oAMCAQICEA6bGI750C3n
-# 79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAwZTELMAkGA1UEBhMCVVMxFTATBgNVBAoT
-# DERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UE
-# AxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBSb290IENBMB4XDTIyMDgwMTAwMDAwMFoX
-# DTMxMTEwOTIzNTk1OVowYjELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0
-# IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNl
-# cnQgVHJ1c3RlZCBSb290IEc0MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKC
-# AgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUuySE98orYWcLhKac9WKt2ms2uexuEDcQw
-# H/MbpDgW61bGl20dq7J58soR0uRf1gU8Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6
-# dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0MG+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXG
-# XuxbGrzryc/NrDRAX7F6Zu53yEioZldXn1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXn
-# Mcvak17cjo+A2raRmECQecN4x7axxLVqGDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy
-# 19sEcypukQF8IUzUvK4bA3VdeGbZOjFEmjNAvwjXWkmkwuapoGfdpCe8oU85tRFY
-# F/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6SPDgohIbZpp0yt5LHucOY67m1O+Skjqe
-# PdwA5EUlibaaRBkrfsCUtNJhbesz2cXfSwQAzH0clcOP9yGyshG3u3/y1YxwLEFg
-# qrFjGESVGnZifvaAsPvoZKYz0YkH4b235kOkGLimdwHhD5QMIR2yVCkliWzlDlJR
-# R3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ6zHFynIWIgnffEx1P2PsIV/EIFFrb7Gr
-# hotPwtZFX50g/KEexcCPorF+CiaZ9eRpL5gdLfXZqbId5RsCAwEAAaOCATowggE2
-# MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFOzX44LScV1kTN8uZz/nupiuHA9P
-# MB8GA1UdIwQYMBaAFEXroq/0ksuCMS1Ri6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIB
-# hjB5BggrBgEFBQcBAQRtMGswJAYIKwYBBQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2lj
-# ZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0cDovL2NhY2VydHMuZGlnaWNlcnQuY29t
-# L0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENBLmNydDBFBgNVHR8EPjA8MDqgOKA2hjRo
-# dHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3JsMBEGA1UdIAQKMAgwBgYEVR0gADANBgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV
-# 5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVeqRq7IviHGmlUIu2kiHdtvRoU9BNKei8t
-# tzjv9P+Aufih9/Jy3iS8UgPITtAq3votVs/59PesMHqai7Je1M/RQ0SbQyHrlnKh
-# SLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO
-# 7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJaISfb8rbII01YBwCA8sgsKxYoA5AY8WY
-# IsGyWfVVa88nq2x2zm8jLfR+cWojayL/ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3
-# AamfV6peKOK5lDGCA4YwggOCAgEBMHcwYzELMAkGA1UEBhMCVVMxFzAVBgNVBAoT
-# DkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdpQ2VydCBUcnVzdGVkIEc0IFJT
-# QTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQQIQC65mvFq6f5WHxvnpBOMzBDAN
-# BglghkgBZQMEAgIFAKCB4TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJ
-# KoZIhvcNAQkFMQ8XDTI1MDQxNTEzNTk0NlowKwYLKoZIhvcNAQkQAgwxHDAaMBgw
-# FgQU29OF7mLb0j575PZxSFCHJNWGW0UwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQg
-# dnafqPJjLx9DCzojMK7WVnX+13PbBdZluQWTmEOPmtswPwYJKoZIhvcNAQkEMTIE
-# MFgVq72sF8w5U8nwLGnMjVzifxGmdjK/mbBTV8lfJ6RN8willw/KFJvRS9BZsm1N
-# kjANBgkqhkiG9w0BAQEFAASCAgCRAS4n60lVamyJXJjTbOX5etABe1xRbBspZEY/
-# ZApClV/ALqrTqp/VVE4X6i1PXYJDSsnKr41RHky4890cw84duPRosR0MiHLibY4n
-# C7sjShSGr4szLMuDuyzfbcQR1fPfDF66d+m8CDL1IIMP8TqvwccidH7//D9Aogaf
-# iLnNooq2mnjvllTHhHwWIlLZZq9Lv8yNJJeyOq1jGhBNU8L6tb7Dpm+gEcse1ktu
-# 0TyDMAzO+dwx0xwOHSAywouxYSQgH8GO6lp4+h4DemaWRec4zbJDjFdW8YYJiN2L
-# AO8AS41tzL8dGB9tXTkKOcg+Ekqd2Z7NVIN6rC17xyx4K1E6LH/ZcEI0b3AjXquN
-# gdO6/r2oTF4OgBtOQxQhGOnaDe+d2QNu8mnaLzOX9BcG9C/rHOj/qWf+uvcuKwPT
-# 2SUWKlnFBZCp72CdgLtVgATEb7s9JCE1Ykmd3il73YtES1CtzBOPXrKU0lKYKLMu
-# 5LxUw/7GC0wno4q1QoOenReX23C28+uPpQuzzpw/PIJ8WY41P4QZKsmueCUWLvCS
-# nJENcl1U8nla3MDLd4qkAizKAkuL3ZCT1RD0QEgetlDbc6xrHuqe2h8PHk2ufNB6
-# bsHSJwjCiarOtNE5z4izjCgX6ZSxwCbfDa3uQ+7hezO9jMo1GpeSOgANCVkNU83F
-# 2M64AQ==
+# ARUwLwYJKoZIhvcNAQkEMSIEILXY5xg9M/99Ewg3YKk6pH/M7TqBjCl2jehfKRKN
+# FDgLMA0GCSqGSIb3DQEBAQUABIIBgKpji/juUY/dn/HfsdPu69OSECgkrdW0r22k
+# /mawo2GwMdzuE1vVC1/DoFpZfFVq/dikv/8voB2U2ojHSJ+QeJKx9ExFV9didf6j
+# S2CZFGkZtqg0X1mjdpL/K2nDiJJNgBfqQZxNzWo1BSmGy+hTz98f8CkosD/ni9iT
+# t/PtjntuYK8tAGkfgGrpYJfTHVh85W0uLZQ5KQTSkmyDhBg9R4M9COlI2pxZrksN
+# RI3hOq+SNpB5U1tQAdQZjwayKsQxt03I3th+QOnDWjAlowtp3ZV8RxJffM/BmH5c
+# VJ/fOhw55XZdPGi5GKvYqzwKaw7Wqe6DdR44SqTv2fvOv+DL65EVTQvlAxKu5572
+# LkkHEiYtV9L1MIPuKXZQRKQmFlyV7d+Z4WQDgYtRK4YJpNmSGnBfNfQxlAw39abs
+# rY+arfFkeQmEIPhmTo8+zS5eA8QjIqtUhMXXTHG6ETk8EWzvaNG6AUNfr8JPmRV5
+# C+NUK5tL3KYVJb0bvLfabY+9XdDPK6GCGOgwghjkBgorBgEEAYI3AwMBMYIY1DCC
+# GNAGCSqGSIb3DQEHAqCCGMEwghi9AgEDMQ8wDQYJYIZIAWUDBAICBQAwggEHBgsq
+# hkiG9w0BCRABBKCB9wSB9DCB8QIBAQYKKwYBBAGyMQIBATBBMA0GCWCGSAFlAwQC
+# AgUABDBC7Ko2yHJN6+ao7A1UqivtmJZffr/jVTc5++JAMfmmWroeiqUenhytvaSs
+# 7aCODeACFBmiJVbNXemWmiu0egEEoKigD1bCGA8yMDI1MDQxODE4MDA0MFqgdqR0
+# MHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlvcmtzaGlyZTEYMBYGA1UE
+# ChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0aWdvIFB1YmxpYyBUaW1l
+# IFN0YW1waW5nIFNpZ25lciBSMzagghMEMIIGYjCCBMqgAwIBAgIRAKQpO24e3den
+# NAiHrXpOtyQwDQYJKoZIhvcNAQEMBQAwVTELMAkGA1UEBhMCR0IxGDAWBgNVBAoT
+# D1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGltZSBT
+# dGFtcGluZyBDQSBSMzYwHhcNMjUwMzI3MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBy
+# MQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZb3Jrc2hpcmUxGDAWBgNVBAoT
+# D1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2VjdGlnbyBQdWJsaWMgVGltZSBT
+# dGFtcGluZyBTaWduZXIgUjM2MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKC
+# AgEA04SV9G6kU3jyPRBLeBIHPNyUgVNnYayfsGOyYEXrn3+SkDYTLs1crcw/ol2s
+# wE1TzB2aR/5JIjKNf75QBha2Ddj+4NEPKDxHEd4dEn7RTWMcTIfm492TW22I8LfH
+# +A7Ehz0/safc6BbsNBzjHTt7FngNfhfJoYOrkugSaT8F0IzUh6VUwoHdYDpiln9d
+# h0n0m545d5A5tJD92iFAIbKHQWGbCQNYplqpAFasHBn77OqW37P9BhOASdmjp3Ii
+# jYiFdcA0WQIe60vzvrk0HG+iVcwVZjz+t5OcXGTcxqOAzk1frDNZ1aw8nFhGEvG0
+# ktJQknnJZE3D40GofV7O8WzgaAnZmoUn4PCpvH36vD4XaAF2CjiPsJWiY/j2xLsJ
+# uqx3JtuI4akH0MmGzlBUylhXvdNVXcjAuIEcEQKtOBR9lU4wXQpISrbOT8ux+96G
+# zBq8TdbhoFcmYaOBZKlwPP7pOp5Mzx/UMhyBA93PQhiCdPfIVOCINsUY4U23p4KJ
+# 3F1HqP3H6Slw3lHACnLilGETXRg5X/Fp8G8qlG5Y+M49ZEGUp2bneRLZoyHTyynH
+# vFISpefhBCV0KdRZHPcuSL5OAGWnBjAlRtHvsMBrI3AAA0Tu1oGvPa/4yeeiAyu+
+# 9y3SLC98gDVbySnXnkujjhIh+oaatsk/oyf5R2vcxHahajMCAwEAAaOCAY4wggGK
+# MB8GA1UdIwQYMBaAFF9Y7UwxeqJhQo1SgLqzYZcZojKbMB0GA1UdDgQWBBSIYYyh
+# KjdkgShgoZsx0Iz9LALOTzAOBgNVHQ8BAf8EBAMCBsAwDAYDVR0TAQH/BAIwADAW
+# BgNVHSUBAf8EDDAKBggrBgEFBQcDCDBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgED
+# CDAlMCMGCCsGAQUFBwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwB
+# BAIwSgYDVR0fBEMwQTA/oD2gO4Y5aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0
+# aWdvUHVibGljVGltZVN0YW1waW5nQ0FSMzYuY3JsMHoGCCsGAQUFBwEBBG4wbDBF
+# BggrBgEFBQcwAoY5aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGlj
+# VGltZVN0YW1waW5nQ0FSMzYuY3J0MCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5z
+# ZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAYEAAoE+pIZyUSH5ZakuPVKK4eWb
+# zEsTRJOEjbIu6r7vmzXXLpJx4FyGmcqnFZoa1dzx3JrUCrdG5b//LfAxOGy9Ph9J
+# trYChJaVHrusDh9NgYwiGDOhyyJ2zRy3+kdqhwtUlLCdNjFjakTSE+hkC9F5ty1u
+# xOoQ2ZkfI5WM4WXA3ZHcNHB4V42zi7Jk3ktEnkSdViVxM6rduXW0jmmiu71ZpBFZ
+# Dh7Kdens+PQXPgMqvzodgQJEkxaION5XRCoBxAwWwiMm2thPDuZTzWp/gUFzi7iz
+# CmEt4pE3Kf0MOt3ccgwn4Kl2FIcQaV55nkjv1gODcHcD9+ZVjYZoyKTVWb4VqMQy
+# /j8Q3aaYd/jOQ66Fhk3NWbg2tYl5jhQCuIsE55Vg4N0DUbEWvXJxtxQQaVR5xzhE
+# I+BjJKzh3TQ026JxHhr2fuJ0mV68AluFr9qshgwS5SpN5FFtaSEnAwqZv3IS+mlG
+# 50rK7W3qXbWwi4hmpylUfygtYLEdLQukNEX1jiOKMIIGFDCCA/ygAwIBAgIQeiOu
+# 2lNplg+RyD5c9MfjPzANBgkqhkiG9w0BAQwFADBXMQswCQYDVQQGEwJHQjEYMBYG
+# A1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBU
+# aW1lIFN0YW1waW5nIFJvb3QgUjQ2MB4XDTIxMDMyMjAwMDAwMFoXDTM2MDMyMTIz
+# NTk1OVowVTELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEs
+# MCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBDQSBSMzYwggGi
+# MA0GCSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQDNmNhDQatugivs9jN+JjTkiYzT
+# 7yISgFQ+7yavjA6Bg+OiIjPm/N/t3nC7wYUrUlY3mFyI32t2o6Ft3EtxJXCc5MmZ
+# QZ8AxCbh5c6WzeJDB9qkQVa46xiYEpc81KnBkAWgsaXnLURoYZzksHIzzCNxtIXn
+# b9njZholGw9djnjkTdAA83abEOHQ4ujOGIaBhPXG2NdV8TNgFWZ9BojlAvflxNMC
+# OwkCnzlH4oCw5+4v1nssWeN1y4+RlaOywwRMUi54fr2vFsU5QPrgb6tSjvEUh1EC
+# 4M29YGy/SIYM8ZpHadmVjbi3Pl8hJiTWw9jiCKv31pcAaeijS9fc6R7DgyyLIGfl
+# mdQMwrNRxCulVq8ZpysiSYNi79tw5RHWZUEhnRfs/hsp/fwkXsynu1jcsUX+HuG8
+# FLa2BNheUPtOcgw+vHJcJ8HnJCrcUWhdFczf8O+pDiyGhVYX+bDDP3GhGS7TmKmG
+# nbZ9N+MpEhWmbiAVPbgkqykSkzyYVr15OApZYK8CAwEAAaOCAVwwggFYMB8GA1Ud
+# IwQYMBaAFPZ3at0//QET/xahbIICL9AKPRQlMB0GA1UdDgQWBBRfWO1MMXqiYUKN
+# UoC6s2GXGaIymzAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADAT
+# BgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAwTAYDVR0fBEUw
+# QzBBoD+gPYY7aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGlt
+# ZVN0YW1waW5nUm9vdFI0Ni5jcmwwfAYIKwYBBQUHAQEEcDBuMEcGCCsGAQUFBzAC
+# hjtodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBp
+# bmdSb290UjQ2LnA3YzAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5j
+# b20wDQYJKoZIhvcNAQEMBQADggIBABLXeyCtDjVYDJ6BHSVY/UwtZ3Svx2ImIfZV
+# VGnGoUaGdltoX4hDskBMZx5NY5L6SCcwDMZhHOmbyMhyOVJDwm1yrKYqGDHWzpwV
+# kFJ+996jKKAXyIIaUf5JVKjccev3w16mNIUlNTkpJEor7edVJZiRJVCAmWAaHcw9
+# zP0hY3gj+fWp8MbOocI9Zn78xvm9XKGBp6rEs9sEiq/pwzvg2/KjXE2yWUQIkms6
+# +yslCRqNXPjEnBnxuUB1fm6bPAV+Tsr/Qrd+mOCJemo06ldon4pJFbQd0TQVIMLv
+# 5koklInHvyaf6vATJP4DfPtKzSBPkKlOtyaFTAjD2Nu+di5hErEVVaMqSVbfPzd6
+# kNXOhYm23EWm6N2s2ZHCHVhlUgHaC4ACMRCgXjYfQEDtYEK54dUwPJXV7icz0rgC
+# zs9VI29DwsjVZFpO4ZIVR33LwXyPDbYFkLqYmgHjR3tKVkhh9qKV2WCmBuC27pIO
+# x6TYvyqiYbntinmpOqh/QPAnhDgexKG9GX/n1PggkGi9HCapZp8fRwg8RftwS21L
+# n61euBG0yONM6noD2XQPrFwpm3GcuqJMf0o8LLrFkSLRQNwxPDDkWXhW+gZswbai
+# ie5fd/W2ygcto78XCSPfFWveUOSZ5SqK95tBO8aTHmEa4lpJVD7HrTEn9jb1EGvx
+# Ob1cnn0CMIIGgjCCBGqgAwIBAgIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0B
+# AQwFADCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNV
+# BAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsx
+# LjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkw
+# HhcNMjEwMzIyMDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBXMQswCQYDVQQGEwJHQjEY
+# MBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1Ymxp
+# YyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2MIICIjANBgkqhkiG9w0BAQEFAAOCAg8A
+# MIICCgKCAgEAiJ3YuUVnnR3d6LkmgZpUVMB8SQWbzFoVD9mUEES0QUCBdxSZqdTk
+# dizICFNeINCSJS+lV1ipnW5ihkQyC0cRLWXUJzodqpnMRs46npiJPHrfLBOifjfh
+# pdXJ2aHHsPHggGsCi7uE0awqKggE/LkYw3sqaBia67h/3awoqNvGqiFRJ+OTWYmU
+# CO2GAXsePHi+/JUNAax3kpqstbl3vcTdOGhtKShvZIvjwulRH87rbukNyHGWX5tN
+# K/WABKf+Gnoi4cmisS7oSimgHUI0Wn/4elNd40BFdSZ1EwpuddZ+Wr7+Dfo0lcHf
+# lm/FDDrOJ3rWqauUP8hsokDoI7D/yUVI9DAE/WK3Jl3C4LKwIpn1mNzMyptRwsXK
+# rop06m7NUNHdlTDEMovXAIDGAvYynPt5lutv8lZeI5w3MOlCybAZDpK3Dy1MKo+6
+# aEtE9vtiTMzz/o2dYfdP0KWZwZIXbYsTIlg1YIetCpi5s14qiXOpRsKqFKqav9R1
+# R5vj3NgevsAsvxsAnI8Oa5s2oy25qhsoBIGo/zi6GpxFj+mOdh35Xn91y72J4RGO
+# JEoqzEIbW3q0b2iPuWLA911cRxgY5SJYubvjay3nSMbBPPFsyl6mY4/WYucmyS9l
+# o3l7jk27MAe145GWxK4O3m3gEFEIkv7kRmefDR7Oe2T1HxAnICQvr9sCAwEAAaOC
+# ARYwggESMB8GA1UdIwQYMBaAFFN5v1qqK0rPVIDh2JvAnfKyA2bLMB0GA1UdDgQW
+# BBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/
+# BAUwAwEB/zATBgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAw
+# UAYDVR0fBEkwRzBFoEOgQYY/aHR0cDovL2NybC51c2VydHJ1c3QuY29tL1VTRVJU
+# cnVzdFJTQUNlcnRpZmljYXRpb25BdXRob3JpdHkuY3JsMDUGCCsGAQUFBwEBBCkw
+# JzAlBggrBgEFBQcwAYYZaHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkqhkiG
+# 9w0BAQwFAAOCAgEADr5lQe1oRLjlocXUEYfktzsljOt+2sgXke3Y8UPEooU5y39r
+# AARaAdAxUeiX1ktLJ3+lgxtoLQhn5cFb3GF2SSZRX8ptQ6IvuD3wz/LNHKpQ5nX8
+# hjsDLRhsyeIiJsms9yAWnvdYOdEMq1W61KE9JlBkB20XBee6JaXx4UBErc+YuoSb
+# 1SxVf7nkNtUjPfcxuFtrQdRMRi/fInV/AobE8Gw/8yBMQKKaHt5eia8ybT8Y/Ffa
+# 6HAJyz9gvEOcF1VWXG8OMeM7Vy7Bs6mSIkYeYtddU1ux1dQLbEGur18ut97wgGwD
+# iGinCwKPyFO7ApcmVJOtlw9FVJxw/mL1TbyBns4zOgkaXFnnfzg4qbSvnrwyj1Ni
+# urMp4pmAWjR+Pb/SIduPnmFzbSN/G8reZCL4fvGlvPFk4Uab/JVCSmj59+/mB2Gn
+# 6G/UYOy8k60mKcmaAZsEVkhOFuoj4we8CYyaR9vd9PGZKSinaZIkvVjbH/3nlLb0
+# a7SBIkiRzfPfS9T+JesylbHa1LtRV9U/7m0q7Ma2CQ/t392ioOssXW7oKLdOmMBl
+# 14suVFBmbzrt5V5cQPnwtd3UOTpS9oCG+ZZheiIvPgkDmA8FzPsnfXW5qHELB43E
+# T7HHFHeRPRYrMBKjkb8/IN7Po0d0hQoF4TeMM+zYAJzoKQnVKOLg8pZVPT8xggSS
+# MIIEjgIBATBqMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0
+# ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2
+# AhEApCk7bh7d16c0CIetek63JDANBglghkgBZQMEAgIFAKCCAfkwGgYJKoZIhvcN
+# AQkDMQ0GCyqGSIb3DQEJEAEEMBwGCSqGSIb3DQEJBTEPFw0yNTA0MTgxODAwNDBa
+# MD8GCSqGSIb3DQEJBDEyBDCFucP8hdtKwwtHmS3rH5VopeC+EdWJJMuzesnXWNAc
+# PGKFlE2U0wbSwflleLC04FgwggF6BgsqhkiG9w0BCRACDDGCAWkwggFlMIIBYTAW
+# BBQ4yRSBEES03GY+k9R0S4FBhqm1sTCBhwQUxq5U5HiG8Xw9VRJIjGnDSnr5wt0w
+# bzBbpFkwVzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEu
+# MCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NgIQ
+# eiOu2lNplg+RyD5c9MfjPzCBvAQUhT1jLZOCgmF80JA1xJHeksFC2scwgaMwgY6k
+# gYswgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpOZXcgSmVyc2V5MRQwEgYDVQQH
+# EwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVTRVJUUlVTVCBOZXR3b3JrMS4w
+# LAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmljYXRpb24gQXV0aG9yaXR5AhA2
+# wrC9fBs656Oz3TbLyXVoMA0GCSqGSIb3DQEBAQUABIICAGLR7GVcgPBdJFV5y6GD
+# NYpGNYENEqLRktcxgCBrYdmw78eHmxK94/cI+AZn+882eM/YrsJxQGpx95s4ZrBQ
+# Vc9d4cZdKyUSjVxtbQHW36cnF/xk/t4+cyffX9Oqrh+3QwzIiayritzAn0hGu8CT
+# UYVhhswQjFx7BbG+r2V7VUHRMHUKdTpEf0jX2omVw7aDWETLq7/K0xIaAEjK53mx
+# 49UMkw+e/NwyADsRBjJ/4CVXHoMhIK5n+BGK81O648lQC6t25mE0bH38ly7rf/Nx
+# BwKL/3hFe0wcf6QE7d3gz6+hCrVNlmTA/UQkJXZTMJ5poPAl1Wvl5NR8+yJX4n1L
+# 858CU74LTMX6hH30qebUYsKtOjN3ubysjWhS51jyk2hCTdxPhmoPuano1mE+oi4t
+# JCYfXqNpl9FXylkLCXu/0tIiwPtWzwdhm/Z9ZyGPqoJxV4ygpl/6PztzcYyNxgnL
+# 0FbDSctwDr9nBqrjzME6RMUk9dXSuvHZpte9DXUTbHanBv6a3CJeVF3pJBUQ/7YF
+# cn5WQVbX+aI9MhQ+CQDMQTy3t/Vvm/94hNoy48t0cQAy6ZlxbHsA19pAJVETRRfn
+# nBN8fD/UBWNyXa7ZqkclSIZ+C27GNnJZ3RYTpdhOxa8SEQbSTt9u8hPhLKZ+WFPP
+# xGmCmdMqCG1c6fE3jFgrewSU
 # SIG # End signature block
