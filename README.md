@@ -39,7 +39,7 @@ Development is ongoing, and the library will be continuously updated to support 
     - **SAML Single Sign-On** (SSO) but exclusively with **Okta**. 
        
 
-## How to Instaqll the Module  
+## How to Install the Module  
 
 To install the library, use the following command to download and install the module from the official PowerShell Gallery:
 
@@ -52,11 +52,8 @@ Install-Module HPECOMCmdlets
 If you have already installed the module and need to update it to the latest version, run the following commands:
 
 ```powershell
-# Remove the currently installed version
-Get-Module -Name HPECOMCmdlets -ListAvailable | Uninstall-Module
-
-# Install the latest version from the PowerShell Gallery
-Install-Module HPECOMCmdlets
+# Install or update HPECOMCmdlets module
+Install-Module -Name HPECOMCmdlets -Force -AllowClobber
 ```
 
 
