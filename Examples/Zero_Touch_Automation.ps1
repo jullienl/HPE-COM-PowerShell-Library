@@ -1,7 +1,7 @@
 <#
 
 .DESCRIPTION
-This script creates an HPE GreenLake workspace from scratch, including the onboarding a servers, the creation of groups, settings, and other necessary configurations.
+This script creates an HPE GreenLake workspace from scratch, including the onboarding of servers, the creation of groups, settings, and other necessary configurations.
 
 It covers the following steps:
 
