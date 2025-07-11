@@ -67,8 +67,12 @@ Install-Module HPECOMCmdlets
 If you have already installed the module and need to update it to the latest version, run the following commands:
 
 ```powershell
-# Install or update HPECOMCmdlets module
+# Get the currently installed version
+$latestVersion = (Get-InstalledModule HPECOMCmdlets | Sort-Object Version -Descending | Select-Object -First 1).Version
+# Install latest version of the HPECOMCmdlets module
 Install-Module -Name HPECOMCmdlets -Force -AllowClobber
+# Uninstall the old version of the module
+Uninstall-Module -Name "HPECOMCmdlets" -RequiredVersion $latestVersion
 ```
 
 
