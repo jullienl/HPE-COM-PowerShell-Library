@@ -27,7 +27,7 @@ THE SOFTWARE.
 #>
 
 # Set PowerShell library version
-[Version]$ModuleVersion = '1.0.14'
+[Version]$ModuleVersion = '1.0.15'
 
 # Set the module version as a global variable
 $Global:HPECOMCmdletsModuleVersion = $ModuleVersion
@@ -114,7 +114,7 @@ $HPEGLUIbaseURL = 'https://aquila-user-api.common.cloud.hpe.com'
 
 $HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
 
-[string]$APIClientCredentialTemplateName = "PowerShell_Library_Temporary_Credential"
+[string]$APIClientCredentialTemplateName = "COM_PowerShell_Library_Temp_Credential"
 
 # $DefaultTimeout timeout variable for Wait-HPECOMJobComplete
 # New-Variable -Name DefaultTimeout -Value (New-Timespan -Minutes 20) -Option Constant
@@ -1120,15 +1120,10 @@ function Invoke-HPEGLWebRequest {
 
         #Region Check if HPEGreenLakeSession variable is available
         
-        if ($null -eq $HPEGreenLakeSession) {
-            
-            Write-Error "Error - No HPE GreenLake session found! Connect-HPEGL must be executed first!"
-            return
-        }
-        elseif ($null -eq $HPEGreenLakeSession.workspaceId) {
+        if ($null -eq $HPEGreenLakeSession.workspaceId) {
             
             # Throw error only if switch parameter to skip the session check 'SkipSessionCheck' is not used. 
-            # Switch parameter to skip the session check. This parameter is used internally by certain cmdlets:
+            # Switch parameter to skip the session check is used internally by a few cmdlets:
             # - Get-HPEGLWorkspace
             # - New-HPEGLWorkspace
             # - Get-HPEGLUserPreference 
@@ -1136,11 +1131,9 @@ function Invoke-HPEGLWebRequest {
             # - Get-HPEGLUserAccountDetails
             # - Set-HPEGLUserAccountDetails
             # - Set-HPEGLUserAccountPassword 
-            # when Connect-HPEGLWorkspace has not yet been executed (i.e., when no workspace session exists). 
-            # It allows these cmdlets to run without requiring an active workspace session.
+            # It allows these cmdlets to run without requiring an active workspace session, i.e. when Connect-HPEGLWorkspace has not yet been executed. 
             if (-not $PSBoundParameters.ContainsKey('SkipSessionCheck')) {
-                Write-Error "No workspace session found! Connect-HPEGLWorkspace must be executed first!"
-                Return
+                Throw "No workspace session found! Connect-HPEGLWorkspace must be executed first!"
             }
         }   
         #EndRegion
@@ -2507,7 +2500,7 @@ function Invoke-HPECOMWebRequest {
 
         "[{0}] Region selected: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
     
-        $GLPTemporaryCredentials = $HPEGreenLakeSession.apiCredentials | Where-Object name -match "GLP-$APIClientCredentialTemplateName"
+        $GLPTemporaryCredentials = $HPEGreenLakeSession.apiCredentials | Where-Object name -match "GLP-$HPEGLAPIClientCredentialName"
 
         "[{0}] Credential found in `$HPEGreenLakeSession.apiCredentials: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $GLPTemporaryCredentials.name | Write-Verbose
 
@@ -3029,7 +3022,7 @@ Function Connect-HPEGL {
           - For accounts with Okta Verify enabled, you will need to approve the push notification on your phone.
           - If both Google Authenticator and Okta Verify are enabled, the library defaults to using Okta Verify push notifications.
     
-    Note: This library supports SAML Single Sign-On (SSO) but exclusively with Okta. 
+    Note: This library supports SAML Single Sign-On (SSO) but exclusively for HPE.com email addresses. Other domains or identity providers are not supported for direct SSO authentication. 
           To use SSO, ensure that the Okta Verify app is installed on your mobile device and properly linked to your account before initiating the connection process. 
           Users leveraging SAML SSO through other identity providers cannot authenticate directly using their corporate credentials with the `Connect-HPEGL` cmdlet. 
           As a workaround, invite a user with an email address that is not associated with any SAML SSO domains configured in the workspace. 
@@ -3042,7 +3035,7 @@ Function Connect-HPEGL {
     Set of security credentials such as a username and password to establish a connection to HPE GreenLake.
     
     .PARAMETER SSOEmail
-    Specifies the email address used for Single Sign-On (SSO) authentication. 
+    Specifies the email address to use for Single Sign-On (SSO) authentication. SSO is supported only for HPE.com email addresses. Other domains or identity providers are not supported for direct SSO authentication.
     
     .PARAMETER Workspace 
     Specifies the name of a workspace available in HPE GreenLake that you want to connect to.
@@ -3051,6 +3044,13 @@ Function Connect-HPEGL {
     - If you have only one workspace in HPE GreenLake, you can omit this parameter, and the cmdlet will automatically connect to the available workspace.
     - If you have multiple workspaces and are unsure of the workspace name you want to connect to, you can omit this parameter. After connecting to HPE GreenLake, use the 'Get-HPEGLWorkspace' cmdlet to list and identify the available workspaces.
     
+    .PARAMETER RemoveExistingCredentials
+    Specifies whether to remove all existing API credentials generated by previous runs of Connect-HPEGL or Connect-HPEGLWorkspace that were not properly cleaned up by a Disconnect-HPEGL operation.
+    When enabled, this option will delete all previously created API credentials attached to your user account that may be lingering from earlier sessions.
+    Use this option if you encounter the error: 'You have reached the maximum of 7 personal API clients' when connecting. Removing these credentials can resolve the issue by clearing out unused credentials created by this library.
+
+    Caution: Removing existing credentials may affect other active PowerShell sessions related to your user using those credentials, potentially causing authentication failures until those sessions reconnect.
+
     .PARAMETER NoProgress
     Suppresses the progress bar display for automation or silent operation.
 
@@ -3226,6 +3226,8 @@ Function Connect-HPEGL {
         [Parameter(Mandatory = $False)]        
         [ValidateNotNullOrEmpty()]
         [String]$Workspace,
+
+        [Switch]$RemoveExistingCredentials,
 
         [Switch]$NoProgress
 
@@ -6388,17 +6390,17 @@ Function Connect-HPEGL {
             
         try {
                 
+            # Create session with workspace using Connect-HPEGLWorkspace
             if ($Workspace) {
                 "[{0}] Create session with workspace '{1}' using Connect-HPEGLWorkspace" -f $functionName, $Workspace | Write-Verbose
                 
-                $CCSSession = Connect-HPEGLWorkspace -Name $Workspace -NoProgress:$NoProgress
+                $CCSSession = Connect-HPEGLWorkspace -Name $Workspace -NoProgress:$NoProgress -RemoveExistingCredentials:$RemoveExistingCredentials
             }
             else {
     
                 "[{0}] Create session without workspace using Connect-HPEGLWorkspace" -f $functionName | Write-Verbose
-                $CCSSession = Connect-HPEGLWorkspace -NoProgress:$NoProgress
+                $CCSSession = Connect-HPEGLWorkspace -NoProgress:$NoProgress -RemoveExistingCredentials:$RemoveExistingCredentials
             }
-    
                                     
         }
         catch {
@@ -6451,7 +6453,7 @@ None. You cannot pipe objects to this cmdlet.
 
 .OUTPUTS
 System.String
-    Returns "<email address> session disconnected!"
+    Returns "<email address> session disconnected from <workspace name> workspace!"
 
 #>
 
@@ -6496,6 +6498,8 @@ System.String
         }
         else {
 
+            $_WorkspaceName = $HPEGreenLakeSession.workspace
+
             $step = 1
 
             # Access_token expiration date
@@ -6518,21 +6522,21 @@ System.String
                 Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Removing the library personal API client" -Id 3
                 $step++
             
-                "[{0}] About to remove the GLP temporary API Client credential using the template '{1}'" -f $functionName, $APIClientCredentialTemplateName | Write-Verbose
+                "[{0}] About to remove the GLP temporary API Client credential using the template '{1}'" -f $functionName, $HPEGLAPIClientCredentialName | Write-Verbose
                 
                 if ($HPEGreenLakeSession.apiCredentials) {
 
                     try {
 
-                        $APIcredentials = Get-HPEGLAPICredential | Where-Object name -match $APIClientCredentialTemplateName 
+                        $APIcredential = Get-HPEGLAPICredential |  Where-Object { $_.name -match $HPEGLAPIClientCredentialName } 
                 
-                        if ($APIcredentials) {
+                        if ($APIcredential) {
             
-                            $APIcredentials | Remove-HPEGLAPICredential -Force | Out-Null
+                            $APIcredential | Remove-HPEGLAPICredential -Force | Out-Null
             
                         }
                         else {
-                            "[{0}] No library API Client credential found using the template '{1}'!" -f $functionName, $APIClientCredentialTemplateName | Write-Verbose
+                            "[{0}] No library API Client credential found using the template '{1}'!" -f $functionName, $HPEGLAPIClientCredentialName | Write-Verbose
                         }
 
                     }
@@ -6715,7 +6719,14 @@ System.String
                     Write-Progress -Id 3 -Activity "Disconnecting from HPE GreenLake" -Status "Completed" -Completed 
                 }
                 
-                return ("{0} session disconnected!" -f $_username )
+                if ($_WorkspaceName) {
+                    return ("'{0}' session disconnected from '{1}' workspace!" -f $_username, $_WorkspaceName)
+
+                }
+                else {
+                    return ("'{0}' session disconnected!" -f $_username)
+
+                }
 
             }
             # Expiration = 0
@@ -6751,61 +6762,71 @@ System.String
 Function Connect-HPEGLWorkspace {
     <#
     .SYNOPSIS
-        Connect to a workspace or switch between HPE GreenLake workspaces.
+    Connect to a workspace or switch between HPE GreenLake workspaces.
 
     .DESCRIPTION
-        This cmdlet establishes a connection to an HPE GreenLake workspace or switches between workspaces.
-        It manages the creation and removal of temporary API client credentials, updating the $HPEGreenLakeSession global variable.
-        Used by Connect-HPEGL to initiate a session or by Invoke-HPEGLAutoReconnect for token refresh.
+    This cmdlet establishes a connection to an HPE GreenLake workspace or switches between workspaces.
+    It manages the creation and removal of temporary API client credentials, updating the $HPEGreenLakeSession global variable.
+    Used by Connect-HPEGL to initiate a session or by Invoke-HPEGLAutoReconnect for token refresh.
 
     .PARAMETER Name
-        Specifies the name of a workspace available in HPE GreenLake. Use Get-HPEGLWorkspace to retrieve available workspace names.
-        Optional; defaults to the first available workspace associated with the user's email.
+    Specifies the name of a workspace available in HPE GreenLake. Use Get-HPEGLWorkspace to retrieve available workspace names.
+    Optional; defaults to the first available workspace associated with the user's email.
 
     .PARAMETER Force
-        Forces reconnection to the current workspace, re-establishing connections to GLP and COM APIs.
+    Forces reconnection to the current workspace, re-establishing connections to GLP and COM APIs.
+
+    .PARAMETER RemoveExistingCredentials
+    Specifies whether to remove all existing API credentials generated by previous runs of Connect-HPEGL or Connect-HPEGLWorkspace that were not properly cleaned up by a Disconnect-HPEGL operation.
+    When enabled, this option will delete all previously created API credentials attached to your user account that may be lingering from earlier sessions.
+    Use this option if you encounter the error: 'You have reached the maximum of 7 personal API clients' when connecting. Removing these credentials can resolve the issue by clearing out unused credentials created by this library.
+
+    Caution: Removing existing credentials may affect other active PowerShell sessions related to your user using those credentials, potentially causing authentication failures until those sessions reconnect.
 
     .PARAMETER NoProgress
-        Suppresses the progress bar display for automation or silent operation.
+    Suppresses the progress bar display for automation or silent operation.
 
     .EXAMPLE
-        Connect-HPEGLWorkspace
-        Connects to the default HPE GreenLake workspace and generates temporary API credentials.
+    Connect-HPEGLWorkspace
+    Connects to the default HPE GreenLake workspace and generates temporary API credentials.
 
     .EXAMPLE
-        Connect-HPEGLWorkspace -Name 'DreamCompany'
-        Connects to or switches to the 'DreamCompany' workspace, updating API credentials.
+    Connect-HPEGLWorkspace -Name 'DreamCompany'
+    Connects to or switches to the 'DreamCompany' workspace, updating API credentials.
 
     .EXAMPLE
-        Connect-HPEGLWorkspace -Force
-        Forces reconnection to the current workspace, refreshing tokens.
+    Connect-HPEGLWorkspace -Force
+    Forces reconnection to the current workspace, refreshing tokens.
 
     .EXAMPLE
-        Get-HPEGLWorkspace -Name Workspace_2134168251 | Connect-HPEGLWorkspace
-        Connects to the specified workspace via pipeline input.
+    Get-HPEGLWorkspace -Name Workspace_2134168251 | Connect-HPEGLWorkspace
+    Connects to the specified workspace via pipeline input.
 
     .INPUTS
-        System.Object
-            A workspace object from Get-HPEGLWorkspace.
+    System.Object
+        A workspace object from Get-HPEGLWorkspace.
 
     .OUTPUTS
-        System.Collections.ArrayList
-            The updated $HPEGreenLakeSession global variable.
+    System.Collections.ArrayList
+        The updated $HPEGreenLakeSession global variable.
 
     .NOTES
-        - OAuth2 access token validity: 120 minutes
-        - GLP API access token validity: 15 minutes (v1.2) or 120 minutes (v1.1)
-        - Requires $HPEGreenLakeSession global variable to be set
+    - GLP API access token validity: 15 minutes (v1.2) or 120 minutes (v1.1)
+    - Requires $HPEGreenLakeSession global variable to be set
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = "Force")]
     Param(
         [Parameter(ValueFromPipelineByPropertyName)]
         [ValidateNotNullOrEmpty()]
         [Alias("company_name")]
         [String]$Name,
 
+        [Parameter(ParameterSetName = "Force")]
         [Switch]$Force,
+
+        [Parameter(ParameterSetName = "RemoveExistingCredentials")]
+        [Switch]$RemoveExistingCredentials,
 
         [Switch]$NoProgress
     )
@@ -6847,6 +6868,8 @@ Function Connect-HPEGLWorkspace {
     }
 
     Process {
+
+        #Region : Validate and prepare parameters
         "[{0}] Bound PS Parameters: {1}" -f $functionName, ($PSBoundParameters | Out-String) | Write-Verbose
 
         # Check for existing connection to the same workspace
@@ -6876,8 +6899,9 @@ Function Connect-HPEGLWorkspace {
         }
 
         $step = 1
+        #EndRegion
 
-        # Region: Create new session or switch workspace
+        #Region: Create new session 
         if (-not $HPEGreenLakeSession.workspace -and -not $Force) {
             # Step 1: Create CCS session
             "[{0}] STEP {1} - Creating CCS session" -f $functionName, $step | Write-Verbose
@@ -6993,8 +7017,12 @@ Function Connect-HPEGLWorkspace {
             }
             $completedSteps++
         }
-        # Region: Force reconnection
+        #EndRegion
+
+        #Region: Force reconnection (used by Invoke-HPEGLAutoReconnect to refresh tokens)
         elseif ($Force) {
+
+            #Region Ensure the user’s session with the workspace is valid and active
             $MyWorkspaceName = $HPEGreenLakeSession.workspace
             "[{0}] STEP {1} - Forcing workspace load: {2}" -f $functionName, $step, $MyWorkspaceName | Write-Verbose
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Loading workspace" -Id 1
@@ -7021,7 +7049,7 @@ Function Connect-HPEGLWorkspace {
                         Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Cannot load workspace at this time."
+                    throw "Unable to load to the workspace at this time. Please try again later."
                 }
                 $cookies = $session.Cookies.GetCookies($url)
                 $uniqueCookies = @{}
@@ -7055,10 +7083,11 @@ Function Connect-HPEGLWorkspace {
                 $PSCmdlet.ThrowTerminatingError($_)
             }
             $completedSteps++
+            #EndRegion            
 
-            # Step 2: Refresh tokens
-            "[{0}] STEP {1} - Generating new OAuth2 tokens" -f $functionName, $step | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Generating OAuth2 tokens" -Id 1
+            #Region Refresh UI Doorway access token
+            "[{0}] STEP {1} - Renewing GLP OAuth2 token." -f $functionName, $step | Write-Verbose
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Renewing GLP OAuth2 token" -Id 1
             $step++
 
             $Body = @{
@@ -7075,6 +7104,7 @@ Function Connect-HPEGLWorkspace {
                 $Global:HPEGreenLakeSession.oauth2TokenCreation = Get-Date
                 $Global:HPEGreenLakeSession.oauth2TokenCreationEpoch = (New-TimeSpan -Start (Get-Date "01/01/1970") -End (Get-Date)).TotalSeconds
                 "[{0}] Tokens refreshed successfully" -f $functionName | Write-Verbose
+                
             }
             catch {
                 if (-not $NoProgress) {
@@ -7085,117 +7115,15 @@ Function Connect-HPEGLWorkspace {
                 $PSCmdlet.ThrowTerminatingError($_)
             }
             $completedSteps++
-        }
-        # Region: Switch workspace
-        else {
-            try {
-                $Workspace = Get-HPEGLWorkspace -Name $Name
-            }
-            catch {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
-                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-            if (-not $Workspace) {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
-                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                throw "Workspace '$Name' not found for user '$($HPEGreenLakeSession.username)'. Use Get-HPEGLWorkspace to list available workspaces."
-            }
-            $WorkspaceId = $Workspace.platform_customer_id
-            $MyWorkspaceName = $Workspace.company_name
+            #EndRegion
 
-            # Step 1: Remove existing GLP API credential
-            try {
-                $APIcredentials = Get-HPEGLAPICredential | Where-Object { $_.name -match $APIClientCredentialTemplateName }
-                if ($APIcredentials) {
-                    "[{0}] STEP {1} - Removing API credentials from current workspace" -f $functionName, $step | Write-Verbose
-                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Removing API credentials" -Id 1
-                    $step++
-                    $APIcredentials | Remove-HPEGLAPICredential -Force | Out-Null
-                }
-            }
-            catch {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
-                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-            $completedSteps++
-
-            # Step 2: Load new workspace
-            "[{0}] STEP {1} - Loading workspace: {2}" -f $functionName, $step, $MyWorkspaceName | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Loading workspace" -Id 1
+            #Region: Refresh public API access token
+            "[{0}] STEP {1} - Renewing GLP API token." -f $functionName, $step | Write-Verbose
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Renewing GLP API token" -Id 1
             $step++
 
-            try {
-                $url = $LoadAccountUri + $WorkspaceId
-                $useraccount = Invoke-WebRequest -Method Get -Uri $url -Headers $headers -WebSession $HPEGreenLakeSession.session
-                $cookies = $HPEGreenLakeSession.session.Cookies.GetCookies($url)
-                $ccsSessionValue = ($cookies | Where-Object { $_.Name -eq 'ccs-session' }).Value
-                $Global:HPEGreenLakeSession.ccsSid = $ccsSessionValue
-                $Global:HPEGreenLakeSession.workspaceId = $WorkspaceId
-                $Global:HPEGreenLakeSession.workspace = $Name
-            }
-            catch {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
-                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-            $completedSteps++
-        }
-
-        # Region: Generate GLP API credential
-        if ($MyWorkspaceName -and -not $Force) {
-            "[{0}] STEP {1} - Generating HPE GreenLake API credential" -f $functionName, $step | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Generating HPE GreenLake API credential" -Id 1
-            $step++
-
-            try {
-                $APIcredentials = Get-HPEGLAPICredential | Where-Object { $_.name -match $APIClientCredentialTemplateName }
-                if ($APIcredentials) {
-                    $APIcredentials | Remove-HPEGLAPICredential -Force | Out-Null
-                }
-                $GLPAPICreationTask = New-HPEGLAPIcredential -HPEGreenLake -TemplateName $APIClientCredentialTemplateName -ErrorAction Stop
-
-                # Create a global variable for the provisionned services
-                $Global:HPEGLServices = $GLPAPICreationTask.provisions
-
-                if ($GLPAPICreationTask.status -ne "Complete") {
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
-                        Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    throw "API Credential creation failed: $($GLPAPICreationTask.Exception)"
-                }
-            }
-            catch {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
-                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-            $completedSteps++
-
-            # Region: Create GLP session
-            "[{0}] STEP {1} - Creating GLP sessions" -f $functionName, $step | Write-Verbose
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Creating GLP sessions" -Id 1
-            $step++
-
-            $GLPTemporaryCredentials = $HPEGreenLakeSession.apiCredentials | Where-Object { $_.name -match "GLP-$APIClientCredentialTemplateName" }
+            $GLPTemporaryCredentials = $HPEGreenLakeSession.apiCredentials | Where-Object { $_.name -match "GLP-$HPEGLAPIClientCredentialName" }
+            
             if ($GLPTemporaryCredentials) {
                 try {
                     $SecureClientSecret = $GLPTemporaryCredentials.secure_client_secret | ConvertTo-SecureString
@@ -7240,8 +7168,183 @@ Function Connect-HPEGLWorkspace {
                 }
             }
             $completedSteps++
+            #EndRegion
+        }
+        #EndRegion
 
-            # Region: Set COM regions
+        #Region: Switch workspace
+        else {
+            try {
+                $Workspace = Get-HPEGLWorkspace -Name $Name
+            }
+            catch {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+            if (-not $Workspace) {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
+                throw "Workspace '$Name' not found for user '$($HPEGreenLakeSession.username)'. Use Get-HPEGLWorkspace to list available workspaces."
+            }
+            $WorkspaceId = $Workspace.platform_customer_id
+            $MyWorkspaceName = $Workspace.company_name
+
+            # Step 1: Remove existing GLP API credential
+            try {
+                $APIcredential = Get-HPEGLAPICredential | Where-Object { $_.name -match $HPEGLAPIClientCredentialName }
+                if ($APIcredential) {
+                    "[{0}] STEP {1} - Removing API credentials from current workspace" -f $functionName, $step | Write-Verbose
+                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Removing API credentials" -Id 1
+                    $step++
+                    $APIcredential | Remove-HPEGLAPICredential -Force | Out-Null
+                }
+            }
+            catch {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+            $completedSteps++
+
+            # Step 2: Load new workspace
+            "[{0}] STEP {1} - Loading workspace: {2}" -f $functionName, $step, $MyWorkspaceName | Write-Verbose
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Loading workspace" -Id 1
+            $step++
+
+            try {
+                $url = $LoadAccountUri + $WorkspaceId
+                $useraccount = Invoke-WebRequest -Method Get -Uri $url -Headers $headers -WebSession $HPEGreenLakeSession.session
+                $cookies = $HPEGreenLakeSession.session.Cookies.GetCookies($url)
+                $ccsSessionValue = ($cookies | Where-Object { $_.Name -eq 'ccs-session' }).Value
+                $Global:HPEGreenLakeSession.ccsSid = $ccsSessionValue
+                $Global:HPEGreenLakeSession.workspaceId = $WorkspaceId
+                $Global:HPEGreenLakeSession.workspace = $Name
+            }
+            catch {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+            $completedSteps++
+        }
+        #EndRegion
+
+        #Region: Generate GLP API credential
+        if ($MyWorkspaceName -and -not $Force) {
+
+            #Region : Generate HPE GreenLake API credential
+            "[{0}] STEP {1} - Generating HPE GreenLake API credential" -f $functionName, $step | Write-Verbose
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Generating HPE GreenLake API credential" -Id 1
+            $step++
+
+            try {
+                if ($RemoveExistingCredentials) {
+
+                    $APIcredentials = Get-HPEGLAPICredential | Where-Object { $_.name -match $APIClientCredentialTemplateName -or $_.name -eq "GLP-PowerShell_Library_Temporary_Credential"}
+                    if ($APIcredentials) {
+                        $APIcredentials | Remove-HPEGLAPICredential -Force | Out-Null
+                    }
+                }
+
+                $global:HPEGLAPIClientCredentialName = "$APIClientCredentialTemplateName`_$((Get-Date).ToString('yyMMdd_HHmm'))"
+                $GLPAPICreationTask = New-HPEGLAPIcredential -HPEGreenLake -TemplateName $HPEGLAPIClientCredentialName -ErrorAction Stop
+
+                # Create a global variable for the provisionned services
+                $Global:HPEGLServices = $GLPAPICreationTask.provisions
+
+                if ($GLPAPICreationTask.status -ne "Complete") {
+                    if (-not $NoProgress) {
+                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                        Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                    }
+                    throw "API Credential creation failed: $($GLPAPICreationTask.Exception)"
+                }
+            }
+            catch {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                    Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
+                $ErrorMessage = $_.Exception.Message
+                if ($ErrorMessage -match "You have reached the maximum of 7 personal API clients") {
+                    Throw "You have reached the maximum limit of 7 personal API clients. A possible fix is to use the -RemoveExistingCredentials parameter when connecting to automatically remove previously generated credentials created by this library.`nCaution: Removing existing credentials may impact other active library sessions related to your user that are currently using those credentials. This could cause authentication failures in other running PowerShell sessions until they reconnect."
+                }
+                else {
+                    Throw "Failed to create HPE GreenLake API credential: $ErrorMessage"
+                }
+
+            }
+            $completedSteps++
+            #EndRegion
+
+            #Region: Create GLP session
+            "[{0}] STEP {1} - Creating GLP sessions" -f $functionName, $step | Write-Verbose
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Creating GLP sessions" -Id 1
+            $step++
+
+            $GLPTemporaryCredentials = $HPEGreenLakeSession.apiCredentials | Where-Object { $_.name -match "GLP-$HPEGLAPIClientCredentialName" }
+            if ($GLPTemporaryCredentials) {
+                try {
+                    $SecureClientSecret = $GLPTemporaryCredentials.secure_client_secret | ConvertTo-SecureString
+                    $Bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureClientSecret)
+                    $ClientSecret = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($Bstr)
+                    $Payload = @{
+                        'client_id' = $GLPTemporaryCredentials.client_id
+                        'client_secret' = $ClientSecret
+                        'grant_type' = 'client_credentials'
+                    }
+                    $response = Invoke-RestMethod -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded'
+                    $Global:HPEGreenLakeSession.glpApiAccessToken = [PSCustomObject]@{
+                        name = $GLPTemporaryCredentials.name
+                        access_token = $response.access_token
+                        expires_in = $response.expires_in
+                        creation_time = Get-Date
+                    }
+
+                    $tokenIssuerv2uri = $HPEGLAPIbaseURL + "/authorization/v2/oauth2/" + $HPEGreenLakeSession.workspaceId + "/token"
+                    $response2 = Invoke-RestMethod -Method Post -Uri $tokenIssuerv2uri -Body $Payload -ContentType 'application/x-www-form-urlencoded'
+                    $token = Get-HPEGLJWTDetails $response2.access_token
+                    $tokenVersion = if ($token.PSObject.Properties.Match("hpe_token_type")) { $token.hpe_token_type } else { "api-v1.1" }
+                    if ($tokenVersion -eq "api-v1.2") {
+                        $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = [PSCustomObject]@{
+                            name = $GLPTemporaryCredentials.name
+                            access_token = $response2.access_token
+                            expires_in = $response2.expires_in
+                            creation_time = Get-Date
+                        }
+                    }
+                    else {
+                        $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = $null
+                    }
+                }
+                catch {
+                    if (-not $NoProgress) {
+                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                        Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                    }
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+            }
+            $completedSteps++
+            #EndRegion
+
+            #Region: Set COM regions
             "[{0}] STEP {1} - Setting COM regions" -f $functionName, $step | Write-Verbose
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Setting COM regions" -Id 1
             $step++
@@ -7286,8 +7389,9 @@ Function Connect-HPEGLWorkspace {
                 $PSCmdlet.ThrowTerminatingError($_)
             }
             $completedSteps++
+            #EndRegion
 
-            # Region: Generate COM job templates
+            #Region: Generate COM job templates
             if ($HPECOMRegions.count -gt 0 -and -not $HPECOMjobtemplatesUris) {
                 "[{0}] STEP {1} - Generating COM job templates" -f $functionName, $step | Write-Verbose
                 Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Generating COM job templates" -Id 1
@@ -7306,8 +7410,9 @@ Function Connect-HPEGLWorkspace {
                 }
                 $completedSteps++
             }
+            #EndRegion
 
-            # Region: Set session idle timeout
+            #Region: Set session idle timeout
             "[{0}] STEP {1} - Setting session idle timeout" -f $functionName, $step | Write-Verbose
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Setting session idle timeout" -Id 1
             $step++
@@ -7331,9 +7436,12 @@ Function Connect-HPEGLWorkspace {
                 $PSCmdlet.ThrowTerminatingError($_)
             }
             $completedSteps++
-        }
+            #EndRegion
 
-        # Region: Get schema metadata
+        }
+        #EndRegion
+
+        #Region: Get schema metadata
         if (-not $Force) {
             "[{0}] STEP {1} - Getting schema metadata" -f $functionName, $step | Write-Verbose
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Getting schema metadata" -Id 1
@@ -7368,15 +7476,17 @@ Function Connect-HPEGLWorkspace {
             }
             $completedSteps++
         }
+        #EndRegion
+
     }
 
     End {
         "[{0}] Connection process completed" -f $functionName | Write-Verbose
-        # if (-not $NoProgress) {
-        #     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Completed" -Id 1
-        #     Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Completed" -Completed
-        #     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Completed" -Completed
-        # }
+        if (-not $NoProgress) {
+            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Completed" -Id 1
+            Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Completed" -Completed
+            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Completed" -Completed
+        }
         return $HPEGreenLakeSession
     }
 }
@@ -7385,38 +7495,30 @@ Function Connect-HPEGLWorkspace {
 Function Invoke-HPEGLAutoReconnect {
     <#
     .SYNOPSIS
-        Manages HPE GreenLake session token refresh for OAuth2 and GLP API access tokens.
+        Manages HPE GreenLake session token refresh for HPE GreenLake API access tokens.
 
     .DESCRIPTION
-        Checks the expiration status of both OAuth2 and GLP API access tokens and refreshes them if they're close to expiring or if the Force parameter is specified.
+        Checks the expiration status of HPE GreenLake API access tokens and refreshes them if they're close to expiring or if the Force parameter is specified.
         Throws an error if the session is already expired, requiring a new connection via Connect-HPEGL.
 
-    .PARAMETER Timeout
-        Number of minutes before token expiration to trigger a refresh. Default is 100 minutes.
-
     .PARAMETER Force
-        Forces a refresh of both OAuth2 and GLP API access tokens regardless of their expiration status.
+        Forces a refresh of HPE GreenLake API access tokens regardless of their expiration status.
 
     .EXAMPLE
-        Invoke-HPEGLAutoReconnect -Timeout 90
-        Checks and refreshes tokens if they're within 90 minutes of expiration.
+        Invoke-HPEGLAutoReconnect 
+        Checks and refreshes the access tokens if they're about to expire.
 
     .EXAMPLE
         Invoke-HPEGLAutoReconnect -Force
-        Forces a refresh of both OAuth2 and GLP API access tokens immediately.
+        Forces a refresh of the access tokens immediately.
 
     .NOTES
-        - OAuth2 access token validity: 120 minutes
-        - GLP API access token validity: 15 minutes (v1.2) or 120 minutes (v1.1)
+        - HPE GreenLake public API access token validity: 15 minutes (v1.2) or 120 minutes (v1.1)
         - Requires $HPEGreenLakeSession global variable to be set
     #>
 
     [CmdletBinding()]
     Param(
-        [Parameter(Mandatory=$false)]
-        [ValidateRange(1, 120)]
-        [int]$Timeout = 100,
-
         [Parameter(Mandatory=$false)]
         [switch]$Force
     )
@@ -7424,7 +7526,7 @@ Function Invoke-HPEGLAutoReconnect {
     Begin {
         # Validate session existence
         if (-not $HPEGreenLakeSession) {
-            Throw "HPE GreenLake session not found. Please run Connect-HPEGL first."
+            Throw "No HPE GreenLake session found! Connect-HPEGL must be executed first!"
         }
 
         # Initialize variables
@@ -7433,62 +7535,39 @@ Function Invoke-HPEGLAutoReconnect {
     }
 
     Process {
-        # OAuth2 Access Token Check
-        try {
-            $oauth2Expiration = $HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
-            $minutesToOauth2Expiration = [math]::Round(($oauth2Expiration - $currentTime).TotalMinutes, 2)
 
-            if ($minutesToOauth2Expiration -le 0) {
-                Write-Verbose "[$functionName] OAuth2 Access Token expired! ($minutesToOauth2Expiration minutes)."
-                Throw "OAuth2 Access Token has expired. Please reconnect using Connect-HPEGL."
-            }
-            elseif ($Force -or $minutesToOauth2Expiration -le $Timeout) {
-                Write-Verbose "[$functionName] OAuth2 Access Token refresh needed. $minutesToOauth2Expiration minutes remaining. Force: $Force"
-                Connect-HPEGLWorkspace -Force -ErrorAction Stop | Out-Null
-                Write-Verbose "[$functionName] OAuth2 Access Token refreshed successfully."
-            }
-            else {
-                Write-Verbose "[$functionName] OAuth2 Access Token valid for $minutesToOauth2Expiration minutes. No refresh needed."
-            }
-        }
-        catch {
-            Write-Progress -Id 1 -Activity "Connecting to HទHPE GreenLake" -Status "Failed" -Completed
-            $PSCmdlet.ThrowTerminatingError($_)
-        }
-
-        # GLP API Access Token Check
         try {
-            $glpToken = if ($HPEGreenLakeSession.glpApiAccessTokenv1_2) {
-                $HPEGreenLakeSession.glpApiAccessTokenv1_2[0]
+            # Check if the session is still valid
+            if ($HPEGreenLakeSession.glpApiAccessTokenv1_2) {
+                $glpToken = $HPEGreenLakeSession.glpApiAccessTokenv1_2[0]
+                $Timeout = 2 # v1.2 token validity is 15 minutes
+                $glpExpiration = $glpToken.creation_Time.AddSeconds($glpToken.expires_in)
             }
             elseif ($HPEGreenLakeSession.glpApiAccessToken) {
-                $HPEGreenLakeSession.glpApiAccessToken[0]
+                $glpToken = $HPEGreenLakeSession.glpApiAccessToken[0]
+                $Timeout = 110 # v1.1 token validity is 120 minutes
+                $glpExpiration = $glpToken.creation_Time.AddSeconds($glpToken.expires_in)
             }
             else {
-                Write-Verbose "[$functionName] No GLP API access token found."
-                return
+                $Timeout = 110 # token validity is 120 minutes
+                $glpExpiration = $HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
             }
+            
+            $minutesToGlpExpiration = [math]::Round(($glpExpiration - $currentTime).TotalMinutes, 2)       
 
-            $glpExpiration = $glpToken.creation_Time.AddSeconds($glpToken.expires_in)
-            $minutesToGlpExpiration = [math]::Round(($glpExpiration - $currentTime).TotalMinutes, 2)
-
-            if ($Force -or $minutesToGlpExpiration -le 1) {
-                Write-Verbose "[$functionName] GLP API Access Token refresh needed. $minutesToGlpExpiration minutes remaining. Force: $Force"
+            if ($Force -or $minutesToGlpExpiration -le $Timeout) {
+                Write-Verbose "[$functionName] GLP API Access Token is expiring soon ($minutesToGlpExpiration minutes remaining). Refreshing token. Force: $Force"
                 Connect-HPEGLWorkspace -Force -ErrorAction Stop | Out-Null
-                Write-Verbose "[$functionName] GLP API Access Token refreshed successfully"
+                Write-Verbose "[$functionName] GLP API Access Token has been refreshed successfully."
             }
             else {
-                Write-Verbose "[$functionName] GLP API Access Token valid for $minutesToGlpExpiration minutes. No refresh needed"
+                Write-Verbose "[$functionName] GLP API Access Token is valid for $minutesToGlpExpiration more minutes. No refresh required."
             }
         }
         catch {
             Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
             $PSCmdlet.ThrowTerminatingError($_)
         }
-    }
-
-    End {
-        Write-Verbose "[$functionName] Token refresh check completed."
     }
 }
 
@@ -51137,70 +51216,6 @@ Function New-HPEGLService {
 
                         "[{0}] Added '{1}' region to the global variable `$HPECOMRegions used for the argument completer for the Region parameter of *HPECOM* cmdlets." -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
 
-                        # #Region- Generate new COM API client credential using template $APIClientCredentialTemplateName in $region
-                        # NOT REQUIRED ANYMORE AS UNIFIED API IS NOW SUPPORTED
-                        
-                        # "[{0}] ------- Create '{1}' temporary COM API client credential for '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
-                        # # Save access token into $HPEGreenLakesession.comApiAccessToken
-                        # # It will save client_id / client_secret into $HPEGreenLakesession.apiCredentials.COM-<region>-PowerShell_Library_Temporary_Credential
-                            
-                        # $COMAPICreationTask = New-HPEGLAPIcredential -ServiceName $Name -Region $Region -TemplateName $APIClientCredentialTemplateName -ErrorAction SilentlyContinue #| out-Null
-                                                                                
-                        # if ($COMAPICreationTask.status -eq "Failed") {
-                        #     "API Credential '{0}' cannot be created ! '{1}'" -f ($COMAPICreationTask.Name.substring(0, ($COMAPICreationTask.Name.length - ($APIClientCredentialTemplateName.Length + 1))))  , $COMAPICreationTask.Exception | Write-Error
-                        # }
-                        # else {
-                            
-                        #     "[{0}] ------- Create session with to capture access token " -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-
-                        #     # Create session with the API and capture new access tokens
-                        #     $TemportaryCredential = $HPEGreenLakeSession.apiCredentials | Where-Object { $_.name -match $APIClientCredentialTemplateName -and $_.name -match "COM" -and $_.region -match $Region }
-
-                        #     "[{0}] Credential found: `n{1} " -f $MyInvocation.InvocationName.ToString().ToUpper(), $TemportaryCredential | Write-Verbose
-            
-
-                        #     $SecureClientSecret = $TemportaryCredential.secure_client_secret | ConvertTo-SecureString
-                        #     $Bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureClientSecret)
-                        #     $ClientSecret = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) 
-
-                        #     $Payload = @{
-                        #         'client_id'     = $TemportaryCredential.client_id
-                        #         'client_secret' = $ClientSecret
-                        #         'grant_type'    = 'client_credentials'
-                        #     }
-            
-                        #     "[{0}] About to execute POST request to: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $HPEGLtokenEndpoint | Write-Verbose
-                        #     "[{0}] Payload content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($payload | convertto-json) | Write-Verbose
-    
-                        #     try {
-    
-                        #         $response = Invoke-RestMethod -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded' 
-            
-                        #         "[{0}] Raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $response | Write-verbose
-    
-                        #         $comApiAccessToken = [PSCustomObject]@{
-                        #             name          = $TemportaryCredential.name
-                        #             access_token  = $response.access_token 
-                        #             expires_in    = $response.expires_in
-                        #             creation_time = (Get-Date)
-                        #         }
-                            
-                        #         [void]$global:HPEGreenLakeSession.comApiAccessToken.add($comApiAccessToken)
-                        #         "[{0}] COM API access token has been set in `$HPEGreenLakeSession.comApiAccessToken` global variable!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                        #     }
-                        #     catch {
-    
-                        #         "[{0}] Create API session payload content: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Payload | Out-String) | Write-Verbose
-    
-                        #         if ($_.ErrorDetails.Message) {
-                        #             Write-Warning $_.ErrorDetails
-                        #         }
-    
-                        #         $PSCmdlet.ThrowTerminatingError($_).Exception.Message
-    
-                        #     }
-                        # }
-                        # #endregion
                     }  
                 }
 
@@ -52467,20 +52482,16 @@ Function New-HPEGLAPIcredential {
         }
         elseif ($Numberofcredentials -ge 7) {
 
-            "[{0}] API credential '{1}' cannot be created because you have reached the maximum of 7 personal API clients" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CredentialName | Write-Verbose
+            "[{0}] API credential '{1}' cannot be created because you have reached the maximum of 7 personal API clients." -f $MyInvocation.InvocationName.ToString().ToUpper(), $CredentialName | Write-Verbose
 
             if ($WhatIf) {
-                $ErrorMessage = "API credential '{0}': Resource cannot be created because you have reached the maximum of 7 personal API clients" -f $CredentialName
+                $ErrorMessage = "API credential '{0}': Resource cannot be created because you have reached the maximum of 7 personal API clients." -f $CredentialName
                 Write-warning $ErrorMessage
                 return
             }
             else {
-                $objStatus.Status = "Failed"
-                $objStatus.Details = "API credential cannot be created!"
-                $objStatus.Exception = "You have reached the maximum of 7 personal API clients!"
+                Throw "API credential '$($CredentialName)' cannot be created! You have reached the maximum of 7 personal API clients!"
             }
-
-
         }
         else {
 
@@ -52644,8 +52655,6 @@ Function New-HPEGLAPIcredential {
             $NewAPICredentialStatus = Invoke-RepackageObjectWithType -RawObject $NewAPICredentialStatus -ObjectName "ObjStatus.NSDE" 
             Return $NewAPICredentialStatus
         }
-
-
     }
 }
 
@@ -52769,12 +52778,12 @@ Function Remove-HPEGLAPICredential {
             
 
             # If the credential being deleted is the temporary one used by the library, send a warning 
-            if (($HPEGreenLakeSession.apiCredentials | Where-Object name -eq $Name) -and $Name -match $APIClientCredentialTemplateName -and -not $Force) {
+            if (($HPEGreenLakeSession.apiCredentials | Where-Object name -eq $Name) -and $Name -match $HPEGLAPIClientCredentialName -and -not $Force) {
 
                 "[{0}] Credential '{1}' is used by the module and is attempted to be removed!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name | Write-Verbose
 
-                $title = "You are about to delete an API credential used by this module to interact with a service instance. Confirm that you would like to remove '{0}'" -f $name
-                $question = "This action will impact all actions because there will be no more access to this service instance. Are you sure you want to proceed?"
+                $title = "You are about to delete an API credential used by this module to interact with HPE GreenLake service instances. Confirm that you would like to remove '{0}'" -f $name
+                $question = "This action will impact all actions because there will be no more access to these service instances. Are you sure you want to proceed?"
                 $choices = '&Yes', '&No'
                 
                 $decision = $Host.UI.PromptForChoice($title, $question, $choices, 1)
@@ -63342,10 +63351,10 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 
 
 # SIG # Begin signature block
-# MIItEAYJKoZIhvcNAQcCoIItATCCLP0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAYAl1+TEHl1+um
-# oIpu9MyhW9Ie1pqZMLGJiWfQaV+Q5qCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCkCFC4vQiF4Aeg
+# 5vCtx+Hvp17OZ1UvfAw2YPmNX67Br6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -63441,146 +63450,154 @@ New-Variable -Name HPEGLLibraryVersion -Scope Global -Value $LibraryVersion -Err
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGnAwghpsAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgDBLrGWi4UDx+3+TArvCmrgPsYN+TATUQzyXLjhpkFzMwDQYJKoZIhvcNAQEB
-# BQAEggIAAFQhBcIbRUNQuGDRLFOtdj9DxFL/huDQv/pifOzCXMluSJ6PiN9V7p59
-# opGsE2FSb07KVyi9Jf0aEirsK9QiX73pHTpMrCYuUQKWpj49uCCWunNiy+py9TTB
-# Rv+K0BiHq8e6W2THXWMKEqfM2/KB5FMjqfmF/Yda4entiI12rCxy/BFsoiX9PRwn
-# 22+Oz/DAlWa1jvfJVml+nJvEj+O4Vibzh/FIQYVRq8RlkLLsnNWch6igZETXlCN3
-# FmQNpi+z/kttEjPBgepgrjl9O4DeTFF3u+EyqD7bDnsHtUG+HQME10tyXTvnRfx5
-# 6lmVRL5DuUxTGwoJMh8zww80x38DeB7U9CyxdI9aHS1NEOE3SKA+qbxU4Ys6E+/K
-# Lu8/EJ6Oz/Bw1AOaofSBezUtHDFrId3xIEqwoauvDseXxv4ZucoSXArwftcrRBBx
-# V/069HxGDyIHo+DJChE4iPBK6QXHFOgT7jEGEG/yQj2+fBIT+qxQ0zrc9DLlTZwg
-# k6HRuNgToVs7gBzAOqSsFbyC4oC1oHA627ze/7WoKZHho3uQ3szHvYb9bqFnyA5M
-# 8z52r6wr2H3UBR8ChKqmSIPeqZyMfQzfO5XjyA8EHc73RQFzuYHpbFGUMOcBtasX
-# wNY2nRvwd2w49DYguUXyiILEEaSDdeKw83b8jr/Bd26Rug+ejPOhghdaMIIXVgYK
-# KwYBBAGCNwMDATGCF0YwghdCBgkqhkiG9w0BBwKgghczMIIXLwIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMD7HMyO0OHhsqSIsa1FjyHRQ9M4Pi3zyAqjQzTyOdJuq
-# hDQY98p5FgEBvQqQC4uS2gIQZPDXN3r9+IvD8IrS7vx4bRgPMjAyNTA3MDgxNjIy
-# MDVaoIITAzCCBrwwggSkoAMCAQICEAuuZrxaun+Vh8b56QTjMwQwDQYJKoZIhvcN
-# AQELBQAwYzELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMTsw
-# OQYDVQQDEzJEaWdpQ2VydCBUcnVzdGVkIEc0IFJTQTQwOTYgU0hBMjU2IFRpbWVT
-# dGFtcGluZyBDQTAeFw0yNDA5MjYwMDAwMDBaFw0zNTExMjUyMzU5NTlaMEIxCzAJ
-# BgNVBAYTAlVTMREwDwYDVQQKEwhEaWdpQ2VydDEgMB4GA1UEAxMXRGlnaUNlcnQg
-# VGltZXN0YW1wIDIwMjQwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC+
-# anOf9pUhq5Ywultt5lmjtej9kR8YxIg7apnjpcH9CjAgQxK+CMR0Rne/i+utMeV5
-# bUlYYSuuM4vQngvQepVHVzNLO9RDnEXvPghCaft0djvKKO+hDu6ObS7rJcXa/UKv
-# NminKQPTv/1+kBPgHGlP28mgmoCw/xi6FG9+Un1h4eN6zh926SxMe6We2r1Z6VFZ
-# j75MU/HNmtsgtFjKfITLutLWUdAoWle+jYZ49+wxGE1/UXjWfISDmHuI5e/6+NfQ
-# rxGFSKx+rDdNMsePW6FLrphfYtk/FLihp/feun0eV+pIF496OVh4R1TvjQYpAztJ
-# pVIfdNsEvxHofBf1BWkadc+Up0Th8EifkEEWdX4rA/FE1Q0rqViTbLVZIqi6viEk
-# 3RIySho1XyHLIAOJfXG5PEppc3XYeBH7xa6VTZ3rOHNeiYnY+V4j1XbJ+Z9dI8Zh
-# qcaDHOoj5KGg4YuiYx3eYm33aebsyF6eD9MF5IDbPgjvwmnAalNEeJPvIeoGJXae
-# BQjIK13SlnzODdLtuThALhGtyconcVuPI8AaiCaiJnfdzUcb3dWnqUnjXkRFwLts
-# VAxFvGqsxUA2Jq/WTjbnNjIUzIs3ITVC6VBKAOlb2u29Vwgfta8b2ypi6n2PzP0n
-# VepsFk8nlcuWfyZLzBaZ0MucEdeBiXL+nUOGhCjl+QIDAQABo4IBizCCAYcwDgYD
-# VR0PAQH/BAQDAgeAMAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUH
-# AwgwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMB8GA1UdIwQYMBaA
-# FLoW2W1NhS9zKXaaL3WMaiCPnshvMB0GA1UdDgQWBBSfVywDdw4oFZBmpWNe7k+S
-# H3agWzBaBgNVHR8EUzBRME+gTaBLhklodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
-# RGlnaUNlcnRUcnVzdGVkRzRSU0E0MDk2U0hBMjU2VGltZVN0YW1waW5nQ0EuY3Js
-# MIGQBggrBgEFBQcBAQSBgzCBgDAkBggrBgEFBQcwAYYYaHR0cDovL29jc3AuZGln
-# aWNlcnQuY29tMFgGCCsGAQUFBzAChkxodHRwOi8vY2FjZXJ0cy5kaWdpY2VydC5j
-# b20vRGlnaUNlcnRUcnVzdGVkRzRSU0E0MDk2U0hBMjU2VGltZVN0YW1waW5nQ0Eu
-# Y3J0MA0GCSqGSIb3DQEBCwUAA4ICAQA9rR4fdplb4ziEEkfZQ5H2EdubTggd0ShP
-# z9Pce4FLJl6reNKLkZd5Y/vEIqFWKt4oKcKz7wZmXa5VgW9B76k9NJxUl4JlKwyj
-# UkKhk3aYx7D8vi2mpU1tKlY71AYXB8wTLrQeh83pXnWwwsxc1Mt+FWqz57yFq6la
-# ICtKjPICYYf/qgxACHTvypGHrC8k1TqCeHk6u4I/VBQC9VK7iSpU5wlWjNlHlFFv
-# /M93748YTeoXU/fFa9hWJQkuzG2+B7+bMDvmgF8VlJt1qQcl7YFUMYgZU1WM6nyw
-# 23vT6QSgwX5Pq2m0xQ2V6FJHu8z4LXe/371k5QrN9FQBhLLISZi2yemW0P8ZZfx4
-# zvSWzVXpAb9k4Hpvpi6bUe8iK6WonUSV6yPlMwerwJZP/Gtbu3CKldMnn+LmmRTk
-# TXpFIEB06nXZrDwhCGED+8RsWQSIXZpuG4WLFQOhtloDRWGoCwwc6ZpPddOFkM2L
-# lTbMcqFSzm4cd0boGhBq7vkqI1uHRz6Fq1IX7TaRQuR+0BGOzISkcqwXu7nMpFu3
-# mgrlgbAW+BzikRVQ3K2YHcGkiKjA4gi4OA/kz1YCsdhIBHXqBzR0/Zd2QwQ/l4Gx
-# ftt/8wY3grcc/nS//TVkej9nmUYu83BDtccHHXKibMs/yXHhDXNkoPIdynhVAku7
-# aRZOwqw6pDCCBq4wggSWoAMCAQICEAc2N7ckVHzYR6z9KGYqXlswDQYJKoZIhvcN
-# AQELBQAwYjELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcG
-# A1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3Rl
-# ZCBSb290IEc0MB4XDTIyMDMyMzAwMDAwMFoXDTM3MDMyMjIzNTk1OVowYzELMAkG
-# A1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQDEzJEaWdp
-# Q2VydCBUcnVzdGVkIEc0IFJTQTQwOTYgU0hBMjU2IFRpbWVTdGFtcGluZyBDQTCC
-# AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAMaGNQZJs8E9cklRVcclA8Ty
-# kTepl1Gh1tKD0Z5Mom2gsMyD+Vr2EaFEFUJfpIjzaPp985yJC3+dH54PMx9QEwsm
-# c5Zt+FeoAn39Q7SE2hHxc7Gz7iuAhIoiGN/r2j3EF3+rGSs+QtxnjupRPfDWVtTn
-# KC3r07G1decfBmWNlCnT2exp39mQh0YAe9tEQYncfGpXevA3eZ9drMvohGS0UvJ2
-# R/dhgxndX7RUCyFobjchu0CsX7LeSn3O9TkSZ+8OpWNs5KbFHc02DVzV5huowWR0
-# QKfAcsW6Th+xtVhNef7Xj3OTrCw54qVI1vCwMROpVymWJy71h6aPTnYVVSZwmCZ/
-# oBpHIEPjQ2OAe3VuJyWQmDo4EbP29p7mO1vsgd4iFNmCKseSv6De4z6ic/rnH1ps
-# lPJSlRErWHRAKKtzQ87fSqEcazjFKfPKqpZzQmiftkaznTqj1QPgv/CiPMpC3BhI
-# fxQ0z9JMq++bPf4OuGQq+nUoJEHtQr8FnGZJUlD0UfM2SU2LINIsVzV5K6jzRWC8
-# I41Y99xh3pP+OcD5sjClTNfpmEpYPtMDiP6zj9NeS3YSUZPJjAw7W4oiqMEmCPkU
-# EBIDfV8ju2TjY+Cm4T72wnSyPx4JduyrXUZ14mCjWAkBKAAOhFTuzuldyF4wEr1G
-# nrXTdrnSDmuZDNIztM2xAgMBAAGjggFdMIIBWTASBgNVHRMBAf8ECDAGAQH/AgEA
-# MB0GA1UdDgQWBBS6FtltTYUvcyl2mi91jGogj57IbzAfBgNVHSMEGDAWgBTs1+OC
-# 0nFdZEzfLmc/57qYrhwPTzAOBgNVHQ8BAf8EBAMCAYYwEwYDVR0lBAwwCgYIKwYB
-# BQUHAwgwdwYIKwYBBQUHAQEEazBpMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5k
-# aWdpY2VydC5jb20wQQYIKwYBBQUHMAKGNWh0dHA6Ly9jYWNlcnRzLmRpZ2ljZXJ0
-# LmNvbS9EaWdpQ2VydFRydXN0ZWRSb290RzQuY3J0MEMGA1UdHwQ8MDowOKA2oDSG
-# Mmh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRSb290RzQu
-# Y3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG/WwHATANBgkqhkiG9w0B
-# AQsFAAOCAgEAfVmOwJO2b5ipRCIBfmbW2CFC4bAYLhBNE88wU86/GPvHUF3iSyn7
-# cIoNqilp/GnBzx0H6T5gyNgL5Vxb122H+oQgJTQxZ822EpZvxFBMYh0MCIKoFr2p
-# Vs8Vc40BIiXOlWk/R3f7cnQU1/+rT4osequFzUNf7WC2qk+RZp4snuCKrOX9jLxk
-# Jodskr2dfNBwCnzvqLx1T7pa96kQsl3p/yhUifDVinF2ZdrM8HKjI/rAJ4JErpkn
-# G6skHibBt94q6/aesXmZgaNWhqsKRcnfxI2g55j7+6adcq/Ex8HBanHZxhOACcS2
-# n82HhyS7T6NJuXdmkfFynOlLAlKnN36TU6w7HQhJD5TNOXrd/yVjmScsPT9rp/Fm
-# w0HNT7ZAmyEhQNC3EyTN3B14OuSereU0cZLXJmvkOHOrpgFPvT87eK1MrfvElXvt
-# Cl8zOYdBeHo46Zzh3SP9HSjTx/no8Zhf+yvYfvJGnXUsHicsJttvFXseGYs2uJPU
-# 5vIXmVnKcPA3v5gA3yAWTyf7YGcWoWa63VXAOimGsJigK+2VQbc61RWYMbRiCQ8K
-# vYHZE/6/pNHzV9m8BPqC3jLfBInwAM1dwvnQI38AC+R2AibZ8GV2QqYphwlHK+Z/
-# GqSFD/yYlvZVVCsfgPrA8g4r5db7qS9EFUrnEw4d2zc4GqEr9u3WfPwwggWNMIIE
-# daADAgECAhAOmxiO+dAt5+/bUOIIQBhaMA0GCSqGSIb3DQEBDAUAMGUxCzAJBgNV
-# BAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdp
-# Y2VydC5jb20xJDAiBgNVBAMTG0RpZ2lDZXJ0IEFzc3VyZWQgSUQgUm9vdCBDQTAe
-# Fw0yMjA4MDEwMDAwMDBaFw0zMTExMDkyMzU5NTlaMGIxCzAJBgNVBAYTAlVTMRUw
-# EwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20x
-# ITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0ZWQgUm9vdCBHNDCCAiIwDQYJKoZIhvcN
-# AQEBBQADggIPADCCAgoCggIBAL/mkHNo3rvkXUo8MCIwaTPswqclLskhPfKK2FnC
-# 4SmnPVirdprNrnsbhA3EMB/zG6Q4FutWxpdtHauyefLKEdLkX9YFPFIPUh/GnhWl
-# fr6fqVcWWVVyr2iTcMKyunWZanMylNEQRBAu34LzB4TmdDttceItDBvuINXJIB1j
-# KS3O7F5OyJP4IWGbNOsFxl7sWxq868nPzaw0QF+xembud8hIqGZXV59UWI4MK7dP
-# pzDZVu7Ke13jrclPXuU15zHL2pNe3I6PgNq2kZhAkHnDeMe2scS1ahg4AxCN2NQ3
-# pC4FfYj1gj4QkXCrVYJBMtfbBHMqbpEBfCFM1LyuGwN1XXhm2ToxRJozQL8I11pJ
-# pMLmqaBn3aQnvKFPObURWBf3JFxGj2T3wWmIdph2PVldQnaHiZdpekjw4KISG2aa
-# dMreSx7nDmOu5tTvkpI6nj3cAORFJYm2mkQZK37AlLTSYW3rM9nF30sEAMx9HJXD
-# j/chsrIRt7t/8tWMcCxBYKqxYxhElRp2Yn72gLD76GSmM9GJB+G9t+ZDpBi4pncB
-# 4Q+UDCEdslQpJYls5Q5SUUd0viastkF13nqsX40/ybzTQRESW+UQUOsxxcpyFiIJ
-# 33xMdT9j7CFfxCBRa2+xq4aLT8LWRV+dIPyhHsXAj6KxfgommfXkaS+YHS312amy
-# HeUbAgMBAAGjggE6MIIBNjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBTs1+OC
-# 0nFdZEzfLmc/57qYrhwPTzAfBgNVHSMEGDAWgBRF66Kv9JLLgjEtUYunpyGd823I
-# DzAOBgNVHQ8BAf8EBAMCAYYweQYIKwYBBQUHAQEEbTBrMCQGCCsGAQUFBzABhhho
-# dHRwOi8vb2NzcC5kaWdpY2VydC5jb20wQwYIKwYBBQUHMAKGN2h0dHA6Ly9jYWNl
-# cnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcnQwRQYD
-# VR0fBD4wPDA6oDigNoY0aHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0
-# QXNzdXJlZElEUm9vdENBLmNybDARBgNVHSAECjAIMAYGBFUdIAAwDQYJKoZIhvcN
-# AQEMBQADggEBAHCgv0NcVec4X6CjdBs9thbX979XB72arKGHLOyFXqkauyL4hxpp
-# VCLtpIh3bb0aFPQTSnovLbc47/T/gLn4offyct4kvFIDyE7QKt76LVbP+fT3rDB6
-# mouyXtTP0UNEm0Mh65ZyoUi0mcudT6cGAxN3J0TU53/oWajwvy8LpunyNDzs9wPH
-# h6jSTEAZNUZqaVSwuKFWjuyk1T3osdz9HNj0d1pcVIxv76FQPfx2CWiEn2/K2yCN
-# NWAcAgPLILCsWKAOQGPFmCLBsln1VWvPJ6tsds5vIy30fnFqI2si/xK4VC0nftg6
-# 2fC2h5b9W9FcrBjDTZ9ztwGpn1eqXijiuZQxggOGMIIDggIBATB3MGMxCzAJBgNV
-# BAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UEAxMyRGlnaUNl
-# cnQgVHJ1c3RlZCBHNCBSU0E0MDk2IFNIQTI1NiBUaW1lU3RhbXBpbmcgQ0ECEAuu
-# Zrxaun+Vh8b56QTjMwQwDQYJYIZIAWUDBAICBQCggeEwGgYJKoZIhvcNAQkDMQ0G
-# CyqGSIb3DQEJEAEEMBwGCSqGSIb3DQEJBTEPFw0yNTA3MDgxNjIyMDVaMCsGCyqG
-# SIb3DQEJEAIMMRwwGjAYMBYEFNvThe5i29I+e+T2cUhQhyTVhltFMDcGCyqGSIb3
-# DQEJEAIvMSgwJjAkMCIEIHZ2n6jyYy8fQws6IzCu1lZ1/tdz2wXWZbkFk5hDj5rb
-# MD8GCSqGSIb3DQEJBDEyBDDywai3dbyX1SWYpr83HWt0ighlxOurSODRjGnkQwE6
-# GCFH07fDe5pVfzlyWh9vtfwwDQYJKoZIhvcNAQEBBQAEggIAjSyfMB2H1RLN/WpB
-# n3o09zQ/yEXHier27u8GISw5e3HSFqzX47nQHmTDuZBLnOGytAJ8+tiYxZR33RxR
-# qOgmqJvjgPVVvDTPXoS8dLq0mfXqvn/enK6PY1W/fJwlM4ykAeB5XDUyi+HxNstz
-# +9Q0jkkj4Sx/CHqfR2mx9xFdcdwQVx3A8FJTKyqDmvuyizdoLvbJfcbEU1EdbxBS
-# SNKutxIgshn+Ll0XqDwQ6tcMSWPKhC6h/Hfbn9M0WvHPB2Q1t9hBscOukEmW54e2
-# jtnn7qrkXptTcca6lcUiGQeZ5ta6Hk2N+Of0rlnBQ+hV1CKo7tJW6EYWBbpkKhH3
-# zLpxthXg6nUWtrVIGJ2f5H/p3vG6SIoEMbPknvkapTs8OXEZCb6KpPTAZVDjvidW
-# zhul6MUpsw7hfclLFijzJ+vP8JVYA8JmW60p1swJi7zocBZjSFTz83guRIvXUWR4
-# gtNPdOegGbP1yrVUOPsp5a/1UUSxfttZiBNOhemmSHv2dfnXYU3pDoGkvDTGp/eK
-# GvWHowKujzA/dzkV5uRRX6re3tmlDBsOfC3V7XX85guwb8otL1jgNMn4GZX+verU
-# cfqDD9YGDe+XL68MNlhK1WpE6j1uzlj0/ndPWc1CLz1QcbubJBUF7eAkSoSKCtay
-# PUvhlOn8LNPcp0AhntcXx1Jublc=
+# IgQgo7G+wIpAYcv9rP6c6rfulUjmHBKte8m5Xddox+Vev4gwDQYJKoZIhvcNAQEB
+# BQAEggIAJmVXda3wBzF7My21q8XtILjFwOI6Mzhz9lSVBkXxJ/F2vq+gLJBViZ8x
+# CTRm5Ahkcv23ntkbNmLcJgmNKS9C0jyebQepXQkYp70JfKkrjK+u62qSIv9c9Fwk
+# 8C50cgaRB0x0tzKYyFGRPxIGp91c0fInEQPXAJhEE4iOQ660TvI1U09TRHwUwrra
+# voEHsWoxOeUFmW02B6jcDxpB7wPrDHaJqUFs+UwpfcLkr2ffh/BmDLVN/DDsH724
+# fL6ATJyhWQeou2KyRgIcv0q9Zvvpnvd3mRkcR0J02lJOSr1lNS1HxXnHVQDs9bQu
+# ccigXO3iBMGXFHW1A4koBvoM7dQgKZtRfrLCLRaZgJ2yHc099WSQDLphCWfIkb5V
+# OSYAr0P2L7YJFGoyxTamGQHfN5hgXE3XkDhlsuyPMUW9HBTpzBe6vw88DKLMqcBQ
+# EH6MAI4MLCyxFSbTcJmxkxTr5J/6sjpv8I2I08a5/DSXR4hXprYTnUnK7uVw7NU6
+# 2mjJ2M5r1tqfGz4QrIlRGHlHR1RC1rj4D6RcJAgKv4lTvbLUKiL453CX/X9pba/S
+# J0eDDa1gSiJypSvvialfYVAMQ+pc6Z2zFtbEZVg8tzM38NXrFh7qsNMGTgKD7kFG
+# vPHL9cPts3vBa6l0LchiX9UqUIoGSJybioPTsJXkLtV5YFk2MrehghjoMIIY5AYK
+# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQw8MetPz5Olt6w6g8T7Nj9G9oE421HINqstDrs
+# IWbn1wiYck57W0EEvQZBgydcmIh+AhQwNABoNrUl2/IwuGtlB8nLmdbEQhgPMjAy
+# NTA3MTExMjExMzdaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
+# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
+# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
+# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
+# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
+# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
+# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
+# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
+# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
+# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
+# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
+# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
+# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
+# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
+# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
+# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
+# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
+# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
+# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
+# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
+# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
+# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
+# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
+# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
+# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
+# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
+# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
+# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
+# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
+# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
+# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
+# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
+# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
+# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
+# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
+# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
+# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
+# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
+# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
+# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
+# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
+# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
+# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
+# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
+# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
+# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
+# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
+# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
+# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
+# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
+# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
+# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
+# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
+# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
+# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
+# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
+# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
+# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
+# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
+# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
+# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
+# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
+# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
+# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
+# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
+# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
+# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
+# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
+# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
+# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
+# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
+# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
+# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
+# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
+# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
+# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
+# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
+# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
+# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
+# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
+# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
+# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
+# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
+# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
+# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
+# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
+# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
+# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
+# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
+# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
+# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
+# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
+# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
+# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
+# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
+# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
+# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
+# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
+# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
+# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
+# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
+# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
+# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
+# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
+# DxcNMjUwNzExMTIxMTM3WjA/BgkqhkiG9w0BCQQxMgQw7k+HGJCFwictI1081kiW
+# R3Iru0NJw0almnPYHgm6Bm6Nl1/n+Lu9xpaUROtZ0C+ZMIIBegYLKoZIhvcNAQkQ
+# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
+# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
+# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
+# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
+# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
+# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
+# AgA94Hujif9wo6ZIdyMq0s/JmFCCavTWGqjVbblbqBHat0emqTj1OUVwbcoGxtn7
+# f4qEsD395IjeaX9hRz1T+GQpM9dxClTKYl8ELac1b6jTir4DqKi0yMjNwX7pizRZ
+# fn2LQsq58sgzxCgCQGye0jYskmuAOSML1RDEu9BBDdbJz5oAIlxa+izarxje8ur8
+# S/pmv/aGu/HUdgTKhTslIyohMpxuft961aR1/UNJnFsTxVh3cSJ8CW/Z/67xJwCB
+# S/fU782UNDBF4Fzu4Cjrux6zBXR/3SRT0/lmpVTv9Wd0GF7d2QLL+MwJOj4rk3T4
+# aMDIS5syvVCnhBPgdtCo9P54t2KsKOoIy5PzxlZaP2CtqbHoEIV12YSSNDz7Fitx
+# UnN2FUlRkVpSj3wdG+BZNDPip/U5/jZpV8SCPQ+Ofd59it1S0/GcmF/uFRbD2RjG
+# SC+O+l8I0cQk3BWMLbqoMls9kir29PRaYhfkmtd5g0kXNOUN36QvT2IFB3uih0Fl
+# NrZkGqhmUcimuHHu31pa9CIZ7SXIsSSa05HWwuEmDAEwtd81gWvu5vQ7BBFj07Uj
+# T6sR/ZEKyW42a7lGeTKSNPW2IwcSy7VDZWtR1waQOEBgDwEOBTgpWaXQveS79ZMW
+# gCaO2RCs1MwauI6pfAVsdnBsiR9Guedm1HZCXnl8AqtwRg==
 # SIG # End signature block
