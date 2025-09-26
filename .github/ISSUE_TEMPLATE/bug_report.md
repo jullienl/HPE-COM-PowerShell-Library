@@ -4,31 +4,34 @@ about: Create a report to help us improve
 title: "[BUG] "
 labels: bug
 assignees: ''
+
 ---
 
-**Library Version:**
-<!-- e.g., v1.0.16 --> (You can use the global variable '$HPEGLLibraryVersion') 
+**Library Version:**    
+[You can use `$HPEGLLibraryVersion`]
+  
+**PowerShell Version:**  
+[You can use `$PSVersionTable`]      
 
-**Environment:**
-- OS: [e.g., Windows 11, macOS, Linux]
-- PowerShell Version: [e.g., 7.3, 7.5.2] (You can use '$PSVersionTable')
+**OS Version:**  
+[e.g., Windows 11, macOS, Linux]
 
-**Authentication Method:**
-<!-- e.g., SSO, MFA with push, MFA with OTP, Single factor -->
+**Authentication Method:**  
+[e.g., SSO, MFA with push, MFA with OTP, Single factor]
 
-**Describe the bug:**
-<!-- A clear description of what the bug is -->
+**Describe the bug:**  
+[A clear description of what the bug is]
 
 **Steps to reproduce:**
-1. 
-2. 
-3. 
+1. [First step]
+2. [Second step]
+3. [Additional steps as needed]
 
-**Expected behavior**
-<!-- A clear and concise description of what you expected to happen. -->
+**Expected behavior:**  
+[A clear and concise description of what you expected to happen]
 
-**Actual behavior:**
-<!-- What actually happened -->
+**Actual behavior:**  
+[What actually happened]     
 
-**Error messages:**
-<!-- Include any error messages or screenshots -->
+**Error messages:**  
+[Include any error messages or screenshots]
