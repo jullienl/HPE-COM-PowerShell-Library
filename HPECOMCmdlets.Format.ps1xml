@@ -192,6 +192,58 @@
         </View> 
 
         <View>
+            <Name>ObjStatus</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.ObjStatus.SESDE</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                                                                                                                                          
+                    <TableColumnHeader>
+                        <Label>Email</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                                                                                                                                          
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Details</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Exception</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>    
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.SerialNumber</ScriptBlock>
+                            </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.Email</ScriptBlock>
+                            </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.Status</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.Details</ScriptBlock>
+                            </TableColumnItem>                            
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.Exception</ScriptBlock>
+                            </TableColumnItem>         
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
             <Name>Connection</Name>
             <ViewSelectedBy>
                 <TypeName>HPEGreenLake.Connection</TypeName>
@@ -208,6 +260,10 @@
                     </TableColumnHeader>
                     <TableColumnHeader>
                         <Label>WorkspacesCount</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Organization</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
@@ -251,9 +307,12 @@
                                 <PropertyName>workspacesCount</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
+                                <PropertyName>organization</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
                                 <ScriptBlock>
-                                    if ( $HPECOMRegions -and $HPECOMRegions.count -gt 0 ) {
-                                        "{0}" -f  $HPECOMRegions.count
+                                    if ( $Global:HPECOMRegions -and $Global:HPECOMRegions.count -gt 0 ) {
+                                        "{0}" -f  $Global:HPECOMRegions.count
                                     }
                                     else {
                                         "0"
@@ -262,8 +321,8 @@
                             </TableColumnItem>
                             <TableColumnItem>
                                 <ScriptBlock>
-                                if ( $HPECOMRegions -and $HPECOMRegions.count -gt 0 ) {
-                                    "({0})" -f  ($HPECOMRegions.region -join ", ")
+                                if ( $Global:HPECOMRegions -and $Global:HPECOMRegions.count -gt 0 ) {
+                                    "({0})" -f  ($Global:HPECOMRegions.region -join ", ")
                                 }
                                 else {
                                     "No COM instance available!"
@@ -310,52 +369,7 @@
                     </TableRowEntry>
                 </TableRowEntries>
             </TableControl>
-        </View>
-
-        <View>
-            <Name>Library</Name>
-            <ViewSelectedBy>
-                <TypeName>HPEGreenLake.Library.Version</TypeName>
-            </ViewSelectedBy>
-            <TableControl>
-                <TableHeaders>
-                  <TableColumnHeader>
-                        <Label>LibraryVersion</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Path</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                </TableHeaders>
-                <TableRowEntries>
-                    <TableRowEntry>
-                        <TableColumnItems>
-                            <TableColumnItem>
-                                <PropertyName>LibraryVersion</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>
-
-                                    $moduleName = 'HPEGreenLake'
-                                    $module = Get-Module -Name $moduleName -ErrorAction Ignore
-
-                                    if (-not $module) { 
-                                        continue 
-                                    } 
-                                    else {
-                                        $Global:HPEGLLibraryVersion | Add-Member -NotePropertyName "Path" -NotePropertyValue ($module.ModuleBase) -Force
-                                    }
-
-                                    "{0}" -f $_.path
-                               
-                               </ScriptBlock>
-                            </TableColumnItem>
-                        </TableColumnItems>
-                    </TableRowEntry>
-                </TableRowEntries>
-            </TableControl>
-        </View>
+        </View>        
 
         <View>
             <Name>License</Name>
@@ -414,11 +428,11 @@
                                 <PropertyName>quantity</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <ScriptBlock>$_.startTime.ToString("MMM d, yyyy")</ScriptBlock>
+                                <ScriptBlock>if ($_.startTime) { (Get-Date $_.startTime).ToString("MMM d, yyyy") } else { "" }</ScriptBlock>
                                 <!-- <ScriptBlock>"{0}" -f  (([System.DateTimeOffset]::FromUnixTimeMilliseconds($_.appointments.subscription_start)).DateTime).ToString("MMM dd, yyyy")</ScriptBlock> -->
                             </TableColumnItem>
                             <TableColumnItem>
-                                <ScriptBlock>$_.endTime.ToString("MMM d, yyyy")</ScriptBlock>
+                                <ScriptBlock>if ($_.endTime) { (Get-Date $_.endTime).ToString("MMM d, yyyy") } else { "" }</ScriptBlock>
                                 <!-- <ScriptBlock>"{0}" -f (([System.DateTimeOffset]::FromUnixTimeMilliseconds($_.appointments.subscription_end)).DateTime).ToString("MMM dd, yyyy")</ScriptBlock> -->
                             </TableColumnItem>                                                                                                                
                             <TableColumnItem>
@@ -477,73 +491,6 @@
                 </TableRowEntries>
             </TableControl>       
         </View> 
-
-        <View>
-            <Name>License</Name>
-            <ViewSelectedBy>
-                <TypeName>HPEGreenLake.License.Device</TypeName>
-            </ViewSelectedBy>
-            <TableControl>
-                <TableHeaders>
-                    <TableColumnHeader>
-                        <Label>Key</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>DeviceType</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Description</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <!-- <Width>15</Width> -->
-                        <Label>Available</Label>
-                        <!-- <Alignment>right</Alignment> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>TotalCount</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>StartDate</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>ExpirationDate</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                </TableHeaders>
-                <TableRowEntries>
-                    <TableRowEntry>
-                        <TableColumnItems>
-                            <TableColumnItem>
-                               <PropertyName>subscription_key</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <ScriptBlock>"{0}" -f  $_.supported_device_types</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>product_description</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>available_quantity</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>quantity</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <ScriptBlock>"{0}" -f  (([System.DateTimeOffset]::FromUnixTimeMilliseconds($_.appointments.subscription_start)).DateTime).ToString("MMM dd, yyyy")</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <ScriptBlock>"{0}" -f (([System.DateTimeOffset]::FromUnixTimeMilliseconds($_.appointments.subscription_end)).DateTime).ToString("MMM dd, yyyy")</ScriptBlock>
-                            </TableColumnItem>                                                                                                                
-                        </TableColumnItems>
-                    </TableRowEntry>
-                </TableRowEntries>
-            </TableControl>
-        </View>
 
         <View>
             <Name>License</Name>
@@ -723,7 +670,8 @@
                         <TableColumnItems>
                             <TableColumnItem>
                                <ScriptBlock>
-                                    if ($_.deviceType -eq 'AP') {
+                                    $_.deviceType
+                                    <!-- if ($_.deviceType -eq 'AP') {
                                         "Access Points"
                                     }
                                     elseif ($_.deviceType -eq 'SWITCH') {
@@ -743,7 +691,7 @@
                                     }
                                     elseif ($_.deviceType -eq 'BRIDGE') {
                                         "Bridges"
-                                    }        
+                                    }         -->
                                 </ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
@@ -763,6 +711,10 @@
             <TableControl>
                 <TableHeaders>
                     <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
                         <Label>SerialNumber</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
@@ -772,10 +724,6 @@
                     </TableColumnHeader>
                     <TableColumnHeader>
                         <Label>PartNumber</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>MACAddress</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
@@ -796,15 +744,15 @@
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>Location</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>ServiceDeliveryContact</Label>
+                        <Label>ServiceDeliveryName</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
                         <Label>ServiceDeliveryEmail</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Location</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
@@ -816,56 +764,54 @@
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                               <PropertyName>serial_number</PropertyName>
+                               <PropertyName>serverName</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <PropertyName>device_model</PropertyName>
+                               <PropertyName>serialNumber</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <PropertyName>part_number</PropertyName>
+                                <PropertyName>model</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <PropertyName>mac_address</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>application_name</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>ccs_region</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>subscription_tier</PropertyName>
+                                <PropertyName>partNumber</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
                                 <ScriptBlock>
-                                    if ($_.subscription_end) { 
-                                        "{0}" -f ((([System.DateTimeOffset]::FromUnixTimeMilliseconds($_.subscription_end)).DateTime).ToString("MMM dd, yyyy"))
+                                    "{0}" -f $_.application.name
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>region</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                 <ScriptBlock>
+                                    "{0}" -f $_.subscription.tier
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.subscription.endTime) { 
+                                        "{0}" -f (Get-date $_.subscription.endTime).ToString("MMM dd, yyyy")
                                     }
-
-
-                                    <!-- if ($_.device_type -eq 'Compute' -and $_.subscription_end) {
-                                          "{0}" -f ((([System.DateTimeOffset]::FromUnixTimeMilliseconds($_.subscription_end)).DateTime).ToString("MMM dd, yyyy"))
-                                    } -->
-                                    <!-- elseif ($_.subscription_end) {
-                                            "{0}" -f (Get-Date $_.subscription_end -Uformat "%b %d, %Y")
-                                    } -->
                                 </ScriptBlock>
                             </TableColumnItem>  
                             <TableColumnItem>
-                                <PropertyName>location_name</PropertyName>
+                                 <ScriptBlock>
+                                    "{0}" -f $_.serviceDelivery.name
+                                </ScriptBlock>
                             </TableColumnItem>                            
                             <TableColumnItem>
-                                <PropertyName>contact_name</PropertyName>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                                <PropertyName>contact_id</PropertyName>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                                <ScriptBlock>
-                                    if ($_.tags) {
-                                        "{0}" -f $_.tags.count
-                                    }
+                                 <ScriptBlock>
+                                    "{0}" -f $_.serviceDelivery.email
                                 </ScriptBlock>
+                            </TableColumnItem>                            
+                            <TableColumnItem>
+                                 <ScriptBlock>
+                                    "{0}" -f $_.location.name
+                                </ScriptBlock>
+                            </TableColumnItem>                            
+                            <TableColumnItem>
+                                <ScriptBlock>$_.tags -replace '^@{', '' -replace '}$', ''</ScriptBlock>
                             </TableColumnItem>                                                                                                                                      
                         </TableColumnItems>
                     </TableRowEntry>
@@ -892,7 +838,6 @@
                         <Label>Description</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
-
                 </TableHeaders>
                 <TableRowEntries>
                     <TableRowEntry>
@@ -912,74 +857,7 @@
             </TableControl>
         </View>
 
-        <View>
-            <Name>Device Tag</Name>
-            <ViewSelectedBy>
-                <TypeName>HPEGreenLake.Device.Tag</TypeName>
-            </ViewSelectedBy>
-            <TableControl>
-                <TableHeaders>
-                    <TableColumnHeader>
-                        <Label>SerialNumber</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Model</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <!-- <Width>15</Width> -->
-                        <Label>Service</Label>
-                        <!-- <Alignment>right</Alignment> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Region</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                     <TableColumnHeader>
-                        <Label>Location</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Contact</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Tags</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                </TableHeaders>
-                <TableRowEntries>
-                    <TableRowEntry>
-                        <TableColumnItems>
-                            <TableColumnItem>
-                               <PropertyName>serial_number</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>device_model</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>application_name</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>ccs_region</PropertyName>
-                            </TableColumnItem> 
-                              <TableColumnItem>
-                                <PropertyName>location_name</PropertyName>
-                            </TableColumnItem>                            
-                            <TableColumnItem>
-                                <PropertyName>contact_name</PropertyName>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                                <ScriptBlock>"{0}" -f (($_.tags | sort-Object name, value | % { $_.name + "=" + $_.value}) -join " - ")</ScriptBlock>
-                            </TableColumnItem>                                                                                                                                      
-                        </TableColumnItems>
-                    </TableRowEntry>
-                </TableRowEntries>
-            </TableControl>
-        </View>
-
-                <View>
+         <View>
             <Name>Device Tag</Name>
             <ViewSelectedBy>
                 <TypeName>HPEGreenLake.Device.Tag.STTTSDE</TypeName>
@@ -1425,7 +1303,7 @@
         <View>
             <Name>Detailed Locations</Name>
             <ViewSelectedBy>
-                <TypeName>HPEGreenLake.Location.SLSDE</TypeName>
+                <TypeName>HPEGreenLake.Location.SeLSDE</TypeName>
             </ViewSelectedBy>
             <TableControl>
                 <TableHeaders>
@@ -1551,9 +1429,9 @@
         </View>
 
         <View>
-            <Name>Service Resource Restriction Policy Filters</Name>
+            <Name>Service Resource Restriction Policy</Name>
             <ViewSelectedBy>
-                <TypeName>HPEGreenLake.Service.Resource.Restriction.Policy.Filter</TypeName>
+                <TypeName>HPEGreenLake.Service.ResourceRestrictionPolicy</TypeName>
             </ViewSelectedBy>
             <TableControl>
                 <TableHeaders>
@@ -1561,16 +1439,8 @@
                         <Label>Name</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
-                    <!-- <TableColumnHeader> -->
-                        <!-- <Label>Description</Label> -->
-                        <!-- <Width>10</Width> -->
-                    <!-- </TableColumnHeader>   -->
-                    <!-- <TableColumnHeader> -->
-                        <!-- <Label>Scope Type Name</Label> -->
-                        <!-- <Width>10</Width> -->
-                    <!-- </TableColumnHeader> -->
                     <TableColumnHeader>
-                        <Label>Slug</Label>
+                        <Label>Description</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                     <TableColumnHeader>
@@ -1581,27 +1451,41 @@
                         <Label>Region</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>              
+                    <TableColumnHeader>
+                        <Label>Filter</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>              
+                    <TableColumnHeader>
+                        <Label>Date</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>              
                 </TableHeaders>
                 <TableRowEntries>
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                                <PropertyName>filter_name</PropertyName>
+                                <PropertyName>name</PropertyName>
                             </TableColumnItem>
-                            <!-- <TableColumnItem> -->
-                                <!-- <PropertyName>description</PropertyName> -->
-                            <!-- </TableColumnItem> -->
-                            <!-- <TableColumnItem> -->
-                                <!-- <PropertyName>scope_type_name</PropertyName> -->
-                            <!-- </TableColumnItem> -->
                             <TableColumnItem>
-                                <PropertyName>slug</PropertyName>
+                                <PropertyName>description</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
                                 <PropertyName>application_name</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
                                 <PropertyName>region</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.scope_resources.count -gt 0){
+                                        "{{{0}}}" -f (($_.scope_resources | ForEach-Object { $_.name }) -join ", ")
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                     "{0}" -f (get-date $_.created_at -Uformat "%b %d, %Y")
+                                </ScriptBlock>
                             </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
@@ -2062,6 +1946,173 @@
         <View>
             <Name>Workspace</Name>
             <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Organization</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Current</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LifecycleState</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>AssociatedManagementWorkspace</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>PhoneNumber</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                       
+                    <TableColumnHeader>
+                        <Label>Email</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>      
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if($_.associatedWorkspace.id -eq $HPEGreenLakeSession.workspaceId){"X"}
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>lifecycleState</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    "{0}" -f $_.associatedWorkspaceName
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.description</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>phoneNumber</PropertyName>
+                            </TableColumnItem>                                                         
+                            <TableColumnItem>
+                                <PropertyName>email</PropertyName>
+                            </TableColumnItem>         
+                            <!-- <TableColumnItem> -->
+                                <!-- <PropertyName>version</PropertyName> -->
+                            <!-- </TableColumnItem>                        -->
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Organization.User</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Email</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Verified</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LifecycleSource</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Lastlogin</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                       
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>displayName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>userName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>
+                                    if ($_.'urn:ietf:params:scim:schemas:extensions:hpe-greenlake:2.0:User'.primaryEmailVerified -eq $true) { "Yes" } else { "No" }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>$_.'urn:ietf:params:scim:schemas:extensions:hpe-greenlake:2.0:User'.source</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.lastLogin) { "{0}" -f ([datetime]$_.lastLogin) } else { "Never" }
+                                </ScriptBlock>
+                            </TableColumnItem>                                                         
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Organization.Group</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Source</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                    
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>displayName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>$_.'urn:ietf:params:scim:schemas:extensions:hpe-greenlake:2.0:Group'.groupDescription</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>$_.'urn:ietf:params:scim:schemas:extensions:hpe-greenlake:2.0:Group'.source</ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
                 <TypeName>HPEGreenLake.Workspace</TypeName>
             </ViewSelectedBy>
             <TableControl>
@@ -2106,10 +2157,10 @@
                         <Label>Email</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>      
-                    <TableColumnHeader>
-                        <Label>Version</Label>
+                    <!-- <TableColumnHeader> -->
+                        <!-- <Label>Version</Label> -->
                         <!-- <Width>10</Width> -->
-                    </TableColumnHeader>                 
+                    <!-- </TableColumnHeader>                  -->
                 </TableHeaders>
                 <TableRowEntries>
                     <TableRowEntry>
@@ -2155,9 +2206,9 @@
                             <TableColumnItem>
                                 <PropertyName>created_by</PropertyName>
                             </TableColumnItem>         
-                            <TableColumnItem>
-                                <PropertyName>version</PropertyName>
-                            </TableColumnItem>                       
+                            <!-- <TableColumnItem> -->
+                                <!-- <PropertyName>version</PropertyName> -->
+                            <!-- </TableColumnItem>                        -->
                         </TableColumnItems>
                     </TableRowEntry>
                 </TableRowEntries>
@@ -2342,7 +2393,7 @@
             <TableControl>
                 <TableHeaders>
                     <TableColumnHeader>
-                        <Label>Time</Label>
+                        <Label>Date</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>                   
                     <TableColumnHeader>
@@ -2374,7 +2425,10 @@
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f [datetime]$_.createdAt</ScriptBlock>
+                                <ScriptBlock>
+                                    "{0}" -f [datetime]$_.createdAt
+                                    <!-- "{0}" -f ([datetime]$_.createdAt).AddHours($HPEGLGMTTimeDifferenceInHour) -->
+                                </ScriptBlock>
                             </TableColumnItem>     
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.application.applicationName</ScriptBlock>
@@ -2875,19 +2929,22 @@
                         <!-- <Width>60</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>Category</Label>
-                        <!-- <Width>18</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
                         <Label>RecommendedAction</Label>
                         <!-- <Width>140</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Category</Label>
+                        <!-- <Width>18</Width> -->
                     </TableColumnHeader>
                 </TableHeaders>
                 <TableRowEntries>
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.createdAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                                <ScriptBlock>
+                                    "{0}" -f [datetime]$_.createdAt
+                                    <!-- "{0}" -f ([datetime]$_.createdAt).AddHours($HPEGLGMTTimeDifferenceInHour) -->
+                                </ScriptBlock>
                             </TableColumnItem>                               
                             <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.title</ScriptBlock>
@@ -2899,10 +2956,10 @@
                                <ScriptBlock>"{0}" -f $_.formattedMessage</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.category</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.recommendedAction</ScriptBlock>
                             </TableColumnItem>                                                                                             
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.recommendedAction</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.category</ScriptBlock>
                             </TableColumnItem>                                                                                             
                         </TableColumnItems>
                     </TableRowEntry>
@@ -3388,7 +3445,7 @@
         <View>
             <Name>Groups</Name>
             <ViewSelectedBy>
-                <TypeName>HPEGreenLake.COM.Groups.Compliance</TypeName>
+                <TypeName>HPEGreenLake.COM.Groups.Firmware.Compliance</TypeName>
             </ViewSelectedBy>
             <TableControl>
                 <TableHeaders>
@@ -3496,7 +3553,7 @@
         <View>
             <Name>Groups</Name>
             <ViewSelectedBy>
-                <TypeName>HPEGreenLake.COM.Groups.Compliance.Deviations</TypeName>
+                <TypeName>HPEGreenLake.COM.Groups.Firmware.Compliance.Deviations</TypeName>
             </ViewSelectedBy>
             <TableControl>
                 <TableHeaders>
@@ -3532,6 +3589,117 @@
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.componentFilename</ScriptBlock>
                              </TableColumnItem>                                                                                                                                  
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+                <View>
+            <Name>Groups</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Groups.iLO.Compliance</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Server</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Group</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>State</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ErrorReason</Label>
+                        <!-- <Width>50</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Criticality</Label>
+                        <!-- <Width>50</Width> -->
+                    </TableColumnHeader>                    
+                    <TableColumnHeader>
+                        <Label>Deviations</Label>
+                        <!-- <Width>50</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serverName</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serial</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.groupName</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.complianceState</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.errorReason</ScriptBlock>
+                            </TableColumnItem>  
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.remediation.updateInfo.criticality</ScriptBlock>
+                            </TableColumnItem>                               
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.deviations.count</ScriptBlock>
+                            </TableColumnItem>       
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Groups</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Groups.iLO.Compliance.Deviations</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Category</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SettingName</Label>
+                        <!-- <Width>50</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ExpectedValue</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>CurrentValue</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.category</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.settingName</ScriptBlock>
+                             </TableColumnItem>                                                                                                                                  
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.expectedValue</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.currentValue</ScriptBlock>
+                            </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
                 </TableRowEntries>
@@ -3699,11 +3867,11 @@
                         <!-- <Width>20</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>Description</Label>
+                        <Label>ID</Label>
                         <!-- <Width>20</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>ResourceUri</Label>
+                        <Label>Description</Label>
                         <!-- <Width>20</Width> -->
                     </TableColumnHeader>
                 </TableHeaders>
@@ -3714,11 +3882,11 @@
                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.id</ScriptBlock>
+                            </TableColumnItem>                                                                                                                                      
+                            <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.description</ScriptBlock>
                             </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.resourceUri</ScriptBlock>
-                            </TableColumnItem>                                                                                                                                      
                         </TableColumnItems>
                     </TableRowEntry>
                 </TableRowEntries>
@@ -3844,11 +4012,10 @@
                             <TableColumnItem>
                                 <ScriptBlock>
                                     if ($_.errorDetails) {
-                                        "{0}" -f $_.date
-
+                                        "{0}" -f [datetime]$_.date
                                     }
                                     else {
-                                        "{0}" -f $_.createdAt.addHours($HPEGLGMTTimeDifferenceInHour)
+                                        "{0}" -f [datetime]$_.createdAt
                                     }
                                 </ScriptBlock>
                             </TableColumnItem>                 
@@ -3868,7 +4035,8 @@
 
                                     }
                                     elseif ($_.state -eq "Running") {
-                                        "{0}" -f ((get-date) - (Get-date $_.createdAt.addHours($HPEGLGMTTimeDifferenceInHour))).ToString('hh\:mm\:ss')
+                                        "{0}" -f ((get-date) - (Get-date $_.createdAt)).ToString('hh\:mm\:ss')
+                                        <!-- "{0}" -f ((get-date) - (Get-date $_.createdAt.addHours($HPEGLGMTTimeDifferenceInHour))).ToString('hh\:mm\:ss') -->
                                     }
                                     else {
                                         "{0}" -f ((get-date $_.updatedAt) - (Get-date $_.createdAt)).ToString('hh\:mm\:ss')
@@ -4009,6 +4177,10 @@
             <TableControl>
                 <TableHeaders>
                     <TableColumnHeader>
+                        <Label>ActivationKey</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                                                                                                                                          
+                    <TableColumnHeader>
                         <Label>ApplianceType</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>                                                                                                                                                          
@@ -4028,6 +4200,9 @@
                 <TableRowEntries>
                     <TableRowEntry>
                         <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.activationKey</ScriptBlock>
+                            </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.ApplianceType</ScriptBlock>
                             </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
@@ -4091,13 +4266,16 @@
                                <ScriptBlock>"{0}" -f $_.status</ScriptBlock>
                             </TableColumnItem>                            
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.createdAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                               <ScriptBlock>"{0}" -f [datetime]$_.createdAt</ScriptBlock>
+                               <!-- <ScriptBlock>"{0}" -f ([datetime]$_.createdAt).addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock> -->
                             </TableColumnItem>         
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.reportDataStartAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                                 <ScriptBlock>"{0}" -f [datetime]$_.reportDataStartAt</ScriptBlock>
+                               <!-- <ScriptBlock>"{0}" -f ([datetime]$_.reportDataStartAt).addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock> -->
                             </TableColumnItem>  
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.reportDataEndAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                                <ScriptBlock>"{0}" -f [datetime]$_.reportDataEndAt</ScriptBlock>
+                               <!-- <ScriptBlock>"{0}" -f ([datetime]$_.reportDataEndAt).addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock> -->
                             </TableColumnItem>                                                                                                                                                                                                                                        
                         </TableColumnItems>
                     </TableRowEntry>
@@ -4113,27 +4291,27 @@
             <TableControl>
                 <TableHeaders>
                     <TableColumnHeader>
-                        <Label>Server</Label>
+                        <Label>TotalEstimatedCarbonEmissions (kgCo2e)</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>SerialNumber</Label>
-                        <!-- <Width>30</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>TotalPerDay</Label>
+                        <Label>TotalEstimatedEnergyConsumption (MWh)</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>TotalPerWeek</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>  
-                    <TableColumnHeader>
-                        <Label>Unit</Label>
+                        <Label>TotalEstimatedEnergyCost (USD)</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>UnitDescription</Label>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                       
+                    <TableColumnHeader>
+                        <Label>ProjectionDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                     
+                    <TableColumnHeader>
+                        <Label>NumberOfServers</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                 </TableHeaders>
@@ -4141,22 +4319,22 @@
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f $_.subject.displayName</ScriptBlock>
-                             </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.serialNumber</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f [math]::Round($_.buckets[0].value, 3)</ScriptBlock>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalEstimatedCarbonEmissions, 3)</ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f [math]::Round($_.summary.sum, 3)</ScriptBlock>
-                            </TableColumnItem>  
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.units</ScriptBlock>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalEstimatedEnergyConsumption, 3)</ScriptBlock>
                             </TableColumnItem> 
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f $_.unitsDisplayName</ScriptBlock>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalEstimatedEnergyCost, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.ProjectionDate, $_.ProjectionDays</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.Count</ScriptBlock>
                              </TableColumnItem>                                   
                         </TableColumnItems>
                     </TableRowEntry>
@@ -4167,32 +4345,40 @@
         <View>
             <Name>Reports</Name>
             <ViewSelectedBy>
-                <TypeName>HPEGreenLake.COM.Reports.SustainabilityDataAllServers</TypeName>
+                <TypeName>HPEGreenLake.COM.Reports.SustainabilityData.Co2Emissions</TypeName>
             </ViewSelectedBy>
             <TableControl>
                 <TableHeaders>
-                    <TableColumnHeader>
-                        <Label>Name</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
                     <TableColumnHeader>
                         <Label>Server</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>TotalPerDay</Label>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Collected (kgCo2e)</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>TotalPerWeek</Label>
+                        <Label>Projected (kgCo2e)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>  
+                    <TableColumnHeader>
+                        <Label>Total (kgCo2e)</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>Unit</Label>
+                        <Label>% of Total</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>UnitDescription</Label>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ProjectionDate</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                 </TableHeaders>
@@ -4201,27 +4387,655 @@
                         <TableColumnItems>
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                             </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serialNumber</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f $_.subject.displayName</ScriptBlock>
-                            </TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.CollectedCarbonEmissions, 3)</ScriptBlock>
+                            </TableColumnItem>    
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f [math]::Round($_.buckets[0].value, 3)</ScriptBlock>
-                            </TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.ProjectedCarbonEmissions, 3)</ScriptBlock>
+                            </TableColumnItem>  
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f [math]::Round($_.summary.sum, 3)</ScriptBlock>
-                            </TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalCarbonEmissions, 3)</ScriptBlock>
+                            </TableColumnItem> 
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f $_.units</ScriptBlock>
-                            </TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.co2eKg.percents.total</ScriptBlock>
+                             </TableColumnItem>                                   
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f $_.unitsDisplayName</ScriptBlock>
-                            </TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.ProjectionDate, $_.ProjectionDays</ScriptBlock>
+                            </TableColumnItem> 
                         </TableColumnItems>
                     </TableRowEntry>
                 </TableRowEntries>
-            </TableControl>
+            </TableControl>       
+        </View>
+
+        <View>
+            <Name>Reports</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Reports.SustainabilityData.Co2Emissions.AllServers</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>TotalCollected (kgCo2e)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>TotalProjected (kgCo2e)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader> 
+                    <TableColumnHeader>
+                        <Label>TotalEstimated (kgCo2e)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                    
+                    <TableColumnHeader>
+                        <Label>ProjectionDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                     
+                    <TableColumnHeader>
+                        <Label>NumberOfServers</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalCollectedCarbonEmissions, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalProjectedCarbonEmissions, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalEstimatedCarbonEmissions, 3)</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.ProjectionDate, $_.ProjectionDays</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.Count</ScriptBlock>
+                             </TableColumnItem>                                   
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View>
+       
+        <View>
+            <Name>Reports</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Reports.SustainabilityData.EnergyCost</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Server</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Collected (USD)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Projected (USD)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>  
+                    <TableColumnHeader>
+                        <Label>Total (USD)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>% of Total</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                    
+                    <TableColumnHeader>
+                        <Label>ProjectionDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                    
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                             </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serialNumber</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.CollectedEnergyCost, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.ProjectedEnergyCost, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalEnergyCost, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.co2eKg.percents.total</ScriptBlock>
+                             </TableColumnItem>                                   
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.ProjectionDate, $_.ProjectionDays</ScriptBlock>
+                            </TableColumnItem> 
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View>
+
+        <View>
+            <Name>Reports</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Reports.SustainabilityData.EnergyCost.AllServers</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>TotalCollected (USD)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>  
+                    <TableColumnHeader>
+                        <Label>TotalProjected (USD)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>TotalEstimated (USD)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                    
+                    <TableColumnHeader>
+                        <Label>ProjectionDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                    
+                    <TableColumnHeader>
+                        <Label>NumberOfServers</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalCollectedEnergyCost, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalProjectedEnergyCost, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalEstimatedEnergyCost, 3)</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem>  
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.ProjectionDate, $_.ProjectionDays</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.Count</ScriptBlock>
+                            </TableColumnItem>                                   
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View>
+
+        <View>
+            <Name>Reports</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Reports.SustainabilityData.EnergyConsumption</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Server</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Collected (kWh)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Projected (kWh)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>  
+                    <TableColumnHeader>
+                        <Label>Total (kWh)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>% of Total</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ProjectedDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                             </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serialNumber</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.CollectedEnergyConsumption, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.ProjectedEnergyConsumption, 3)</ScriptBlock>
+                            </TableColumnItem>  
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalEnergyConsumption, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.co2eKg.percents.total</ScriptBlock>
+                             </TableColumnItem>                                   
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem>  
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.ProjectionDate, $_.ProjectionDays</ScriptBlock>
+                            </TableColumnItem> 
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View>
+    
+        <View>
+            <Name>Reports</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Reports.SustainabilityData.EnergyConsumption.AllServers</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>TotalCollected (kWh)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>TotalProjected (kWh)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader> 
+                    <TableColumnHeader>
+                        <Label>TotalEstimated (kWh)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                     <TableColumnHeader>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ProjectionDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader> 
+                    <TableColumnHeader>
+                        <Label>NumberOfServers</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalCollectedEnergyConsumption, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalProjectedEnergyConsumption, 3)</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f [math]::Round($_.TotalEstimatedEnergyConsumption, 3)</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.ProjectionDate, $_.ProjectionDays</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.Count</ScriptBlock>
+                             </TableColumnItem>                                   
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
         </View> 
+
+                <View>
+            <Name>Reports</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Reports.ServerUtilizationInsights.CPUUtilization</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Server</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>CPU</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>CPUCount</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>  
+                    <TableColumnHeader>
+                        <Label>Speed (GHz)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>High (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Low (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Average (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                             </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serialNumber</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.CPUDetail</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.CPUCount</ScriptBlock>
+                            </TableColumnItem>  
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.CPUSpeedGHz</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.CPUHighPercent</ScriptBlock>
+                            </TableColumnItem>  
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.CPULowPercent</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.CPUAveragePercent</ScriptBlock>
+                             </TableColumnItem> 
+                             <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem>                                    
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View>
+
+        <View>
+            <Name>Reports</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Reports.ServerUtilizationInsights.MemoryBusUtilization</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Server</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>MemoryType</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>MemoryCount</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>  
+                    <TableColumnHeader>
+                        <Label>TotalSize (GB)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Speed (MHz)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>High (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Low (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Average (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                    
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                             </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serialNumber</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.MemoryType</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.DIMMCount</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.TotalMemorySizeGB</ScriptBlock>
+                            </TableColumnItem>  
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.MemoryOpFrequencyMHz</ScriptBlock>
+                            </TableColumnItem>  
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.MemoryBusHighPercent</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.MemoryBusLowPercent</ScriptBlock>
+                             </TableColumnItem>                                   
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.MemoryBusAveragePercent</ScriptBlock>
+                             </TableColumnItem>   
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem>                                                               
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View>     
+
+        <View>
+            <Name>Reports</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Reports.ServerUtilizationInsights.IOBusUtilization</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Server</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>PCIeDeviceCount</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>High (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Low (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Average (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                             </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serialNumber</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.PCIeDevicesCount</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.IOBusHighPercent</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.IOBusLowPercent</ScriptBlock>
+                             </TableColumnItem>                                   
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.IOBusAveragePercent</ScriptBlock>
+                             </TableColumnItem>    
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem>                                                              
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View>     
+
+        <View>
+            <Name>Reports</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Reports.ServerUtilizationInsights.CPUInterconnectUtilization</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Server</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>CPUCount</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>High (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Low (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Average (%)</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LookbackDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                    
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                             </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serialNumber</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.CPUCount</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.CPUInterconnectHighPercent</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.CPUInterconnectLowPercent</ScriptBlock>
+                             </TableColumnItem>                                   
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.CPUInterconnectAveragePercent</ScriptBlock>
+                             </TableColumnItem>  
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} ({1} days)" -f $_.LookbackDate, $_.LookbackDays</ScriptBlock>
+                            </TableColumnItem>                                                                
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View>     
 
         <View>
             <Name>Reports</Name>
@@ -4357,16 +5171,23 @@
                         <TableColumnItems>
                             <TableColumnItem>
                                <ScriptBlock>
-                                 if ($_.metricsCollection -eq "SYSTEM_SCHEDULED") {
-                                        "Enabled"
-                                 }
-                                 else {
-                                        "Disabled"
-                                 }
-                            </ScriptBlock>
+                                if ($_.metricsCollection -eq "SYSTEM_SCHEDULED") {
+                                    "Enabled"
+                                }
+                                else {
+                                    "Disabled"
+                                }
+                               </ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.powerThresholdAlerts</ScriptBlock>
+                               <ScriptBlock>
+                               if ($_.powerThresholdAlerts) {
+                                    "Enabled"
+                               }
+                               else {
+                                    "Disabled"
+                               }
+                               </ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.powerUtilizationThresholdPercentage</ScriptBlock>
@@ -4436,14 +5257,16 @@
                                 <ScriptBlock>"{0}" -f $_.purpose</ScriptBlock>
                             </TableColumnItem> 
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f $_.nextStartAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                                <ScriptBlock>"{0}" -f [datetime]$_.nextStartAt</ScriptBlock>
+                                <!-- <ScriptBlock>"{0}" -f ([datetime]$_.nextStartAt).AddHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock> -->
                             </TableColumnItem>                            
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.schedule.interval</ScriptBlock>
                             </TableColumnItem>                            
                             <TableColumnItem>
                                 <ScriptBlock>
-                                    $TimeLeftBeforeStart = ($_.nextStartAt.addHours($HPEGLGMTTimeDifferenceInHour) - (Get-Date))
+                                    $TimeLeftBeforeStart = (([datetime]$_.nextStartAt) - (Get-Date))
+                                    <!-- $TimeLeftBeforeStart = (([datetime]$_.nextStartAt).addHours($HPEGLGMTTimeDifferenceInHour) - (Get-Date)) -->
 
                                     if ($TimeLeftBeforeStart -le 0) {
                                         "Executed"
@@ -4569,7 +5392,8 @@
                                 <ScriptBlock>"{0}" -f $_.lastrun.succeeded</ScriptBlock>
                             </TableColumnItem>         
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f $_.lastrun.startedAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                                <ScriptBlock>"{0}" -f [datetime]$_.lastrun.startedAt</ScriptBlock>
+                                <!-- <ScriptBlock>"{0}" -f ([datetime]$_.lastrun).startedAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock> -->
                             </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
@@ -4630,14 +5454,16 @@
                                 <ScriptBlock>"{0}" -f $_.purpose</ScriptBlock>
                             </TableColumnItem> 
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f $_.nextStartAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                                <ScriptBlock>"{0}" -f [datetime]$_.nextStartAt</ScriptBlock>
+                                <!-- <ScriptBlock>"{0}" -f $_.nextStartAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock> -->
                             </TableColumnItem>                            
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.schedule.interval</ScriptBlock>
                             </TableColumnItem>                            
                             <TableColumnItem>
                                 <ScriptBlock>
-                                    $TimeLeftBeforeStart = ($_.nextStartAt.addHours($HPEGLGMTTimeDifferenceInHour) - (Get-Date))
+                                    $TimeLeftBeforeStart = (([datetime]$_.nextStartAt) - (Get-Date))
+                                    <!-- $TimeLeftBeforeStart = ($_.nextStartAt.addHours($HPEGLGMTTimeDifferenceInHour) - (Get-Date)) -->
 
                                     if ($TimeLeftBeforeStart -le 0) {
                                         "Executed"
@@ -4806,7 +5632,8 @@
                                 <ScriptBlock>"{0}" -f $_.body.name</ScriptBlock>
                             </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f $_.startedAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                                <ScriptBlock>"{0}" -f $_.startedAt</ScriptBlock>
+                                <!-- <ScriptBlock>"{0}" -f $_.startedAt.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock> -->
                             </TableColumnItem>
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.body.associated_resource_uri</ScriptBlock>
@@ -5077,7 +5904,7 @@
         <View>
             <Name>Settings</Name>
             <ViewSelectedBy>
-                <TypeName>HPEGreenLake.COM.Settings.ILO_SETTINGS</TypeName>
+                <TypeName>HPEGreenLake.COM.Settings.ILO_SECURITY_SETTINGS</TypeName>
             </ViewSelectedBy>
             <TableControl>
                 <TableHeaders>
@@ -5145,6 +5972,55 @@
                             <TableColumnItem>
                                 <ScriptBlock>$_.SecurityService.GlobalComponentIntegrity</ScriptBlock>
                             </TableColumnItem>     
+                            <TableColumnItem>
+                                <ScriptBlock>$_.description</ScriptBlock>
+                            </TableColumnItem> 
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+                <AutoSize/>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Settings</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Settings.ILO_SETTINGS</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Category</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>  
+                    <TableColumnHeader>
+                        <Label>Settings</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                                                                                                                                                                                         
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>     
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>$_.category</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>  
+                                    "{0}" -f $_.settings.default 
+                                    <!-- .attributes -replace '^@{', '' -replace '}$', '') -->
+                                </ScriptBlock>
+                            </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                                                                                                              
                             <TableColumnItem>
                                 <ScriptBlock>$_.description</ScriptBlock>
                             </TableColumnItem> 
@@ -5506,15 +6382,11 @@
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>ConnectionType</Label>
+                        <Label>SupportState</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>ConnectedState</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>   
-                    <TableColumnHeader>
-                        <Label>iLOIPAddress</Label>
+                        <Label>SupportLevel</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                     <TableColumnHeader>
@@ -5526,80 +6398,7 @@
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                     <TableColumnHeader>
-                        <Label>SupportState</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>   
-                    <TableColumnHeader>
-                        <Label>SupportLevel</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                </TableHeaders>
-                <TableRowEntries>
-                    <TableRowEntry>
-                        <TableColumnItems>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.serialnumber</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.hardware.model</ScriptBlock>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.connectionType</ScriptBlock>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.state.connected</ScriptBlock>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.hardware.bmc.ip</ScriptBlock>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.contractLevel</ScriptBlock>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                               <ScriptBlock>
-                                "{0}" -f ([datetime]$_.supportEndDate).toString("MMMM dd, yyyy")
-                               </ScriptBlock>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.supportState</ScriptBlock>
-                            </TableColumnItem>    
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.supportLevel</ScriptBlock>
-                            </TableColumnItem>     
-                        </TableColumnItems>
-                    </TableRowEntry>
-                </TableRowEntries>
-            </TableControl>       
-        </View> 
-
-        <View>
-            <Name>Servers</Name>
-            <ViewSelectedBy>
-                <TypeName>HPEGreenLake.COM.Servers.WithSupportCases</TypeName>
-            </ViewSelectedBy>
-            <TableControl>
-                <TableHeaders>
-                    <TableColumnHeader>
-                        <Label>Name</Label>
-                        <!-- <Width>30</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>SerialNumber</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Model</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>ConnectionType</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>ConnectedState</Label>
+                        <Label>SupportCaseCount</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                     <TableColumnHeader>
@@ -5620,10 +6419,21 @@
                                <ScriptBlock>"{0}" -f $_.hardware.model</ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.connectionType</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.supportState</ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.state.connected</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.supportLevel</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.contractLevel</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                               <ScriptBlock>
+                                    "{0}" -f ([datetime]$_.supportEndDate).ToString("MMMM d, yyyy")
+                               </ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.supportCaseCount</ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.hardware.bmc.ip</ScriptBlock>
@@ -5642,39 +6452,27 @@
             <TableControl>
                 <TableHeaders>
                     <TableColumnHeader>
-                        <Label>Name</Label>
-                        <!-- <Width>30</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>SerialNumber</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Model</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
                         <Label>CaseId</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                     <TableColumnHeader>
-                        <Label>caseState</Label>
+                        <Label>CaseState</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                     <TableColumnHeader>
-                        <Label>createdAt</Label>
+                        <Label>CreatedAt</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                     <TableColumnHeader>
-                        <Label>description</Label>
+                        <Label>Description</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                     <TableColumnHeader>
-                        <Label>message</Label>
+                        <Label>Message</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                     <TableColumnHeader>
-                        <Label>resolution</Label>
+                        <Label>Resolution</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>   
                 </TableHeaders>
@@ -5682,22 +6480,15 @@
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.serialnumber</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.model</ScriptBlock>
-                            </TableColumnItem>    
-                            <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.caseId</ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.caseState</ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.createdAt</ScriptBlock>
+                               <ScriptBlock>
+                                    "{0}" -f ([datetime]$_.createdAt).ToString("MM/dd/yy")
+                                </ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.description</ScriptBlock>
@@ -6718,7 +7509,8 @@
                                 <ScriptBlock>"{0}" -f $_.resolution</ScriptBlock>
                              </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.timestamp.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                                 <ScriptBlock>"{0}" -f $_.timestamp</ScriptBlock>
+                               <!-- <ScriptBlock>"{0}" -f $_.timestamp.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock> -->
                             </TableColumnItem>    
                             <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.category</ScriptBlock>
@@ -7188,7 +7980,7 @@
                         <!-- <Width>30</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>ConnectionType</Label>
+                        <Label>iLOName</Label>
                         <!-- <Width>30</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
@@ -7206,13 +7998,13 @@
                                 <PropertyName>serialNumber</PropertyName> 
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.hardware.model</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.model</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>$_.ConnectionType </ScriptBlock>
+                               <ScriptBlock>$_.iLOName</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>$_.Location</ScriptBlock>
+                               <ScriptBlock>$_.LocationName</ScriptBlock>
                             </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
@@ -7477,6 +8269,161 @@
                             <TableColumnItem>
                                <ScriptBlock>$_.VolumeDetails</ScriptBlock>
                             </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Servers</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Servers.SubscriptionDetails</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Model</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ConnectionType</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SubscriptionKey</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SubscriptionState</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SubscriptionTier</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SubscriptionExpiresAt</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>serverName</PropertyName> 
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>serialNumber</PropertyName> 
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>model</PropertyName> 
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>$_.ConnectionType </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>$_.subscriptionKey</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>$_.subscriptionState</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>$_.subscriptionTier</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>
+                                    [datetime]$_.subscriptionExpiresAt
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+                <View>
+            <Name>Servers</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Servers.Subscription.AssignedServers</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Model</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ConnectionType</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>PowerState</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ConnectedState</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>   
+                    <TableColumnHeader>
+                        <Label>iLOIPAddress</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>   
+                    <TableColumnHeader>
+                        <Label>Region</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                                                                                                                                               
+                    <TableColumnHeader>
+                        <Label>Location</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                                                                                                                                               
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serialnumber</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.hardware.model</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.connectionType</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.hardware.powerstate</ScriptBlock>
+                            </TableColumnItem>                            
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.state.connected</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.hardware.bmc.ip</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.region</ScriptBlock>
+                            </TableColumnItem>    
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.locationName</ScriptBlock>
+                            </TableColumnItem>    
                         </TableColumnItems>
                     </TableRowEntry>
                 </TableRowEntries>
@@ -7779,7 +8726,8 @@
                                 <ScriptBlock>"{0}" -f $_.eventType</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.requestTimestamp.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock>
+                                <ScriptBlock>"{0}" -f $_.requestTimestamp</ScriptBlock>
+                               <!-- <ScriptBlock>"{0}" -f $_.requestTimestamp.addHours($HPEGLGMTTimeDifferenceInHour)</ScriptBlock> -->
                             </TableColumnItem>
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.statusCode</ScriptBlock>
@@ -7803,8 +8751,8 @@
 <!-- SIG # Begin signature block -->
 <!-- MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor -->
 <!-- BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG -->
-<!-- KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAy8xd2fHrchNQA -->
-<!-- pit3glnJQwkHMPU/wawYET6KNUfz86CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU -->
+<!-- KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBHJzourOTFOiW4 -->
+<!-- yyQ/1DypEMdS87Z06wqICCgdIgcpVKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU -->
 <!-- jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI -->
 <!-- DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM -->
 <!-- EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy -->
@@ -7905,23 +8853,23 @@
 <!-- Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD -->
 <!-- BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC -->
 <!-- NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx -->
-<!-- IgQgsSjgweT7qRFezWMvU0eEL+kgDe2tQla0GbU2dEcA/s4wDQYJKoZIhvcNAQEB -->
-<!-- BQAEggIAA3qVNgIaZj2L0cjDkVj6qhCVLB+DctdsHgcEuMWhTpHGFHUDyirE7r8y -->
-<!-- Kicogf6VCuMFHTm2NcgHA39em940Y6fxLfoM814uQqmE62vX+y7W1g1ssc0FRFqk -->
-<!-- xj6IYgMDKck3LMGiZD406gbiZ5Sz778M09QToo2dflVuSunSuoFF5BPInS2dz70s -->
-<!-- m/ovP5WkXVFojV6iNWZXmn1NQimytGrWJpHogONkWULLlBGbNR/eSnNp/q+ZwOZg -->
-<!-- qltuD01r1PR6vYGY3cTjiND0Jno2LlVnU3gt+RPB4Wz/Bp63CsC/LE8laEZzrnDz -->
-<!-- O8sVHiJKKkyBkLcGr7bG967yS09wjCN5Cx7HeX/xlcuTvu/MKC1qpuu/jeI16dic -->
-<!-- sU4NWVUzPdPSFsZythDpVoOOqqtrz3VWHq6Rv/+nWRuUXGRpsFRCjEArWgZdSwS5 -->
-<!-- vbzEmzMkUmOuS3XzSgnv0ekeW0jToydnMLgJFTuCo1WwSesaTMD9gVQZx0iuqGBs -->
-<!-- ndt7U3AHRM8aTm/Gpjsjs9lobScER9Au/o+ve4J3m5OLOkjmedAs6FdSru+wH/wa -->
-<!-- gDqLmPODCz0tszDxwOzmFJdJNv2yWERj7wmUIztrEGIuoB9EmLWKWjAIOwyJAWSo -->
-<!-- gBuSh33aG9sPEePppi3qx17YrD/JiZvpRYARL0sL4GXzybCqcyGhghjpMIIY5QYK -->
+<!-- IgQgkuK6VX7XEQHfxSQTFgnN4HvMh/rJn6XbZkvjWzL5CaMwDQYJKoZIhvcNAQEB -->
+<!-- BQAEggIAHSjLWeXNFWPnaWxRWEHe87m8i3P3OP1WD7rNX1RnXNohC4mDmcapD9Vd -->
+<!-- f8OSCjz4xy2wo1c1e5nXtumCj4eg9n2m0BYlQptvSJ4KREdVLHvB/t1HI5mTn59P -->
+<!-- x5JRtzqxsrZ+3nFkQKEUQxbyw6nG97Rb+OuQqZR63lMhjZFnYooEZFDayVeMGk4N -->
+<!-- H7TxscnjbXC71yrX+61pz6vSsOH3fn20kbqL9+QZe9mrvrR2t7xix7LgDQsR2T/U -->
+<!-- lkbEaWu7pniGDpbMW7Q3njt2AwDzFtoTCcyLad52i2XogzphFAQTn8OC1a5BsgxD -->
+<!-- UZQddFeODHh8UBvAsCnrl/VRoflgwR+04NSZeEiRACj1BbBeILchD8msfByF/HKO -->
+<!-- VsXQn7eCIyY0gbuXLm08yZwqoakYUcfdxJykJ49FTTSz9Mp52Kit15cHGxte7+ve -->
+<!-- ZgZ5RtG7LWXisBjbayDWqv3EIt7MCQoxbZWMKIxUZFAj8WZxfMK8Iw9hdx5MLnHM -->
+<!-- ITWhBJ4FDDwkSQobs+g4UNHZ6J7VHP4GUUsY03IqNEMhjySDgExXI//pCgsjiRO1 -->
+<!-- Pfxit8D++nMBglFPwoVZVBn6qUi6w90cWy0u8gBlwnV3IsAo7oUUCvU2mX4p5+L2 -->
+<!-- IcDtA16odVjRQA9Y0eSxRvvpzgtlCUF+qOiEyoDq7GzrZPn+0cKhghjpMIIY5QYK -->
 <!-- KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG -->
 <!-- SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC -->
-<!-- AQEwQTANBglghkgBZQMEAgIFAAQwMms6q+XS98cjo3dQjIT3DrVaEelgSD/NlIEZ -->
-<!-- 4dHpms8B5uk5ROIN53DvZ575PAnCAhUAmDwWhgZ8JVMLj39I8sdYVfuo7DgYDzIw -->
-<!-- MjUwNzA4MTYyMjM5WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg -->
+<!-- AQEwQTANBglghkgBZQMEAgIFAAQw8eE39lRmGKh6s457ZzECr5ADSg2f2eQbeBqs -->
+<!-- kZ1d3Xi748usWoGeONPXUKCkNhFKAhUAiXSLTa+VUfUWRxusEBN8lCd6FuwYDzIw -->
+<!-- MjUxMDAyMTQ1MjU2WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg -->
 <!-- WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl -->
 <!-- Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE -->
 <!-- yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD -->
@@ -8029,8 +8977,8 @@
 <!-- BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt -->
 <!-- ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC -->
 <!-- AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF -->
-<!-- MQ8XDTI1MDcwODE2MjIzOVowPwYJKoZIhvcNAQkEMTIEMEV1ilTO8xxh9m9trIgY -->
-<!-- ewLBLxv7mqysJXSsfhVtvV5PImG+cYp7JNVnWYJSyvWMbTCCAXoGCyqGSIb3DQEJ -->
+<!-- MQ8XDTI1MTAwMjE0NTI1NlowPwYJKoZIhvcNAQkEMTIEML15OxonorgNjLPpaoSA -->
+<!-- So99WcuWj9G4RbKOODUFxcVm/AELF4LR0Mtz/m5oXxBl7TCCAXoGCyqGSIb3DQEJ -->
 <!-- EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk -->
 <!-- eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP -->
 <!-- U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0 -->
@@ -8039,15 +8987,15 @@
 <!-- dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF -->
 <!-- UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh -->
 <!-- dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE -->
-<!-- ggIAvI3Hk9/oE4ddIKMCWJkgo2KPhcw/mOU+0DPzB2J25EwOX+ipFCKGrYo7d/bj -->
-<!-- dzP7LeH7xWcag2KBTOw04TIniI+EX4dgsmUDPX5RLlRIft+oy9fdNrayrs5oNo5b -->
-<!-- +uHaqSHgPHvXhI7Q77HS0oQCvI6xj0EKmIp9VZTJ8pLd+t84rRU00GOem4AkN8sX -->
-<!-- 9MQDwsc1hoG5xFXlhSyncZ/5stAX2LIzr6ZM0qVOiwCVh6I8OG78ltQ/U3eqWVoZ -->
-<!-- 4d5o9LBN/PlF6U5oS97UPswBPLkSz5LXWKA0tzyEwY3gRXxz7blZMZ6Vgf0U0aD+ -->
-<!-- bYJMiAzvpQc5bJxiRPHrO4ABpxl9E6B2mPLxXAUG76ougNsXfz8++SDlOTpd/Fan -->
-<!-- QX8mDJM0xc8KdyUW1ZIYrO8Ee9e7SIovBT2C6Zauxty0P5n7ibr7gt/SGUUR5FBr -->
-<!-- c1o6jgzmKl1jMJsd0ne8JYiKd1g0KadImCZ6a6TdbCe5KGKN4mE5OqldLPSBqFt4 -->
-<!-- gq702qQL96sjZoClIfv7AcOodCl+NlmEoKIAvTcCaDc6TPYPmNsOV8x2GYdFT0q0 -->
-<!-- 0Z6MoKr60YaX4bu+uxXhj/LihSHdysNKltcBm12+qGed9pU4Pql/CbzwOAzBDeTG -->
-<!-- bKNnih8PVdYs/yG7MVRmojAzDfbVKcHVvrgb0tf6aWP8opQ= -->
+<!-- ggIAUDBD0uXZKkDRuGEBxibW3e/irsCYIXM/sWchbFGsHa5nuHQsiFUf6tOdNSVi -->
+<!-- iXcjniZ1jT6a/pBXVV0yAxaMcB7SdxFfZa9bfeWr6uhxS0lRoRmSPktOdAnX5i/K -->
+<!-- VIaPJ1ovZsKGuaxsAq9HNy1lKyf86l/X4szv+IRHbMwhy0u3hhrigyfOFGEOJjat -->
+<!-- QE15xDnGYhZVCyagirVHdQ5e57PlpQb1Uzo7uou0KLv/8yFrOOe3ZS6MuMjiMAeo -->
+<!-- cooHN8JkflsabGhkRx4W1HpMYkXRaLA7HN4On5ynetMjNc2DhFh0B+padSocvCwj -->
+<!-- 7IOJrOmhS2RIxw8bT06oF32yEaG4qO4obUeVRb5d7aL8F4mmXYZrKL7tyDIFdtFe -->
+<!-- LtKLmrjS4Gd8uU1r8RsilMvmH+FTUvyLGMQHo5/Xqb3sH/HAKLat6IVuDzS98FzE -->
+<!-- 8shYO8ag+xFRzcb2xYd7Ev6FrsuEZTy5q4P0KwYunhAz7ZBM9SUCxmLDbXvR4HN+ -->
+<!-- Mrzkc6ZTMGQpAguLGlnalKM9Ft6G//jUu9d5BRwbni7xBvhef6VKrVIHGTQLBK8G -->
+<!-- Y5cug10oJmX3h4ydpp6NHdg02IFlKak55p8t60twLKQBr9qd8sbkhGhvpFrjJSOp -->
+<!-- 5zF3dIe4KTAm31fUtvowXhbVshe6uBjyLBofflZifJeWJVY= -->
 <!-- SIG # End signature block -->
