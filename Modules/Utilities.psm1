@@ -2134,7 +2134,7 @@ function Invoke-HPECOMWebRequest {
                                                 $Offset += [int]$pagination
                                                 $Url = $uriobj.Query -ne "" ?
                                                 "$ConnectivityEndPoint$uri&limit=$pagination&offset=$Offset" :
-                                                "$ConnectivityEndPoint$uri?limit=$pagination&offset=$Offset"
+                                                "$ConnectivityEndPoint$uri" + "?limit=$pagination&offset=$Offset"
                                                 "[{0}] Request URI for page '{1}': '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($i + 1), $Url | Write-Verbose
 
                                                 try {
