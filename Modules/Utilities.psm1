@@ -2126,17 +2126,11 @@ function Invoke-HPECOMWebRequest {
                                         if ($Numberofpages -gt 1) {
                                             for ($i = 1; $i -lt $Numberofpages; $i++) {
                                                 $Offset += [int]$pagination
-<<<<<<< HEAD
-                                                $Url = $uriobj.Query -ne "" ?
-                                                "$ConnectivityEndPoint$uri&limit=$pagination&offset=$Offset" :
-                                                "$ConnectivityEndPoint$uri" + "?limit=$pagination&offset=$Offset"
-=======
                                                 if ($uriobj.Query -ne "") {
                                                     $Url = "$($ConnectivityEndPoint)$($uri)&limit=$($pagination)&offset=$($Offset)"
                                                 } else {
                                                     $Url = "$($ConnectivityEndPoint)$($uri)?limit=$($pagination)&offset=$($Offset)"
                                                 }
->>>>>>> v1.0.17
                                                 "[{0}] Request URI for page '{1}': '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($i + 1), $Url | Write-Verbose
 
                                                 try {
