@@ -4,6 +4,13 @@ The HPE Compute Ops Management PowerShell library (`HPECOMCmdlets`) offers a com
 
 This library is actively maintained with continuous updates to support new HPE GreenLake features as they are released.
 
+## Latest Release
+
+| Version | Downloads | Status | PowerShell |
+|---------|-----------|--------|------------|
+| 1.0.18 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
+
+
 ## Table of Contents
 - [Documentation & Tutorials](#documentation--tutorials)
 - [Quick Start](#quick-start)
@@ -22,14 +29,7 @@ This library is actively maintained with continuous updates to support new HPE G
 - [Additional Resources](#want-more)
 - [License](#license)
 
-## Latest Release
 
-| Version | Downloads | Status | PowerShell |
-|---------|-----------|--------|------------|
-| 1.0.18 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
-
-
----
 
 ## Documentation & Tutorials
 
