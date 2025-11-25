@@ -144,7 +144,11 @@ function Invoke-HPEGLWebRequest {
             # - Set-HPEGLUserAccountPassword 
             # It allows these cmdlets to run without requiring an active workspace session, i.e. when Connect-HPEGLWorkspace has not yet been executed. 
             if (-not $PSBoundParameters.ContainsKey('SkipSessionCheck')) {
-                Throw "No active HPE GreenLake workspace session found. Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmdlet."
+                Write-Error @"
+No active HPE GreenLake workspace session found.
+
+Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmdlet.
+"@ -ErrorAction Stop
 
             }
         }   
@@ -1648,7 +1652,14 @@ function Invoke-HPECOMWebRequest {
                     $true
                 }
                 else {
-                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                    Write-Error @"
+The COM region '$_' is not provisioned in this workspace! 
+
+Please specify a valid region code (e.g., 'us-west', 'eu-central'). 
+
+You can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned
+You can also use the Tab key for auto-completion to see the list of provisioned region codes.
+"@ -ErrorAction Stop
                 }
             })]
         [ArgumentCompleter({
@@ -1712,7 +1723,13 @@ function Invoke-HPECOMWebRequest {
             }
             else {
                 "[{0}] Unable to retrieve job templates because no provisioned COM region was found in the current workspace." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                Throw "Error - No provisioned COM region found in the current workspace. Please ensure that at least one COM region is provisioned. You can provisioned regions using 'New-HPEGLService'."            
+                Write-Error @"
+No provisioned COM region found in the current workspace.
+
+Please ensure that at least one COM region is provisioned.
+
+You can provisioned regions using 'New-HPEGLService'.
+"@ -ErrorAction Stop
             }
         }
        
@@ -1730,7 +1747,9 @@ function Invoke-HPECOMWebRequest {
 
         if ($Null -eq $GLPTemporaryCredentials) {
 
-            Throw "Error: No API credential found. 'Connect-HPEGL' must be executed first to establish a session and generate the required credentials."
+            Write-Error @"
+Error: No API credential found. 'Connect-HPEGL' must be executed first to establish a session and generate the required credentials.
+"@ -ErrorAction Stop
              
         }
         else {
@@ -2128,7 +2147,8 @@ function Invoke-HPECOMWebRequest {
                                                 $Offset += [int]$pagination
                                                 if ($uriobj.Query -ne "") {
                                                     $Url = "$($ConnectivityEndPoint)$($uri)&limit=$($pagination)&offset=$($Offset)"
-                                                } else {
+                                                }
+                                                else {
                                                     $Url = "$($ConnectivityEndPoint)$($uri)?limit=$($pagination)&offset=$($Offset)"
                                                 }
                                                 "[{0}] Request URI for page '{1}': '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($i + 1), $Url | Write-Verbose
@@ -2327,7 +2347,7 @@ function Connect-HPEOnepass {
 
     # Ensure global session object exists
     if (-not $Global:HPEGreenLakeSession -or -not $Global:HPEGLOauth2IssuerId) { 
-        throw "Global HPEGreenLakeSession is not initialized. Please run Connect-HPEGL first to initialize the session."
+        throw "[{0}] Global HPEGreenLakeSession is not initialized. Please run Connect-HPEGL first to initialize the session." -f $functionName
     }
     
     
@@ -2408,12 +2428,12 @@ function Connect-HPEOnepass {
                 continue
             }
             else {
-                throw "[OAUTH2 - Onepass] Failed to retrieve login page URL."
+                throw "[{0}] [OAUTH2 - Onepass] Failed to retrieve login page URL." -f $functionName
             }
         }
     }
     if ($loginPageUrl -match "error=") {
-        throw "[OAUTH2 - Onepass] Error encountered while attempting to access login page: $loginPageUrl"
+        throw "[{0}] [OAUTH2 - Onepass] Error encountered while attempting to access login page: {1}" -f $functionName, $loginPageUrl
     }
 
     # Only handle callback URL and error cases, never a login form
@@ -2433,7 +2453,7 @@ function Connect-HPEOnepass {
         Write-Verbose ("[{0}] [OAUTH2 - Onepass] Extracted code: $code" -f $functionName)
     }
     else {
-        throw "[OAUTH2 - Onepass] Could not extract authorization code from callback URL: $callbackUrl"
+        throw "[{0}] [OAUTH2 - Onepass] Could not extract authorization code from callback URL: {1}" -f $functionName, $callbackUrl
     }
 
     # Step 5: Exchange code for tokens
@@ -2456,7 +2476,12 @@ function Connect-HPEOnepass {
         Write-Verbose ("[{0}] [OAUTH2 - Onepass] Access token successfully retrieved. Token preview: {1}..." -f $functionName, $OnepassOauth2AccessToken.Substring(0, [Math]::Min(50, $OnepassOauth2AccessToken.Length)))
     }
     else {
-        throw "[OAUTH2 - Onepass] Failed to retrieve access token from token endpoint. This may occur if you attempt to run the connection multiple times in a short period. Please wait a moment and try again."
+        Write-Error @"
+[OAUTH2 - Onepass] Failed to retrieve access token from token endpoint. 
+
+This may occur if you attempt to run the connection multiple times in a short period. 
+Please wait a moment and try again.
+"@ -ErrorAction Stop
     }
 
     # Store Onepass credentials
@@ -2474,245 +2499,408 @@ function Connect-HPEOnepass {
     return (($Global:HPEGreenLakeSession.onepassToken | ConvertTo-Json -Depth 5) -replace '("access_token":\s*)"[^"]+"', '$1[REDACTED]' -replace '("id_token":\s*)"[^"]+"', '$1[REDACTED]')
 }
 
+
 Function Connect-HPEGL { 
     <#
-    .SYNOPSIS
-    Initiates a connection to the HPE GreenLake platform and to all available Compute Ops Management instances within the specified workspace.
-    
-    .DESCRIPTION
-    This cmdlet initiates and manages your connection to the HPE GreenLake platform. Upon successful connection, it creates a persistent session for all subsequent module cmdlet requests through the ${Global:HPEGreenLakeSession}` connection tracker variable. 
-    Additionally, the cmdlet generates a temporary unified API client credential for HPE GreenLake and any Compute Ops Management service instances provisioned in the workspace.
-    
-    The global variable `$Global:HPEGreenLakeSession` stores session information, API client credentials, API access tokens, and other relevant details for both HPE GreenLake and Compute Ops Management APIs.
-    
-    To use this cmdlet, you need an HPE Account. If you do not have an HPE Account, you can create one at https://common.cloud.hpe.com.
-    
-    Note: To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html
-    
-    Note: To interact with an HPE GreenLake workspace and a Compute Ops Management instance using this library, you must have at least the 'Observer' role for both 'HPE GreenLake Platform' and 'Compute Ops Management' service managers. 
-          This role grants view-only privileges. For modification capabilities, you need either the 'Operator' (view and edit privileges) or the 'Administrator' (view, edit, and delete privileges) role. 
-          Alternatively, you can create a custom role that meets your specific access requirements.
-    
-    Note: This library supports both single-factor authentication and multi-factor authentication (MFA) using Google Authenticator or Okta Verify. 
-          To use MFA, ensure that the Okta Verify or Google Authenticator app is installed on your mobile device and properly linked to your account before initiating the connection process. 
-          MFA with security keys or biometric authenticators is not supported. 
-          - If your HPE GreenLake account is configured to use only security keys or biometric authenticators for MFA, you must enable either Google Authenticator or Okta Verify in your account settings to use this library.
-          - For accounts with Google Authenticator enabled, you will be prompted to enter the verification code. 
-          - For accounts with Okta Verify enabled, you will need to approve the push notification on your phone.
-          - If both Google Authenticator and Okta Verify are enabled, the library defaults to using Okta Verify push notifications.
-    
-    Note: This library supports SAML Single Sign-On (SSO) but exclusively for HPE.com email addresses. Other domains or identity providers are not supported for direct SSO authentication. 
-          To use SSO, ensure that the Okta Verify app is installed on your mobile device and properly linked to your account before initiating the connection process. 
-          Users leveraging SAML SSO through other identity providers cannot authenticate directly using their corporate credentials with the `Connect-HPEGL` cmdlet. 
-          As a workaround, invite a user with an email address that is not associated with any SAML SSO domains configured in the workspace. 
-          This can be done via the HPE GreenLake GUI under `User Management` by selecting `Invite Users`. Assign the HPE GreenLake Account Administrator role to the invited user. 
-          Once the invitation is accepted, the user can set a password and use these credentials to log in with `Connect-HPEGL`.
-    
-    Note: You do not need an existing HPE GreenLake workspace to connect. You can create a new workspace after your first connection using the 'New-HPEGLWorkspace' cmdlet.
-    
-    .PARAMETER Credential 
-    Set of security credentials such as a username and password to establish a connection to HPE GreenLake.
-    
-    .PARAMETER SSOEmail
-    Specifies the email address to use for Single Sign-On (SSO) authentication. SSO is supported only for HPE.com email addresses. Other domains or identity providers are not supported for direct SSO authentication.
-    
-    .PARAMETER Workspace 
-    Specifies the name of a workspace available in HPE GreenLake that you want to connect to.
-    
-    - You can omit this parameter if no workspaces have been created in HPE GreenLake yet.
-    - If you have only one workspace in HPE GreenLake, you can omit this parameter, and the cmdlet will automatically connect to the available workspace.
-    - If you have multiple workspaces and are unsure of the workspace name you want to connect to, you can omit this parameter. After connecting to HPE GreenLake, use the 'Get-HPEGLWorkspace' cmdlet to list and identify the available workspaces.
-    
-    .PARAMETER RemoveExistingCredentials
-    Specifies whether to remove all existing API credentials generated by previous runs of Connect-HPEGL or Connect-HPEGLWorkspace that were not properly cleaned up by a Disconnect-HPEGL operation.
-    When enabled, this option will delete all previously created API credentials attached to your user account that may be lingering from earlier sessions.
-    Use this option if you encounter the error: 'You have reached the maximum of 7 personal API clients' when connecting. Removing these credentials can resolve the issue by clearing out unused credentials created by this library.
+.SYNOPSIS
+Initiates a connection to the HPE GreenLake platform and to all available Compute Ops Management instances within the specified workspace.
 
-    Caution: Removing existing credentials may affect other active PowerShell sessions related to your user using those credentials, potentially causing authentication failures until those sessions reconnect.
+.DESCRIPTION
+This cmdlet establishes and manages your connection to the HPE GreenLake platform. Upon successful authentication, it creates a persistent session stored in the global variable `$Global:HPEGreenLakeSession`, which tracks all connection details, API credentials, and access tokens for subsequent cmdlet operations.
 
-    .PARAMETER NoProgress
-    Suppresses the progress bar display for automation or silent operation.
+The cmdlet automatically generates temporary unified API client credentials for HPE GreenLake and any Compute Ops Management service instances provisioned in the connected workspace, enabling seamless interaction with both platforms through a single authentication.
 
-    .INPUTS
-    None. You cannot pipe objects to this cmdlet.
-    
-    .OUTPUTS
-    HPEGreenLakeSession
-    
-    When a valid connection is established with the HPE GreenLake platform, several properties are added to the 
-    `${Global:HPEGreenLakeSession}` connection tracker variable. The object returned will contain the following public properties:
-            
-         ====================================================================================================================
-         | Name                      | Type               | Value                                                           |
-         --------------------------------------------------------------------------------------------------------------------
-         | AuthSession               | WebRequestSession  | Web session object used for Okta/HPE GreenLake authentication   |
-         --------------------------------------------------------------------------------------------------------------------
-         | WorkspaceSession          | WebRequestSession  | Web session object for the selected workspace (API operations)  |
-         --------------------------------------------------------------------------------------------------------------------
-         | oauth2AccessToken         | String             | OAuth2 access token                                             | 
-         --------------------------------------------------------------------------------------------------------------------
-         | oauth2IdToken             | String             | OAuth2 ID Token                                                 |
-         --------------------------------------------------------------------------------------------------------------------
-         | oauth2RefreshToken        | String             | OAuth2 refresh token                                            |
-         --------------------------------------------------------------------------------------------------------------------
-         | userName                  | String             | Username used for authentication                                |
-         --------------------------------------------------------------------------------------------------------------------
-         | name                      | String             | Name of the user used for authentication                        |
-         --------------------------------------------------------------------------------------------------------------------
-         | workspaceId               | String             | Workspace ID                                                    |
-         --------------------------------------------------------------------------------------------------------------------
-         | workspace                 | String             | Workspace name                                                  |
-         --------------------------------------------------------------------------------------------------------------------
-         | workspacesCount           | Integer            | Number of available workspaces                                  |
-         --------------------------------------------------------------------------------------------------------------------
-         | organization              | String             | Name of the organization governance                             |
-         --------------------------------------------------------------------------------------------------------------------
-         | organizationId            | String             | ID of the organization governance                               |
-         --------------------------------------------------------------------------------------------------------------------
-         | oauth2TokenCreation       | Datetime           | OAuth2 token creation time                                      |
-         --------------------------------------------------------------------------------------------------------------------
-         | oauth2TokenCreationEpoch  | String             | Unix timestamp of OAuth2 token creation                         |     
-         --------------------------------------------------------------------------------------------------------------------
-         | apiCredentials            | ArrayList          | List of API client credentials created during the session       |
-         --------------------------------------------------------------------------------------------------------------------
-         | glpApiAccessToken         | String             | HPE GreenLake API access token for workspace v1                 |       
-         --------------------------------------------------------------------------------------------------------------------
-         | glpApiAccessTokenv1_2     | String             | HPE GreenLake API access token for workspace v2                 |       
-         --------------------------------------------------------------------------------------------------------------------
-         | ccsSid                    | String             | HPE CCS session ID                                              |    
-         --------------------------------------------------------------------------------------------------------------------
-         | onepassToken              | Object             |  OAuth2 token details for the HPE Onepass authentication        |    
-         ====================================================================================================================
-    
-    API client credentials are stored in `${Global:HPEGreenLakeSession.apiCredentials}` and contains the following properties:
-         
-         ====================================================================================================================
-         | Name                    | Type         | Value                                                                   |
-         --------------------------------------------------------------------------------------------------------------------
-         | name                    | String       | Name of the API client credential                                       |
-         --------------------------------------------------------------------------------------------------------------------
-         | workspace_name          | String       | Name of the associated workspace                                        |
-         --------------------------------------------------------------------------------------------------------------------
-         | workspace_id            | String       | ID of the associated workspace                                          |
-         --------------------------------------------------------------------------------------------------------------------
-         | application_name        | String       | Name of the provisioned service (e.g., Compute Ops Mgmt)                |
-         --------------------------------------------------------------------------------------------------------------------
-         | region                  | String       | Region code where the service is provisioned                            |
-         --------------------------------------------------------------------------------------------------------------------
-         | application_instance_id | String       | Unique ID of the service instance                                       |
-         --------------------------------------------------------------------------------------------------------------------
-         | secure_client_secret    | SecureString | Encrypted client secret for the API client credential                   |
-         --------------------------------------------------------------------------------------------------------------------
-         | client_id               | String       | Client ID for the API client credential                                 |
-         --------------------------------------------------------------------------------------------------------------------
-         | connectivity_endpoint   | String       | API endpoint URL for the service                                        |
-         ====================================================================================================================
+AUTHENTICATION METHODS
 
-    OAuth2 token details for the HPE Onepass authenticatio are stored in `${Global:HPEGreenLakeSession.OnepassToken}` and contains the following properties:
-         
-         ====================================================================================================================
-         | Name           | Type     | Value                                                                                |
-         --------------------------------------------------------------------------------------------------------------------
-         | access_token   | String   | Access token for the HPE Onepass application                                         |
-         --------------------------------------------------------------------------------------------------------------------
-         | id_token       | String   | ID token for the HPE Onepass application                                             |
-         --------------------------------------------------------------------------------------------------------------------
-         | refresh_token  | String   | Refresh token for the HPE Onepass application                                        |
-         --------------------------------------------------------------------------------------------------------------------
-         | token_type     | String   | Type of the token (e.g., Bearer)                                                     |
-         --------------------------------------------------------------------------------------------------------------------
-         | expires_in     | Int      | Number of seconds until the token expires                                            |
-         --------------------------------------------------------------------------------------------------------------------
-         | creation_time  | Datetime | Date and time when the token was created                                             |
-         ====================================================================================================================
+This library supports three authentication methods:
 
-    The HPE GreenLake API token details are stored in ${Global:HPEGreenLakeSession.glpApiAccessToken} and ${Global:HPEGreenLakeSession.glpApiAccessTokenv1_2} for v2 workspace and contains the following properties:
+1. Single-Factor Authentication (Username and Password)
+   - Direct authentication using HPE Account credentials
+   - Suitable for non-SSO environments or testing scenarios
 
-         ====================================================================================================================
-         | Name                       | Type               | Value                                                           |
-         --------------------------------------------------------------------------------------------------------------------
-         | name                       | String             | Name of the API Client credential                               | 
-         --------------------------------------------------------------------------------------------------------------------
-         | access_token               | String             | Access token of the API client credential                       |
-         --------------------------------------------------------------------------------------------------------------------
-         | expires_in                 | String             | Time in seconds until the token expires                         |
-         --------------------------------------------------------------------------------------------------------------------
-         | creation_time              | Datetime           | Date and time of when the token was created                     |
-         ====================================================================================================================
+2. Multi-Factor Authentication (MFA) with HPE Account
+   - Google Authenticator: 6-digit time-based verification codes
+   - Okta Verify: Push notifications for approval
    
-    .EXAMPLE
-    Connect-HPEGL  
+   MFA Requirements:
+   • Authenticator app must be installed and linked to your HPE Account
+   • Security keys and biometric authenticators are not supported
+   • If your account uses only security keys/biometrics, enable Google Authenticator or Okta Verify in account settings
+   • When both methods are available, Okta Verify push notifications take precedence
+
+3. SAML Single Sign-On (SSO) - Passwordless Authentication
+   
+   Supported Identity Providers:
+   
+   • Okta
+     - Push notifications (with or without number challenge) and TOTP codes
+     - Push notifications prioritized; automatic fallback to TOTP
+     - 2-minute approval timeout
+     - Requires Okta Verify installed and enrolled
+   
+   • Microsoft Entra ID
+     - Passwordless push notifications with mandatory number matching
+     - Passwordless phone sign-in required (standard MFA enrollment insufficient)
+     - Commercial cloud only (login.microsoftonline.com)
+     - TOTP codes not supported in passwordless flows
+     - Allow 15-30 minutes for enrollment changes to propagate
+   
+   • PingIdentity
+     - Push notifications and TOTP codes
+     - Push prioritized; automatic fallback to TOTP
+     - All PingOne regions supported (NA, EU, APAC, CA)
+     - 2-minute approval timeout
+     - Requires PingID enrolled and active
+   
+   SSO Prerequisites:
+   • SAML SSO configured in your HPE GreenLake workspace
+   • Identity Provider configured with HPE GreenLake as SAML 2.0 application
+   • Passwordless authentication methods only (push notifications and/or TOTP)
+   • User has appropriate application access permissions
+   
+   Security Note: Password-based MFA flows are not supported. This follows NIST and industry best practices, 
+                  as passwordless authentication eliminates vulnerabilities such as phishing, credential stuffing, and password reuse.
+   
+   Configuration Guide: https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us
+   Technical blog: https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets/
+
+ACCOUNT REQUIREMENTS
+
+• HPE Account: Required for authentication methods 1 and 2 (single-factor and MFA)
+  - Not required when using SSO with external Identity Providers (Okta, Entra ID, PingIdentity)
+  - Create an account at https://common.cloud.hpe.com
+  - Account creation guide: https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html
+
+ROLE-BASED ACCESS
+
+Minimum required role: Observer (view-only access)
+- Observer: View resources and configurations
+- Operator: View and edit resources
+- Administrator: View, edit, and delete resources
+- Custom roles: Create tailored access permissions
+
+Required roles for both:
+• HPE GreenLake Platform service manager
+• Compute Ops Management service manager (access required for each COM instance you plan to manage)
+
+WORKSPACE MANAGEMENT
+
+You do not need an existing HPE GreenLake workspace to connect. After initial authentication, create a new workspace using the 'New-HPEGLWorkspace' cmdlet.
+
+SESSION MANAGEMENT
+
+The global variable `$Global:HPEGreenLakeSession` stores:
+• Session information and web request sessions
+• API client credentials (HPE GreenLake and Compute Ops Management)
+• OAuth2 access tokens, ID tokens, and refresh tokens
+• Workspace details (ID, name, organization)
+• Token creation timestamps and expiration details
+
+For detailed session properties, see the OUTPUTS section below.
+
+.PARAMETER Credential 
+Set of security credentials such as a username and password to establish a connection to HPE GreenLake.
+
+.PARAMETER SSOEmail
+Specifies the email address to use for Single Sign-On (SSO) authentication. 
+
+Supported Identity Providers:
+- Okta: Okta Verify push notifications or TOTP codes
+- Microsoft Entra ID: Microsoft Authenticator passwordless push with mandatory number matching
+- PingIdentity: PingID push notifications or TOTP codes
+
+Authentication Flow:
+1. Monitor PowerShell for authentication prompts based on your Identity Provider:
+   - Number to verify (e.g., "35" for Entra ID number matching)
+   - Push notification to approve on your mobile device
+   - TOTP code prompt from your authenticator app
+
+2. Complete authentication on your mobile device:
+   - Approve the push notification, or
+   - Enter the displayed number in your authenticator app, or
+   - Provide the TOTP code when prompted
+
+3. Connection proceeds automatically once authentication is verified
+
+Note: SSO must be properly configured in your HPE GreenLake workspace. If you receive an "SSO configuration issue" error, contact your Workspace Administrator 
+      to ensure your email domain is pre-claimed and SAML SSO is configured.
+
+.PARAMETER Workspace 
+Specifies the name of a workspace available in HPE GreenLake that you want to connect to.
+
+- You can omit this parameter if no workspaces have been created in HPE GreenLake yet.
+- If you have only one workspace in HPE GreenLake, you can omit this parameter, and the cmdlet will automatically connect to the available workspace.
+- If you have multiple workspaces and are unsure of the workspace name you want to connect to, you can omit this parameter. After connecting to HPE GreenLake, use the 'Get-HPEGLWorkspace' cmdlet to list and identify the available workspaces.
+
+.PARAMETER RemoveExistingCredentials
+Specifies whether to remove all existing API credentials generated by previous runs of Connect-HPEGL or Connect-HPEGLWorkspace that were not properly cleaned up by a Disconnect-HPEGL operation.
+When enabled, this option will delete all previously created API credentials attached to your user account that may be lingering from earlier sessions.
+Use this option if you encounter the error: 'You have reached the maximum of 7 personal API clients' when connecting. Removing these credentials can resolve the issue by clearing out unused credentials created by this library.
+
+Caution: Removing existing credentials may affect other active PowerShell sessions related to your user using those credentials, potentially causing authentication failures until those sessions reconnect.
+
+.PARAMETER NoProgress
+Suppresses the progress bar display for automation or silent operation.
+Note: Critical information such as number matching challenges will still be displayed regardless of this setting.
+
+.INPUTS
+None. You cannot pipe objects to this cmdlet.
+
+.OUTPUTS
+HPEGreenLakeSession
+
+When a valid connection is established with the HPE GreenLake platform, several properties are added to the 
+`${Global:HPEGreenLakeSession}` connection tracker variable. The object returned will contain the following public properties:
+        
+     ====================================================================================================================
+     | Name                      | Type               | Value                                                           |
+     --------------------------------------------------------------------------------------------------------------------
+     | AuthSession               | WebRequestSession  | Web session object used for Okta/HPE GreenLake authentication   |
+     --------------------------------------------------------------------------------------------------------------------
+     | WorkspaceSession          | WebRequestSession  | Web session object for the selected workspace (API operations)  |
+     --------------------------------------------------------------------------------------------------------------------
+     | oauth2AccessToken         | String             | OAuth2 access token                                             | 
+     --------------------------------------------------------------------------------------------------------------------
+     | oauth2IdToken             | String             | OAuth2 ID Token                                                 |
+     --------------------------------------------------------------------------------------------------------------------
+     | oauth2RefreshToken        | String             | OAuth2 refresh token                                            |
+     --------------------------------------------------------------------------------------------------------------------
+     | userName                  | String             | Username used for authentication                                |
+     --------------------------------------------------------------------------------------------------------------------
+     | name                      | String             | Name of the user used for authentication                        |
+     --------------------------------------------------------------------------------------------------------------------
+     | workspaceId               | String             | Workspace ID                                                    |
+     --------------------------------------------------------------------------------------------------------------------
+     | workspace                 | String             | Workspace name                                                  |
+     --------------------------------------------------------------------------------------------------------------------
+     | workspacesCount           | Integer            | Number of available workspaces                                  |
+     --------------------------------------------------------------------------------------------------------------------
+     | organization              | String             | Name of the organization governance                             |
+     --------------------------------------------------------------------------------------------------------------------
+     | organizationId            | String             | ID of the organization governance                               |
+     --------------------------------------------------------------------------------------------------------------------
+     | oauth2TokenCreation       | Datetime           | OAuth2 token creation time                                      |
+     --------------------------------------------------------------------------------------------------------------------
+     | oauth2TokenCreationEpoch  | String             | Unix timestamp of OAuth2 token creation                         |     
+     --------------------------------------------------------------------------------------------------------------------
+     | apiCredentials            | ArrayList          | List of API client credentials created during the session       |
+     --------------------------------------------------------------------------------------------------------------------
+     | glpApiAccessToken         | String             | HPE GreenLake API access token for workspace v1                 |       
+     --------------------------------------------------------------------------------------------------------------------
+     | glpApiAccessTokenv1_2     | String             | HPE GreenLake API access token for workspace v2                 |       
+     --------------------------------------------------------------------------------------------------------------------
+     | ccsSid                    | String             | HPE CCS session ID                                              |    
+     --------------------------------------------------------------------------------------------------------------------
+     | onepassToken              | Object             |  OAuth2 token details for the HPE Onepass authentication        |    
+     ====================================================================================================================
+
+API client credentials are stored in `${Global:HPEGreenLakeSession.apiCredentials}` and contains the following properties:
+     
+     ====================================================================================================================
+     | Name                    | Type         | Value                                                                   |
+     --------------------------------------------------------------------------------------------------------------------
+     | name                    | String       | Name of the API client credential                                       |
+     --------------------------------------------------------------------------------------------------------------------
+     | workspace_name          | String       | Name of the associated workspace                                        |
+     --------------------------------------------------------------------------------------------------------------------
+     | workspace_id            | String       | ID of the associated workspace                                          |
+     --------------------------------------------------------------------------------------------------------------------
+     | application_name        | String       | Name of the provisioned service (e.g., Compute Ops Mgmt)                |
+     --------------------------------------------------------------------------------------------------------------------
+     | region                  | String       | Region code where the service is provisioned                            |
+     --------------------------------------------------------------------------------------------------------------------
+     | application_instance_id | String       | Unique ID of the service instance                                       |
+     --------------------------------------------------------------------------------------------------------------------
+     | secure_client_secret    | SecureString | Encrypted client secret for the API client credential                   |
+     --------------------------------------------------------------------------------------------------------------------
+     | client_id               | String       | Client ID for the API client credential                                 |
+     --------------------------------------------------------------------------------------------------------------------
+     | connectivity_endpoint   | String       | API endpoint URL for the service                                        |
+     ====================================================================================================================
+
+OAuth2 token details for the HPE Onepass authenticatio are stored in `${Global:HPEGreenLakeSession.OnepassToken}` and contains the following properties:
+     
+     ====================================================================================================================
+     | Name           | Type     | Value                                                                                |
+     --------------------------------------------------------------------------------------------------------------------
+     | access_token   | String   | Access token for the HPE Onepass application                                         |
+     --------------------------------------------------------------------------------------------------------------------
+     | id_token       | String   | ID token for the HPE Onepass application                                             |
+     --------------------------------------------------------------------------------------------------------------------
+     | refresh_token  | String   | Refresh token for the HPE Onepass application                                        |
+     --------------------------------------------------------------------------------------------------------------------
+     | token_type     | String   | Type of the token (e.g., Bearer)                                                     |
+     --------------------------------------------------------------------------------------------------------------------
+     | expires_in     | Int      | Number of seconds until the token expires                                            |
+     --------------------------------------------------------------------------------------------------------------------
+     | creation_time  | Datetime | Date and time when the token was created                                             |
+     ====================================================================================================================
+
+The HPE GreenLake API token details are stored in ${Global:HPEGreenLakeSession.glpApiAccessToken} and ${Global:HPEGreenLakeSession.glpApiAccessTokenv1_2} for v2 workspace and contains the following properties:
+
+     ====================================================================================================================
+     | Name                       | Type               | Value                                                           |
+     --------------------------------------------------------------------------------------------------------------------
+     | name                       | String             | Name of the API Client credential                               | 
+     --------------------------------------------------------------------------------------------------------------------
+     | access_token               | String             | Access token of the API client credential                       |
+     --------------------------------------------------------------------------------------------------------------------
+     | expires_in                 | String             | Time in seconds until the token expires                         |
+     --------------------------------------------------------------------------------------------------------------------
+     | creation_time              | Datetime           | Date and time of when the token was created                     |
+     ====================================================================================================================
+
+.NOTES
+    ENVIRONMENT VARIABLES (Optional - For Development/Testing Only):
     
-    Connect to HPE GreenLake when you have not yet created any workspace. The user will be prompted for their username and password.
+    By default, Connect-HPEGL connects to HPE GreenLake production endpoints.
+    For development, testing, staging, or private cloud deployments, you can override
+    these endpoints using environment variables:
     
-    In this example, no parameters are passed to the `Connect-HPEGL` cmdlet, which will prompt the user for their HPE GreenLake username and password. 
-    This is useful when connecting to HPE GreenLake for the first time or when no workspace exists yet.
+    HPE_COMMON_CLOUD_URL - Override for https://common.cloud.hpe.com
+        Default: https://common.cloud.hpe.com
+        Description: HPE Common Cloud Services settings endpoint
+        
+    HPE_AUTH_URL - Override for https://auth.hpe.com
+        Default: https://auth.hpe.com
+        Description: HPE authentication and OAuth2 endpoint
+        
+    HPE_SSO_URL - Override for https://sso.common.cloud.hpe.com
+        Default: https://sso.common.cloud.hpe.com
+        Description: HPE SSO endpoint for federated authentication
     
-    If there is only one workspace available, the cmdlet will automatically connect to that workspace. 
+    Example - Using Development Environment:
+        PS> $env:HPE_COMMON_CLOUD_URL = "https://dev-common.cloud.hpe.com"
+        PS> $env:HPE_AUTH_URL = "https://dev-auth.hpe.com"
+        PS> $env:HPE_SSO_URL = "https://dev-sso.common.cloud.hpe.com"
+        PS> Connect-HPEGL -SSOEmail user@company.com -Workspace TestWorkspace
     
-    If multiple workspaces exist, the user can use the `Get-HPEGLWorkspace` cmdlet once connected to retrieve the workspace names and then specify the desired workspace to connect to using 'Connect-HPEGLWorkspace -Name <WorkspaceName>'.
+    Example - Using Mock Server for Testing:
+        PS> $env:HPE_COMMON_CLOUD_URL = "https://localhost:8443"
+        PS> $env:HPE_AUTH_URL = "https://localhost:8444"
+        PS> Connect-HPEGL -Credential $cred -Workspace MockWorkspace
     
-    .EXAMPLE
-    $Username = "Sean@gmail.com"
-    $Secpasswd = read-host "Please enter your HPE GreenLake password" -AsSecureString
-    $Credentials = New-Object System.Management.Automation.PSCredential ($Username, $Secpasswd)
-    Connect-HPEGL -Credential $Credentials 
+    Example - Clear Environment Variables (Return to Production):
+        PS> Remove-Item Env:\HPE_COMMON_CLOUD_URL
+        PS> Remove-Item Env:\HPE_AUTH_URL
+        PS> Remove-Item Env:\HPE_SSO_URL
+        PS> Connect-HPEGL -Credential $cred -Workspace ProductionWorkspace
     
-    Connect the user Sean@gmail.com to HPE GreenLake using a PSCredential object. 
-    
-    In this example, the username and password are collected first, and then a PSCredential object is created. The credential object is subsequently passed to the `Connect-HPEGL` cmdlet to establish the connection.
-    
-    .EXAMPLE
-    Connect-HPEGL -Credential $Credentials -Workspace "My_workspace_name" 
-    
-    Connect the user Sean@gmail.com to an existing workspace named "My_workspace_name" in HPE GreenLake using a PSCredential object. 
-    Temporary HPE GreenLake and COM API client credentials are generated in the newly connected 'My_workspace_name' workspace.
-    '$Global:HPEGreenLakeSession' is updated with the new API credentials and workspace details.
-    
-    Here, the previously created PSCredential object is used again, but this time with an additional `-Workspace` parameter to specify which workspace in HPE GreenLake to connect to.
-    
-    .EXAMPLE
-    $GLP_Username = "lio@domain.com"
-    $GLP_EncryptedPassword = "...01000000d08c9ddf0115d1118c7a00c04fc297eb01000000ea1f94d2f2dc2b40af7a0adaeeae84b1f349432b32a730af3b80567e2378c570b3a111d627d70ac9eb6f281..."
-    $GLP_SecurePassword = ConvertTo-SecureString $GLP_EncryptedPassword
-    $credentials = New-Object System.Management.Automation.PSCredential ($GLP_Username, $GLP_SecurePassword)
-    
-    Connect-HPEGL -Credential $credentials -Workspace "HPE Workspace" 
-    
-    Connect the user lio@domain.com to an existing workspace named "HPE Workspace" using an encrypted password.
-    
-    In this example, the secure password string is first converted to a SecureString, and then a PSCredential object is created using an encrypted password and username. This credential object is then used to connect to a specific workspace named "HPE Workspace".
-    
-    Using an encrypted password like $GLP_EncryptedPassword in a script enhances security by preventing unauthorized access to plaintext credentials, and follows best practices for secure coding. It also reduces the risk of human error and accidental exposure during code sharing or review processes.
-    
-    To generate an encrypted password, you can use:
-    ConvertTo-SecureString -String "<Your_HPE_GreenLake_Password>" -AsPlainText -Force |  ConvertFrom-SecureString 
-    
-    .EXAMPLE
-    Connect-HPEGL -Credential $credentials
-    
-    # Get the list of available workspaces
-    Get-HPEGLWorkspace 
-    
-    # Connect to a specific workspace from the list of workspaces
-    Connect-HPEGLWorkspace -Name "<WorkspaceName>"
-    
-    This example demonstrates how to connect to the HPE GreenLake platform using provided credentials, retrieve the list of available workspaces, and then connect to a specific workspace when the workspace name is unknown.
-    
-    .EXAMPLE
-    Connect-HPEGL -SSOEmail "firstname.lastname@hpe.com" -Workspace "My_workspace_name" 
-    
-    This example demonstrates how to connect to HPE GreenLake using Single Sign-On (SSO) with an email address.
-    The user will be prompted to approve the push notification on their phone for authentication.
-    If the workspace name is specified, the cmdlet will connect to the specified workspace.
-    If no workspace name is provided, the cmdlet will connect to the default workspace associated with the user's account.
-    
-    .LINK
-    If you do not have an HPE Account, you can create one at https://common.cloud.hpe.com.
-    
-    To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html
-    
-    #>
+    Production Users: Do not set these environment variables. The function uses
+    production URLs by default. Environment variables are only needed for non-production
+    scenarios such as development, testing, or private cloud deployments.
+
+.EXAMPLE
+Connect-HPEGL  
+
+Connect to HPE GreenLake when you have not yet created any workspace. The user will be prompted for their username and password.
+
+In this example, no parameters are passed to the `Connect-HPEGL` cmdlet, which will prompt the user for their HPE GreenLake username and password. 
+This is useful when connecting to HPE GreenLake for the first time or when no workspace exists yet.
+
+If there is only one workspace available, the cmdlet will automatically connect to that workspace. 
+
+If multiple workspaces exist, the user can use the `Get-HPEGLWorkspace` cmdlet once connected to retrieve the workspace names and then specify the desired workspace to connect to using 'Connect-HPEGLWorkspace -Name <WorkspaceName>'.
+
+.EXAMPLE
+$Username = "Sean@gmail.com"
+$Secpasswd = read-host "Please enter your HPE GreenLake password" -AsSecureString
+$Credentials = New-Object System.Management.Automation.PSCredential ($Username, $Secpasswd)
+Connect-HPEGL -Credential $Credentials 
+
+Connect the user Sean@gmail.com to HPE GreenLake using a PSCredential object. 
+
+In this example, the username and password are collected first, and then a PSCredential object is created. The credential object is subsequently passed to the `Connect-HPEGL` cmdlet to establish the connection.
+
+.EXAMPLE
+Connect-HPEGL -Credential $Credentials -Workspace "My_workspace_name" 
+
+Connect the user Sean@gmail.com to an existing workspace named "My_workspace_name" in HPE GreenLake using a PSCredential object. 
+Temporary HPE GreenLake and COM API client credentials are generated in the newly connected 'My_workspace_name' workspace.
+'$Global:HPEGreenLakeSession' is updated with the new API credentials and workspace details.
+
+Here, the previously created PSCredential object is used again, but this time with an additional `-Workspace` parameter to specify which workspace in HPE GreenLake to connect to.
+
+.EXAMPLE
+$GLP_Username = "lio@domain.com"
+$GLP_EncryptedPassword = "...01000000d08c9ddf0115d1118c7a00c04fc297eb01000000ea1f94d2f2dc2b40af7a0adaeeae84b1f349432b32a730af3b80567e2378c570b3a111d627d70ac9eb6f281..."
+$GLP_SecurePassword = ConvertTo-SecureString $GLP_EncryptedPassword
+$credentials = New-Object System.Management.Automation.PSCredential ($GLP_Username, $GLP_SecurePassword)
+
+Connect-HPEGL -Credential $credentials -Workspace "HPE Workspace" 
+
+Connect the user lio@domain.com to an existing workspace named "HPE Workspace" using an encrypted password.
+
+In this example, the secure password string is first converted to a SecureString, and then a PSCredential object is created using an encrypted password and username. This credential object is then used to connect to a specific workspace named "HPE Workspace".
+
+Using an encrypted password like $GLP_EncryptedPassword in a script enhances security by preventing unauthorized access to plaintext credentials, and follows best practices for secure coding. It also reduces the risk of human error and accidental exposure during code sharing or review processes.
+
+To generate an encrypted password, you can use:
+ConvertTo-SecureString -String "<Your_HPE_GreenLake_Password>" -AsPlainText -Force |  ConvertFrom-SecureString 
+
+.EXAMPLE
+Connect-HPEGL -Credential $credentials
+
+# Get the list of available workspaces
+Get-HPEGLWorkspace 
+
+# Connect to a specific workspace from the list of workspaces
+Connect-HPEGLWorkspace -Name "<WorkspaceName>"
+
+This example demonstrates how to connect to the HPE GreenLake platform using provided credentials, retrieve the list of available workspaces, and then connect to a specific workspace when the workspace name is unknown.
+
+.EXAMPLE
+Connect-HPEGL -SSOEmail "user@company.com" -Workspace "Production"
+
+This example demonstrates SSO authentication with Okta using push notification.
+The cmdlet will send a push notification to the user's Okta Verify app.
+If number matching is enabled, the user must enter the displayed number in the app.
+Otherwise, simply approve the push notification within 2 minutes.
+
+.EXAMPLE
+Connect-HPEGL -SSOEmail "user@company.com" -Workspace "Production"
+
+This example demonstrates SSO authentication with Microsoft Entra ID using passwordless push with mandatory number matching.
+The cmdlet will display a number in PowerShell (e.g., "35").
+Open Microsoft Authenticator on your mobile device and enter the exact number shown to approve the authentication.
+Authentication must be completed within 2 minutes.
+
+Note: Ensure passwordless phone sign-in is enabled in Microsoft Authenticator (standard MFA enrollment is insufficient).
+
+.EXAMPLE
+Connect-HPEGL -SSOEmail "user@company.com" -Workspace "Production"
+
+This example demonstrates SSO authentication with PingIdentity using push notification.
+The cmdlet will send a push notification to the user's PingID app.
+Approve the notification on your mobile device within 2 minutes.
+If push is unavailable, you may be prompted to enter a TOTP code from the PingID app.
+
+.EXAMPLE
+Connect-HPEGL -SSOEmail "user@company.com"
+
+Connect to HPE GreenLake using SSO without specifying a workspace.
+After authentication, use Get-HPEGLWorkspace to list available workspaces, then connect to a specific workspace using Connect-HPEGLWorkspace -Name "<WorkspaceName>".
+
+.EXAMPLE
+Connect-HPEGL -SSOEmail "user@company.com" -Workspace "Production" -RemoveExistingCredentials
+
+Connect using SSO and remove all existing API credentials from previous sessions.
+Use this if you encounter the "maximum of 7 personal API clients" error.
+
+.EXAMPLE
+Connect-HPEGL -SSOEmail "user@company.com" -Workspace "Production" -Verbose
+
+Connect using SSO with verbose output for troubleshooting.
+This displays detailed information about each step of the authentication process.
+
+.LINK
+If you do not have an HPE Account, you can create one at https://common.cloud.hpe.com.
+
+To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html
+
+For SAML SSO configuration instructions, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us
+
+#>
     [CmdletBinding(DefaultParameterSetName = 'Credential')]
     param (
         [Parameter(Mandatory, ParameterSetName = 'Credential')]
@@ -2776,6 +2964,32 @@ Function Connect-HPEGL {
                         
         "[{0}] About to test DNS resolution and TCP connection with all HPE GreenLake endpoints" -f $functionName, $Caller | Write-Verbose
     
+        # Support environment variable override for dev/test/private cloud environments
+        # Production users don't set these - function uses defaults
+        $hpeCommonUrl = if ($env:HPE_COMMON_CLOUD_URL) { 
+            "[{0}] Using HPE Common Cloud URL from environment variable: {1}" -f $functionName, $env:HPE_COMMON_CLOUD_URL | Write-Verbose
+            $env:HPE_COMMON_CLOUD_URL 
+        }
+        else { 
+            "https://common.cloud.hpe.com" 
+        }
+
+        $hpeAuthUrl = if ($env:HPE_AUTH_URL) { 
+            "[{0}] Using HPE Auth URL from environment variable: {1}" -f $functionName, $env:HPE_AUTH_URL | Write-Verbose
+            $env:HPE_AUTH_URL 
+        }
+        else { 
+            "https://auth.hpe.com" 
+        }
+
+        $hpeSsoUrl = if ($env:HPE_SSO_URL) { 
+            "[{0}] Using HPE SSO URL from environment variable: {1}" -f $functionName, $env:HPE_SSO_URL | Write-Verbose
+            $env:HPE_SSO_URL 
+        }
+        else { 
+            "https://sso.common.cloud.hpe.com" 
+        }
+
         # 1 - Test DNS resolution
     
         $ccsSettingsUrl = Get-ccsSettingsUrl
@@ -2783,13 +2997,13 @@ Function Connect-HPEGL {
         
         Test-EndpointDNSResolution $CCServer
     
-        # 2 - Test TCP connection: https://common.cloud.hpe.com
+        # 2 - Test TCP connection: HPE Common Cloud URL
         
-        Test-EndpointTCPConnection https://common.cloud.hpe.com
+        Test-EndpointTCPConnection $hpeCommonUrl
             
-        # 3 - Test TCP connection: https://auth.hpe.com
+        # 3 - Test TCP connection: HPE Auth URL
     
-        Test-EndpointTCPConnection https://auth.hpe.com
+        Test-EndpointTCPConnection $hpeAuthUrl
 
         # 4 - Retrieve HPE GreenLake Common Cloud Services Settings and set global variables
             
@@ -2825,7 +3039,7 @@ Function Connect-HPEGL {
             
         # Initialize progress bar variables
         $completedSteps = 0
-        $totalSteps = if ($Workspace -and -not $SSOEmail) { 9 } elseif ($SSOEmail) { 14 } else { 9 }
+        $totalSteps = if ($Workspace -and -not $SSOEmail) { 9 } elseif ($SSOEmail -and $SSOEmail -match 'hpe.com$') { 14 } else { 18 }
     
         function Update-ProgressBar {
             param (
@@ -2836,7 +3050,8 @@ Function Connect-HPEGL {
             )
     
             if (-not $NoProgress) {
-                $percentComplete = [math]::Min(($CompletedSteps / $TotalSteps) * 100, 100)
+                # Ensure percentage is between 0 and 100 (prevent negative values)
+                $percentComplete = [math]::Max(0, [math]::Min(($CompletedSteps / $TotalSteps) * 100, 100))
                 Write-Progress -Id $Id -Activity "Connecting to HPE GreenLake, please wait..." -Status $CurrentActivity -PercentComplete $percentComplete
             }            
         }     
@@ -2869,21 +3084,21 @@ Function Connect-HPEGL {
 
         function Redact-StateHandle {
             <#
-    .SYNOPSIS
-        Redacts 'stateHandle' values (direct or nested) and 'stateToken' in URLs within a JSON-derived object.
+            .SYNOPSIS
+                Redacts 'stateHandle' values (direct or nested) and 'stateToken' in URLs within a JSON-derived object.
 
-    .DESCRIPTION
-        Finds the first 'stateHandle' (as direct string prop or nested {name: 'stateHandle', value: 'token'}), 
-        redacts all exact matches, plus any stateToken query params in href URLs.
+            .DESCRIPTION
+                Finds the first 'stateHandle' (as direct string prop or nested {name: 'stateHandle', value: 'token'}), 
+                redacts all exact matches, plus any stateToken query params in href URLs.
 
-    .PARAMETER InputObject
-        The input object (e.g., from ConvertFrom-Json).
+            .PARAMETER InputObject
+                The input object (e.g., from ConvertFrom-Json).
 
-    .EXAMPLE
-        $json = Get-Content 'auth-response.json' | ConvertFrom-Json
-        $redacted = Redact-StateHandle -InputObject $json
-        $redacted | ConvertTo-Json -Depth 10
-    #>
+            .EXAMPLE
+                $json = Get-Content 'auth-response.json' | ConvertFrom-Json
+                $redacted = Redact-StateHandle -InputObject $json
+                $redacted | ConvertTo-Json -Depth 10
+            #>
             [CmdletBinding()]
             param(
                 [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
@@ -2957,21 +3172,2205 @@ Function Connect-HPEGL {
     
         "[{0}] Bound PS Parameters: {1}" -f $functionName, ($PSBoundParameters | out-string) | Write-Verbose
     
-        $global:session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+        # === INITIALIZATION ===
+        $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 
         $step = 1
 
         ##############################################################################################################################################################################################
         
-        # Handle non-hpe.com SSO Email cases (not supported)
+        # Handle non-hpe.com SSO Email cases
         if ($PSBoundParameters.ContainsKey('SSOEmail') -and $SSOEmail -notmatch 'hpe.com$') {
 
-            # Return message that SSO is not supported with non HPE email Account
-            $ErrorMessage = "Single Sign-On (SSO) is currently only supported for HPE corporate email accounts (ending with '@hpe.com'). Please use an HPE email address or connect with standard credentials."
-            throw $ErrorMessage
+            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
+            #Region Helper functions for Entra ID/Okta/PingID passwordless MFA authentication flow
 
-            #-----------------------------------------------------------Authentication to HPE GreenLake Common Cloud Services----------------------------------------------------------------------------- 
-            
+            function Get-302RedirectUrl {
+                param(
+                    [string]$Url,
+                    [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
+                    [hashtable]$Headers = $null,
+                    [string]$StepName
+                )
+                
+                $params = @{
+                    Uri                = $Url
+                    Method             = 'Get'
+                    MaximumRedirection = 0
+                    WebSession         = $Session
+                }
+                
+                if ($Headers) {
+                    $params['Headers'] = $Headers
+                }
+                
+                try {
+                    $response = Invoke-WebRequest @params
+                    return $null  # No redirect occurred
+                }
+                catch {
+                    if ($_.Exception.Message -match "302") {
+                        if ($_.Exception.Response) {
+                            $redirectUrl = $_.Exception.Response.Headers.Location.AbsoluteUri
+                            
+                            # Hide any sensitive information in logs
+                            $redirectUrlLog = $redirectUrl -replace "stateToken=[^&]+", "stateToken=[REDACTED]"
+                            $redirectUrlLog = $redirectUrlLog -replace "client_id=[^&]+", "client_id=[REDACTED]"
+                            $redirectUrlLog = $redirectUrlLog -replace "code_challenge=[^&]+", "code_challenge=[REDACTED]"
+                            $redirectUrlLog = $redirectUrlLog -replace "state=[^&]+", "state=[REDACTED]"
+
+                            "[{0}] {1} - 302 redirect to: {2}" -f $functionName, $StepName, $redirectUrlLog | Write-Verbose
+                            return $redirectUrl
+                        }
+                    }
+                    else {
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Authentication failed at {1}: {2}" -f $functionName, $StepName, $_.Exception.Message
+                    }
+                }
+            }
+
+            function Get-QueryParameter {
+                param(
+                    [string]$Url,
+                    [string]$ParamName
+                )
+                
+                $value = ($Url -split '[?&]') | Where-Object { $_ -like "$ParamName=*" } | ForEach-Object { $_ -replace "^$ParamName=", '' }
+                return [System.Web.HttpUtility]::UrlDecode($value)
+            }           
+
+            function Invoke-EntraIDMFAAuthentication {
+                <#
+            .SYNOPSIS
+                Performs Entra ID (Azure AD) passwordless authentication using Microsoft Authenticator push notifications.
+
+            .DESCRIPTION
+                This function implements the correct Entra ID passwordless authentication flow:
+                1. Calls GetCredentialType API to check available authentication methods
+                2. Initiates push notification to Microsoft Authenticator app with number matching
+                3. Polls DeviceCodeStatus API until user approves or denies the notification
+                4. Returns the SAML response for completing HPE GreenLake authentication
+                
+                This flow does NOT require passwords and works with pure passwordless authentication policies.
+                Only Microsoft Authenticator push notifications are supported in this passwordless flow.
+
+            .PARAMETER StateToken
+                The context token (ctx) from the SAML flow, used as originalRequest parameter
+
+            .PARAMETER FlowToken
+                The flow token from the Entra ID login page
+
+            .PARAMETER CanaryToken
+                The canary token for CSRF protection
+
+            .PARAMETER Username
+                The user's UPN (e.g., user@domain.onmicrosoft.com)
+
+            .PARAMETER Session
+                The WebRequestSession to maintain cookies and session state
+
+            .PARAMETER TenantDomain
+                The Entra ID tenant domain (e.g., login.microsoftonline.com)
+
+            .PARAMETER BaseUrl
+                The Entra ID base URL. Defaults to https://login.microsoftonline.com for commercial cloud.
+                For sovereign clouds, specify: https://login.microsoftonline.us (Government), etc.    
+
+            .PARAMETER NoProgress
+                Suppresses progress bar updates (number matching entropy will still be shown)
+
+            .PARAMETER CompletedSteps
+                Reference to completed steps counter for progress tracking
+
+            .PARAMETER TotalSteps
+                Total number of steps for progress calculation
+
+            .PARAMETER CurrentStep
+                Reference to current step counter
+
+            .EXAMPLE
+                $result = Invoke-EntraIDMFAAuthentication -StateToken $ctx -FlowToken $flowToken `
+                    -CanaryToken $canary -Username "user@domain.com" -Session $session -TenantDomain "login.microsoftonline.com"
+
+                This example performs Entra ID passwordless authentication in the commercial cloud.
+
+            .EXAMPLE
+                $result = Invoke-EntraIDMFAAuthentication -StateToken $ctx -FlowToken $flowToken `
+                    -CanaryToken $canary -Username "user@domain.com" -Session $session `
+                    -TenantDomain "login.microsoftonline.us" -BaseUrl "https://login.microsoftonline.us"      
+                    
+                This example performs Entra ID passwordless authentication in the Azure Government cloud.
+
+            .NOTES
+                Only Microsoft Authenticator push notifications are supported. TOTP codes and other MFA methods
+                are not available in the passwordless authentication flow.
+            #>
+
+                param(
+                    [Parameter(Mandatory = $false)]
+                    [string]$StateToken,
+
+                    [Parameter(Mandatory = $false)]
+                    [string]$FlowToken,
+
+                    [Parameter(Mandatory = $false)]
+                    [string]$CanaryToken,
+
+                    [Parameter(Mandatory = $true)]
+                    [string]$Username,
+
+                    [Parameter(Mandatory = $true)]
+                    [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
+
+                    [Parameter(Mandatory = $true)]
+                    [string]$TenantDomain,
+
+                    [Parameter(Mandatory = $false)]
+                    [switch]$NoProgress,
+
+                    [Parameter(Mandatory = $false)]
+                    [ref]$CompletedSteps,
+
+                    [Parameter(Mandatory = $false)]
+                    [int]$TotalSteps,
+
+                    [Parameter(Mandatory = $false)]
+                    [ref]$CurrentStep,
+
+                    [Parameter(Mandatory = $false)]
+                    [string]$BaseUrl = "https://login.microsoftonline.com",
+
+                    [Parameter(Mandatory = $false)]
+                    [int]$TimeoutMinutes = 2,
+
+                    [Parameter(Mandatory = $false)]
+                    [int]$PollIntervalSeconds = 3
+                )
+
+                $functionName = "Invoke-EntraIDMFAAuthentication".ToUpper()
+                $script:HelpUrl = "https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/README.md"
+
+
+                # Validate we have at least one required token
+                if (-not $StateToken -and -not $FlowToken) {
+                    throw "[{0}] Either StateToken (ctx) or FlowToken must be provided for Entra ID authentication" -f $functionName
+                }
+
+                "[{0}] Starting Entra ID passwordless authentication" -f $functionName | Write-Verbose
+                "[{0}] Username: {1}" -f $functionName, $Username | Write-Verbose
+
+                # Single progress bar update for the entire MFA process
+                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                    $currentStepValue = $CurrentStep.Value
+                    Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps -CurrentActivity "Step $currentStepValue/$TotalSteps - Entra ID Passwordless Authentication" -Id 0
+                    $CurrentStep.Value++
+                }
+
+                #Region STEP 1: Get Available Authentication Methods
+                
+                $getCredentialTypeUrl = "$baseUrl/common/GetCredentialType"
+
+                "[{0}] Step 1: Checking available authentication methods using POST {1}" -f $functionName, $getCredentialTypeUrl | Write-Verbose
+                
+                # Detect country code with fallback
+                $countryCode = try { 
+                    [System.Globalization.RegionInfo]::CurrentRegion.TwoLetterISORegionName 
+                }
+                catch { 
+                    "US" 
+                }
+
+                $payload = @{
+                    username                       = $Username
+                    isOtherIdpSupported            = $true
+                    checkPhones                    = $false
+                    isRemoteNGCSupported           = $true
+                    isCookieBannerShown            = $false
+                    isFidoSupported                = $true
+                    originalRequest                = $StateToken
+                    country                        = $countryCode
+                    forceotclogin                  = $false
+                    isExternalFederationDisallowed = $false
+                    isRemoteConnectSupported       = $false
+                    federationFlags                = 0
+                    isSignup                       = $false
+                    flowToken                      = $FlowToken
+                    isAccessPassSupported          = $true
+                    isQrCodePinSupported           = $true
+                } | ConvertTo-Json -Depth 10
+
+                $headers = @{
+                    "Content-Type"      = "application/json"
+                    "canary"            = $CanaryToken
+                    "client-request-id" = [guid]::NewGuid().ToString()             
+                }
+
+                "[{0}] Payload: `n{1}" -f $functionName, ($payload ) | Write-Verbose
+                "[{0}] Headers: `n{1}" -f $functionName, ($headers | ConvertTo-Json -Depth 10) | Write-Verbose
+
+                try {
+                    $credentialTypeResponse = Invoke-RestMethod -Uri $getCredentialTypeUrl -Method POST -ErrorAction Stop `
+                        -Headers $headers -Body $payload -WebSession $Session
+
+
+                    "[{0}] GetCredentialType response received: `n{1}" -f $functionName, ($credentialTypeResponse | ConvertTo-Json -Depth 10) | Write-Verbose
+                }
+                catch {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                    }
+                    "[{0}] Failed to get credential type: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                    throw "[{0}] Could not retrieve Entra ID authentication methods. {1}" -f $functionName, $_.Exception.Message
+                }
+
+                # Update tokens if new ones were returned
+                if ($credentialTypeResponse.FlowToken) {
+                    $FlowToken = $credentialTypeResponse.FlowToken
+                }
+                if ($credentialTypeResponse.apiCanary) {
+                    $CanaryToken = $credentialTypeResponse.apiCanary
+                }
+                #EndRegion STEP 1
+
+                #Region STEP 2: Validate User and Check Authentication Methods
+                "[{0}] Step 2: Validating user and authentication methods" -f $functionName | Write-Verbose
+
+                # Check if user exists
+                if ($credentialTypeResponse.IfExistsResult -ne 0) {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                    }
+                    Write-Error @"
+User authentication failed.
+
+This error can occur for multiple reasons:
+
+1. User account does not exist in Entra ID
+2. User account is disabled or locked
+3. User is not assigned to the HPE GreenLake application in Entra ID
+   - Contact your Entra ID administrator to verify application access
+   - Ensure you have the required app role assignments
+
+For complete Entra ID setup prerequisites, see: $script:HelpUrl
+"@ -ErrorAction Stop
+                }
+
+                # Check throttle status
+                if ($credentialTypeResponse.ThrottleStatus -eq 1) {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                    }
+                    throw "[{0}] Authentication requests are being throttled. Please wait a few minutes and try again." -f $functionName
+                }
+
+                # Extract authentication method details
+                $sessionIdentifier = $null
+                $entropy = $null
+
+                if ($credentialTypeResponse.Credentials) {
+                    # Check for RemoteNGC (push notification) support
+                    if ($credentialTypeResponse.Credentials.HasRemoteNGC) {
+                        
+                        if ($credentialTypeResponse.Credentials.RemoteNgcParams) {
+                            $sessionIdentifier = $credentialTypeResponse.Credentials.RemoteNgcParams.SessionIdentifier
+                            $entropy = $credentialTypeResponse.Credentials.RemoteNgcParams.Entropy
+                            
+                            "[{0}] Push notification available - Entropy: {1}" -f $functionName, $entropy | Write-Verbose
+                        }
+                        else {
+                            # RemoteNGC exists but params are null - passwordless is available but not set as default
+                            # This happens when user has passwordless configured but must click "Use an app instead" in browser
+                            # We need to make an additional API call to explicitly request RemoteNGC credentials
+                            
+                            "[{0}] RemoteNGC available but not default - requesting explicit RemoteNGC credentials" -f $functionName | Write-Verbose
+                            
+                            $beginAuthUrl = "$baseUrl/common/SAS/BeginAuth"
+                            $beginAuthPayload = @{
+                                AuthMethodId = "PhoneAppNotification"
+                                Method       = "BeginAuth"
+                                ctx          = $FlowToken
+                                flowToken    = $FlowToken
+                            } | ConvertTo-Json -Depth 10
+                            
+                            $beginAuthHeaders = @{
+                                "Content-Type"      = "application/json"
+                                "canary"            = $CanaryToken
+                                "client-request-id" = [guid]::NewGuid().ToString()
+                            }
+                            
+                            try {
+                                "[{0}] Calling BeginAuth to request RemoteNGC credentials" -f $functionName | Write-Verbose
+                                $beginAuthResponse = Invoke-RestMethod -Uri $beginAuthUrl -Method POST -ErrorAction Stop `
+                                    -Headers $beginAuthHeaders -Body $beginAuthPayload -WebSession $Session
+                                
+                                "[{0}] BeginAuth response: `n{1}" -f $functionName, ($beginAuthResponse | ConvertTo-Json -Depth 10) | Write-Verbose
+                                
+                                # Extract RemoteNGC parameters from BeginAuth response
+                                if ($beginAuthResponse.SessionIdentifier -and $beginAuthResponse.Entropy) {
+                                    $sessionIdentifier = $beginAuthResponse.SessionIdentifier
+                                    $entropy = $beginAuthResponse.Entropy
+                                    "[{0}] Successfully obtained RemoteNGC credentials - Entropy: {1}" -f $functionName, $entropy | Write-Verbose
+                                }
+                                else {
+                                    throw "[{0}] BeginAuth response missing SessionIdentifier or Entropy" -f $functionName
+                                }
+                            }
+                            catch {
+                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                                }
+                                "[{0}] Failed to request RemoteNGC credentials: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                                $errorMessage = @"
+Microsoft Authenticator passwordless sign-in is not properly configured for this account.
+
+This error can occur for multiple reasons:
+
+1. Microsoft Authenticator is not enrolled with passwordless phone sign-in enabled
+   - Go to https://aka.ms/mysecurityinfo
+   - Add or reconfigure Microsoft Authenticator with phone sign-in (passwordless) enabled
+   - Wait 15-30 minutes for changes to propagate
+
+2. User is not assigned to the HPE GreenLake application in Entra ID
+   - Contact your Entra ID administrator to verify application access
+   - Ensure you have the required app role assignments
+
+For complete Entra ID setup prerequisites, see: $script:HelpUrl
+"@
+                                Write-Error $errorMessage -ErrorAction Stop
+                            }
+                        }
+                    }
+                    else {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                        }
+                        $errorMessage = @"
+Microsoft Authenticator passwordless authentication is not enabled for this account.
+
+This error can occur for multiple reasons:
+
+1. Microsoft Authenticator is not enrolled with passwordless phone sign-in enabled
+   - Install Microsoft Authenticator on your mobile device
+   - Go to https://aka.ms/mysecurityinfo
+   - Add Microsoft Authenticator with phone sign-in (passwordless) enabled
+   - Wait 15-30 minutes for changes to propagate
+
+2. User is not assigned to the HPE GreenLake application in Entra ID
+   - Contact your Entra ID administrator to verify application access
+   - Ensure you have the required app role assignments
+
+For complete Entra ID setup prerequisites, see: $script:HelpUrl
+"@
+                        Write-Error $errorMessage -ErrorAction Stop
+                    }
+                }
+                else {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                    }
+                    throw "[{0}] Invalid response from Entra ID. Credentials information missing." -f $functionName
+                }
+                #EndRegion STEP 2
+
+                #Region STEP 3: Handle Push Notification
+                "[{0}] Step 3: Handling push notification challenge" -f $functionName | Write-Verbose
+
+                Start-Sleep -Milliseconds 500
+
+                # Display entropy number in progress bar if number matching is enabled (ALWAYS shown, bypasses NoProgress)
+                if ($entropy -and $entropy -gt 0) {
+                    Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                        -CurrentActivity "Respond '$entropy' to the Microsoft Authenticator notification" -Id 0
+                    "[{0}] Number matching active - user must enter: {1}" -f $functionName, $entropy | Write-Verbose
+                }
+                else {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                            -CurrentActivity "Approve the Microsoft Authenticator push notification" -Id 0
+                    }
+                }
+
+                # Poll for user approval
+                "[{0}] Polling for push notification approval" -f $functionName | Write-Verbose
+
+                $deviceCodeStatusUrl = "$baseUrl/common/DeviceCodeStatus"
+
+                $pollPayload = @{
+                    DeviceCode = $sessionIdentifier
+                } | ConvertTo-Json -Depth 10
+
+                $pollHeaders = @{
+                    "Content-Type"      = "application/json"
+                    "Accept"            = "application/json"
+                    "canary"            = $CanaryToken
+                    "client-request-id" = [guid]::NewGuid().ToString()
+                }
+
+                $timeout = [datetime]::Now.AddMinutes($TimeoutMinutes)
+                $pollCount = 0
+                $maxPolls = 120
+
+                do {
+                    $pollCount++
+                    
+                    try {
+                        $pollResponse = Invoke-RestMethod -Uri $deviceCodeStatusUrl -Method POST -Body $pollPayload `
+                            -Headers $pollHeaders -ErrorAction Stop -WebSession $Session
+
+                        "[{0}] Poll #{1}: AuthorizationState = {2}" -f $functionName, $pollCount, $pollResponse.AuthorizationState | Write-Verbose
+                        
+                        # Check for approval
+                        if ($pollResponse.AuthorizationState -eq 2) {
+                            "[{0}] Push notification approved by user!" -f $functionName | Write-Verbose
+                            break
+                        }
+                        
+                        # Check for denial/rejection
+                        if ($pollResponse.AuthorizationState -eq 1) {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                            }
+                            "[{0}] Push notification was denied by user (AuthorizationState = 1)" -f $functionName | Write-Verbose
+                            throw "[{0}] Microsoft Authenticator push notification was denied. The user either clicked 'It's not me' or entered an invalid number." -f $functionName
+                        }
+                        
+                        # Check for other unexpected states
+                        if ($pollResponse.AuthorizationState -gt 2) {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                            }
+                            "[{0}] Unexpected AuthorizationState: {1}" -f $functionName, $pollResponse.AuthorizationState | Write-Verbose
+                            throw "[{0}] Push notification failed with unexpected state: {1}" -f $functionName, $pollResponse.AuthorizationState
+                        }
+                    }
+                    catch {
+                        # Don't throw on timeouts, but re-throw other errors
+                        if ($_.Exception.Message -notmatch "timeout|timed out") {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                            }
+                            throw
+                        }
+                    }
+
+                    # Check overall timeout
+                    if ([datetime]::Now -ge $timeout) {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                        }
+                        Write-Error @"
+Timeout! Microsoft Authenticator push notification was not approved within $TimeoutMinutes minutes.
+
+Please try again and approve the request promptly.
+"@ -ErrorAction Stop
+                    }
+
+                    Start-Sleep -Seconds $PollIntervalSeconds                
+                } until ($pollResponse.AuthorizationState -eq 2 -or $pollCount -ge $maxPolls)
+
+                # Final check
+                if ($pollResponse.AuthorizationState -ne 2) {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                    }
+                    throw "[{0}] Push notification approval failed or timed out. Please try again." -f $functionName
+                }
+                #EndRegion STEP 3
+
+                #Region STEP 4: Complete Authentication and Get SAML Response
+                "[{0}] Step 4: Completing authentication flow" -f $functionName | Write-Verbose
+
+                # Extract tenant ID
+                $tenantId = $null
+
+                # Priority 1: Check if TenantDomain contains a GUID
+                if ($TenantDomain -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
+                    $tenantId = $matches[1]
+                }
+                # Priority 2: Check StateToken (ctx)
+                elseif ($StateToken -and $StateToken -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
+                    $tenantId = $matches[1]
+                }
+                # Priority 3: Check if we can extract from session URLs
+                elseif ($Session.Cookies.Count -gt 0) {
+                    # Try to find tenant from cookie domain or previous requests
+                    foreach ($cookie in $Session.Cookies.GetCookies($baseUrl)) {
+                        if ($cookie.Path -match '/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/') {
+                            $tenantId = $matches[1]
+                            break
+                        }
+                    }
+                }
+
+                # Fallback to 'common'
+                if (-not $tenantId) {
+                    $tenantId = "common"
+                }
+
+                $loginUrl = "$baseUrl/$tenantId/login"
+
+                # Build form data
+                $formData = @(
+                    "code=$([uri]::EscapeDataString($sessionIdentifier))"
+                    "login=$([uri]::EscapeDataString($Username))"
+                    "loginfmt=$([uri]::EscapeDataString($Username))"
+                    "psRNGCEntropy=$entropy"
+                    "psRNGCSLK=$([uri]::EscapeDataString($sessionIdentifier))"
+                    "ctx=$([uri]::EscapeDataString($StateToken))"
+                    "flowToken=$([uri]::EscapeDataString($FlowToken))"
+                    "canary=$([uri]::EscapeDataString($CanaryToken))"
+                ) -join '&'
+
+                $loginHeaders = @{
+                    "Content-Type" = "application/x-www-form-urlencoded"
+                }
+
+                try {
+                    $loginResponse = Invoke-WebRequest -Uri $loginUrl -Method POST -Body $formData `
+                        -Headers $loginHeaders -ErrorAction Stop -WebSession $Session -MaximumRedirection 10
+
+                    "[{0}] Login POST completed" -f $functionName | Write-Verbose
+
+                    # Check if we got SAML response directly
+                    if ($loginResponse.Content -match 'name="SAMLResponse"') {
+                        "[{0}] SAML response found in login response" -f $functionName | Write-Verbose
+                        
+                        if ($CompletedSteps) { $CompletedSteps.Value++ }
+                        return $loginResponse
+                    }
+                    
+                    # Check for KMSI (Keep Me Signed In) page
+                    $isKmsiPage = $loginResponse.Content -match '"PageID"\s*content="KmsiInterrupt"' -or
+                    $loginResponse.Content -match '"urlPost"\s*:\s*"/kmsi"'
+
+                    if ($isKmsiPage) {
+                        "[{0}] KMSI (Keep Me Signed In) page detected" -f $functionName | Write-Verbose
+                        
+                        # Extract tokens from JavaScript config or form fields
+                        $kmsiCtx = ""
+                        $kmsiFlowToken = ""
+                        $kmsiCanary = ""
+                        
+                        if ($loginResponse.Content -match '"sFT"\s*:\s*"([^"]+)"') {
+                            $kmsiFlowToken = $matches[1]
+                        }
+                        if ($loginResponse.Content -match '"sCtx"\s*:\s*"([^"]+)"') {
+                            $kmsiCtx = $matches[1]
+                        }
+                        elseif ($StateToken) {
+                            $kmsiCtx = $StateToken
+                        }
+                        if ($loginResponse.Content -match '"canary"\s*:\s*"([^"]+)"') {
+                            $kmsiCanary = $matches[1]
+                        }
+                        
+                        $kmsiUrl = "$baseUrl/kmsi"
+                        $kmsiFormData = @(
+                            "LoginOptions=1"
+                            "type=28"
+                            "ctx=$([uri]::EscapeDataString($kmsiCtx))"
+                            "flowToken=$([uri]::EscapeDataString($kmsiFlowToken))"
+                            "canary=$([uri]::EscapeDataString($kmsiCanary))"
+                        ) -join '&'
+                        
+                        $kmsiResponse = Invoke-WebRequest -Uri $kmsiUrl -Method POST -Body $kmsiFormData `
+                            -Headers $loginHeaders -ErrorAction Stop -WebSession $Session -MaximumRedirection 10
+                        
+                        "[{0}] KMSI POST completed" -f $functionName | Write-Verbose
+                        
+                        if ($CompletedSteps) { $CompletedSteps.Value++ }
+                        return $kmsiResponse
+                    }
+                    
+                    # Return login response if no KMSI
+                    if ($CompletedSteps) { $CompletedSteps.Value++ }
+                    return $loginResponse
+                }
+                catch {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                    }
+                    "[{0}] Failed to complete authentication flow: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                    throw "[{0}] Could not complete Entra ID authentication. {1}" -f $functionName, $_.Exception.Message
+                }
+                #EndRegion STEP 4
+            }
+
+            function Invoke-OktaMFAAuthentication {
+                <#
+            .SYNOPSIS
+                Performs Okta passwordless authentication using Okta Verify push notifications or TOTP codes.
+
+            .DESCRIPTION
+                This function implements the Okta Identity Engine (IDX) authentication flow:
+                1. Introspects authentication state
+                2. Identifies user if needed
+                3. Selects Okta Verify authenticator and method (push or TOTP)
+                4. Handles MFA challenge (push polling or TOTP code entry)
+                5. Returns SAML response for completing authentication
+                
+                Supports both push notifications (with or without number matching) and TOTP codes.
+                Automatically prefers push but falls back to TOTP if push is unavailable.
+
+            .PARAMETER StateToken
+                The Okta state token from the SAML flow
+
+            .PARAMETER Username
+                The user's email address or username
+
+            .PARAMETER Session
+                The WebRequestSession to maintain cookies and session state
+
+            .PARAMETER OktaDomain
+                The Okta domain (e.g., mycompany.okta.com)
+
+            .PARAMETER NoProgress
+                Suppresses progress bar updates (number matching will still be shown)
+
+            .PARAMETER CompletedSteps
+                Reference to completed steps counter for progress tracking
+
+            .PARAMETER TotalSteps
+                Total number of steps for progress calculation
+
+            .PARAMETER CurrentStep
+                Reference to current step counter
+
+            .EXAMPLE
+                $result = Invoke-OktaMFAAuthentication -StateToken $token -Username "user@example.com" `
+                    -Session $session -OktaDomain "mycompany.okta.com"
+            #>
+
+                param(
+                    [Parameter(Mandatory = $true)]
+                    [string]$StateToken,
+
+                    [Parameter(Mandatory = $true)]
+                    [string]$Username,
+
+                    [Parameter(Mandatory = $true)]
+                    [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
+
+                    [Parameter(Mandatory = $true)]
+                    [string]$OktaDomain,
+
+                    [Parameter(Mandatory = $false)]
+                    [switch]$NoProgress,
+
+                    [Parameter(Mandatory = $false)]
+                    [ref]$CompletedSteps,
+
+                    [Parameter(Mandatory = $false)]
+                    [int]$TotalSteps,
+
+                    [Parameter(Mandatory = $false)]
+                    [ref]$CurrentStep,
+
+                    [Parameter(Mandatory = $false)]
+                    [int]$TimeoutMinutes = 2,
+
+                    [Parameter(Mandatory = $false)]
+                    [int]$PollIntervalSeconds = 3
+                )
+
+                $functionName = "Invoke-OktaMFAAuthentication".ToUpper()
+                $baseUrl = "https://$OktaDomain"
+                $script:HelpUrl = "https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/README.md"
+
+                # Single progress bar update for the entire MFA process
+                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                    Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps -CurrentActivity "Step $CurrentStep.Value/$TotalSteps - Steps Okta MFA Authentication" -Id 0
+                    $CurrentStep.Value++
+                }
+
+                "[{0}] Starting Okta authentication for: {1}" -f $functionName, $baseUrl | Write-Verbose
+
+                #Region STEP 1: Introspect
+                "[{0}] Step 1: Introspecting authentication state" -f $functionName | Write-Verbose
+
+                $introspectUrl = "$baseUrl/idp/idx/introspect"
+                $payload = @{ stateToken = $StateToken } | ConvertTo-Json -Depth 10
+                $headers = @{
+                    "Content-Type" = "application/json"
+                    "Accept"       = "application/ion+json; okta-version=1.0.0"
+                }
+
+                try {
+                    $introspectResponse = Invoke-RestMethod -Uri $introspectUrl -Method POST -ErrorAction Stop `
+                        -Headers $headers -Body $payload -WebSession $Session
+
+                    "[{0}] Introspect response received" -f $functionName | Write-Verbose
+                }
+                catch {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                    }
+                    "[{0}] Introspect failed: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                    throw "[{0}] Could not introspect authentication state. {1}" -f $functionName, $_.Exception.Message
+                }
+
+                # Check for MFA step-up scenario (outdated Okta Verify app)
+                $remediationActions = $introspectResponse.remediation.value.name
+                if ($remediationActions -contains 'select-authenticator-authenticate') {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                    }
+                    
+                    Write-Error @"
+Authentication failed: Outdated Okta Verify app detected.
+
+ROOT CAUSE: Your Okta Verify mobile app is too old to meet current security requirements.
+
+IMMEDIATE SOLUTIONS:
+1. UPDATE Okta Verify on your mobile device to the latest version 
+2. RE-ENROLL your device if updating doesn't work  
+
+Contact IT support if updating the app doesn't resolve this issue.
+"@ -ErrorAction Stop                   
+
+                }
+                #EndRegion STEP 1
+
+                #Region STEP 2: Identify (submit username if needed)
+                $identifyRemediation = $introspectResponse.remediation.value | Where-Object { $_.name -eq 'identify' }
+
+                if ($identifyRemediation) {
+                    "[{0}] Step 2: Submitting username" -f $functionName | Write-Verbose
+                    
+                    $identifyUrl = $identifyRemediation.href
+                    $payload = @{
+                        identifier  = $Username
+                        stateHandle = $introspectResponse.stateHandle
+                    } | ConvertTo-Json -Depth 10
+
+                    $headers = @{
+                        "Content-Type" = "application/json; okta-version=1.0.0"
+                        "Accept"       = "application/ion+json; okta-version=1.0.0"
+                    }
+
+                    try {
+                        $currentResponse = Invoke-RestMethod -Uri $identifyUrl -Method POST -ErrorAction Stop `
+                            -Headers $headers -Body $payload -WebSession $Session
+                        
+                        "[{0}] Identity submitted successfully" -f $functionName | Write-Verbose
+                    }
+                    catch {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        "[{0}] Failed to submit username: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                        $errorMessage = @"
+User authentication failed.
+
+This error can occur for multiple reasons:
+
+1. User account does not exist in Okta
+2. User account is disabled or locked
+3. User is not assigned to the HPE GreenLake application in Okta
+   - Contact your Okta administrator to verify application access
+   - Ensure you have the required app role assignments
+
+For complete Okta setup prerequisites, see: $script:HelpUrl
+"@
+                        Write-Error $errorMessage -ErrorAction Stop
+                    }
+                }
+                else {
+                    $currentResponse = $introspectResponse
+                }
+                #EndRegion STEP 2
+
+                #Region STEP 3: Select Okta Verify Authenticator and Method
+                "[{0}] Step 3: Selecting Okta Verify authenticator" -f $functionName | Write-Verbose
+
+                $stateHandle = $currentResponse.stateHandle
+                $selectAuthRemediation = $currentResponse.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }
+
+                if (-not $selectAuthRemediation) {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                    }
+                    throw "[{0}] Authenticator selection not available. For Okta setup prerequisites, see: {1}" -f $functionName, $script:HelpUrl
+                }
+
+                $challengeHref = $selectAuthRemediation.href
+                $OktaVerify = ($selectAuthRemediation.value | Where-Object { $_.name -eq 'authenticator' }).options | Where-Object { $_.label -like '*Okta*Verify*' }
+
+                if (-not $OktaVerify) {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                    }
+                    $errorMessage = @"
+Okta Verify passwordless authentication is not enabled for this account.
+
+This error can occur for multiple reasons:
+
+1. Okta Verify is not enrolled with push notifications or TOTP codes
+   - Install Okta Verify on your mobile device
+   - Enroll Okta Verify in your Okta account settings
+   - Ensure either push notifications or TOTP (Time-based One-Time Password) is enabled
+   - Test the enrollment by signing in through a web browser first
+
+2. User is not assigned to the HPE GreenLake application in Okta
+   - Contact your Okta administrator to verify application access
+   - Ensure you have the required app role assignments
+
+For complete Okta setup prerequisites, see: $script:HelpUrl
+"@
+                    Write-Error $errorMessage -ErrorAction Stop
+                }
+
+                $authenticatorId = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "id" }).value
+                $methodOptions = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "methodType" }).options
+
+                if (-not $authenticatorId -or -not $methodOptions) {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                    }
+                    throw "[{0}] Invalid Okta Verify configuration. For Okta setup prerequisites, see: {1}" -f $functionName, $script:HelpUrl
+                }
+
+                # Select method: prefer push, fallback to TOTP
+                $methodType = if ($methodOptions.value -contains "push") {
+                    "[{0}] Selected method: push" -f $functionName | Write-Verbose
+                    "push"
+                }
+                elseif ($methodOptions.value -contains "totp") {
+                    "[{0}] Selected method: totp (push not available)" -f $functionName | Write-Verbose
+                    "totp"
+                }
+                else {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                    }
+                    throw "[{0}] Neither push nor TOTP authentication available. For Okta setup prerequisites, see: {1}" -f $functionName, $script:HelpUrl
+                }
+                #EndRegion STEP 3
+
+                #Region STEP 4: Trigger Challenge
+                "[{0}] Step 4: Initiating {1} challenge" -f $functionName, $methodType | Write-Verbose
+
+                $payload = @{
+                    stateHandle   = $stateHandle
+                    authenticator = @{
+                        id         = $authenticatorId
+                        methodType = $methodType
+                    }
+                } | ConvertTo-Json -Depth 10
+
+                $headers = @{
+                    "Content-Type" = "application/json; okta-version=1.0.0"
+                    "Accept"       = "application/ion+json; okta-version=1.0.0"
+                }
+
+                try {
+                    $challengeResponse = Invoke-RestMethod -Uri $challengeHref -Method POST -ErrorAction Stop -Headers $headers -Body $payload -WebSession $Session
+
+                    "[{0}] {1} challenge initiated successfully" -f $functionName, $methodType.ToUpper() | Write-Verbose
+                }
+                catch {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                    }
+                    "[{0}] Failed to initiate {1} challenge: {2}" -f $functionName, $methodType, $_.Exception.Message | Write-Verbose
+                    throw "[{0}] Could not initiate Okta Verify {1} challenge. {2}" -f $functionName, $methodType, $_.Exception.Message
+                }
+
+                $stateHandle = $challengeResponse.stateHandle
+                #EndRegion STEP 4
+
+                #Region STEP 5: Handle TOTP Input
+                if ($methodType -eq "totp") {
+                    "[{0}] Step 5: Handling TOTP authentication" -f $functionName | Write-Verbose
+
+                    $totpCode = Read-Host -Prompt "Enter your Okta Verify TOTP code for $($Username)"
+
+                    if ([string]::IsNullOrWhiteSpace($totpCode)) {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] TOTP code is required" -f $functionName
+                    }
+
+                    $answerHref = ($challengeResponse.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' }).href
+
+                    if (-not $answerHref) {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] No answerHref found in TOTP challenge response" -f $functionName
+                    }
+
+                    $payload = @{
+                        stateHandle = $stateHandle
+                        credentials = @{ totp = $totpCode }
+                    } | ConvertTo-Json -Depth 10
+
+                    $headers = @{
+                        "Content-Type" = "application/json; okta-version=1.0.0"
+                        "Accept"       = "application/ion+json; okta-version=1.0.0"
+                    }
+
+                    try {
+                        $totpResponse = Invoke-RestMethod -Uri $answerHref -Method POST -ErrorAction Stop `
+                            -Headers $headers -Body $payload -WebSession $Session
+
+                        "[{0}] TOTP code submitted successfully" -f $functionName | Write-Verbose
+                    }
+                    catch {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+
+                        $errorMessage = "Invalid TOTP code. Please verify the code and try again"
+                        
+                        if ($_.Exception.Response) {
+                            try {
+                                $errorStream = $_.Exception.Response.GetResponseStream()
+                                $reader = New-Object System.IO.StreamReader($errorStream)
+                                $errorBody = $reader.ReadToEnd()
+                                $reader.Close()
+                                $errorJson = $errorBody | ConvertFrom-Json
+                                
+                                if ($errorJson.errorSummary) {
+                                    $errorMessage = $errorJson.errorSummary
+                                }
+                            }
+                            catch { }
+                        }
+
+                        "[{0}] Failed to submit TOTP code: {1}" -f $functionName, $errorMessage | Write-Verbose
+                        throw $errorMessage
+                    }
+
+                    # Check for multi-factor authentication (TOTP + Password)
+                    $additionalAuthRequired = $totpResponse.remediation.value | Where-Object { 
+                        $_.name -eq 'challenge-authenticator' -and $_.relatesTo -contains '$.currentAuthenticatorEnrollment'
+                    }
+
+                    if ($additionalAuthRequired) {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        Write-Error @"
+Multi-factor authentication (TOTP + additional factor) is not supported.
+
+Please configure Okta to use TOTP alone.
+
+For setup prerequisites, see: $script:HelpUrl
+"@ -ErrorAction Stop
+                    }
+
+                    # Extract success redirect URL
+                    $successRedirectUrl = $totpResponse.success.href
+                    if (-not $successRedirectUrl) {
+                        $successRedirectUrl = $totpResponse.successWithInteractionCode.href
+                    }
+
+                    if (-not $successRedirectUrl) {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] No success redirect URL found after TOTP verification" -f $functionName
+                    }
+
+                    "[{0}] TOTP verification completed successfully" -f $functionName | Write-Verbose
+                    "[{0}] Following success redirect to retrieve SAML response" -f $functionName | Write-Verbose
+
+                    try {
+                        $samlResponse = Invoke-WebRequest -Uri $successRedirectUrl -Method GET -WebSession $Session -UseBasicParsing -ErrorAction Stop
+
+                        "[{0}] SAML response retrieved successfully" -f $functionName | Write-Verbose
+
+                        if ($CompletedSteps) { $CompletedSteps.Value++ }
+                        return $samlResponse
+                    }
+                    catch {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Could not retrieve SAML response. {1}" -f $functionName, $_.Exception.Message
+                    }
+                }
+                #EndRegion STEP 5
+
+                #Region STEP 6: Poll for Push Approval
+                if ($methodType -eq "push") {
+                    "[{0}] Step 6: Polling for push approval" -f $functionName | Write-Verbose
+
+                    $pollHref = ($challengeResponse.remediation.value | Where-Object { $_.name -eq 'challenge-poll' }).href
+
+                    if (-not $pollHref) {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] No pollHref found for push authentication" -f $functionName
+                    }
+
+                    $correctAnswer = $challengeResponse.currentAuthenticator.value.contextualData.correctAnswer
+
+                    Start-Sleep -Milliseconds 500
+
+                    # Always show number challenge (bypasses NoProgress for critical info)
+                    if ($correctAnswer) {
+                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                            -CurrentActivity "Respond '$correctAnswer' to the Okta Verify notification" -Id 0
+                        "[{0}] Number challenge active - user must select: {1}" -f $functionName, $correctAnswer | Write-Verbose
+                    }
+                    else {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                                -CurrentActivity "Approve the Okta Verify push notification" -Id 0
+                        }
+                    }
+
+                    $timeout = [datetime]::Now.AddMinutes($TimeoutMinutes)
+                    $payload = @{ stateHandle = $stateHandle } | ConvertTo-Json
+                    $headers = @{
+                        "Content-Type" = "application/json; okta-version=1.0.0"
+                        "Accept"       = "application/ion+json; okta-version=1.0.0"
+                    }
+
+                    do {
+                        try {
+                            $pollResponse = Invoke-RestMethod -Uri $pollHref -Method POST -Body $payload `
+                                -Headers $headers -ErrorAction Stop -WebSession $Session
+                        }
+                        catch {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Unable to poll Okta Verify push status. {1}" -f $functionName, $_.Exception.Message
+                        }
+
+                        # Check for timeout
+                        if ([datetime]::Now -ge $timeout) {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Timeout! Okta Verify push notification was not approved within {1} minutes" -f $functionName, $TimeoutMinutes
+                        }
+
+                        # Check for success
+                        if ($pollResponse.success.name -eq "success-redirect" -or $pollResponse.successWithInteractionCode) {
+                            break
+                        }
+
+                        # Check for multi-factor authentication requirement
+                        if ($pollResponse.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' -and $_.relatesTo -contains '$.currentAuthenticatorEnrollment' }) {
+                            break
+                        }
+
+                        # Check for error
+                        if ($pollResponse.messages -and $pollResponse.messages.value -and $pollResponse.messages.value.Count -gt 0) {
+                            if ($pollResponse.messages.value[0].class -eq "ERROR") {
+                                break
+                            }
+                        }
+
+                        Start-Sleep -Seconds $PollIntervalSeconds
+
+                    } while ($true)
+
+                    # Check for Push + Password scenario
+                    if ($pollResponse.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' -and $_.relatesTo -contains '$.currentAuthenticatorEnrollment' }) {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        Write-Error @"
+Multi-factor authentication (Push + additional factor) is not supported.
+
+Please configure Okta to use Push alone.
+
+For setup prerequisites, see: $script:HelpUrl
+"@ -ErrorAction Stop
+                    }
+
+                    # Check for push denial - with proper null checking
+                    if ($pollResponse.messages -and $pollResponse.messages.value -and $pollResponse.messages.value.Count -gt 0 -and $pollResponse.messages.value[0].class -eq "ERROR") {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        $errorMsg = if ($pollResponse.messages.value[0].message) { $pollResponse.messages.value[0].message } else { "Unknown error" }
+                        "[{0}] Push notification denied: {1}" -f $functionName, $errorMsg | Write-Verbose
+                        throw "[{0}] Push notification was rejected or incorrect number was selected" -f $functionName
+                    }
+
+                    # Check for success and extract redirect URL
+                    if ($pollResponse.success.name -eq "success-redirect" -or $pollResponse.successWithInteractionCode) {
+                        # Extract success redirect URL
+                        $successRedirectUrl = $pollResponse.success.href
+                        if (-not $successRedirectUrl) {
+                            $successRedirectUrl = $pollResponse.successWithInteractionCode.href
+                        }
+
+                        if (-not $successRedirectUrl) {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] No success redirect URL found after push approval" -f $functionName
+                        }
+
+                        "[{0}] Push notification approved successfully" -f $functionName | Write-Verbose
+                        "[{0}] Following success redirect to retrieve SAML response" -f $functionName | Write-Verbose
+
+                        try {
+                            $samlResponse = Invoke-WebRequest -Uri $successRedirectUrl -Method GET `
+                                -WebSession $Session -UseBasicParsing -ErrorAction Stop
+
+                            "[{0}] SAML response retrieved successfully" -f $functionName | Write-Verbose
+
+                            if ($CompletedSteps) { $CompletedSteps.Value++ }
+                            return $samlResponse
+                        }
+                        catch {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Could not retrieve SAML response. {1}" -f $functionName, $_.Exception.Message
+                        }
+                    }
+                    else {
+                        # If we get here, something unexpected happened
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Unexpected response from push polling. Please try again." -f $functionName
+                    }
+                }
+                #EndRegion STEP 6
+            }
+            function Invoke-PingIDMFAAuthentication {
+                <#
+            .SYNOPSIS
+                Performs PingOne/PingID SAML authentication using PingID mobile app push notifications or OTP codes.
+
+            .DESCRIPTION
+                This function implements the PingOne SAML + PingID authentication flow:
+                1. Follows SAML redirect to extract flowId from PingOne
+                2. Submits username to PingOne flows API
+                3. Initiates PingID authentication via authenticator.pingone.com
+                4. Waits for user to approve push notification on mobile device
+                5. Handles JWT callback with ppm_request and ppm_response tokens
+                6. Resumes SAML flow to retrieve final SAML response
+                
+                Authentication Methods:
+                - Push Notification (Primary): Sends push to mobile device with optional number matching
+                - OTP Fallback (Automatic): Only available if push is unavailable or fails
+                
+                IMPORTANT: PingID architecture ALWAYS sends a push notification after WebAuthn submission.
+                The push notification MUST be approved - denying or ignoring it breaks the authentication session.
+                There is no way to skip or cancel the push notification.
+
+            .PARAMETER SAMLRedirectUrl
+                The full SAML redirect URL from the IdP initiation (contains flowId parameter)
+
+            .PARAMETER Username
+                The user's email address or username
+
+            .PARAMETER Session
+                The WebRequestSession to maintain cookies and session state
+
+            .PARAMETER EnvironmentId
+                The PingOne environment ID (e.g., a4ff1a35-682b-469f-9acf-373ee0508d31)
+
+            .PARAMETER NoProgress
+                Suppresses progress bar updates (number matching will still be shown)
+
+            .PARAMETER CompletedSteps
+                Reference to completed steps counter for progress tracking
+
+            .PARAMETER TotalSteps
+                Total number of steps for progress calculation
+
+            .PARAMETER CurrentStep
+                Reference to current step counter
+
+            .PARAMETER TimeoutMinutes
+                Maximum time to wait for push approval (default: 2 minutes)
+
+            .PARAMETER PollIntervalSeconds
+                Interval between status polls (default: 3 seconds)
+
+            .EXAMPLE
+                $result = Invoke-PingIDMFAAuthentication -SAMLRedirectUrl $redirectUrl -Username "user@example.com" `
+                    -Session $session -EnvironmentId "a4ff1a35-682b-469f-9acf-373ee0508d31"
+                
+                Authenticates using push notification. User must approve the push on their mobile device.
+
+            .EXAMPLE
+                $result = Invoke-PingIDMFAAuthentication -SAMLRedirectUrl $redirectUrl -Username "user@example.com" `
+                    -Session $session -EnvironmentId "a4ff1a35-682b-469f-9acf-373ee0508d31" -TimeoutMinutes 5
+                
+                Authenticates using push notification with extended timeout of 5 minutes.
+            #>
+
+                param(
+                    [Parameter(Mandatory = $true)]
+                    [string]$SAMLRedirectUrl,
+
+                    [Parameter(Mandatory = $true)]
+                    [string]$Username,
+
+                    [Parameter(Mandatory = $true)]
+                    [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
+
+                    [Parameter(Mandatory = $true)]
+                    [string]$EnvironmentId,
+
+                    [Parameter(Mandatory = $false)]
+                    [switch]$NoProgress,
+
+                    [Parameter(Mandatory = $false)]
+                    [ref]$CompletedSteps,
+
+                    [Parameter(Mandatory = $false)]
+                    [int]$TotalSteps,
+
+                    [Parameter(Mandatory = $false)]
+                    [ref]$CurrentStep,
+
+                    [Parameter(Mandatory = $false)]
+                    [int]$TimeoutMinutes = 2,
+
+                    [Parameter(Mandatory = $false)]
+                    [int]$PollIntervalSeconds = 3
+                )
+
+                $functionName = "Invoke-PingIDMFAAuthentication".ToUpper()
+                
+                # Extract PingOne base URLs directly from SAMLRedirectUrl instead of reconstructing
+                # This automatically supports ALL regions including .com, .eu, .asia, .ca, .com.au, .sg, and future regions
+                $authBaseUrl = $null
+                $authenticatorBaseUrl = $null
+                $detectedRegion = "unknown"
+                
+                # Extract base URL from SAMLRedirectUrl (works with any subdomain: auth., apps., authenticator.)
+                # Match pattern: https://(any).pingone.(any TLD)/
+                if ($SAMLRedirectUrl -match 'https://([^/]+\.)?pingone\.([^/]+)') {
+                    # Extract the full domain (e.g., "eu", "com.au", "sg")
+                    $detectedRegion = $Matches[2]
+                    $authBaseUrl = "https://auth.pingone.$detectedRegion"
+                    "[{0}] Extracted region '{1}' from URL: {2}" -f $functionName, $detectedRegion, $SAMLRedirectUrl | Write-Verbose
+                    "[{0}] Constructed auth base URL: {1}" -f $functionName, $authBaseUrl | Write-Verbose
+                }
+                
+                # Construct authenticator URL
+                if ($authBaseUrl) {
+                    $authenticatorBaseUrl = $authBaseUrl -replace '^https://auth\.', 'https://authenticator.'
+                    "[{0}] Constructed authenticator base URL: {1}" -f $functionName, $authenticatorBaseUrl | Write-Verbose
+                }
+                
+                # Fallback to default if extraction failed
+                if (-not $authBaseUrl) {
+                    "[{0}] WARNING: Could not extract base URLs from SAML redirect, falling back to .com default" -f $functionName | Write-Verbose
+                    $authBaseUrl = "https://auth.pingone.com"
+                    $authenticatorBaseUrl = "https://authenticator.pingone.com"
+                    $detectedRegion = "com (fallback)"
+                }
+                
+                "[{0}] Using PingOne region: {1}" -f $functionName, $detectedRegion | Write-Verbose
+                $script:HelpUrl = "https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/README.md"
+
+                # Single progress bar update for the entire MFA process
+                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                    $currentStepValue = $CurrentStep.Value
+                    Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps -CurrentActivity "Step $currentStepValue/$TotalSteps - PingID Passwordless Authentication" -Id 0
+                    $CurrentStep.Value++
+                }
+
+                "[{0}] Starting PingOne/PingID authentication for environment: {1}" -f $functionName, $EnvironmentId | Write-Verbose
+
+                #Region STEP 1: Follow SAML redirect and extract flowId
+                "[{0}] Step 1: Following SAML redirect to extract flowId" -f $functionName | Write-Verbose
+
+                try {
+                    # Extract flowId from URL first (URL already contains it)
+                    $flowId = $null
+                    if ($SAMLRedirectUrl -match 'flowId=([^&]+)') {
+                        $flowId = $matches[1]
+                        "[{0}] Extracted flowId from URL: {1}" -f $functionName, $flowId | Write-Verbose
+                    }
+
+                    if (-not $flowId) {
+                        throw "[{0}] Could not extract flowId from SAML redirect URL" -f $functionName
+                    }
+
+                    # Now follow the redirect to establish session and capture cookies
+                    # Use -MaximumRedirection 5 to follow redirects automatically
+                    $redirectResponse = Invoke-WebRequest -Uri $SAMLRedirectUrl -Method GET -WebSession $Session -MaximumRedirection 5 -ErrorAction Stop
+
+                    $finalUrl = if ($redirectResponse.BaseResponse.ResponseUri) { 
+                        $redirectResponse.BaseResponse.ResponseUri.AbsoluteUri 
+                    }
+                    else { 
+                        $SAMLRedirectUrl 
+                    }
+                    
+                    "[{0}] Followed redirect to: {1}" -f $functionName, $finalUrl | Write-Verbose
+                    
+                    # Verify we reached the signon page
+                    if ($finalUrl -notmatch "apps\.pingone\.$pingRegion.*signon") {
+                        "[{0}] Warning: Did not reach expected signon page. Got: {1}" -f $functionName, $finalUrl | Write-Verbose
+                    }
+
+                    # Check and log cookies after redirect
+                    $cookieCount = ($Session.Cookies.GetCookies($authBaseUrl) | Measure-Object).Count
+                    "[{0}] After redirect, session has {1} cookies for auth.pingone.{2}" -f $functionName, $cookieCount, $pingRegion | Write-Verbose
+                    
+                    # If no cookies, this might be a WebSession recreation issue - warn but continue
+                    if ($cookieCount -eq 0) {
+                        "[{0}] WARNING: No ST cookies found in session. This may cause authentication to fail." -f $functionName | Write-Verbose
+                        "[{0}] This often happens when PowerShell recreates the WebSession between requests." -f $functionName | Write-Verbose
+                    }
+                }
+                catch {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                    }
+                    "[{0}] Failed to extract flowId: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                    throw "[{0}] Could not extract flowId from SAML redirect. {1}" -f $functionName, $_.Exception.Message
+                }
+                #EndRegion STEP 1
+                
+                #Region STEP 2: Submit username to PingOne flows API
+                "[{0}] Step 2: Submitting username to PingOne" -f $functionName | Write-Verbose
+
+                # Log current cookies in session for debugging
+                $cookieCount = ($Session.Cookies.GetCookies($authBaseUrl) | Measure-Object).Count
+                "[{0}] Session has {1} cookies for auth.pingone.{2}" -f $functionName, $cookieCount, $pingRegion | Write-Verbose
+                if ($cookieCount -gt 0) {
+                    $Session.Cookies.GetCookies($authBaseUrl) | ForEach-Object {
+                        "[{0}]   Cookie: {1}" -f $functionName, $_.Name | Write-Verbose
+                    }
+                }
+
+                # Extract username from email if needed (PingOne expects "username", not "username@company.com")
+                $usernameOnly = $Username
+                if ($Username -match '^([^@]+)@') {
+                    $usernameOnly = $matches[1]
+                    "[{0}] Extracted username '{1}' from email '{2}'" -f $functionName, $usernameOnly, $Username | Write-Verbose
+                }
+
+                $userLookupUrl = "$authBaseUrl/$EnvironmentId/flows/$flowId"
+                $payload = @{ username = $usernameOnly } | ConvertTo-Json -Depth 10 -Compress
+                
+                # Construct apps origin/referer by replacing auth. with apps.
+                $appsBaseUrl = $authBaseUrl -replace '^https://auth\.', 'https://apps.'
+                $headers = @{
+                    "Content-Type" = "application/vnd.pingidentity.user.lookup+json"
+                    "Accept"       = "*/*"
+                    "Origin"       = $appsBaseUrl
+                    "Referer"      = "$appsBaseUrl/"
+                }
+
+                try {
+                    $userLookupResponse = Invoke-RestMethod -Uri $userLookupUrl -Method POST -ErrorAction Stop `
+                        -Headers $headers -Body $payload -WebSession $Session
+
+                    "[{0}] Username submitted successfully" -f $functionName | Write-Verbose
+                    
+                    # Check if PingOne is requesting password instead of passwordless MFA
+                    # This indicates misconfiguration - passwordless policy not properly set up
+                    $responseJson = $userLookupResponse | ConvertTo-Json -Depth 10 -Compress
+                    "[{0}] Response structure: {1}" -f $functionName, $responseJson | Write-Verbose
+                    
+                    # Check for password authentication request patterns
+                    $passwordRequested = $false
+                    $passwordIndicators = @()
+                    
+                    # Pattern 1: Check for password.verify link in HAL format
+                    if ($userLookupResponse._links -and $userLookupResponse._links.'password.verify') {
+                        $passwordRequested = $true
+                        $passwordIndicators += "password.verify link found"
+                        "[{0}] Detected password.verify link in response - password authentication required" -f $functionName | Write-Verbose
+                    }
+                    
+                    # Pattern 2: Check for password.check or usernamePassword links
+                    if ($userLookupResponse._links -and ($userLookupResponse._links.'password.check' -or $userLookupResponse._links.'usernamePassword')) {
+                        $passwordRequested = $true
+                        $passwordIndicators += "password authentication link found"
+                        "[{0}] Detected password authentication link in response" -f $functionName | Write-Verbose
+                    }
+                    
+                    # Pattern 3: Check for explicit authType=PASSWORD or similar
+                    if ($userLookupResponse.authType -match 'password|PASSWORD') {
+                        $passwordRequested = $true
+                        $passwordIndicators += "authType=$($userLookupResponse.authType)"
+                        "[{0}] Detected password authType in response" -f $functionName | Write-Verbose
+                    }
+                    
+                    # Pattern 4: Check if response lacks PingID authentication link (critical)
+                    $hasPingIDLink = $false
+                    if ($userLookupResponse._links -and $userLookupResponse._links.'pingid.authentication') {
+                        $hasPingIDLink = $true
+                        "[{0}] Confirmed PingID passwordless authentication link present" -f $functionName | Write-Verbose
+                    }
+                    
+                    # If password is requested instead of PingID, fail with clear error
+                    if ($passwordRequested) {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                        }
+                        
+                        $indicators = $passwordIndicators -join ", "
+                        "[{0}] ERROR: PingOne is requesting password authentication instead of passwordless MFA" -f $functionName | Write-Verbose
+                        "[{0}] Indicators: {1}" -f $functionName, $indicators | Write-Verbose
+                        Write-Error @"
+Password authentication is not supported.
+
+Please configure PingOne to use passwordless authentication only.
+
+For setup prerequisites, see: $script:HelpUrl
+"@ -ErrorAction Stop
+                    }                    # Warn if no PingID link found (might be a different MFA method or misconfiguration)
+                    if (-not $hasPingIDLink) {
+                        "[{0}] WARNING: No PingID authentication link found in response" -f $functionName | Write-Verbose
+                        "[{0}] This may indicate PingID is not configured for this user or environment" -f $functionName | Write-Verbose
+                    }
+                }
+                catch {
+                    # Enhanced error diagnostics - check for passwordless policy misconfiguration
+                    $errorDetails = $_.Exception.Message
+                    $serverErrorBody = $null
+                    
+                    if ($_.Exception.Response) {
+                        try {
+                            $errorStream = $_.Exception.Response.GetResponseStream()
+                            $reader = New-Object System.IO.StreamReader($errorStream)
+                            $serverErrorBody = $reader.ReadToEnd()
+                            $reader.Close()
+                            "[{0}] Server response body: {1}" -f $functionName, $serverErrorBody | Write-Verbose
+                        }
+                        catch { }
+                    }
+                    
+                    # Check if error indicates passwordless is disabled (400 Bad Request with CONSTRAINT_VIOLATION or Invalid flow status)
+                    $passwordlessDisabled = $false
+                    if ($serverErrorBody) {
+                        # Parse error response if it's JSON
+                        try {
+                            $errorObj = $serverErrorBody | ConvertFrom-Json
+                            if ($errorObj.code -eq "REQUEST_FAILED" -or $errorObj.code -eq "CONSTRAINT_VIOLATION") {
+                                $passwordlessDisabled = $true
+                                "[{0}] Detected REQUEST_FAILED/CONSTRAINT_VIOLATION - likely passwordless disabled" -f $functionName | Write-Verbose
+                            }
+                            if ($serverErrorBody -match "Invalid request for flow status|flow status") {
+                                $passwordlessDisabled = $true
+                                "[{0}] Detected 'Invalid flow status' error - passwordless disabled" -f $functionName | Write-Verbose
+                            }
+                        }
+                        catch {
+                            # Not JSON, check raw text
+                            if ($serverErrorBody -match "CONSTRAINT_VIOLATION|Invalid request for flow|REQUEST_FAILED") {
+                                $passwordlessDisabled = $true
+                                "[{0}] Detected constraint violation in error text - passwordless disabled" -f $functionName | Write-Verbose
+                            }
+                        }
+                    }
+                    
+                    # Check HTTP status code - 400 Bad Request often indicates policy issue
+                    if ($_.Exception.Response.StatusCode -eq 400) {
+                        $passwordlessDisabled = $true
+                        "[{0}] Detected HTTP 400 Bad Request - likely passwordless policy issue" -f $functionName | Write-Verbose
+                    }
+                    
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                    }
+                    
+                    # Provide clear error message if passwordless is disabled
+                    if ($passwordlessDisabled) {
+                        "[{0}] ERROR: PingOne rejected the passwordless authentication request" -f $functionName | Write-Verbose
+                        "[{0}] This indicates passwordless policy is DISABLED in PingOne" -f $functionName | Write-Verbose
+                        Write-Error @"
+Password authentication is not supported.
+
+Please configure PingOne to use passwordless authentication only.
+
+For setup prerequisites, see: $script:HelpUrl
+"@ -ErrorAction Stop
+                    }
+
+                    # Generic error handling if not a passwordless issue
+                    "[{0}] Failed to submit username: {1}" -f $functionName, $errorDetails | Write-Verbose
+                    "[{0}] Request URL: {1}" -f $functionName, $userLookupUrl | Write-Verbose
+                    "[{0}] Request body: {1}" -f $functionName, $payload | Write-Verbose
+                    "[{0}] Cookies available: {1}" -f $functionName, $cookieCount | Write-Verbose
+                    
+                    if ($serverErrorBody) {
+                        $errorMessage = @"
+User authentication failed.
+
+This error can occur for multiple reasons:
+
+1. User account does not exist in PingOne environment $EnvironmentId
+2. User account is disabled or locked
+3. User is not assigned to the HPE GreenLake application in PingOne
+   - Contact your PingOne administrator to verify application access
+   - Ensure you have the required app role assignments
+
+Additional error details: $errorDetails
+
+Server response: 
+$serverErrorBody
+
+For complete PingIdentity setup prerequisites, see: $script:HelpUrl
+"@
+                        Write-Error $errorMessage -ErrorAction Stop
+                    }
+                    else {
+                        throw
+                    }
+                }
+                #EndRegion STEP 2                
+                
+                #Region STEP 3: Initiate PingID authentication
+                "[{0}] Step 3: Initiating PingID authentication" -f $functionName | Write-Verbose
+
+                # Extract necessary parameters from HAL response
+                # PingOne uses HAL (Hypertext Application Language) format with _links
+                $idpAccountId = $null
+                $ppmRequest = $null
+
+                # Check if response has _links.pingid.authentication.href (HAL format)
+                if ($userLookupResponse._links -and $userLookupResponse._links.'pingid.authentication' -and $userLookupResponse._links.'pingid.authentication'.href) {
+                    $authUrl = $userLookupResponse._links.'pingid.authentication'.href
+                    "[{0}] Found PingID authentication URL in HAL _links: {1}" -f $functionName, $authUrl | Write-Verbose
+                                
+                    # Extract idp_account_id and ppm_request from query parameters
+                    if ($authUrl -match '[?&]idp_account_id=([^&]+)') {
+                        $idpAccountId = $matches[1]
+                        "[{0}] Extracted idpAccountId from URL: {1}" -f $functionName, $idpAccountId | Write-Verbose
+                    }
+                                
+                    if ($authUrl -match '[?&]ppm_request=([^&]+)') {
+                        $ppmRequest = $matches[1]
+                        "[{0}] Extracted ppmRequest from URL (length: {1})" -f $functionName, $ppmRequest.Length | Write-Verbose
+                    }
+                }
+                else {
+                    # Fallback: try direct properties (older format)
+                    $idpAccountId = $userLookupResponse.idpAccountId
+                    $ppmRequest = $userLookupResponse.ppmRequest
+                                
+                    if ($idpAccountId -and $ppmRequest) {
+                        "[{0}] Extracted parameters from direct properties (legacy format)" -f $functionName | Write-Verbose
+                    }
+                }
+
+                if (-not $idpAccountId -or -not $ppmRequest) {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                    }
+                                
+                    # Enhanced diagnostics
+                    "[{0}] ERROR: Could not extract required parameters from response" -f $functionName | Write-Verbose
+                    "[{0}]   Response format: {1}" -f $functionName, ($userLookupResponse | ConvertTo-Json -Depth 2 -Compress) | Write-Verbose
+                    "[{0}]   idpAccountId found: {1}" -f $functionName, ($null -ne $idpAccountId) | Write-Verbose
+                    "[{0}]   ppmRequest found: {1}" -f $functionName, ($null -ne $ppmRequest) | Write-Verbose
+
+                    $errorMessage = @"
+PingID passwordless authentication is not enabled for this account.
+
+This error can occur for multiple reasons:
+
+1. PingID MFA is not configured for this user in environment $EnvironmentId
+   - Install PingID on your mobile device
+   - Enroll PingID through your organization's PingOne portal
+   - Ensure push notifications are enabled for PingID
+   - Verify PingOne authentication policy requires PingID (not password)
+   - Test the enrollment by signing in through a web browser first
+
+2. User is not assigned to the HPE GreenLake application in PingOne
+   - Contact your PingOne administrator to verify application access
+   - Ensure you have the required app role assignments
+
+For complete PingIdentity setup prerequisites, see: $script:HelpUrl
+"@
+                    Write-Error $errorMessage -ErrorAction Stop
+                }
+
+                # POST to authenticator.pingone.com to initiate PingID auth
+                $pingIdAuthUrl = "$authenticatorBaseUrl/pingid/ppm/auth"
+                $authBody = "iss=PingOneV2&idp_account_id=$idpAccountId&ppm_request=$ppmRequest"
+                $headers = @{
+                    "Content-Type" = "application/x-www-form-urlencoded"
+                    "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                }
+
+                try {
+                    $pingIdAuthResponse = Invoke-WebRequest -Uri $pingIdAuthUrl -Method POST -ErrorAction Stop `
+                        -Headers $headers -Body $authBody -WebSession $Session
+
+                    "[{0}] PingID authentication initiated" -f $functionName | Write-Verbose
+                }
+                catch {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                    }
+                    "[{0}] Failed to initiate PingID authentication: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                    throw "[{0}] Could not initiate PingID authentication. {1}" -f $functionName, $_.Exception.Message
+                }
+                #EndRegion STEP 3
+
+                #Region STEP 4: Submit WebAuthn capabilities
+                "[{0}] Step 4: Submitting WebAuthn capabilities" -f $functionName | Write-Verbose
+
+                $webAuthnBody = "isWebAuthnSupportedByBrowser=true&isWebAuthnPlatformAuthenticatorAvailable=false&isWebAuthnTimeout=false"
+                $headers = @{
+                    "Content-Type" = "application/x-www-form-urlencoded"
+                    "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                }
+
+                $webAuthnResponse = $null
+                try {
+                    $webAuthnResponse = Invoke-WebRequest -Uri $pingIdAuthUrl -Method POST -ErrorAction Stop `
+                        -Headers $headers -Body $webAuthnBody -WebSession $Session
+
+                    "[{0}] WebAuthn capabilities submitted" -f $functionName | Write-Verbose
+                }
+                catch {
+                    # Non-critical error, continue with initial response
+                    "[{0}] Warning: Failed to submit WebAuthn capabilities: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                }
+                #EndRegion STEP 4
+
+                #Region STEP 5: Determine authentication method and handle accordingly
+                "[{0}] Step 5: Determining authentication method" -f $functionName | Write-Verbose
+
+                # Extract CSRF token - try WebAuthn response first (Step 4), then initial response (Step 3)
+                # The CSRF token location varies by PingOne environment configuration
+                $csrfToken = $null
+                $responseToSearch = if ($webAuthnResponse) { $webAuthnResponse.Content } else { $pingIdAuthResponse.Content }
+                $responseSource = if ($webAuthnResponse) { "WebAuthn response" } else { "initial auth response" }
+                
+                # Try multiple regex patterns to extract CSRF token
+                if ($responseToSearch -match 'csrfToken["\s]*[:=]["\s]*["'']([^"'']+)["'']') {
+                    $csrfToken = $matches[1]
+                    "[{0}] Extracted CSRF token from {1} (pattern 1): {2}" -f $functionName, $responseSource, $csrfToken | Write-Verbose
+                }
+                elseif ($responseToSearch -match 'name="csrfToken"[^>]*value="([^"]+)"') {
+                    $csrfToken = $matches[1]
+                    "[{0}] Extracted CSRF token from {1} (pattern 2 - hidden input): {2}" -f $functionName, $responseSource, $csrfToken | Write-Verbose
+                }
+                elseif ($responseToSearch -match 'data-csrf-token="([^"]+)"') {
+                    $csrfToken = $matches[1]
+                    "[{0}] Extracted CSRF token from {1} (pattern 3 - data attribute): {2}" -f $functionName, $responseSource, $csrfToken | Write-Verbose
+                }
+                elseif ($responseToSearch -match 'csrf[_-]?token["\s]*[:=]["\s]*["'']([^"'']+)["'']') {
+                    $csrfToken = $matches[1]
+                    "[{0}] Extracted CSRF token from {1} (pattern 4 - flexible): {2}" -f $functionName, $responseSource, $csrfToken | Write-Verbose
+                }
+                else {
+                    # CSRF token not found - this might be OK if PingOne doesn't require it for the response page
+                    "[{0}] WARNING: Could not extract CSRF token from {1}" -f $functionName, $responseSource | Write-Verbose
+                    "[{0}] Will attempt to retrieve tokens without CSRF token" -f $functionName | Write-Verbose
+                }
+                
+                # Extract number challenge from WebAuthn response (Step 4) if available
+                # Number challenge appears AFTER WebAuthn submission, not in initial response
+                $numberChallenge = $null
+                $numberResponseContent = if ($webAuthnResponse) { $webAuthnResponse.Content } else { $pingIdAuthResponse.Content }
+                
+                if ($numberResponseContent -match '<div\s+class="numbermatching">(\d+)</div>') {
+                    $numberChallenge = $matches[1]
+                    "[{0}] Detected number matching challenge: {1}" -f $functionName, $numberChallenge | Write-Verbose
+                }
+                elseif ($numberResponseContent -match 'data-challenge-number["\s]*[:=]["\s]*["''](\d+)["'']') {
+                    $numberChallenge = $matches[1]
+                    "[{0}] Detected number matching challenge: {1}" -f $functionName, $numberChallenge | Write-Verbose
+                }
+                elseif ($numberResponseContent -match 'challenge["\s]*[:=]["\s]*["''](\d+)["'']') {
+                    $numberChallenge = $matches[1]
+                    "[{0}] Detected number matching challenge: {1}" -f $functionName, $numberChallenge | Write-Verbose
+                }
+                
+                # Check OTP availability and policy enforcement
+                # Use WebAuthn response (Step 4) to check for OTP option and policy restrictions
+                $responseContent = if ($webAuthnResponse) { $webAuthnResponse.Content } else { $pingIdAuthResponse.Content }
+                $hasOtpOption = $responseContent -match 'use.*code|enter.*code|otp|passcode|data-use-code'
+                
+                # Check if OTP-only is enforced by policy (push disabled)
+                # Policy OTP can be detected by specific HTML elements or data attributes in the response
+                $otpOnlyByPolicy = $responseContent -match 'data-policy["\s]*[:=]["\s]*["'']otp["'']|policy["\s]*[:=]["\s]*["'']OTP["'']|otpOnly["\s]*[:=]["\s]*true'
+                
+                # If HTML detection didn't find policy enforcement, do a quick status check
+                # This catches POLICY_OTP that's only visible via status endpoint
+                if (-not $otpOnlyByPolicy -and $hasOtpOption) {
+                    "[{0}] Performing quick status check to detect OTP-only policy..." -f $functionName | Write-Verbose
+                    try {
+                        $statusUrl = "$authenticatorBaseUrl/pingid/ppm/auth/status"
+                        $timestamp = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+                        $quickStatusCheck = Invoke-RestMethod -Uri "$statusUrl`?_=$timestamp" -Method GET -ErrorAction Stop `
+                            -Headers @{"Accept" = "*/*" } -WebSession $Session
+                        
+                        "[{0}] Quick status response: {1}" -f $functionName, ($quickStatusCheck | ConvertTo-Json -Compress) | Write-Verbose
+                        
+                        if ($quickStatusCheck.status -eq "POLICY_OTP") {
+                            $otpOnlyByPolicy = $true
+                            "[{0}] Detected POLICY_OTP via status check - OTP enforced by policy" -f $functionName | Write-Verbose
+                        }
+                    }
+                    catch {
+                        "[{0}] Quick status check failed: {1} - will proceed with default detection" -f $functionName, $_.Exception.Message | Write-Verbose
+                    }
+                }
+                
+                # Determine authentication method to use
+                # Push notification is the default and primary method
+                # OTP is used if: 1) enforced by policy, 2) push unavailable, or 3) user preference (not implemented)
+                $useOtp = $false
+                $pushAvailable = -not ($responseContent -match 'push.*not.*available|push.*unavailable|no.*device')
+                
+                if ($otpOnlyByPolicy) {
+                    # OTP enforced by administrator policy
+                    $useOtp = $true
+                    "[{0}] Selected method: OTP code (enforced by policy - push disabled by administrator)" -f $functionName | Write-Verbose
+                }
+                elseif ($pushAvailable) {
+                    # Push is available and will be used (default)
+                    "[{0}] Selected method: Push notification (default)" -f $functionName | Write-Verbose
+                }
+                elseif ($hasOtpOption) {
+                    # Push not available, automatic fallback to OTP
+                    $useOtp = $true
+                    "[{0}] Selected method: OTP code (push not available, automatic fallback)" -f $functionName | Write-Verbose
+                }
+                else {
+                    # Neither method available
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                    }
+                    throw "[{0}] Neither push nor OTP authentication available. For PingOne setup prerequisites, see: {1}" -f $functionName, $script:HelpUrl
+                }
+                #EndRegion STEP 5
+
+                #Region STEP 6: Handle OTP Code Input (if selected)
+                if ($useOtp) {
+                    "[{0}] Step 6: Handling OTP code authentication" -f $functionName | Write-Verbose
+
+                    $otpCode = Read-Host -Prompt "Enter your PingID OTP code for $($Username)"
+
+                    if ([string]::IsNullOrWhiteSpace($otpCode)) {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] OTP code is required" -f $functionName
+                    }
+
+                    # Submit OTP code
+                    $otpSubmitUrl = "$authenticatorBaseUrl/pingid/ppm/auth/otp"
+                    $otpBody = "otp=$otpCode&csrfToken=$csrfToken"
+                    
+                    $headers = @{
+                        "Content-Type" = "application/x-www-form-urlencoded"
+                        "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                    }
+
+                    try {
+                        $otpResponse = Invoke-WebRequest -Uri $otpSubmitUrl -Method POST -ErrorAction Stop `
+                            -Headers $headers -Body $otpBody -WebSession $Session
+
+                        "[{0}] OTP code submitted successfully" -f $functionName | Write-Verbose
+
+                        # Extract JWT tokens from OTP response
+                        $ppmRequest = $null
+                        $ppmResponse = $null
+
+                        if ($otpResponse.Content -match 'name="ppm_request"[^>]*value="([^"]+)"') {
+                            $ppmRequest = $matches[1]
+                            "[{0}] Extracted ppm_request token from OTP response" -f $functionName | Write-Verbose
+                        }
+
+                        if ($otpResponse.Content -match 'name="ppm_response"[^>]*value="([^"]+)"') {
+                            $ppmResponse = $matches[1]
+                            "[{0}] Extracted ppm_response token from OTP response" -f $functionName | Write-Verbose
+                        }
+
+                        if (-not $ppmRequest -or -not $ppmResponse) {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Could not extract JWT tokens from OTP response" -f $functionName
+                        }
+
+                        # Skip to callback step
+                        "[{0}] OTP authentication completed, proceeding to callback" -f $functionName | Write-Verbose
+                    }
+                    catch {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                        }
+
+                        $errorMessage = "Invalid OTP code. Please verify the code and try again"
+                        
+                        if ($_.Exception.Response) {
+                            try {
+                                $errorStream = $_.Exception.Response.GetResponseStream()
+                                $reader = New-Object System.IO.StreamReader($errorStream)
+                                $errorBody = $reader.ReadToEnd()
+                                $reader.Close()
+                                
+                                if ($errorBody -match 'error|invalid|incorrect') {
+                                    $errorMessage = $errorBody
+                                }
+                            }
+                            catch { }
+                        }
+
+                        "[{0}] Failed to submit OTP code: {1}" -f $functionName, $errorMessage | Write-Verbose
+                        throw $errorMessage
+                    }
+                }
+                else {
+                    # Continue with push notification flow
+                    "[{0}] Step 6: Polling for push approval" -f $functionName | Write-Verbose
+
+                    Start-Sleep -Milliseconds 500
+
+                    # Show appropriate progress message based on number challenge
+                    # Always show number challenge (bypasses NoProgress for critical info)
+                    if ($numberChallenge) {
+                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                            -CurrentActivity "Respond '$numberChallenge' to the PingID notification" -Id 0
+                        "[{0}] Number challenge active - user must select: {1}" -f $functionName, $numberChallenge | Write-Verbose
+                    }
+                    else {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                                -CurrentActivity "Waiting for PingID authentication..." -Id 0
+                        }
+                    }
+
+                    "[{0}] Initiating authentication request..." -f $functionName | Write-Verbose
+                    "[{0}] Waiting for authentication approval (timeout: {1} minutes)..." -f $functionName, $TimeoutMinutes | Write-Verbose
+
+                    # Poll the status endpoint until approved
+                    $statusUrl = "$authenticatorBaseUrl/pingid/ppm/auth/status"
+                    $timeout = [datetime]::Now.AddMinutes($TimeoutMinutes)
+                    $approved = $false
+                    $timestamp = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+                    $firstPoll = $true
+
+                    $headers = @{
+                        "Accept" = "*/*"
+                    }
+
+                    do {
+                        Start-Sleep -Seconds $PollIntervalSeconds
+
+                        try {
+                            # Poll status with timestamp to prevent caching
+                            $statusCheckUrl = "$statusUrl`?_=$timestamp"
+                            $statusResponse = Invoke-RestMethod -Uri $statusCheckUrl -Method GET -ErrorAction Stop `
+                                -Headers $headers -WebSession $Session
+
+                            "[{0}] Status poll response: {1}" -f $functionName, ($statusResponse | ConvertTo-Json -Compress) | Write-Verbose
+
+                            # Check if authentication is complete
+                            if ($statusResponse.status -eq "OK" -or $statusResponse.status -eq "SUCCESS") {
+                                $approved = $true
+                                "[{0}] Push notification approved!" -f $functionName | Write-Verbose
+                                break
+                            }
+                            elseif ($statusResponse.status -eq "ASYNC_AUTH_WAIT" -or $statusResponse.status -eq "WAITING") {
+                                # Still waiting for user approval - update message on first wait to confirm push was sent
+                                if ($firstPoll) {
+                                    "[{0}] Push notification confirmed - sent to mobile device" -f $functionName | Write-Verbose
+                                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps -and -not $numberChallenge) {
+                                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                                            -CurrentActivity "Approve the PingID push notification" -Id 0
+                                    }
+                                    $firstPoll = $false
+                                }
+                                else {
+                                    "[{0}] Still waiting for approval..." -f $functionName | Write-Verbose
+                                }
+                            }
+                            elseif ($statusResponse.status -eq "POLICY_OTP") {
+                                # Policy requires OTP only - push is disabled by administrator
+                                "[{0}] Server reported POLICY_OTP status - push disabled by policy, switching to OTP" -f $functionName | Write-Verbose
+                                
+                                # Prompt for OTP code
+                                $otpCode = Read-Host -Prompt "Enter your PingID OTP code for $($Username)"
+                                
+                                if ([string]::IsNullOrWhiteSpace($otpCode)) {
+                                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                                    }
+                                    throw "[{0}] OTP code is required" -f $functionName
+                                }
+                                
+                                # Submit OTP code
+                                $otpSubmitUrl = "$authenticatorBaseUrl/pingid/ppm/auth/otp"
+                                $otpBody = "otp=$otpCode&csrfToken=$csrfToken"
+                                
+                                $otpHeaders = @{
+                                    "Content-Type" = "application/x-www-form-urlencoded"
+                                    "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                                }
+                                
+                                try {
+                                    $otpResponse = Invoke-WebRequest -Uri $otpSubmitUrl -Method POST -ErrorAction Stop `
+                                        -Headers $otpHeaders -Body $otpBody -WebSession $Session
+                                    
+                                    "[{0}] OTP code submitted successfully" -f $functionName | Write-Verbose
+                                    
+                                    # Extract JWT tokens from OTP response
+                                    if ($otpResponse.Content -match 'name="ppm_request"[^>]*value="([^"]+)"') {
+                                        $ppmRequest = $matches[1]
+                                        "[{0}] Extracted ppm_request token from OTP response" -f $functionName | Write-Verbose
+                                    }
+                                    
+                                    if ($otpResponse.Content -match 'name="ppm_response"[^>]*value="([^"]+)"') {
+                                        $ppmResponse = $matches[1]
+                                        "[{0}] Extracted ppm_response token from OTP response" -f $functionName | Write-Verbose
+                                    }
+                                    
+                                    if (-not $ppmRequest -or -not $ppmResponse) {
+                                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                            Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                                        }
+                                        throw "[{0}] Could not extract JWT tokens from OTP response" -f $functionName
+                                    }
+                                    
+                                    # Mark as approved to exit polling loop
+                                    $approved = $true
+                                    "[{0}] OTP authentication completed" -f $functionName | Write-Verbose
+                                    break
+                                }
+                                catch {
+                                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                                    }
+                                    
+                                    $errorMessage = "Invalid OTP code. Please verify the code and try again"
+                                    if ($_.Exception.Response) {
+                                        try {
+                                            $errorStream = $_.Exception.Response.GetResponseStream()
+                                            $reader = New-Object System.IO.StreamReader($errorStream)
+                                            $errorBody = $reader.ReadToEnd()
+                                            $reader.Close()
+                                            if ($errorBody -match 'error|invalid|incorrect') {
+                                                $errorMessage = $errorBody
+                                            }
+                                        }
+                                        catch { }
+                                    }
+                                    
+                                    "[{0}] Failed to submit OTP code: {1}" -f $functionName, $errorMessage | Write-Verbose
+                                    throw $errorMessage
+                                }
+                            }
+                            elseif ($statusResponse.status -eq "TIMEOUT" -or $statusResponse.status -eq "AUTH_OTP") {
+                                "[{0}] Server reported {1} status - push notification timed out" -f $functionName, $statusResponse.status | Write-Verbose
+                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                                }
+                                throw "[{0}] PingID push notification timed out. The authentication request expired before approval." -f $functionName
+                            }
+                            elseif ($statusResponse.status -eq "DENY" -or $statusResponse.status -eq "DENIED" -or $statusResponse.status -eq "NUMBER_MATCHING_DENY" -or $statusResponse.status -eq "FAILED") {
+                                "[{0}] Push notification was denied or failed (status: {1})" -f $functionName, $statusResponse.status | Write-Verbose
+                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                                }
+                                throw "[{0}] Push notification was rejected or incorrect number was selected" -f $functionName
+                            }
+                            elseif ($statusResponse.status -eq "INVALID_INPUT") {
+                                "[{0}] Server returned INVALID_INPUT status - policy restriction detected" -f $functionName | Write-Verbose
+                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                                }
+                                throw "[{0}] A company policy is preventing you from authenticating with PingID at this time. Contact your administrator." -f $functionName
+                            }
+                        }
+                        catch {
+                            # Check if this is a status-related throw (TIMEOUT, AUTH_OTP, DENIED, REJECTED, FAILED, POLICY) - rethrow it
+                            if ($_.Exception.Message -match "timed out|denied|rejected|failed|policy|OTP code") {
+                                throw
+                            }
+                            # Otherwise it's a network/connectivity error - log and continue polling
+                            "[{0}] Status poll error: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                        }
+
+                        # Check for timeout
+                        if ([datetime]::Now -ge $timeout) {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Timeout! PingID push notification was not approved within {1} minutes" -f $functionName, $TimeoutMinutes
+                        }
+
+                        $timestamp = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
+                        
+                    } while (-not $approved)
+
+                    # Retrieve JWT tokens from response page (for push)
+                    # Skip if tokens were already retrieved (e.g., from POLICY_OTP handling)
+                    if (-not $ppmRequest -or -not $ppmResponse) {
+                        "[{0}] Retrieving authentication tokens from response page" -f $functionName | Write-Verbose
+
+                        # Build the response page URL - CSRF token may or may not be required
+                        if ($csrfToken) {
+                            "[{0}] Using CSRF token: {1}" -f $functionName, $csrfToken | Write-Verbose
+                            $responsePageUrl = "$authenticatorBaseUrl/pingid/ppm/auth/response?csrfToken=$csrfToken&status=OK&getStatusResponse=%7B%22status%22%3A%22OK%22%7D"
+                        }
+                        else {
+                            "[{0}] No CSRF token available - attempting without it" -f $functionName | Write-Verbose
+                            $responsePageUrl = "$authenticatorBaseUrl/pingid/ppm/auth/response?status=OK&getStatusResponse=%7B%22status%22%3A%22OK%22%7D"
+                        }
+                        
+                        try {
+                            $tokenResponse = Invoke-WebRequest -Uri $responsePageUrl -Method GET -ErrorAction Stop `
+                                -WebSession $Session -UseBasicParsing
+
+                            "[{0}] Retrieved authentication response page" -f $functionName | Write-Verbose
+
+                            # Extract ppm_request and ppm_response from hidden form fields
+                            if ($tokenResponse.Content -match 'name="ppm_request"[^>]*value="([^"]+)"') {
+                                $ppmRequest = $matches[1]
+                                "[{0}] Extracted ppm_request token" -f $functionName | Write-Verbose
+                            }
+
+                            if ($tokenResponse.Content -match 'name="ppm_response"[^>]*value="([^"]+)"') {
+                                $ppmResponse = $matches[1]
+                                "[{0}] Extracted ppm_response token" -f $functionName | Write-Verbose
+                            }
+
+                            if (-not $ppmRequest -or -not $ppmResponse) {
+                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                                }
+                                throw "[{0}] Could not extract JWT tokens from authentication response" -f $functionName
+                            }
+                        }
+                        catch {
+                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                            }
+                            "[{0}] Failed to retrieve tokens: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                            throw "[{0}] Could not retrieve authentication tokens. {1}" -f $functionName, $_.Exception.Message
+                        }
+                    }
+                    else {
+                        "[{0}] Tokens already retrieved (from POLICY_OTP handling), skipping response page" -f $functionName | Write-Verbose
+                    }
+                }
+                #EndRegion STEP 6
+
+                #Region STEP 7: Post callback with JWT tokens
+                "[{0}] Step 7: Posting authentication callback" -f $functionName | Write-Verbose
+
+                $callbackUrl = "$authBaseUrl/$EnvironmentId/flows/$flowId/pingIDAuthenticationCallback"
+                $callbackBody = "ppm_request=$ppmRequest&ppm_response=$ppmResponse"
+                
+                $headers = @{
+                    "Content-Type" = "application/x-www-form-urlencoded"
+                    "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                }
+
+                try {
+                    # This should return a 302 redirect to the SAML resume URL
+                    $callbackResponse = Invoke-WebRequest -Uri $callbackUrl -Method POST -ErrorAction Stop `
+                        -Headers $headers -Body $callbackBody -WebSession $Session -MaximumRedirection 0
+
+                    "[{0}] Callback posted (Status: {1})" -f $functionName, $callbackResponse.StatusCode | Write-Verbose
+                }
+                catch {
+                    # 302 redirect is expected, catch it to get the Location header
+                    if ($_.Exception.Response.StatusCode -eq 302) {
+                        "[{0}] Received expected 302 redirect" -f $functionName | Write-Verbose
+                    }
+                    else {
+                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Callback post failed. {1}" -f $functionName, $_.Exception.Message
+                    }
+                }
+                #EndRegion STEP 7                #Region STEP 8: Resume SAML and retrieve response
+                "[{0}] Step 8: Resuming SAML flow" -f $functionName | Write-Verbose
+
+                $resumeUrl = "$authBaseUrl/$EnvironmentId/saml20/resume?flowId=$flowId"
+
+                try {
+                    $samlResumeResponse = Invoke-WebRequest -Uri $resumeUrl -Method GET -WebSession $Session -UseBasicParsing -ErrorAction Stop
+
+                    "[{0}] SAML flow resumed successfully" -f $functionName | Write-Verbose
+                    "[{0}] Authentication completed" -f $functionName | Write-Verbose
+
+                    if ($CompletedSteps) { $CompletedSteps.Value++ }
+                    return $samlResumeResponse
+                }
+                catch {
+                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
+                    }
+                    throw "[{0}] Could not resume SAML flow. {1}" -f $functionName, $_.Exception.Message
+                }
+                #EndRegion STEP 8
+            }
+
+            #Endregion Helper functions            
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
             #Region [STEP 1] Generate PKCE code verifier, state and code challenge
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -3048,17 +5447,14 @@ Function Connect-HPEGL {
 
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Initiating OAuth authorization request" -Id 0
             $step++
-
-            $headers = @{}
-            $headers["Content-Type"] = "application/json"
         
-            $ccsRedirecturi = 'https://common.cloud.hpe.com/authentication/callback'
-
-            # $url = "{0}?client_id={1}&redirect_uri={2}&response_type=code&scope=openid%20profile%20email&code_challenge={3}&code_challenge_method=S256" -f $authEndpoint, $Global:HPEGLclient_id, $encodedRedirectUri, $codeChallenge
+            # $url = "{0}?client_id={1}&redirect_uri={2}&response_type=code&scope=openid%20profile%20email&code_challenge={3}&code_challenge_method=S256" -f $authEndpoint, $dynamicClientId, $encodedRedirectUri, $codeChallenge
                 
+            $dynamicClientId = "aquila-user-auth"
+            
             $queryParams = @{
-                client_id             = $Global:HPEGLclient_id
-                redirect_uri          = $ccsRedirecturi
+                client_id             = $dynamicClientId
+                redirect_uri          = 'https://common.cloud.hpe.com/authentication/callback'
                 response_type         = "code"
                 response_mode         = "query"
                 scope                 = "openid profile email"
@@ -3071,41 +5467,28 @@ Function Connect-HPEGL {
                 
             # Build the query string
             $queryString = ($queryParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "&"
-        
+            $queryParamsLog = $queryParams.PsObject.Copy()
+            # Hide sensitive information in logs
+            $queryParamsLog.code_challenge = "[REDACTED]"
+
             # Combine the base URL with the query string
             $url = "$(Get-HPEGLAPIOrgbaseURL)/authorization/v2/oauth2/default/authorize?$($queryString)"
-            "[{0}] About to execute GET request to: {1}" -f $functionName, $url | Write-Verbose
-            "[{0}] Using the query parameters: {1}" -f $functionName, ($queryParams | Out-String) | Write-Verbose
             
-            try {
+            # Hide sensitive information
+            $authzUrlLog = $url -replace "code_challenge=[^&]+", "code_challenge=[REDACTED]"
+            "[{0}] About to execute GET request to: {1}" -f $functionName, $authzUrlLog | Write-Verbose
+            "[{0}] Using the query parameters: {1}" -f $functionName, ($queryParamsLog | Out-String) | Write-Verbose
+           
+            $redirecturl1 = Get-302RedirectUrl -Url $url -Session $Session -StepName "Step 2"
 
-                $responseStep2 = Invoke-WebRequest $url -Method Get -MaximumRedirection 0 -ErrorAction SilentlyContinue -ErrorVariable redirected1 -WebSession $Session
-
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep2.StatusCode, $responseStep2.StatusDescription | Write-verbose
-                "[{0}] Raw response for `$responseStep2: `n{1}" -f $functionName, $responseStep2 | Write-verbose
-
-                if ($responseStep2.StatusCode -ne 302) {                
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    Throw "An error occurred during the connection to HPE GreenLake. Please check your network connection and try again."
-                }
-                else {
-                    "[{0}] Redirection detected. Proceeding with the next step..." -f $functionName | Write-Verbose
-                }
-            }
-            # Not using catch as entering the catch block when encountering a 302 (false error as we have a redirection)
-            catch {
-                #     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                #     $PSCmdlet.ThrowTerminatingError($_)
-            }
-        
-            if ($redirected1.ErrorRecord.Exception.Response.StatusCode.value__ -eq 302) {
-                $redirecturl1 = $redirected1.ErrorRecord.Exception.Response.Headers.Location.AbsoluteUri
+            # Validate that we got a redirect URL
+            if ([string]::IsNullOrEmpty($redirecturl1)) {
+                throw "[{0}] Failed to capture redirect URL in Step 2" -f $functionName
             }
 
-            "[{0}] First redirection URL captured: '{1}'" -f $functionName, $redirecturl1 | Write-Verbose
+            # Log cookies
+            Log-Cookies -Domain "https://aquila-org-api.common.cloud.hpe.com" -Session $session -Step "in session AFTER STEP 2"
+
             $completedSteps++
 
             
@@ -3123,46 +5506,24 @@ Function Connect-HPEGL {
             $step++
 
             "[{0}] Step 3 - Follow redirection: '{1}'" -f $functionName, $redirecturl1 | Write-Verbose
+           
+            $redirecturl2 = Get-302RedirectUrl -Url $redirecturl1 -Session $Session -Headers $commonHeaders -StepName "Step 3"
 
-            try {
-
-                $responseStep3 = Invoke-WebRequest $redirecturl1 -Method Get -MaximumRedirection 0 -ErrorAction SilentlyContinue -ErrorVariable redirected2 -WebSession $Session
-
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep3.StatusCode, $responseStep3.StatusDescription | Write-verbose
-                "[{0}] Raw response for `$responseStep3: `n{1}" -f $functionName, $responseStep3 | Write-verbose
-
-                if ($responseStep3.StatusCode -ne 302) {
-                                                
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-
-                    Throw "An error occurred during the connection to HPE GreenLake. Please check your network connection and try again."
-                }
-                else {
-                    "[{0}] Redirection detected. Proceeding with the next step..." -f $functionName | Write-Verbose
-                }
+            # Validate that we got a redirect URL
+            if ([string]::IsNullOrEmpty($redirecturl2)) {
+                throw "[{0}] Failed to capture redirect URL in Step 3" -f $functionName
             }
-            # Not using catch as entering the catch block when encountering a 302 (false error as we have a redirection)
-            catch {
-                #     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                #     $PSCmdlet.ThrowTerminatingError($_)
-            }
-        
-            if ($redirected2.ErrorRecord.Exception.Response.StatusCode.value__ -eq 302) {
-                $redirecturl2 = $redirected2.ErrorRecord.Exception.Response.Headers.Location.AbsoluteUri
-            }
-        
-            "[{0}] Second redirection URL captured: '{1}'" -f $functionName, $redirecturl2 | Write-Verbose
-        
+
+            # Log cookies
+            Log-Cookies -Domain "https://sso.common.cloud.hpe.com" -Session $session -Step "in session AFTER STEP 3"
+
             # redirected url: 'https://aquila-org-api.common.cloud.hpe.com/internal-identity/v1alpha1/sso-authorize?scope=openid+profile+email+ccsidp&origin=common.cloud.hpe.com&response_type=code&redirect_uri=https%3A%2F%2Fsso.common.cloud.hpe.com%2Fsp%2FeyJpc3MiOiJodHRwczpcL1wvYXV0aC5ocGUuY29tXC9vYXV0aDJcL2FxdWlsYSJ9%2Fcb.openid&state=X0Du3haximeFPCiAyAdFPQSjKxmMR1&nonce=ECiFAjqbUWPsPmxhFOhGz5&client_id=0oae329tm8xw7nwZE357'
             
             # Extract the redirect_uri parameter value from $redirecturl2
             $redirectUriEncoded = ($redirecturl2 -split '[?&]') | Where-Object { $_ -like 'redirect_uri=*' } | ForEach-Object { $_ -replace '^redirect_uri=', '' }
             $redirectUri = [System.Web.HttpUtility]::UrlDecode($redirectUriEncoded)
-            "[{0}] Extracted redirect_uri: '{1}'" -f $functionName, $redirectUri | Write-Verbose
-            
+            "[{0}] Extracted redirect_uri from Step 3 URL: '{1}'" -f $functionName, $redirectUri | Write-Verbose           
+
             $completedSteps++
             
             #EndRegion
@@ -3180,48 +5541,15 @@ Function Connect-HPEGL {
 
             "[{0}] Step 4 - Follow redirection: '{1}'" -f $functionName, $redirecturl2 | Write-Verbose
 
-            try {
-
-                $responseStep4 = Invoke-WebRequest $redirecturl2 -Method Get -MaximumRedirection 0 -ErrorAction SilentlyContinue -ErrorVariable redirected3 -WebSession $Session
-
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep4.StatusCode, $responseStep4.StatusDescription | Write-verbose
-                "[{0}] Raw response for `$responseStep4: `n{1}" -f $functionName, $responseStep4 | Write-verbose
-
-                if ($responseStep4.StatusCode -ne 302) {
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    Throw "An error occurred during the connection to HPE GreenLake. Please check your network connection and try again."
-                }
-                else {
-                    "[{0}] Redirection detected. Proceeding with the next step..." -f $functionName | Write-Verbose
-                }
-            }
-            # Not using catch as entering the catch block when encountering a 302 (false error as we have a redirection)
-            catch {
-                #     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                #     $PSCmdlet.ThrowTerminatingError($_)
-            }
-        
-            if ($redirected3.ErrorRecord.Exception.Response.StatusCode.value__ -eq 302) {
-                $redirecturl3 = $redirected3.ErrorRecord.Exception.Response.Headers.Location.AbsoluteUri
+            $redirecturl3 = Get-302RedirectUrl -Url $redirecturl2 -Session $Session -Headers $commonHeaders -StepName "Step 4"           
+            
+            # Validate that we got a redirect URL
+            if ([string]::IsNullOrEmpty($redirecturl3)) {
+                throw "[{0}] Failed to capture redirect URL in Step 4" -f $functionName
             }
 
-            "[{0}] Third redirection URL captured: '{1}'" -f $functionName, $redirecturl3 | Write-Verbose
-
-            # redirected url: https://auth.hpe.com/oauth2/aus43pf0g8mvh4ntv357/v1/authorize?client_id=XXXXXXX&code_challenge=XXXXXX&code_challenge_method=S256&prompt=none&redirect_uri=https%3A%2F%2Faquila-org-api.common.cloud.hpe.com%2Finternal-identity%2Fv1alpha1%2Fsso-callback&response_mode=query&response_type=code&scope=openid+email&state=XXXXXXXX
-
-            # Extract the ID (e.g., aus43pf0g8mvh4ntv357) from the redirected URL
-            # $idMatch = [regex]::Match($redirecturl3, '/oauth2/([^/]+)/v1/authorize')
-            # if ($idMatch.Success) {
-            #     $authId = $idMatch.Groups[1].Value
-            #     "[{0}] Extracted auth ID: '{1}'" -f $functionName, $authId | Write-Verbose
-            # } else {
-            #     "[{0}] Could not extract auth ID from URL: '{1}'" -f $functionName, $redirecturl3 | Write-Verbose
-            #     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-            #     Throw "An error occurred during the connection to HPE GreenLake. Please check your network connection and try again."
-            # }
+            # Log cookies
+            Log-Cookies -Domain "https://sso.common.cloud.hpe.com" -Session $session -Step "in session AFTER STEP 4"
 
             # Extract https://auth.hpe.com/oauth2/aus43pf0g8mvh4ntv357/v1/authorize from the redirected URL
             # Extract the base authorize URL (without query parameters) from $redirecturl3
@@ -3245,35 +5573,15 @@ Function Connect-HPEGL {
 
             "[{0}] Step 5 - Follow redirection: '{1}'" -f $functionName, $redirecturl3 | Write-Verbose
 
-            try {
+            $redirecturl4 = Get-302RedirectUrl -Url $redirecturl3 -Session $Session -StepName "Step 5"  
 
-                $responseStep5 = Invoke-WebRequest $redirecturl3 -Method Get -MaximumRedirection 0 -ErrorAction SilentlyContinue -ErrorVariable redirected4 -WebSession $Session
-
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep5.StatusCode, $responseStep5.StatusDescription | Write-verbose
-                "[{0}] Raw response for `$responseStep5: `n{1}" -f $functionName, $responseStep5 | Write-verbose
-
-                if ($responseStep5.StatusCode -ne 302) {
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    Throw "An error occurred during the connection to HPE GreenLake. Please check your network connection and try again."
-                }
-                else {
-                    "[{0}] Redirection detected. Proceeding with the next step..." -f $functionName | Write-Verbose
-                }
-            }
-            # Not using catch as entering the catch block when encountering a 302 (false error as we have a redirection)
-            catch {
-                #     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                #     $PSCmdlet.ThrowTerminatingError($_)
-            }
-        
-            if ($redirected4.ErrorRecord.Exception.Response.StatusCode.value__ -eq 302) {
-                $redirecturl4 = $redirected4.ErrorRecord.Exception.Response.Headers.Location.AbsoluteUri
+            # Validate that we got a redirect URL
+            if ([string]::IsNullOrEmpty($redirecturl4)) {
+                throw "[{0}] Failed to capture redirect URL in Step 5" -f $functionName
             }
 
-            "[{0}] Fourth redirection URL captured: '{1}'" -f $functionName, $redirecturl4 | Write-Verbose
+            # Log cookies
+            Log-Cookies -Domain "https://auth.hpe.com" -Session $session -Step "in session AFTER STEP 5"
 
             #redirected url: https://aquila-org-api.common.cloud.hpe.com/internal-identity/v1alpha1/sso-callback?state=XXXXXX&error=login_required&error_description=The+client+specified+not+to+prompt%2C+but+the+user+is+not+logged+in.'                                 
 
@@ -3294,125 +5602,75 @@ Function Connect-HPEGL {
 
             "[{0}] Step 6 - Follow redirection: '{1}'" -f $functionName, $redirecturl4 | Write-Verbose
 
-            try {
+            $redirecturl5 = Get-302RedirectUrl -Url $redirecturl4 -Session $Session -StepName "Step 6"
 
-                $responseStep6 = Invoke-WebRequest $redirecturl4 -Method Get -MaximumRedirection 0 -ErrorAction SilentlyContinue -ErrorVariable redirected5 -WebSession $Session
-
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep6.StatusCode, $responseStep6.StatusDescription | Write-verbose
-                "[{0}] Raw response for `$responseStep6: `n{1}" -f $functionName, $responseStep6 | Write-verbose
-
-                if ($responseStep6.StatusCode -ne 302) {
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    Throw "An error occurred during the connection to HPE GreenLake. Please check your network connection and try again."
-                }
-                else {
-                    "[{0}] Redirection detected. Proceeding with the next step..." -f $functionName | Write-Verbose
-                }
-            }
-            # Not using catch as entering the catch block when encountering a 302 (false error as we have a redirection)
-            catch {
-                #     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                #     $PSCmdlet.ThrowTerminatingError($_)
-            }
-        
-            if ($redirected5.ErrorRecord.Exception.Response.StatusCode.value__ -eq 302) {
-                $redirecturl5 = $redirected5.ErrorRecord.Exception.Response.Headers.Location.AbsoluteUri
+            # Validate that we got a redirect URL
+            if ([string]::IsNullOrEmpty($redirecturl5)) {
+                throw "[{0}] Failed to capture redirect URL in Step 6" -f $functionName
             }
 
-            "[{0}] Fifth redirection URL captured: '{1}'" -f $functionName, $redirecturl5 | Write-Verbose
-
+            # Log cookies
+            Log-Cookies -Domain "https://aquila-org-api.common.cloud.hpe.com" -Session $session -Step "in session AFTER STEP 6"
+            
             # redirected url: https://common.cloud.hpe.com/sso/continue?state=XXXXX
 
             # Extract the state parameter value from $redirecturl5
             $Answeredstate = ($redirecturl5 -split '[?&]') | Where-Object { $_ -like 'state=*' } | ForEach-Object { $_ -replace '^state=', '' } 
-            "[{0}] Extracted state from fifth redirection: '{1}'" -f $functionName, $Answeredstate | Write-Verbose
+            "[{0}] Extracted state from redirection: '{1}'" -f $functionName, $Answeredstate | Write-Verbose
+
 
             $completedSteps++
 
-            #EndRegion                    
+            #EndRegion                  
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 7] Resolve SSO with login_hint: GET request to 'https://aquila-org-api.common.cloud.hpe.com/internal-identity/v1alpha1/sso-resolve?login_hint=XXXXXXXXXXXXXXXXX&state=XXXXXXXXXXXX'
-            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-    
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
-            "[{0}] [STEP 7] Resolve SSO" -f $functionName | Write-Verbose
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
+            #Region [STEP 7] Resolve SSO and extract parameters
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
+            "[{0}] [STEP 7] Resolve SSO and extract parameters" -f $functionName | Write-Verbose
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
 
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Resolve SSO with login_hint" -Id 0
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Resolve SSO" -Id 0
             $step++
 
-            # Build URL
             $ssoResolveUrl = "$(Get-HPEGLAPIOrgbaseURL)/internal-identity/v1alpha1/sso-resolve?login_hint=$($Username)&state=$($Answeredstate)"
-
             "[{0}] Step 7 - Resolve SSO: '{1}'" -f $functionName, $ssoResolveUrl | Write-Verbose
 
-            try {
+            $selectorUrl = Get-302RedirectUrl -Url $ssoResolveUrl -Session $Session -StepName "Step 7"       
 
-                $responseStep7 = Invoke-WebRequest $ssoResolveUrl -Method Get -MaximumRedirection 0 -ErrorAction SilentlyContinue -ErrorVariable redirected6 -WebSession $Session
-
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep7.StatusCode, $responseStep7.StatusDescription | Write-verbose
-                "[{0}] Raw response for `$responseStep7: `n{1}" -f $functionName, $responseStep7 | Write-verbose
-
-                if ($responseStep7.StatusCode -ne 302) {
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    Throw "An error occurred during the connection to HPE GreenLake. Please check your network connection and try again."
-                }
-                else {
-                    "[{0}] Redirection detected. Proceeding with the next step..." -f $functionName | Write-Verbose
-                }
-            }
-            # Not using catch as entering the catch block when encountering a 302 (false error as we have a redirection)
-            catch {
-                #     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                #     $PSCmdlet.ThrowTerminatingError($_)
-            }
-        
-            if ($redirected6.ErrorRecord.Exception.Response.StatusCode.value__ -eq 302) {
-                $redirecturl6 = $redirected6.ErrorRecord.Exception.Response.Headers.Location.AbsoluteUri
-            }
-
-            "[{0}] Sixth redirection URL captured: '{1}'" -f $functionName, $redirecturl6 | Write-Verbose
-
-            # redirected url: https://common.cloud.hpe.com/sso/selector?auth_source=hpe_myaccount&login_hint=XXXXXXXXXX&myaccount_session=true&redirect=XXXXXXXXXXXX
-
-            # Extract the redirect parameter value from $redirecturl6
-            $Redirect = ($redirecturl6 -split '[?&]') | Where-Object { $_ -like 'redirect=*' } | ForEach-Object { $_ -replace '^redirect=', '' } 
-            "[{0}] Extracted redirect from sixth redirection: '{1}'" -f $functionName, $Redirect | Write-Verbose
-
-            # The redirect parameter is base64-encoded. Decoding it:
+            # Extract and decode the redirect parameter from selector URL
+            $Redirect = ($selectorUrl -split '[?&]') | Where-Object { $_ -like 'redirect=*' } | ForEach-Object { $_ -replace '^redirect=', '' }
             $decodedRedirect = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String([System.Web.HttpUtility]::UrlDecode($Redirect)))
             "[{0}] Decoded redirect parameter: '{1}'" -f $functionName, $decodedRedirect | Write-Verbose
 
-            # Extract the display from the decoded redirect
-            $display = ($decodedRedirect -split '[?&]') | Where-Object { $_ -like 'display=*' } | ForEach-Object { $_ -replace '^display=', '' }
-            "[{0}] Extracted display from decoded redirect: '{1}'" -f $functionName, [System.Web.HttpUtility]::UrlDecode($display) | Write-Verbose
+            $display = Get-QueryParameter -Url $decodedRedirect -ParamName 'display'
+            $idp = Get-QueryParameter -Url $decodedRedirect -ParamName 'idp'
+            $clientId = Get-QueryParameter -Url $decodedRedirect -ParamName 'client_id'
+            $nonce = Get-QueryParameter -Url $decodedRedirect -ParamName 'nonce'
+            $ccsRedirecturi = Get-QueryParameter -Url $decodedRedirect -ParamName 'redirect_uri'
 
-            # Extract the idp from the decoded redirect
-            $idp = ($decodedRedirect -split '[?&]') | Where-Object { $_ -like 'idp=*' } | ForEach-Object { $_ -replace '^idp=', '' }
-            "[{0}] Extracted idp from decoded redirect: '{1}'" -f $functionName, $idp | Write-Verbose
+            "[{0}] Extracted display: '{1}'" -f $functionName, [System.Web.HttpUtility]::UrlDecode($display) | Write-Verbose
+            "[{0}] Extracted idp: '{1}'" -f $functionName, $idp | Write-Verbose
+            "[{0}] Extracted client_id: '{1}'" -f $functionName, $clientId | Write-Verbose
 
-            # Extract the client_id from the decoded redirect
-            $clientId = ($decodedRedirect -split '[?&]') | Where-Object { $_ -like 'client_id=*' } | ForEach-Object { $_ -replace '^client_id=', '' }
-            "[{0}] Extracted client_id from decoded redirect: '{1}'" -f $functionName, $clientId | Write-Verbose
+            # Must add a check to ensure the domain is "pre-claimed" for auto-SSO, if not, the process must stop with an error message
+            if ([string]::IsNullOrEmpty($idp) -or [string]::IsNullOrEmpty($clientId) -or [string]::IsNullOrEmpty($nonce) -or [string]::IsNullOrEmpty($ccsRedirecturi)) {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
 
-            # Extract the nonce from the decoded redirect
-            $nonce = ($decodedRedirect -split '[?&]') | Where-Object { $_ -like 'nonce=*' } | ForEach-Object { $_ -replace '^nonce=', '' }
-            "[{0}] Extracted nonce from decoded redirect: '{1}'" -f $functionName, $nonce | Write-Verbose
+                Write-Error @"
+Authentication failed: SSO configuration issue detected.
 
-            # Extract the redirect_uri from the decoded redirect
-            $ccsRedirecturi = ($decodedRedirect -split '[?&]') | Where-Object { $_ -like 'redirect_uri=*' } | ForEach-Object { $_ -replace '^redirect_uri=', '' }
-            $ccsRedirecturi = [System.Web.HttpUtility]::UrlDecode($ccsRedirecturi)
-            "[{0}] Extracted redirect_uri from decoded redirect: '{1}'" -f $functionName, $ccsRedirecturi | Write-Verbose
+The domain for '$Username' is not configured for SSO or the SSO setup is incomplete. 
+
+Please verify the email domain is pre-claimed in HPE GreenLake and SSO is properly configured for this domain. 
+
+Contact your administrator if you need assistance.
+"@ -ErrorAction Stop
+            }
 
             $completedSteps++
-
             #EndRegion
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -3439,64 +5697,69 @@ Function Connect-HPEGL {
 
             $queryParams = @{
                 client_id     = $clientId
-                # display               = "https://sts.windows.net/037db3fc-7e83-48ba-8f4e-04d42b37bc28/"
                 idp           = $idp
                 login_hint    = $Username
                 nonce         = $nonce
-                # prompt                = "login" 
+                prompt        = "login" 
                 redirect_uri  = $ccsRedirecturi
                 response_type = "code"
                 scope         = "openid profile email ccsidp"
-                sso_options   = "true"
+                sso_options   = "false"
                 state         = $Answeredstate
-
+                display       = [System.Web.HttpUtility]::UrlDecode($display)
             }
-                
+
             # Build the query string
-            $queryString = ($queryParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "&"
-        
+            $queryString = ($queryParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$([System.Web.HttpUtility]::UrlEncode($_.Value.ToString()))" }) -join "&"
+
             # Combine the base URL with the query string
             $url = "$($authorizeBaseUrl)?$($queryString)"
 
             "[{0}] About to execute GET request to: {1}" -f $functionName, $url | Write-Verbose
             "[{0}] Using the query parameters: {1}" -f $functionName, ($queryParams | Out-String) | Write-Verbose
-            
-            try {
 
-                $responseStep8 = Invoke-WebRequest $url -Method Get -MaximumRedirection 0 -ErrorAction SilentlyContinue -ErrorVariable redirected7 -WebSession $Session
-
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep8.StatusCode, $responseStep8.StatusDescription | Write-verbose
-                "[{0}] Raw response for `$responseStep8: `n{1}" -f $functionName, $responseStep8 | Write-verbose
-
-                if ($responseStep8.StatusCode -ne 302) {
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    Throw "An error occurred during the connection to HPE GreenLake. Please check your network connection and try again."
-                }
-                else {
-                    "[{0}] Redirection detected. Proceeding with the next step..." -f $functionName | Write-Verbose
-                }
-            }
-            # Not using catch as entering the catch block when encountering a 302 (false error as we have a redirection)
-            catch {
-                #     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                #     $PSCmdlet.ThrowTerminatingError($_)
+            $redirecturl7 = Get-302RedirectUrl -Url $url -Session $Session -StepName "Step 8"
+                    
+            # Validate that we got a redirect URL
+            if ([string]::IsNullOrEmpty($redirecturl7)) {
+                throw "[{0}] Failed to capture redirect URL in Step 8" -f $functionName
             }
 
-            if ($redirected7.ErrorRecord.Exception.Response.StatusCode.value__ -eq 302) {
-                $redirecturl7 = $redirected7.ErrorRecord.Exception.Response.Headers.Location.AbsoluteUri
-            }
-
-            "[{0}] Seventh redirection URL captured: '{1}'" -f $functionName, $redirecturl7 | Write-Verbose
+            # Log cookies
+            Log-Cookies -Domain "https://auth.hpe.com/" -Session $session -Step "in session AFTER STEP 8"
 
             $completedSteps++
 
             #EndRegion
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 9] Follow redirection to capture OktaData to 'https://sso.common.cloud.hpe.com/as/authorization.oauth2?
+            #Region [STEP 9] Follow nextredirection to 'https://auth.hpe.com/sso/idps/0oa1j3ahd46U2O1n4358?stateTokenExternalId=XXXXXXXXXXXXXXXXXXXX'
+            # ---------------------------------------------------------------------------------------------------------------------------------------------------------
+
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
+            "[{0}] [STEP 9] Follow redirection: '{1}'" -f $functionName, $redirecturl7 | Write-Verbose
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
+
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Follow redirection" -Id 0
+            $step++
+
+            $redirecturl8 = Get-302RedirectUrl -Url $redirecturl7 -Session $Session -StepName "Step 9"
+
+            # Validate that we got a redirect URL
+            if ([string]::IsNullOrEmpty($redirecturl8)) {
+                throw "[{0}] Failed to capture redirect URL in Step 9" -f $functionName
+            }
+
+            # Log cookies
+            Log-Cookies -Domain "https://sso.common.cloud.hpe.com/" -Session $session -Step "in session AFTER STEP 9"
+
+
+            $completedSteps++
+
+            #EndRegion  
+
+            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
+            #Region [STEP 10] Follow redirection to capture OktaData to 'https://sso.common.cloud.hpe.com/as/authorization.oauth2?
             # state=MmtyQzAyb0drdmVJMVdrMlgwT2lPK0R1SE5QWWU1R2hwd05pV1NNcXJubXhEemxyb3RaMCtGdXdteVE4emtOVg&
             # nonce=eU8Bf9Ff2CikdlfJtNMG1tlzwsb78dMh&
             # code_challenge=9wE8d45To4gRLSPJhPchT0RnAx_vbaC9hXox59Jwh4I&
@@ -3510,170 +5773,114 @@ Function Connect-HPEGL {
             # ---------------------------------------------------------------------------------------------------------------------------------------------------------
 
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
-            "[{0}] [STEP 9] Follow redirection: '{1}'" -f $functionName, $redirecturl7 | Write-Verbose
+            "[{0}] [STEP 10] Follow redirection: '{1}'" -f $functionName, $redirecturl8 | Write-Verbose
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
 
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Follow redirection" -Id 0
             $step++
 
             try {
+                # Initial GET request - may return SAML form directly (Legacy IAM) or identity selection page (Enhanced IAM)
+                $responseStep10 = Invoke-WebRequest $redirecturl8 -Method Get -WebSession $Session -MaximumRedirection 5 -ErrorAction Stop
+    
+                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep10.StatusCode, $responseStep10.StatusDescription | Write-Verbose
 
-                $responseStep9 = Invoke-WebRequest $redirecturl7 -Method Get -ErrorAction SilentlyContinue -WebSession $Session
+                # Check what type of response we received
+                $hasSAMLForm = $responseStep10.Content -match 'name="SAMLRequest"'
+                $hasIdentitySelection = $responseStep10.Content -match 'name="subject"' -or 
+                $responseStep10.Content -match 'resumeSAML20' -and $responseStep10.Content -match '<form'
 
-                "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep9.StatusCode, $responseStep9.StatusDescription | Write-verbose
-                # Display only the last 30 lines of the response content for debugging
-                $lastLines = ($responseStep9.Content -split "`r?`n") | Select-Object -Last 30
-                "[{0}] Raw response for `$responseStep9 (last 30 lines):`n{1}" -f $functionName, ($lastLines -join "`n") | Write-Verbose
-                
-            }
-            catch {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                if ($hasSAMLForm) {
+                    "[{0}] Direct SAML form received (Legacy IAM or already authenticated)" -f $functionName | Write-Verbose
                 }
-                $PSCmdlet.ThrowTerminatingError($_)
-            }
-        
-
-            # Capture OKTAData from the response and retrieve the fromUri value
-            $oktaData = ($responseStep9.Content -join "`n" | Select-String -Pattern 'var OKTAData = ({.*?});' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value }
-            "[{0}] Extracted OKTAData: '{1}'" -f $functionName, $oktaData | Write-Verbose
-            if (-not $oktaData) {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                Throw "An error occurred during the connection to HPE GreenLake. Unable to retrieve the required OKTAData value from the response. Please check your network connection and try again, or contact your administrator if the issue persists."
-            }
-
-            # Use regex to extract the fromUri value from OKTAData
-            $fromUri = ($oktaData -join "`n" | Select-String -Pattern '"fromUri":"([^"]+)"' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value }
-            # Replace hex escape sequences with their actual characters
-            $decodedFromUri = $fromUri -replace '\\x2F', '/' -replace '\\x3F', '?' -replace '\\x3D', '='
-            "[{0}] Extracted fromUri: '{1}'" -f $functionName, $decodedFromUri | Write-Verbose
-            if (-not $decodedFromUri) {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                Throw "An error occurred during the connection to HPE GreenLake. Unable to retrieve the required fromUri value from the response. Please check your network connection and try again, or contact your administrator if the issue persists."
-            }
-
-            # Use regex to extract the id value from glcpIDPprod 
-            $glcpIDPprodId = ($responseStep9.Content -join "`n" | Select-String -Pattern "var glcpIDPprod = \{[^}]*id: '([^']+)'" -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value }
-            "[{0}] Extracted glcpIDPprod id: '{1}'" -f $functionName, $glcpIDPprodId | Write-Verbose
-            if (-not $glcpIDPprodId) {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                Throw "An error occurred during the connection to HPE GreenLake. Unable to retrieve the required glcpIDPprod id value from the response. Please check your network connection and try again, or contact your administrator if the issue persists."
-            }
-
-            $completedSteps++
-
-            #EndRegion  
-            
-            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 10] Initiate Authentication via HPE Okta SSO Endpoint
-            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
-            "[{0}] [STEP 10] Initiate Authentication via HPE Okta SSO Endpoint" -f $functionName | Write-Verbose
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
-
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Initiate Authentication via HPE Okta SSO Endpoint" -Id 0
-            $step++
-
-            # Load System.Web for decoding
-            Add-Type -AssemblyName System.Web
-
-            # # Validate inputs
-            # if (-not $glcpIDPprodId) { Throw "[{0}] glcpIDPprodId is null or empty." -f $functionName }
-            # if (-not $decodedFromUri) { Throw "[{0}] decodedFromUri is null or empty." -f $functionName }
-
-            # URL-encode the decoded string
-            $encodedFromUri = [System.Net.WebUtility]::UrlEncode($decodedFromUri)
-
-            # Construct the full URL
-            $baseUrl = "https://auth.hpe.com/sso/idps/" + $glcpIDPprodId
-            $fullUrl = $baseUrl + "?fromURI=" + $encodedFromUri
-
-            $method = "GET"
-
-            "[{0}] About to execute {1} request to: '{2}'" -f $functionName, $method, $fullUrl | Write-Verbose
-
-            # Initialize session if null
-            if (-not $session) {
-                "[{0}] WebSession is null. Initializing new session." -f $functionName | Write-Verbose
-                $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-            }
-
-            # Log initial cookies
-            "[{0}] Initial session cookies for {1}: {2}" -f $functionName, $fullUrl, ($session.Cookies.GetCookies($fullUrl) | Out-String) | Write-Verbose
-
-            try {
-                $responseStep10 = Invoke-WebRequest -Uri $fullUrl -Method $method -ErrorAction Stop -WebSession $session
-                # $responseStep10.Content | Out-File -FilePath "step10_response.html" -Encoding UTF8
-                "[{0}] SAML2 IDP response received successfully." -f $functionName | Write-Verbose
-                "[{0}] Received status code: '{1}' - Description: '{2}'" -f $functionName, $responseStep10.StatusCode, $responseStep10.StatusDescription | Write-Verbose
-                $lastLines = ($responseStep10.Content -split "`r?`n") | Select-Object -Last 30
-                "[{0}] Raw response for `$responseStep10 (last 30 lines):`n{1}" -f $functionName, ($lastLines -join "`n") | Write-Verbose
-            }
-            catch {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                "[{0}] SAML2 IDP response failed to process: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                "[{0}] Exception details: {1}" -f $functionName, ($_.Exception | Out-String) | Write-Verbose
-                Throw "Failed to fetch initial SAML response from $fullUrl."
-            }
-
-            # Add cookies to session
-            if ($responseStep10.Headers['Set-Cookie']) {
-                $cookies = $responseStep10.Headers['Set-Cookie'] -split '(?<!\w);(?!\w)'
-                foreach ($cookie in $cookies) {
-                    if ($cookie -match '(\w+)=([^;]*)(?:;|$)' -and $matches[2].Trim() -and $matches[2].Trim().Length -gt 0 -and $matches[2] -notmatch '^(Thu, 01 Jan 1970|deleted)$') {
-                        try {
-                            $cookieObj = New-Object System.Net.Cookie
-                            $cookieObj.Name = $matches[1]
-                            $cookieObj.Value = $matches[2].Trim()
-                            $cookieObj.Domain = (New-Object System.Uri $fullUrl).Host
-                            $session.Cookies.Add($cookieObj)
-                            "[{0}] Added cookie: {1}={2}" -f $functionName, $cookieObj.Name, $cookieObj.Value | Write-Verbose
-                        }
-                        catch {
-                            "[{0}] Skipped invalid cookie: {1} ({2})" -f $functionName, $cookie, $_.Exception.Message | Write-Verbose
-                        }
+                elseif ($hasIdentitySelection) {
+                    "[{0}] Identity selection page detected (Enhanced IAM) - submitting user identity" -f $functionName | Write-Verbose
+                    
+                    # Extract form action URL
+                    $formActionMatch = ($responseStep10.Content | Select-String -Pattern '<form[^>]*action="([^"]+)"').Matches | Select-Object -First 1
+                    $formAction = if ($formActionMatch) { 
+                        [System.Web.HttpUtility]::HtmlDecode($formActionMatch.Groups[1].Value)
                     }
+                    else {
+                        # Use current URL if no action specified
+                        $responseStep10.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
+                    }
+                    
+                    "[{0}] Submitting identity to: {1}" -f $functionName, $formAction | Write-Verbose
+                    
+                    # POST with subject parameter to select user identity
+                    $identityBody = @{
+                        subject                           = $Username
+                        "clear.previous.selected.subject" = ""
+                        "cancel.identifier.selection"     = "false"
+                    }
+                    
+                    $responseStep10 = Invoke-WebRequest -Uri $formAction -Method POST -Body $identityBody `
+                        -WebSession $Session -ContentType "application/x-www-form-urlencoded" `
+                        -MaximumRedirection 5 -ErrorAction Stop
+
+                    "[{0}] Identity submitted successfully - status: {1}" -f $functionName, $responseStep10.StatusCode | Write-Verbose
+                    
+                    # Verify we now have SAML form
+                    if (-not ($responseStep10.Content -match 'name="SAMLRequest"')) {
+                        throw "[{0}] Expected SAML form after identity selection but did not receive it" -f $functionName
+                    }
+                    
+                    "[{0}] SAML form received after identity selection" -f $functionName | Write-Verbose
                 }
+                else {
+                    "[{0}] WARNING: Unexpected response type - no SAML form or identity selection detected" -f $functionName | Write-Verbose
+                }
+
+                # Display response for debugging
+                $lastLines = ($responseStep10.Content -split "`r?`n") | Select-Object -Last 30
+                "[{0}] Raw response for Step 10 (last 30 lines):`n{1}" -f $functionName, ($lastLines -join "`n") | Write-Verbose
+
             }
-            else {
-                "[{0}] No cookies found in initial response" -f $functionName | Write-Verbose
+            catch {
+                "[{0}] Error in Step 10: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
+                throw "[{0}] Authentication failed: {1}" -f $functionName, $_.Exception.Message                    
             }
 
-            # Log cookies after Step 10
-            "[{0}] Session cookies after Step 10 for {1}: {2}" -f $functionName, $fullUrl, ($session.Cookies.GetCookies($fullUrl) | Out-String) | Write-Verbose
+            # Extract SAMLAction, SAMLRequest, Method, and RelayState with error handling
+            try {
+                $SAMLActionMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern 'action="([^"]+)"').Matches | Select-Object -First 1
+                $SAMLActionValue = if ($SAMLActionMatch) { [System.Web.HttpUtility]::HtmlDecode($SAMLActionMatch.Groups[1].Value) } else { $null }
 
-            # Extract SAMLAction, SAMLRequest, Method, and RelayState
-            $SAMLActionMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern '<form[^>]*id="appForm"[^>]*action="([^"]+)"').Matches | Select-Object -First 1
-            $SAMLActionValue = if ($SAMLActionMatch) { [System.Web.HttpUtility]::HtmlDecode($SAMLActionMatch.Groups[1].Value) } else { $null }
+                $SAMLRequestMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern '<input[^>]*name="SAMLRequest"[^>]*value="([^"]+)"').Matches | Select-Object -First 1
+                $SAMLRequestValue = if ($SAMLRequestMatch) { [System.Web.HttpUtility]::HtmlDecode($SAMLRequestMatch.Groups[1].Value) } else { $null }
 
-            $SAMLRequestMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern '<input[^>]*name="SAMLRequest"[^>]*value="([^"]+)"').Matches | Select-Object -First 1
-            $SAMLRequestValue = if ($SAMLRequestMatch) { [System.Web.HttpUtility]::HtmlDecode($SAMLRequestMatch.Groups[1].Value) } else { $null }
+                $RelayStateMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern '<input[^>]*name="RelayState"[^>]*value="([^"]+)"').Matches | Select-Object -First 1
+                $RelayStateValue = if ($RelayStateMatch) { [System.Web.HttpUtility]::HtmlDecode($RelayStateMatch.Groups[1].Value) } else { $null }
 
-            $RelayStateMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern '<input[^>]*name="RelayState"[^>]*value="([^"]+)"').Matches | Select-Object -First 1
-            $RelayStateValue = if ($RelayStateMatch) { [System.Web.HttpUtility]::HtmlDecode($RelayStateMatch.Groups[1].Value) } else { $null }
+                $SAMLMethodMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern 'method="([^"]+)"').Matches | Select-Object -First 1
+                $SAMLMethodValue = if ($SAMLMethodMatch) { $SAMLMethodMatch.Groups[1].Value } else { "POST" }
 
-            $SAMLMethodMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern 'method="([^"]+)"').Matches | Select-Object -First 1
-            $SAMLMethodValue = if ($SAMLMethodMatch) { $SAMLMethodMatch.Groups[1].Value } else { "POST" }
+                # Display extracted values
+                "[{0}] Extracted SAMLAction: {1}" -f $functionName, $SAMLActionValue | Write-Verbose
+                "[{0}] Extracted SAMLMethod: '{1}'" -f $functionName, $SAMLMethodValue | Write-Verbose
+                "[{0}] Extracted SAMLRequest: {1}..." -f $functionName, ($SAMLRequestValue ? $SAMLRequestValue.Substring(0, [Math]::Min(100, $SAMLRequestValue.Length)) : "None") | Write-Verbose
+                "[{0}] Extracted RelayState: {1}..." -f $functionName, ($RelayStateValue ? $RelayStateValue.Substring(0, [Math]::Min(100, $RelayStateValue.Length)) : "None") | Write-Verbose
+                "[{0}] RelayState length: {1}" -f $functionName, ($RelayStateValue ? $RelayStateValue.Length : 0) | Write-Verbose
+            }
+            catch {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
+                "[{0}] SAML form parsing error: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                Write-Error @"
+[$functionName] Failed to parse SAML authentication form. 
 
-            # Display extracted values
-            "[{0}] Extracted SAMLAction: {1}" -f $functionName, $SAMLActionValue | Write-Verbose
-            "[{0}] Extracted SAMLMethod: '{1}'" -f $functionName, $SAMLMethodValue | Write-Verbose
-            "[{0}] Extracted SAMLRequest: {1}..." -f $functionName, ($SAMLRequestValue ? $SAMLRequestValue.Substring(0, [Math]::Min(100, $SAMLRequestValue.Length)) : "None") | Write-Verbose
-            "[{0}] Extracted RelayState: {1}..." -f $functionName, ($RelayStateValue ? $RelayStateValue.Substring(0, [Math]::Min(100, $RelayStateValue.Length)) : "None") | Write-Verbose
-            "[{0}] RelayState length: {1}" -f $functionName, ($RelayStateValue ? $RelayStateValue.Length : 0) | Write-Verbose
+The HPE GreenLake SSO page structure may have changed. 
+
+Error: $($_.Exception.Message)
+"@ -ErrorAction Stop
+            }
             
             if (-not $SAMLActionValue -or -not $SAMLMethodValue -or -not $SAMLRequestValue -or -not $RelayStateValue) {
                 if (-not $NoProgress) {
@@ -3705,11 +5912,15 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                Throw "Error decoding base64 SAMLRequest: $_`nRaw SAMLRequest: $SAMLRequestValue"
-            }
+                Write-Error @"
+Error decoding base64 SAMLRequest: $_
 
+Raw SAMLRequest: $SAMLRequestValue
+"@ -ErrorAction Stop
+            }
+           
             $completedSteps++
-            #EndRegion
+            #EndRegion             
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
             #Region [STEP 11] Submit SAML Authentication Request
@@ -3722,7 +5933,6 @@ Function Connect-HPEGL {
             $step++
 
             try {
-
                 $body = @{
                     SAMLRequest = $SAMLRequestValue
                     RelayState  = $RelayStateValue
@@ -3731,10 +5941,17 @@ Function Connect-HPEGL {
                 "[{0}] About to execute {1} request to: '{2}'" -f $functionName, $SAMLMethodValue, $SAMLActionValue | Write-Verbose
                 "[{0}] Using the query parameters: {1}" -f $functionName, ($body | Out-String) | Write-Verbose
 
-                $responseStep11 = Invoke-WebRequest -Method $SAMLMethodValue -Uri $SAMLActionValue -Body $body -WebSession $session -ContentType "application/x-www-form-urlencoded" -MaximumRedirection 1 -ErrorAction Stop
-                # $responseStep11.Content | Out-File -FilePath "step11_response.html" -Encoding UTF8                
+                # Use standard Invoke-WebRequest for all providers
+                # PingOne authentication flow doesn't require special cookie handling at this step
+                # Cookies will be managed naturally by the WebRequestSession throughout the flow
+                $responseStep11 = Invoke-WebRequest -Method $SAMLMethodValue -Uri $SAMLActionValue -Body $body `
+                    -WebSession $session -ContentType "application/x-www-form-urlencoded" `
+                    -MaximumRedirection 1 -ErrorAction Stop
+    
                 "[{0}] Received status code: '{1}' - Description: '{2}'" -f $functionName, $responseStep11.StatusCode, $responseStep11.StatusDescription | Write-Verbose
+    
                 "[{0}] Content for `$responseStep11 starts with: {1}..." -f $functionName, ($responseStep11.Content.Substring(0, [Math]::Min(100, $responseStep11.Content.Length))) | Write-Verbose
+
             }
             catch {
                 if (-not $NoProgress) {
@@ -3742,517 +5959,951 @@ Function Connect-HPEGL {
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
                 "[{0}] Failed to submit SAML request to {1}: {2}" -f $functionName, $SAMLActionValue, $_.Exception.Message | Write-Verbose
-                throw "Failed to submit SAML request to $SAMLActionValue : $_."
+                throw "[{0}] Failed to submit SAML request to {1}: {2}" -f $functionName, $SAMLActionValue, $_
             }
 
             $completedSteps++
 
-            #EndRegion 
+            #EndRegion
+
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 12] Submit Email Form
-            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
+            #Region [STEP 12] Handle IdP Authentication Flow
+
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
-            "[{0}] [STEP 12] Submit email form" -f $functionName | Write-Verbose
+            "[{0}] [STEP 12] Handle IdP Authentication Flow" -f $functionName | Write-Verbose
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
 
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Submit email form" -Id 0
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - IdP Authentication" -Id 0
             $step++
 
             try {
-                $newActionMatch = ($responseStep11.Content -join "`n" | Select-String -Pattern '<form[^>]*action=["'']([^"'']*)["''][^>]*id="ssoForm"').Matches | Select-Object -First 1
-                $newActionValue = if ($newActionMatch -and $newActionMatch.Groups.Count -gt 1) { [System.Web.HttpUtility]::HtmlDecode($newActionMatch.Groups[1].Value) } else { $null }
-                "[{0}] Extracted form action: {1}" -f $MyInvocation.InvocationName.ToString().ToString().ToUpper(), ($newActionValue ? $newActionValue : "None") | Write-Verbose
-
-                if (-not $newActionValue) { 
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    throw "[{0}] No action URL found in login form." -f $functionName 
-                }
-
-                $newActionUri = if ($newActionValue -match '^/') {
-                    $baseUri = New-Object System.Uri $SAMLActionValue
-                    [System.Uri]::new($baseUri, $newActionValue).ToString()
-                }
-                else {
-                    $newActionValue
-                }
-                "[{0}] Resolved form action: {1}" -f $functionName, $newActionUri | Write-Verbose
-
-                $newBody = @{
-                    subject                           = $Username
-                    'clear.previous.selected.subject' = ''
-                    'cancel.identifier.selection'     = 'false'
-                }
-                "[{0}] Email form body: {1}" -f $functionName, ($newBody | Out-String) | Write-Verbose
-
-                $responseStep12 = Invoke-WebRequest -Method POST -Uri $newActionUri -Body $newBody -WebSession $session -ContentType "application/x-www-form-urlencoded" -MaximumRedirection 1 -ErrorAction Stop
-                # $responseStep12.Content | Out-File -FilePath "step12_response.html" -Encoding UTF8                
-                "[{0}] Received status code: '{1}' - Description: '{2}'" -f $functionName, $responseStep12.StatusCode, $responseStep12.StatusDescription | Write-Verbose
-                "[{0}] Content for `$responseStep12 starts with: {1}..." -f $functionName, ($responseStep12.Content.Substring(0, [Math]::Min(100, $responseStep12.Content.Length))) | Write-Verbose
+                $currentResponse = $responseStep11
                 
-            }
-            catch {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                "[{0}] Failed to submit email form to {1}: {2}" -f $functionName, $newActionUri, $_.Exception.Message | Write-Verbose
-                throw "Failed to submit email form to $newActionUri : $_."
-            }
+                # Get current URL to help with IdP detection
+                $currentUrl = $currentResponse.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
+                "[{0}] Current response URL: {1}" -f $functionName, $currentUrl | Write-Verbose               
 
-            $autoPostFormMatch = ($responseStep12.Content -join "`n" | Select-String -Pattern '<form[^>]*action=["'']([^"'']*)["''][^>]*>').Matches | Select-Object -First 1
-            $autoPostAction = if ($autoPostFormMatch) { [System.Web.HttpUtility]::HtmlDecode($autoPostFormMatch.Groups[1].Value) } else { $null }
-            $autoPostSAMLRequestMatch = ($responseStep12.Content -join "`n" | Select-String -Pattern '<input[^>]*name=["'']SAMLRequest["''][^>]*value=["'']([^"'']*)["'']').Matches | Select-Object -First 1
-            $autoPostSAMLRequest = if ($autoPostSAMLRequestMatch) { [System.Web.HttpUtility]::HtmlDecode($autoPostSAMLRequestMatch.Groups[1].Value) } else { $null }
-            $autoPostRelayStateMatch = ($responseStep12.Content -join "`n" | Select-String -Pattern '<input[^>]*name=["'']RelayState["''][^>]*value=["'']([^"'']*)["'']').Matches | Select-Object -First 1
-            $autoPostRelayState = if ($autoPostRelayStateMatch) { [System.Web.HttpUtility]::HtmlDecode($autoPostRelayStateMatch.Groups[1].Value) } else { $null }
+                $isEntraIDLoginPage = $currentUrl -match 'login\.microsoftonline\.com|login\.windows\.net|sts\.windows\.net' -and
+                $currentResponse.Content -match '(Microsoft|Sign in to your account|Enter password|Stay signed in)'
+                
+                if ($isEntraIDLoginPage) {
+                    "[{0}] Detected Entra ID login page directly (no redirect needed)" -f $functionName | Write-Verbose
+                    "[{0}] Using Microsoft Authenticator MFA (push or TOTP)" -f $functionName | Write-Verbose
+                    
+                    # Extract Entra ID context from the login page
+                    $entraContext = @{}
+                    
+                    # Extract from $Config JavaScript variable using more specific regex patterns
+                    # Extract individual values instead of parsing entire JSON (more reliable)
 
-            "[{0}] Auto-post form action: {1}" -f $functionName, ($autoPostAction ? $autoPostAction : "None") | Write-Verbose
-            "[{0}] Auto-post SAMLRequest: {1}..." -f $functionName, ($autoPostSAMLRequest ? $autoPostSAMLRequest.Substring(0, [Math]::Min(100, $autoPostSAMLRequest.Length)) : "None") | Write-Verbose
-            "[{0}] Auto-post RelayState: {1}..." -f $functionName, ($autoPostRelayState ? $autoPostRelayState.Substring(0, [Math]::Min(100, $autoPostRelayState.Length)) : "None") | Write-Verbose
-
-            if (-not $autoPostAction) { 
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                throw "[{0}] Auto-post form action is null or empty." -f $functionName
-            }
-
-            if (-not $autoPostSAMLRequest) { 
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                throw "[{0}] Auto-post SAMLRequest is null or empty." -f $functionName
-            }
-
-            if (-not $autoPostRelayState) { 
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                throw "[{0}] Auto-post RelayState is null or empty." -f $functionName
-            }
-
-            $completedSteps++
-
-            #EndRegion 
-
-            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 13] Submit Auto-post Form to Azure AD (refined)
-            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
-            "[{0}] [STEP 13] Submit auto-post form to Azure AD: '{1}'" -f $functionName, $autoPostAction | Write-Verbose
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
-
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Submit auto-post form to Azure AD" -Id 0
-            $step++
-
-            try {
-                $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-                $ctx = $null
-                $flowToken = $null
-                $configObj = $null
-
-                $autoPostBody = @{
-                    SAMLRequest = $autoPostSAMLRequest
-                    RelayState  = $autoPostRelayState
-                }
-
-                "[{0}] Executing SAML auto-post to: '{1}'" -f $functionName, $autoPostAction | Write-Verbose
-                "[{0}] Auto-post body content: {1}" -f $functionName, ($autoPostBody | Out-String) | Write-Verbose
-
-                $responseStep13 = Invoke-WebRequest -Uri $autoPostAction -Method POST -Form $autoPostBody -WebSession $session -MaximumRedirection 1 -ErrorAction Stop
-
-                "[{0}] Received status code: '{1}' - {2}" -f $functionName, $responseStep13.StatusCode, $responseStep13.StatusDescription | Write-Verbose
-
-                # $session.Cookies.GetCookies("https://login.microsoftonline.com") | Format-Table Name, Value, Domain, Path
-
-
-                $configPattern = '\$Config\s*=\s*({.*?});'
-                if ($responseStep13.Content -match $configPattern) {
-                    $configJson = $matches[1]
-                    $configJson | Out-File -FilePath "step13_config.json" -Encoding UTF8
-                    "[{0}] Extracted and saved $Config JSON to step13_config.json" -f $functionName | Write-Verbose
-
-                    $configObj = $configJson | ConvertFrom-Json
-                    if ($configObj.sTenantId) {
-                        $tenantId = $configObj.sTenantId
-                        "[{0}] Extracted tenant ID from Config: {1}" -f $functionName, $tenantId | Write-Verbose
+                    # Extract sFT (FlowToken)
+                    if ($currentResponse.Content -match '"sFT"\s*:\s*"([^"]+)"') {
+                        $entraContext.FlowToken = $Matches[1]
+                        "[{0}] Extracted FlowToken from \$Config" -f $functionName | Write-Verbose
                     }
 
-                    if ($configObj.sFT) {
-                        $flowToken = $configObj.sFT
-                        "[{0}] Extracted FlowToken from Config..." -f $functionName | Write-Verbose
+                    # Extract canary token
+                    if ($currentResponse.Content -match '"canary"\s*:\s*"([^"]+)"') {
+                        $entraContext.CanaryToken = $Matches[1]
+                        "[{0}] Extracted CanaryToken from \$Config" -f $functionName | Write-Verbose
                     }
 
-                    if ($configObj.sCtx) {
-                        $ctx = $configObj.sCtx
-                        "[{0}] Extracted sCtx from Config..." -f $functionName | Write-Verbose
+                    # Extract sCtx (context)
+                    if ($currentResponse.Content -match '"sCtx"\s*:\s*"([^"]+)"') {
+                        $entraContext.Ctx = $Matches[1]
+                        "[{0}] Extracted Ctx from \$Config" -f $functionName | Write-Verbose
                     }
 
-                    if ($configObj.apiCanary) {
-                        $canaryValue = $configObj.apiCanary
-                        "[{0}] Extracted apiCanary from Config..." -f $functionName | Write-Verbose
+                    # Extract correlationId (may be useful)
+                    if ($currentResponse.Content -match '"correlationId"\s*:\s*"([^"]+)"') {
+                        $entraContext.CorrelationId = $Matches[1]
+                        "[{0}] Extracted CorrelationId from \$Config" -f $functionName | Write-Verbose
                     }
 
-                    if ($configObj.urlGetCredentialType) {
-                        $getCredTypeUrl = $configObj.urlGetCredentialType
-                        "[{0}] Extracted GetCredentialType URL: {1}" -f $functionName, $getCredTypeUrl | Write-Verbose
+                    # Extract sessionId
+                    if ($currentResponse.Content -match '"sessionId"\s*:\s*"([^"]+)"') {
+                        $entraContext.SessionId = $Matches[1]
+                        "[{0}] Extracted SessionId from \$Config" -f $functionName | Write-Verbose
                     }
+                    
+                    # Fallback: Extract from hidden form fields
+                    if (-not $entraContext.FlowToken -and $currentResponse.Content -match '<input[^>]+name="flowToken"[^>]+value="([^"]+)"') {
+                        $entraContext.FlowToken = $Matches[1]
+                    }
+                    if (-not $entraContext.CanaryToken -and $currentResponse.Content -match '<input[^>]+name="canary"[^>]+value="([^"]+)"') {
+                        $entraContext.CanaryToken = $Matches[1]
+                    }
+                    if (-not $entraContext.Ctx -and $currentResponse.Content -match '<input[^>]+name="ctx"[^>]+value="([^"]+)"') {
+                        $entraContext.Ctx = $Matches[1]
+                    }
+                    
+                    $tenantDomain = ([System.Uri]$currentUrl).Host
+                    
+                    if (-not $entraContext.FlowToken -and -not $entraContext.Ctx) {
+                        throw "[{0}] Could not extract Entra ID authentication context from login page" -f $functionName
+                    }
+                    
+                    $completedStepsRef = [ref]$completedSteps
+                    $currentStepRef = [ref]$step
+                    
+                    $responseStep12 = Invoke-EntraIDMFAAuthentication `
+                        -StateToken $entraContext.Ctx `
+                        -FlowToken $entraContext.FlowToken `
+                        -CanaryToken $entraContext.CanaryToken `
+                        -Username $Username `
+                        -Session $session `
+                        -TenantDomain $tenantDomain `
+                        -NoProgress:$NoProgress `
+                        -CompletedSteps $completedStepsRef `
+                        -TotalSteps $totalSteps `
+                        -CurrentStep $currentStepRef
+                    
+                    "[{0}] Entra ID MFA authentication completed" -f $functionName | Write-Verbose
+                    $currentResponse = $responseStep12
                 }
-                else {
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    throw "[{0}] Failed to extract `$Config variable from Azure AD response content!" -f $functionName
-                }
-            }
-            catch {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                "[{0}] Error during Step 13: {1}" -f $functionName, $_.Exception.Message | Write-Error
-                throw $_.Exception
-            }
-
-            if ($debugSessionTracing) {
-                "[{0}] --- SESSION DEBUG ---" -f $functionName | Write-Verbose
-
-                # 🍪 Print cookies
-                if ($session -and $session.Cookies) {
-                    $cookieUri = "https://login.microsoftonline.com"
+                elseif ($currentResponse.Content -match 'id="ssoForm"|name="subject"') {
+        
+                    "[{0}] Detected Okta identifier selection form - submitting username" -f $functionName | Write-Verbose
+        
                     try {
-                        $cookies = $session.Cookies.GetCookies($cookieUri)
-                        "[{0}] WebSession has {1} cookies for {2}:" -f $functionName, $cookies.Count, $cookieUri | Write-Verbose
-                        foreach ($cookie in $cookies) {
-                            "[COOKIE] {0} = {1}; Domain={2}; Path={3}; Secure={4}" -f $cookie.Name, $cookie.Value, $cookie.Domain, $cookie.Path, $cookie.Secure | Write-Verbose
+                        $formActionMatch = ($currentResponse.Content | Select-String -Pattern '<form[^>]*action=["'']([^"'']*)["''][^>]*id="ssoForm"').Matches | Select-Object -First 1
+                        $formAction = if ($formActionMatch) { [System.Web.HttpUtility]::HtmlDecode($formActionMatch.Groups[1].Value) } else { $null }
+            
+                        if (-not $formAction) {
+                            throw "[{0}] Okta identifier form action not found" -f $functionName
+                        }
+
+                        if ($formAction -match '^/') {
+                            $baseUri = [uri]$SAMLActionValue
+                            $formAction = "{0}://{1}{2}" -f $baseUri.Scheme, $baseUri.Host, $formAction
+                        }
+            
+                        $formBody = @{
+                            subject                           = $Username
+                            'clear.previous.selected.subject' = ''
+                            'cancel.identifier.selection'     = 'false'
+                        }
+            
+                        "[{0}] Submitting Okta identifier form to: {1}" -f $functionName, $formAction | Write-Verbose
+                        $currentResponse = Invoke-WebRequest -Method POST -Uri $formAction -Body $formBody -WebSession $session -ContentType "application/x-www-form-urlencoded" -MaximumRedirection 5
+                    }
+                    catch {
+                        "[{0}] Okta identifier form parsing error: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                        Write-Error @"
+[$functionName] Failed to parse Okta identifier selection form. 
+
+The Okta page structure may have changed. 
+
+Error: $($_.Exception.Message)
+"@ -ErrorAction Stop
+                    }
+                }
+    
+                # Extract state token from current response (before any redirects)
+                # Note: PingOne uses flowId instead of stateToken
+                $stateToken = $null
+                $flowId = $null
+                $rawToken = $null
+
+                # Try to extract flowId from URL (PingOne)
+                if ($currentUrl -match '[?&]flowId=([^&]+)') {
+                    $flowId = $Matches[1]
+                    "[{0}] Found flowId from URL: {1}" -f $functionName, $flowId | Write-Verbose
+                }
+
+                # Try to extract stateToken (Okta)
+                if ($currentResponse.Content -match "var\s+stateToken\s*=\s*'([^']+)'") {
+                    $rawToken = $Matches[1]
+                    "[{0}] Found raw state token (pattern 1)" -f $functionName | Write-Verbose
+                }
+                elseif ($currentResponse.Content -match '"stateToken"\s*:\s*"([^"]+)"') {
+                    $rawToken = $Matches[1]
+                    "[{0}] Found raw state token (pattern 2 - JSON)" -f $functionName | Write-Verbose
+                }
+
+                if ($rawToken) {
+                    # Decode HTML escape sequences manually
+                    $stateToken = $rawToken
+                    # Replace common escape sequences
+                    $stateToken = $stateToken -replace '\\x2D', '-'
+                    $stateToken = $stateToken -replace '\\x2B', '+'
+                    $stateToken = $stateToken -replace '\\x2F', '/'
+                    $stateToken = $stateToken -replace '\\x3D', '='
+                    $stateToken = $stateToken -replace '\\x5F', '_'
+    
+                    "[{0}] Extracted and decoded state token: {1}..." -f $functionName, $stateToken.Substring(0, [Math]::Min(50, $stateToken.Length)) | Write-Verbose
+                }
+                elseif (-not $flowId) {
+                    "[{0}] Neither state token nor flowId found in response" -f $functionName | Write-Verbose
+                }
+                # Check if we already have a SAML Response (authentication complete)
+                if ($currentResponse.Content -match '<input[^>]*name=["'']SAMLResponse["'']') {
+                    "[{0}] SAML Response already present - authentication complete" -f $functionName | Write-Verbose
+                    $responseStep12 = $currentResponse
+                }
+                # Check if we have a PingOne flow (detected by flowId in URL + ping in URL)
+                elseif ($flowId -and $currentUrl -match 'ping') {
+                    "[{0}] Detected PingOne sign-on page with flowId" -f $functionName | Write-Verbose
+                    
+                    # Extract Ping environment ID from URL with error handling
+                    try {
+                        $pingEnvironmentId = $null
+                        if ($currentUrl -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
+                            $pingEnvironmentId = $Matches[1]
+                            "[{0}] Extracted Ping environment ID from URL: {1}" -f $functionName, $pingEnvironmentId | Write-Verbose
+                        }
+                        
+                        if (-not $pingEnvironmentId) {
+                            throw "[{0}] Could not extract PingOne environment ID from URL: {1}" -f $functionName, $currentUrl
                         }
                     }
                     catch {
-                        "[{0}] Failed to inspect cookies: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                        "[{0}] PingOne environment ID extraction error: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                        Write-Error @"
+[$functionName] Failed to extract PingOne environment ID from URL. 
+
+The PingOne URL format may have changed. 
+
+Current URL: $currentUrl
+"@ -ErrorAction Stop
                     }
+                    
+                    "[{0}] Using PingID MFA (push or TOTP)" -f $functionName | Write-Verbose
+                    "[{0}] Environment ID: {1}, FlowId: {2}" -f $functionName, $pingEnvironmentId, $flowId | Write-Verbose
+                    
+                    # Create refs for progress tracking
+                    $completedStepsRef = [ref]$completedSteps
+                    $currentStepRef = [ref]$step
+                    
+                    $responseStep12 = Invoke-PingIDMFAAuthentication `
+                        -SAMLRedirectUrl $currentUrl `
+                        -Username $Username `
+                        -Session $session `
+                        -EnvironmentId $pingEnvironmentId `
+                        -NoProgress:$NoProgress `
+                        -CompletedSteps $completedStepsRef `
+                        -TotalSteps $totalSteps `
+                        -CurrentStep $currentStepRef 
+
+                }
+                # Check if we need to redirect to another IdP or handle push authentication
+                elseif ($currentResponse.Content -match '<form[^>]*action=["'']([^"'']*)["'']') {
+                    # Extract SAML redirect form with error handling
+                    try {
+                        $autoPostFormMatch = ($currentResponse.Content | Select-String -Pattern '<form[^>]*action=["'']([^"'']*)["''][^>]*>').Matches | Select-Object -First 1
+                        $autoPostAction = if ($autoPostFormMatch) { [System.Web.HttpUtility]::HtmlDecode($autoPostFormMatch.Groups[1].Value) } else { $null }
+        
+                        $autoPostSAMLRequestMatch = ($currentResponse.Content | Select-String -Pattern '<input[^>]*name=["'']SAMLRequest["''][^>]*value=["'']([^"'']*)["'']').Matches | Select-Object -First 1
+                        $autoPostSAMLRequest = if ($autoPostSAMLRequestMatch) { [System.Web.HttpUtility]::HtmlDecode($autoPostSAMLRequestMatch.Groups[1].Value) } else { $null }
+        
+                        $autoPostRelayStateMatch = ($currentResponse.Content | Select-String -Pattern '<input[^>]*name=["'']RelayState["''][^>]*value=["'']([^"'']*)["'']').Matches | Select-Object -First 1
+                        $autoPostRelayState = if ($autoPostRelayStateMatch) { [System.Web.HttpUtility]::HtmlDecode($autoPostRelayStateMatch.Groups[1].Value) } else { $null }
+
+                        # Validate that we extracted required elements
+                        if (-not $autoPostAction) {
+                            throw "[{0}] SAML form action not found in response" -f $functionName
+                        }
+        
+                        "[{0}] Extracted form action (raw): {1}" -f $functionName, $autoPostAction | Write-Verbose
+                        "[{0}] Extracted SAMLRequest (raw): {1}..." -f $functionName, ($autoPostSAMLRequest ? $autoPostSAMLRequest.Substring(0, [Math]::Min(100, $autoPostSAMLRequest.Length)) : "None") | Write-Verbose
+                        "[{0}] Extracted RelayState (raw): {1}..." -f $functionName, ($autoPostRelayState ? $autoPostRelayState.Substring(0, [Math]::Min(100, $autoPostRelayState.Length)) : "None") | Write-Verbose
+                    }
+                    catch {
+                        "[{0}] HTML parsing error: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                        Write-Error @"
+[$functionName] Failed to parse authentication response. 
+
+The Identity Provider may have changed their page structure. 
+
+Error: $($_.Exception.Message)
+"@ -ErrorAction Stop
+                    }
+        
+                    # Resolve relative URL to absolute URL
+                    $resolvedAction = $autoPostAction
+                    if ($autoPostAction -match '^/') {
+                        $oktaUri = [uri]$SAMLActionValue
+                        $resolvedAction = "{0}://{1}{2}" -f $oktaUri.Scheme, $oktaUri.Host, $autoPostAction
+                        "[{0}] Resolved relative URL using SAMLActionValue base ({1}://{2}) to: {3}" -f $functionName, $oktaUri.Scheme, $oktaUri.Host, $resolvedAction | Write-Verbose
+                    }
+        
+                    "[{0}] Detected SAML redirect to: {1}" -f $functionName, $resolvedAction | Write-Verbose
+        
+                    # Detect IdP type - check CURRENT response first, then resolved URL, then original URL
+                    $idpType = $null
+
+                    # Priority 1: Check current response URL 
+                    $currentUrl = $currentResponse.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
+                    "[{0}] Current response URL: {1}" -f $functionName, $currentUrl | Write-Verbose
+
+                    # Use flexible pattern matching - match on IdP name in URL, not specific domains
+                    if ($currentUrl -match 'okta') {
+                        $idpType = 'Okta'
+                        "[{0}] Detected Okta from current response URL" -f $functionName | Write-Verbose
+                    }
+                    elseif ($currentUrl -match 'microsoft|azure|entra|login\.windows\.net|sts\.windows\.net') {
+                        $idpType = 'EntraID'
+                        "[{0}] Detected Microsoft Entra ID from current response URL" -f $functionName | Write-Verbose
+                    }
+                    elseif ($currentUrl -match 'ping') {
+                        $idpType = 'PingIdentity'
+                        "[{0}] Detected Ping Identity from current response URL" -f $functionName | Write-Verbose
+                    }
+
+                    # Priority 2: Check redirect form action URL
+                    if (-not $idpType -and $resolvedAction) {
+                        if ($resolvedAction -match 'okta') {
+                            $idpType = 'Okta'
+                            "[{0}] Detected Okta from redirect action URL" -f $functionName | Write-Verbose
+                        }
+                        elseif ($resolvedAction -match 'microsoft|azure|entra|login\.windows\.net|sts\.windows\.net') {
+                            $idpType = 'EntraID'
+                            "[{0}] Detected Microsoft Entra ID from redirect action URL" -f $functionName | Write-Verbose
+                        }
+                        elseif ($resolvedAction -match 'ping') {
+                            $idpType = 'PingIdentity'
+                            "[{0}] Detected Ping Identity from redirect action URL" -f $functionName | Write-Verbose
+                        }
+                    }
+
+                    # Priority 3: Check response content patterns
+                    if (-not $idpType) {
+                        if ($currentResponse.Content -match 'okta') {
+                            $idpType = 'Okta'
+                            "[{0}] Detected Okta from content patterns" -f $functionName | Write-Verbose
+                        }
+                        elseif ($currentResponse.Content -match 'microsoft|azure|entra|msal') {
+                            $idpType = 'EntraID'
+                            "[{0}] Detected Microsoft Entra ID from content patterns" -f $functionName | Write-Verbose
+                        }
+                        elseif ($currentResponse.Content -match 'ping') {
+                            $idpType = 'PingIdentity'
+                            "[{0}] Detected Ping Identity from content patterns" -f $functionName | Write-Verbose
+                        }
+                    }
+
+                    # Priority 4: Check original SAML action URL from Step 10
+                    if (-not $idpType -and $SAMLActionValue) {
+                        if ($SAMLActionValue -match 'okta') {
+                            $idpType = 'Okta'
+                            "[{0}] Detected Okta from original SAML action URL" -f $functionName | Write-Verbose
+                        }
+                        elseif ($SAMLActionValue -match 'microsoft|azure|entra|login\.windows\.net|sts\.windows\.net') {
+                            $idpType = 'EntraID'
+                            "[{0}] Detected Microsoft Entra ID from original SAML action URL" -f $functionName | Write-Verbose
+                        }
+                        elseif ($SAMLActionValue -match 'ping') {
+                            $idpType = 'PingIdentity'
+                            "[{0}] Detected Ping Identity from original SAML action URL" -f $functionName | Write-Verbose
+                        }
+                    }
+
+                    # Final check
+                    if (-not $idpType) {
+                        "[{0}] ERROR: Could not detect IdP type" -f $functionName | Write-Verbose
+                        "[{0}] Current URL: {1}" -f $functionName, $currentUrl | Write-Verbose
+                        "[{0}] Resolved Action: {1}" -f $functionName, $resolvedAction | Write-Verbose
+                        "[{0}] Original SAML Action: {1}" -f $functionName, $SAMLActionValue | Write-Verbose
+                        Write-Error @"
+[{0}] Unsupported IdP detected.
+
+SUPPORTED IDENTITY PROVIDERS:
+- Okta (with Okta Verify push or TOTP)
+- Microsoft Entra ID (with Authenticator push)
+- Ping Identity (with PingID push or OTP)
+
+For setup prerequisites, see: https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/README.md
+"@ -f $functionName -ErrorAction Stop
+                    }
+
+                    "[{0}] Detected final IdP type: {1}" -f $functionName, $idpType | Write-Verbose
+        
+                    # Route to appropriate MFA handler based on detected IdP
+                    switch ($idpType) {
+                        'Okta' {
+                            "[{0}] Using Okta Verify MFA (push or TOTP)" -f $functionName | Write-Verbose
+                            
+                            # Extract Okta domain from current URL, resolved action, or original SAML action
+                            # Use flexible pattern - extract any okta-related domain
+                            $oktaDomain = $null
+                            
+                            if ($currentUrl -match 'https?://([^/]+okta[^/]*)') {
+                                $oktaDomain = $Matches[1]
+                                "[{0}] Extracted Okta domain from current URL: {1}" -f $functionName, $oktaDomain | Write-Verbose
+                            }
+                            elseif ($resolvedAction -and $resolvedAction -match 'https?://([^/]+okta[^/]*)') {
+                                $oktaDomain = ([System.Uri]$resolvedAction).Host
+                                "[{0}] Extracted Okta domain from resolved action: {1}" -f $functionName, $oktaDomain | Write-Verbose
+                            }
+                            elseif ($SAMLActionValue -match 'https?://([^/]+okta[^/]*)') {
+                                $oktaDomain = ([System.Uri]$SAMLActionValue).Host
+                                "[{0}] Extracted Okta domain from original SAML action: {1}" -f $functionName, $oktaDomain | Write-Verbose
+                            }
+                            
+                            if (-not $oktaDomain) {
+                                throw "[{0}] Could not extract Okta domain from authentication flow" -f $functionName
+                            }
+                            
+                            # Create refs for progress tracking
+                            $completedStepsRef = [ref]$completedSteps
+                            $currentStepRef = [ref]$step
+                            
+                            $responseStep12 = Invoke-OktaMFAAuthentication `
+                                -StateToken $stateToken `
+                                -Username $Username `
+                                -Session $session `
+                                -OktaDomain $oktaDomain `
+                                -NoProgress:$NoProgress `
+                                -CompletedSteps $completedStepsRef `
+                                -TotalSteps $totalSteps `
+                                -CurrentStep $currentStepRef
+                        }
+                        
+                        'EntraID' {
+                            "[{0}] Using Microsoft Authenticator MFA (push or TOTP)" -f $functionName | Write-Verbose
+                            
+                            # Extract tenant domain from current URL, resolved action, or original SAML action
+                            $tenantDomain = $null
+                            
+                            if ($currentUrl -match 'https?://(login\.microsoftonline\.com|login\.windows\.net|sts\.windows\.net)') {
+                                $tenantDomain = $Matches[1]
+                                "[{0}] Extracted Entra ID domain from current URL: {1}" -f $functionName, $tenantDomain | Write-Verbose
+                            }
+                            elseif ($resolvedAction -and $resolvedAction -match 'https?://(login\.microsoftonline\.com|login\.windows\.net|sts\.windows\.net)') {
+                                $tenantDomain = ([System.Uri]$resolvedAction).Host
+                                "[{0}] Extracted Entra ID domain from resolved action: {1}" -f $functionName, $tenantDomain | Write-Verbose
+                            }
+                            elseif ($SAMLActionValue -match 'https?://(login\.microsoftonline\.com|login\.windows\.net|sts\.windows\.net)') {
+                                $tenantDomain = ([System.Uri]$SAMLActionValue).Host
+                                "[{0}] Extracted Entra ID domain from original SAML action: {1}" -f $functionName, $tenantDomain | Write-Verbose
+                            }
+                            
+                            if (-not $tenantDomain) {
+                                # Default to standard Entra ID login endpoint
+                                $tenantDomain = "login.microsoftonline.com"
+                                "[{0}] Using default Entra ID domain: {1}" -f $functionName, $tenantDomain | Write-Verbose
+                            }
+                            
+                            # For redirect-based flow, we need to follow the redirect first to extract tokens
+                            # POST the SAML request to get the login page
+                            "[{0}] Following Entra ID redirect to extract authentication context" -f $functionName | Write-Verbose
+                            
+                            $entraLoginPage = $null
+                            if ($autoPostSAMLRequest -and $autoPostRelayState) {
+                                try {
+                                    $formBody = @{
+                                        SAMLRequest = $autoPostSAMLRequest
+                                        RelayState  = $autoPostRelayState
+                                    }
+                                    
+                                    $entraLoginPage = Invoke-WebRequest -Uri $resolvedAction -Method POST -Body $formBody `
+                                        -WebSession $session -ContentType "application/x-www-form-urlencoded" -ErrorAction Stop
+                                    
+                                    "[{0}] Entra ID login page retrieved" -f $functionName | Write-Verbose
+                                }
+                                catch {
+                                    "[{0}] Failed to retrieve Entra ID login page: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                                    throw "[{0}] Could not retrieve Entra ID login page: {1}" -f $functionName, $_.Exception.Message
+                                }
+                            }
+                            
+                            # Extract Entra ID context from login page
+                            $entraContext = @{}
+                            
+                            if ($entraLoginPage) {
+                                # Extract individual values using regex
+                                if ($entraLoginPage.Content -match '"sFT"\s*:\s*"([^"]+)"') {
+                                    $entraContext.FlowToken = $Matches[1]
+                                    "[{0}] Extracted FlowToken from Entra ID page" -f $functionName | Write-Verbose
+                                }
+                                if ($entraLoginPage.Content -match '"canary"\s*:\s*"([^"]+)"') {
+                                    $entraContext.CanaryToken = $Matches[1]
+                                    "[{0}] Extracted CanaryToken from Entra ID page" -f $functionName | Write-Verbose
+                                }
+                                if ($entraLoginPage.Content -match '"sCtx"\s*:\s*"([^"]+)"') {
+                                    $entraContext.Ctx = $Matches[1]
+                                    "[{0}] Extracted Ctx from Entra ID page" -f $functionName | Write-Verbose
+                                }
+                                
+                                # Fallback to form fields
+                                if (-not $entraContext.FlowToken -and $entraLoginPage.Content -match '<input[^>]+name="flowToken"[^>]+value="([^"]+)"') {
+                                    $entraContext.FlowToken = $Matches[1]
+                                }
+                                if (-not $entraContext.CanaryToken -and $entraLoginPage.Content -match '<input[^>]+name="canary"[^>]+value="([^"]+)"') {
+                                    $entraContext.CanaryToken = $Matches[1]
+                                }
+                                if (-not $entraContext.Ctx -and $entraLoginPage.Content -match '<input[^>]+name="ctx"[^>]+value="([^"]+)"') {
+                                    $entraContext.Ctx = $Matches[1]
+                                }
+                            }
+                            
+                            # Validate we have required tokens
+                            if (-not $entraContext.FlowToken -and -not $entraContext.Ctx) {
+                                "[{0}] ERROR: Could not extract Entra ID authentication context" -f $functionName | Write-Verbose
+                                throw "[{0}] Could not extract Entra ID authentication context from login page" -f $functionName
+                            }
+                            
+                            # Create refs for progress tracking
+                            $completedStepsRef = [ref]$completedSteps
+                            $currentStepRef = [ref]$step
+                            
+                            $responseStep12 = Invoke-EntraIDMFAAuthentication `
+                                -StateToken $entraContext.Ctx `
+                                -FlowToken $entraContext.FlowToken `
+                                -CanaryToken $entraContext.CanaryToken `
+                                -Username $Username `
+                                -Session $session `
+                                -TenantDomain $tenantDomain `
+                                -NoProgress:$NoProgress `
+                                -CompletedSteps $completedStepsRef `
+                                -TotalSteps $totalSteps `
+                                -CurrentStep $currentStepRef
+                        }
+                        
+                        'PingIdentity' {
+                            "[{0}] Using PingID MFA (push or TOTP)" -f $functionName | Write-Verbose
+                            
+                            # Extract Ping environment ID from URL (e.g., a4ff1a35-682b-469f-9acf-373ee0508d31)
+                            $pingEnvironmentId = $null
+                            
+                            # Try from current URL
+                            if ($currentUrl -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
+                                $pingEnvironmentId = $Matches[1]
+                                "[{0}] Extracted Ping environment ID from current URL: {1}" -f $functionName, $pingEnvironmentId | Write-Verbose
+                            }
+                            
+                            # Try from resolved action if not found
+                            if (-not $pingEnvironmentId -and $resolvedAction -and $resolvedAction -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
+                                $pingEnvironmentId = $Matches[1]
+                                "[{0}] Extracted Ping environment ID from resolved action: {1}" -f $functionName, $pingEnvironmentId | Write-Verbose
+                            }
+                            
+                            # Try from original SAML action
+                            if (-not $pingEnvironmentId -and $SAMLActionValue -and $SAMLActionValue -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
+                                $pingEnvironmentId = $Matches[1]
+                                "[{0}] Extracted Ping environment ID from SAML action: {1}" -f $functionName, $pingEnvironmentId | Write-Verbose
+                            }
+                            
+                            if (-not $pingEnvironmentId) {
+                                throw "[{0}] Could not extract PingOne environment ID from authentication flow" -f $functionName
+                            }
+                            
+                            # Validate we have flowId (from URL, not stateToken)
+                            if (-not $flowId) {
+                                throw "[{0}] Could not extract flowId from PingOne response. URL: {1}" -f $functionName, $currentUrl
+                            }
+                            
+                            "[{0}] Using flowId: {1}" -f $functionName, $flowId | Write-Verbose
+                            
+                            # Create refs for progress tracking
+                            $completedStepsRef = [ref]$completedSteps
+                            $currentStepRef = [ref]$step
+                            
+                            # Build the SAML redirect URL with flowId
+                            $samlRedirectUrl = $currentUrl
+                            
+                            $responseStep12 = Invoke-PingIDMFAAuthentication `
+                                -SAMLRedirectUrl $samlRedirectUrl `
+                                -Username $Username `
+                                -Session $session `
+                                -EnvironmentId $pingEnvironmentId `
+                                -NoProgress:$NoProgress `
+                                -CompletedSteps $completedStepsRef `
+                                -TotalSteps $totalSteps `
+                                -CurrentStep $currentStepRef  
+                        }
+                        
+                        default {
+                            throw "[{0}] Unsupported IdP type: {1}" -f $functionName, $idpType
+                        }
+                    }
+        
                 }
                 else {
-                    "[{0}] WebSession is null or empty." -f $functionName | Write-Verbose
+                    throw "[{0}] Unexpected response format - no SAML form or response found" -f $functionName
                 }
-
-                # 🔑 Log flow identifiers
-                if ($flowToken) {
-                    "[{0}] FlowToken present; length={1}" -f $functionName, $flowToken.Length | Write-Verbose
+    
+                "[{0}] IdP authentication flow completed" -f $functionName | Write-Verbose
+            }
+            catch {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                if ($ctx) {
-                    "[{0}] sCtx present; starts with: {1}..." -f $functionName, $ctx.Substring(0, 30) | Write-Verbose
-                }
-                if ($canaryValue) {
-                    "[{0}] Canary token present; starts with: {1}..." -f $functionName, $canaryValue.Substring(0, 30) | Write-Verbose
-                }
-
-                # 🧬 Device code metadata
-                if ($deviceCodeResponse) {
-                    "[{0}] DeviceCode: {1}..." -f $functionName, $deviceCodeResponse.device_code.Substring(0, 15) | Write-Verbose
-                    "[{0}] Expires in: {1}s | Poll interval: {2}s" -f $functionName, $deviceCodeResponse.expires_in, $deviceCodeResponse.interval | Write-Verbose
-                    "[{0}] UserCode: {1}" -f $functionName, $deviceCodeResponse.user_code | Write-Verbose
-                }
-
-                # 🧾 Polling error (inside Step 15 loop)
-                if ($lastErrorObj) {
-                    "[{0}] Last Token Poll Error: {1} - {2}" -f $functionName, $lastErrorObj.error, $lastErrorObj.error_description | Write-Verbose
-                }
-
-                "[{0}] --- END SESSION DEBUG ---" -f $functionName | Write-Verbose
+                "[{0}] Failed at IdP authentication: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                throw "[{0}] IdP authentication failed: {1}" -f $functionName, $_
             }
 
-            $CompletedSteps++
+            $completedSteps++
 
             #EndRegion
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 14] Submit DeviceCode Request
+            #Region [STEP 13] POST SAML Response Back to HPE
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
-            "[{0}] [STEP 14] Submit DeviceCode request" -f $functionName | Write-Verbose
+            "[{0}] [STEP 13] POST SAML Response Back to HPE" -f $functionName | Write-Verbose
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
 
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Submit DeviceCode request" -Id 0
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Complete SAML authentication" -Id 0
             $step++
 
             try {
-                # Optional: GetCredentialType for Entropy
-                $getCredTypeUrl = "https://login.microsoftonline.com/$tenantId/GetCredentialType?mkt=en-US"
-
-                $credTypeBody = @{
-                    username                       = $Username
-                    isOtherIdpSupported            = $true
-                    checkPhones                    = $false
-                    isRemoteNGCSupported           = $true
-                    isCookieBannerShown            = $false
-                    isFidoSupported                = $true
-                    originalRequest                = $ctx
-                    country                        = "FR"
-                    forceotclogin                  = $false
-                    isExternalFederationDisallowed = $false
-                    isSignup                       = $false
-                    flowToken                      = $flowToken
-                    isRemoteConnectSupported       = $false
-                    federationFlags                = 0
-                    isAccessPassSupported          = $true
-                    isQrCodePinSupported           = $true
-                } | ConvertTo-Json
-
-
-                # For GetCredentialType
-                $headersCredentialType = @{
-                    "Canary" = $canaryValue
-                }
-
+                # Extract SAML Response with error handling
                 try {
-                    "[{0}] Submitting GetCredentialType request to: '{1}'" -f $functionName, $getCredTypeUrl | Write-Verbose
-                    "[{0}] Request body: {1}" -f $functionName, $credTypeBody | Write-Verbose
-                    "[{0}] Request headers: {1}" -f $functionName, $headersCredentialType | Write-Verbose
-
-                    $responseStep14 = Invoke-RestMethod -Method POST -Uri $getCredTypeUrl -Body $credTypeBody -Headers $headersCredentialType -WebSession $session -ContentType "application/json" -ErrorAction Stop
-                    "[{0}] GetCredentialType response: {1}" -f $functionName, ($responseStep14 | ConvertTo-Json -Depth 3) | Write-Verbose
-
-                    if ($responseStep14.Credentials.HasRemoteNGC -and $responseStep14.Credentials.RemoteNgcParams.Entropy) {
-                        $correctAnswer = $responseStep14.Credentials.RemoteNgcParams.Entropy
-                        $sessionIdentifier = $responseStep14.Credentials.RemoteNgcParams.SessionIdentifier
-                        "[{0}] Confirming MSAL session identity = {1}" -f $functionName, $sessionIdentifier | Write-Verbose
-                        "[{0}] Extracted Entropy: {1}" -f $functionName, $correctAnswer | Write-Verbose
+                    $samlResponseMatch = ($responseStep12.Content | Select-String -Pattern '<input[^>]*name=["'']SAMLResponse["''][^>]*value=["'']([^"'']*)["'']').Matches | Select-Object -First 1
+                    $samlResponse = if ($samlResponseMatch) { [System.Web.HttpUtility]::HtmlDecode($samlResponseMatch.Groups[1].Value) } else { $null }
+        
+                    $samlRelayStateMatch = ($responseStep12.Content | Select-String -Pattern '<input[^>]*name=["'']RelayState["''][^>]*value=["'']([^"'']*)["'']').Matches | Select-Object -First 1
+                    $samlRelayState = if ($samlRelayStateMatch) { [System.Web.HttpUtility]::HtmlDecode($samlRelayStateMatch.Groups[1].Value) } else { $null }
+        
+                    $samlActionMatch = ($responseStep12.Content | Select-String -Pattern '<form[^>]*action=["'']([^"'']*)["'']').Matches | Select-Object -First 1
+                    $samlAction = if ($samlActionMatch) { [System.Web.HttpUtility]::HtmlDecode($samlActionMatch.Groups[1].Value) } else { $null }
+        
+                    if (-not $samlResponse) {
+                        throw "[{0}] SAMLResponse not found in IdP response" -f $functionName
                     }
-                    else {
-                        "[{0}] Warning: No Entropy found in GetCredentialType response. Push notification may not be supported." -f $functionName | Write-Warning
+        
+                    if (-not $samlAction) {
+                        throw "[{0}] SAML form action URL not found" -f $functionName
                     }
                 }
                 catch {
-                    "[{0}] Warning: GetCredentialType failed, proceeding without Entropy: {1}" -f $functionName, $_.Exception.Message | Write-Warning
+                    "[{0}] SAML Response parsing error: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                    Write-Error @"
+[$functionName] Failed to parse SAML authentication response from Identity Provider. 
+
+The IdP response format may have changed. 
+
+Error: $($_.Exception.Message)
+"@ -ErrorAction Stop
                 }
-
-                # DeviceCode Request - FORM ENCODED
-                $deviceCodeUrl = "https://login.microsoftonline.com/$($configObj.sTenantId)/oauth2/v2.0/devicecode"
-                # $clientId = $configObj.urlMsaSignUp.Split('client_id=')[1].Split('&')[0]
-                # Azure CLI public client ID (proven to support Device Code Flow)
-                $clientId = "f9688b63-3cb1-4843-896a-39a826d96b08"
-                # $clientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
-
-
-                $deviceCodeBody = [System.Collections.Generic.Dictionary[string, string]]::new()
-                $deviceCodeBody.Add("client_id", $clientId)
-                $deviceCodeBody.Add("scope", "openid profile email offline_access")
-
-                $encodedBody = [System.Net.Http.FormUrlEncodedContent]::new($deviceCodeBody).ReadAsStringAsync().Result
-
-                
-                $headersDeviceCode = @{
-                    "Content-Type"               = "application/x-www-form-urlencoded"
-                    "x-client-SKU"               = "MSAL.PS"
-                    "x-client-Ver"               = "1.0.0"
-                    "x-client-OS"                = "Windows"
-                    "x-client-CPU"               = "x64"
-                    "x-client-Current-Telemetry" = "1|0.1.0|"
-                    "x-ms-PKeyAuth"              = "1.0"
-                    "x-ms-Request-Id"            = [guid]::NewGuid().ToString()
-                    "x-AnchorMailbox"            = $Username
-                    "User-Agent"                 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PowerShell/7.4"
+    
+                "[{0}] SAML Response received (length: {1})" -f $functionName, $samlResponse.Length | Write-Verbose
+                "[{0}] Posting back to HPE: {1}" -f $functionName, $samlAction | Write-Verbose
+    
+                # POST SAML Response back to HPE SSO
+                $samlBody = @{
+                    SAMLResponse = $samlResponse
                 }
-
-
-                "[{0}] Submitting DeviceCode request to: '{1}'" -f $functionName, $deviceCodeUrl | Write-Verbose
-                "[{0}] Request body: {1}" -f $functionName, $encodedBody | Write-Verbose
-                "[{0}] Request headers: {1}" -f $functionName, ($headersDeviceCode | out-String) | Write-Verbose
-
-                $deviceCodeResponse = Invoke-RestMethod -Method POST -Uri $deviceCodeUrl -Body $encodedBody -WebSession $session -Headers $headersDeviceCode -ErrorAction Stop
-                "[{0}] DeviceCode response: {1}" -f $functionName, ($deviceCodeResponse | ConvertTo-Json -Depth 3) | Write-Verbose
-
-                # $session.Cookies.GetCookies("https://login.microsoftonline.com") | Format-Table Name, Value, Domain, Path
-
-
-                # Save device_code and user_code
-                if ($deviceCodeResponse.device_code) {
-                    $deviceCode = $deviceCodeResponse.device_code
-                    "[{0}] Extracted device_code: {1}..." -f $functionName, ($deviceCode.Substring(0, [Math]::Min(100, $deviceCode.Length))) | Write-Verbose
+                if ($samlRelayState) {
+                    $samlBody['RelayState'] = $samlRelayState
                 }
-
-                "[{0}] Session Identifier: {1}" -f $functionName, $sessionIdentifier | Write-Verbose
-                "[{0}] Device Code: {1}" -f $functionName, $deviceCode.Substring(0, 20) | Write-Verbose
-
-
-                if ($deviceCodeResponse.user_code) {
-                    $userCode = $deviceCodeResponse.user_code
-                    Write-Host "User Code:  $deviceCodeResponse.message"
-                    "[{0}] Extracted user_code: {1}..." -f $functionName, ($userCode.Substring(0, [Math]::Min(100, $userCode.Length))) | Write-Verbose
-                    "[{0}] Verification URI: {1}" -f $functionName, $deviceCodeResponse.verification_uri | Write-Verbose
-                    "[{0}] Polling interval: {1} seconds" -f $functionName, $deviceCodeResponse.interval | Write-Verbose
-                }
-
-                $deviceCodeResponse | ConvertTo-Json -Depth 3 | Out-File -FilePath "devicecode_response.json" -Encoding UTF8
-                "[{0}] Saved DeviceCode response to devicecode_response.json" -f $functionName | Write-Verbose
-
-                # Push Notification Guidance
-                if ($correctAnswer) {
-                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Check your phone for a MS Authenticator push notification..." -Id 0
-                    Start-Sleep -Seconds 2
-                    $completedSteps++
-                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Respond '$correctAnswer' to the MS Authenticator notification." -Id 0
-                }
-                else {
-                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Visit $($deviceCodeResponse.verification_uri) and enter code: $userCode" -Id 0
-                    $completedSteps++
-                }
+    
+                $responseStep13 = Invoke-WebRequest -Uri $samlAction -Method POST -Body $samlBody -WebSession $session -ContentType "application/x-www-form-urlencoded" -MaximumRedirection 5
+    
+                "[{0}] SAML Response posted successfully - Status: {1}" -f $functionName, $responseStep13.StatusCode | Write-Verbose
+                "[{0}] Response content starts with: {1}..." -f $functionName, ($responseStep13.Content.Substring(0, [Math]::Min(100, $responseStep13.Content.Length))) | Write-Verbose
             }
             catch {
                 if (-not $NoProgress) {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                $errorMsg = "[{0}] Error in Step 14: {1}" -f $functionName, $_.Exception.Message
-                "[{0}] {1}" -f $functionName, $errorMsg | Write-Error
-                throw $errorMsg
+                "[{0}] Failed to POST SAML Response: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                throw "[{0}] Failed to POST SAML Response to HPE: {1}" -f $functionName, $_
             }
 
-            $CompletedSteps++
+            "[{0}] Checking for OAuth redirect in SAML response..." -f $functionName | Write-Verbose
+
+            # Check for JavaScript window.location redirect (most common pattern)
+            $jsRedirectUrl = $null
+
+            if ($responseStep13.Content -match 'window\.location(?:\s*=\s*|\s*\.\s*href\s*=\s*)[''"]([^''"]+)[''"]') {
+                $jsRedirectUrl = $matches[1]
+                 
+                # Decode JavaScript escape sequences (\x3A -> :, \x2F -> /, etc.)   
+                $jsRedirectUrl = $jsRedirectUrl -replace '\\x([0-9A-Fa-f]{2})', { [char][convert]::ToInt32($_.Groups[1].Value, 16) }
+    
+                "[{0}] Found JavaScript redirect: {1}" -f $functionName, ($jsRedirectUrl -replace 'code=[^&]+', 'code=[REDACTED]') | Write-Verbose
+            }
+
+            # Log full HTML for debugging (first 2000 chars)
+            $htmlPreview = $responseStep13.Content.Substring(0, [Math]::Min(2000, $responseStep13.Content.Length))
+            "[{0}] Full HTML preview (first 2000 chars):`n{1}" -f $functionName, $htmlPreview | Write-Verbose
+
+            # Log the response URL
+            "[{0}] Response URL: {1}" -f $functionName, $responseStep13.BaseResponse.ResponseUri.AbsoluteUri | Write-Verbose
+            $completedSteps++
 
             #EndRegion
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 15] Poll /token Endpoint for Access Token
+            #Region [STEP 14] Complete Token Redirect Flow
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
-            "[{0}] [STEP 15] Poll /token endpoint for access token" -f $functionName | Write-Verbose
+            "[{0}] [STEP 14] Complete Token Redirect Flow" -f $functionName | Write-Verbose
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
 
-            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Poll /token endpoint for access token" -Id 0
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Completing token redirect" -Id 0
             $step++
 
             try {
-                $pollUrl = "https://login.microsoftonline.com/$($configObj.sTenantId)/oauth2/v2.0/token"
-
-                $pollBody = @{
-                    client_id   = $clientId
-                    device_code = $deviceCode
-                    grant_type  = "urn:ietf:params:oauth:grant-type:device_code"
-                }
-
-                $headersTokenPoll = @{
-                    "Content-Type"               = "application/x-www-form-urlencoded"
-                    "x-client-SKU"               = "MSAL.PS"
-                    "x-client-Ver"               = "1.0.0"
-                    "x-client-OS"                = "Windows"
-                    "x-client-CPU"               = "x64"
-                    "x-client-Current-Telemetry" = "1|0.1.0|"
-                    "x-ms-PKeyAuth"              = "1.0"
-                    "x-ms-Request-Id"            = [guid]::NewGuid().ToString()
-                    "User-Agent"                 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PowerShell/7.4"
-                }
-
-
-
-                "[{0}] Polling endpoint for Access Token: '{1}'" -f $functionName, $pollUrl | Write-Verbose
-                "[{0}] Request body: {1}" -f $functionName, ($pollBody | Out-String) | Write-Verbose
-                "[{0}] Request headers: {1}" -f $functionName, ($headersTokenPoll | Out-String) | Write-Verbose
-
-                $pollCount = 0
-
-                $timeoutSeconds = $deviceCodeResponse.expires_in
-                $elapsed = [System.Diagnostics.Stopwatch]::StartNew()
+                # Extract the full redirect URL first, then parse stateToken from it
+                $stateToken = $null
+                $tokenRedirectUrl = $null
                 
-                while ($elapsed.Elapsed.TotalSeconds -lt $timeoutSeconds) { 
+                # Look for the JavaScript redirect URL in the response
+                if ($responseStep13.Content -match 'https[^"''<>\s]*login[^"''<>\s]*token[^"''<>\s]*redirect[^"''<>\s]*stateToken[^"''<>\s]*') {
+                    $tokenRedirectUrl = $matches[0]
+                    # Decode HTML entities
+                    $tokenRedirectUrl = $tokenRedirectUrl -replace '\\x3A', ':' -replace '\\x2F', '/' -replace '\\x3D', '=' -replace '\\x26', '&' -replace '\\x3F', '?' -replace '\\x2D', '-'
+                    
+                    "[{0}] Found token redirect URL: {1}" -f $functionName, ($tokenRedirectUrl -replace 'stateToken=[^&]+', 'stateToken=[REDACTED]') | Write-Verbose
+                    
+                    # Extract stateToken from the URL
+                    if ($tokenRedirectUrl -match '[?&]stateToken=([^&]+)') {
+                        $stateToken = $matches[1]
+                        "[{0}] Extracted stateToken: {1}..." -f $functionName, $stateToken.Substring(0, [Math]::Min(15, $stateToken.Length)) | Write-Verbose
+                    }
+                }
+                
+                if (-not $tokenRedirectUrl -or -not $stateToken) {
+                    throw "[{0}] Token redirect URL or stateToken not found in Step 13 response" -f $functionName
+                }
+                
+                # POST to /idp/idx/introspect with stateToken
+                "[{0}] Introspecting stateToken at auth.hpe.com..." -f $functionName | Write-Verbose
+                
+                $introspectUrl = "https://auth.hpe.com/idp/idx/introspect"
+                $introspectBody = @{
+                    stateToken = $stateToken
+                } | ConvertTo-Json -Compress
+                
+                $introspectResponse = Invoke-WebRequest -Uri $introspectUrl -Method POST -Body $introspectBody -ContentType "application/ion+json; okta-version=1.0.0" -WebSession $session -ErrorAction Stop
+                
+                "[{0}] Introspect response status: {1}" -f $functionName, $introspectResponse.StatusCode | Write-Verbose
+                
+                # Properly decode the content - check if it's bytes or string
+                $introspectContent = $null
+                if ($introspectResponse.Content -is [byte[]]) {
+                    $introspectContent = [System.Text.Encoding]::UTF8.GetString($introspectResponse.Content)
+                }
+                else {
+                    $introspectContent = $introspectResponse.Content
+                }
+                
+                "[{0}] Introspect response content (first 500 chars): {1}" -f $functionName, $introspectContent.Substring(0, [Math]::Min(500, $introspectContent.Length)) | Write-Verbose
+                
+                $introspectData = $introspectContent | ConvertFrom-Json
+                
+                # Check what properties the introspect response has
+                $properties = ($introspectData.PSObject.Properties | ForEach-Object { $_.Name }) -join ', '
+                "[{0}] Introspect response properties: {1}" -f $functionName, $properties | Write-Verbose
+                
+                # Look for success redirect
+                $successUrl = $null
+           
+                # Look for success redirect 
+                if ($introspectData.successWithInteractionCode -and $introspectData.successWithInteractionCode.href) {
+                    $successUrl = $introspectData.successWithInteractionCode.href
+                    "[{0}] Found successWithInteractionCode.href" -f $functionName | Write-Verbose
+                }
+                elseif ($introspectData.success -and $introspectData.success.href) {
+                    $successUrl = $introspectData.success.href
+                    "[{0}] Found success.href" -f $functionName | Write-Verbose
+                }
+                
+                if (-not $successUrl) {
+                    "[{0}] Full introspect response JSON:" -f $functionName | Write-Verbose
+                    ($introspectData | ConvertTo-Json -Depth 10).Split("`n") | ForEach-Object { "[{0}] {1}" -f $functionName, $_ | Write-Verbose }
+                    
+                    # Build detailed error message
+                    Write-Error @"
+Authentication failed: External Identity Provider authentication did not complete successfully.
 
-                    $pollCount++
-                    "[{0}] Poll attempt #{1}..." -f $functionName, $pollCount | Write-Verbose
+This error can occur for multiple reasons:
 
+1. MFA Challenge Not Completed
+   - Push notification was denied, ignored, or timed out
+   - TOTP code was not entered or was incorrect
+   - Authentication request expired before completion
+
+2. User Not Assigned to HPE GreenLake Application
+   - Contact your Identity Provider administrator to verify you have access to the HPE GreenLake application
+   - Ensure you have the required application role assignments
+
+3. Missing Required Licenses (Microsoft Entra ID)
+   - User account lacks Azure AD Premium P1/P2 license
+   - Passwordless authentication requires proper licensing
+   - Contact your Entra ID administrator to assign required licenses
+   - Verify license includes Microsoft Authenticator and MFA features
+
+4. Identity Provider Configuration Issues
+   - SAML assertion generation failed
+   - Application integration settings are incorrect
+   - Required claims or attributes are missing
+
+5. Session or State Token Issues
+   - Authentication session expired
+   - State token became invalid during the authentication flow
+
+Please check the verbose logs for the full introspect response details.
+For complete SSO setup prerequisites, see: $script:HelpUrl
+"@ -ErrorAction Stop
+                }
+                
+                "[{0}] Following success URL: {1}" -f $functionName, ($successUrl -replace 'stateToken=[^&]+', 'stateToken=[REDACTED]') | Write-Verbose
+                
+                # Follow the success URL - use manual redirect following to handle all cases
+                $currentUrl = $successUrl
+                $redirectCount = 0
+                $maxRedirects = 15
+                $responseStep14 = $null
+                
+                while ($redirectCount -lt $maxRedirects) {
                     try {
-
-                        $tokenResponse = Invoke-RestMethod -Method POST -Uri $pollUrl -Body $pollBody -WebSession $session -Headers $headersTokenPoll
-                        "[{0}] Token response received!" -f $functionName | Write-Verbose
-                        $tokenResponse | ConvertTo-Json -Depth 3 | Out-File -FilePath "access_token_response.json" -Encoding UTF8
-                        "[{0}] Saved token response to access_token_response.json" -f $functionName | Write-Verbose
+                        $responseStep14 = Invoke-WebRequest -Uri $currentUrl -Method GET -WebSession $session -MaximumRedirection 0 -ErrorAction Stop
+                        
+                        # Got a 200 response - check for OAuth code or JavaScript redirects
+                        $finalUrl = if ($responseStep14.BaseResponse.ResponseUri) { $responseStep14.BaseResponse.ResponseUri.AbsoluteUri } else { $currentUrl }
+                        "[{0}] Request {1}: 200 OK at {2}" -f $functionName, $redirectCount, ($finalUrl -replace 'code=[^&]+', 'code=[REDACTED]') | Write-Verbose
+                        
+                        # Check if we have the OAuth code
+                        if ($finalUrl -match 'common\.cloud\.hpe\.com.*[?&]code=') {
+                            "[{0}] Found common.cloud.hpe.com callback in final URL!" -f $functionName | Write-Verbose
+                            break
+                        }
+                        
+                        # Look for JavaScript or meta redirects in the HTML
+                        $nextUrl = $null
+                        
+                        # Check for OAuth callback in response content
+                        if ($responseStep14.Content -match '(https://[^"''<>\s]*common\.cloud\.hpe\.com[^"''<>\s]*[?&]code=[A-Za-z0-9_-]{20,}[^"''<>\s]*)') {
+                            $nextUrl = $matches[1]
+                            $nextUrl = $nextUrl -replace '\\x3A', ':' -replace '\\x2F', '/' -replace '\\x3D', '=' -replace '\\x26', '&' -replace '\\x3F', '?' -replace '\\x2D', '-' -replace '&amp;', '&'
+                            "[{0}] Found common.cloud.hpe.com callback in HTML content!" -f $functionName | Write-Verbose
+                        }
+                        # Meta refresh
+                        elseif ($responseStep14.Content -match '<meta[^>]+http-equiv\s*=\s*["\x27]refresh["\x27][^>]+url\s*=\s*([^"\x27>]+)') {
+                            $nextUrl = $matches[1]
+                            $nextUrl = $nextUrl -replace '\\x3A', ':' -replace '\\x2F', '/' -replace '\\x3D', '=' -replace '\\x26', '&' -replace '\\x3F', '?' -replace '\\x2D', '-'
+                            "[{0}] Found meta refresh to: {1}" -f $functionName, ($nextUrl -replace 'code=[^&]+', 'code=[REDACTED]') | Write-Verbose
+                        }
+                        # JavaScript window.location
+                        elseif ($responseStep14.Content -match 'window\.location(?:\.href)?\s*=\s*["\x27]([^"\x27]+)["\x27]') {
+                            $nextUrl = $matches[1]
+                            $nextUrl = $nextUrl -replace '\\x3A', ':' -replace '\\x2F', '/' -replace '\\x3D', '=' -replace '\\x26', '&' -replace '\\x3F', '?' -replace '\\x2D', '-'
+                            "[{0}] Found JavaScript redirect to: {1}" -f $functionName, ($nextUrl -replace 'code=[^&]+', 'code=[REDACTED]') | Write-Verbose
+                        }
+                        
+                        if ($nextUrl) {
+                            # Make absolute if relative
+                            if ($nextUrl -notmatch '^https?://') {
+                                $uri = [System.Uri]::new($currentUrl)
+                                $nextUrl = [System.Uri]::new($uri, $nextUrl).AbsoluteUri
+                            }
+                            $currentUrl = $nextUrl
+                            $redirectCount++
+                            continue
+                        }
+                        
+                        # No more redirects
+                        "[{0}] No more redirects found - stopping" -f $functionName | Write-Verbose
+                        "[{0}] Response preview (first 1000 chars): {1}" -f $functionName, $responseStep14.Content.Substring(0, [Math]::Min(1000, $responseStep14.Content.Length)) | Write-Verbose
                         break
                     }
                     catch {
-                        $httpStatus = $_.Exception.Response.StatusCode.value__
-                        "[CONNECT-HPEGL] HTTP Status Code: $httpStatus" | Write-Verbose
-                        
-                        if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
-                            try {
-                                $errorObj = $_.ErrorDetails.Message | ConvertFrom-Json
-                                $errorCode = $errorObj.error
-                                $errorDescription = $errorObj.error_description
-
-                                "[{0}] Token polling error: {1} - {2}" -f $functionName, $errorCode, $errorDescription | Write-Verbose
-
-                                switch ($errorCode) {
-                                    "authorization_pending" {
-                                        "[{0}] Authorization still pending, sleeping for $($deviceCodeResponse.interval) seconds..." -f $functionName | Write-Verbose
-                                        Start-Sleep -Seconds $deviceCodeResponse.interval
+                        # Handle HTTP redirects (3xx)
+                        if ($_.Exception.Response) {
+                            $statusCode = [int]$_.Exception.Response.StatusCode
+                            if ($statusCode -ge 300 -and $statusCode -lt 400) {
+                                $location = $_.Exception.Response.Headers.Location
+                                if ($location) {
+                                    if ($location.IsAbsoluteUri) {
+                                        $location = $location.AbsoluteUri
                                     }
-                                    "authorization_declined" {
-                                        if (-not $NoProgress) {
-                                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                                        }
-                                        throw "[{0}] Authorization declined by user." -f $functionName
+                                    else {
+                                        $uri = [System.Uri]::new($currentUrl)
+                                        $location = [System.Uri]::new($uri, $location.OriginalString).AbsoluteUri
                                     }
-                                    "expired_token" {
-                                        if (-not $NoProgress) {
-                                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                                        }
-                                        throw "[{0}] Device code expired before user completed authentication." -f $functionName
-                                    }
-                                    default {
-                                        if (-not $NoProgress) {
-                                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                                        }
-                                        throw "[{0}] Unexpected error during token polling: {1}" -f $functionName, $errorCode
-                                    }
+                                    
+                                    "[{0}] Request {1}: {2} redirect to {3}" -f $functionName, $redirectCount, $statusCode, ($location -replace 'code=[^&]+', 'code=[REDACTED]') | Write-Verbose
+                                    $currentUrl = $location
+                                    $redirectCount++
+                                    continue
                                 }
                             }
-                            catch {
-                                if (-not $NoProgress) {
-                                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                                }
-                                "[{0}] Failed to parse error response JSON: {1}" -f $functionName, $_.ErrorDetails.Message | Write-Verbose
-                                throw "[{0}] Raw error: {1}" -f $functionName, $_.ErrorDetails.Message
-                            }
                         }
-                        else {
-                            if (-not $NoProgress) {
-                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                            }
-                            throw "[{0}] No error details available during token polling." -f $functionName
-                        }
+                        throw
                     }
                 }
+                
+                if (-not $responseStep14) {
+                    throw "[{0}] Failed to complete redirect chain" -f $functionName
+                }
+                
+                # Save the final callback URL for Step 15
+                $finalCallbackUrl = $currentUrl
+                "[{0}] Token redirect completed after {1} request(s)" -f $functionName, $redirectCount | Write-Verbose
+                "[{0}] Final callback URL: {1}" -f $functionName, ($finalCallbackUrl -replace 'code=[^&]+', 'code=[REDACTED]') | Write-Verbose
+
+                if ($finalCallbackUrl -notmatch 'common\.cloud\.hpe\.com.*[?&]code=' -and $responseStep14.Content -notmatch 'common\.cloud\.hpe\.com[^"''<>\s]*[?&]code=') {
+                    "[{0}] Warning: No common.cloud.hpe.com callback found" -f $functionName | Write-Warning
+                }
+                
+                "[{0}] Token redirect flow completed" -f $functionName | Write-Verbose
             }
             catch {
                 if (-not $NoProgress) {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                "[{0}] Error during token polling: {1}" -f $functionName, $_.Exception.Message | Write-Error
-                throw $_.Exception.Message
+                "[{0}] Failed to complete token redirect: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                throw "[{0}] Failed to complete token redirect flow: {1}" -f $functionName, $_
             }
 
-            $CompletedSteps++
+            $completedSteps++
 
             #EndRegion
 
-            exit       
+            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
+            #Region [STEP 15] Extract OAuth Authorization Code from Response
+            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
+            "[{0}] [STEP 15] Extract OAuth Authorization Code from Response" -f $functionName | Write-Verbose
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
+
+            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Extracting OAuth code" -Id 0
+            $step++
+
+            try {
+                "[{0}] Extracting OAuth code from final URL: {1}" -f $functionName, ($finalCallbackUrl -replace 'code=[^&]+', 'code=[REDACTED]') | Write-Verbose
+                
+                if ($finalCallbackUrl -match '[?&]code=([^&]+)') {
+                    $authCode = $matches[1]
+                    "[{0}] OAuth code extracted from final callback URL" -f $functionName | Write-Verbose
+                    "[{0}] Code preview: {1}..." -f $functionName, $authCode.Substring(0, [Math]::Min(20, $authCode.Length)) | Write-Verbose
+                }
+                else {
+                    throw "[{0}] OAuth code not found in final callback URL: {1}" -f $functionName, $finalCallbackUrl
+                }
+                
+                # Set token endpoint and redirect_uri for Aquila
+                $tokenUrl = "https://aquila-org-api.common.cloud.hpe.com/authorization/v2/oauth2/default/token"
+                $RedirectUri = "https://common.cloud.hpe.com/authentication/callback"
+                
+                "[{0}] Using Aquila API token endpoint" -f $functionName | Write-Verbose
+                "[{0}] Token exchange redirect_uri: {1}" -f $functionName, $RedirectUri | Write-Verbose
+                "[{0}] OAuth authorization code successfully extracted" -f $functionName | Write-Verbose
+            }
+            catch {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
+                "[{0}] Failed to extract OAuth code: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                throw "[{0}] Failed to extract OAuth authorization code: {1}" -f $functionName, $_
+            }
+
+            $completedSteps++
+
+            #EndRegion           
 
         }
         # Handle non SSO and hpe.com SSO Email cases
         else {
-
 
             #region [STEP 1] Generate PKCE code verifier and challenge
             Write-Verbose " ----------------------------------STEP 1--------------------------------------------------------------------------------"
@@ -4289,7 +6940,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: Could not retrieve oauthIssuer from settings.json."
+                throw "[{0}] Authentication failed: Could not retrieve oauthIssuer from settings.json." -f $functionName
             }
             "[{0}] client_id: {1}" -f $functionName, $dynamicClientId | Write-Verbose
             "[{0}] oauthIssuer from settings.json: {1}" -f $functionName, $dynamicIssuer | Write-Verbose
@@ -4330,7 +6981,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: Could not extract stateToken from /as/authorization.oauth2 response."
+                throw "[{0}] Authentication failed: Could not extract stateToken from /as/authorization.oauth2 response." -f $functionName
             }
             $stateToken = [System.Text.RegularExpressions.Regex]::Replace($stateToken, "\\x([0-9A-Fa-f]{2})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
             $stateToken = [System.Text.RegularExpressions.Regex]::Replace($stateToken, "\\u([0-9A-Fa-f]{4})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
@@ -4360,7 +7011,7 @@ Function Connect-HPEGL {
                         break
                     }
                     elseif ($introspectResp.messages -and $introspectResp.messages.value -and $introspectResp.messages.value[0].message -eq "The session has expired.") {
-                        "[{0}] Session expired at introspect. Retrying flow from STEP 5.3..." -f $functionName | Write-Verbose
+                        "[{0}] Session expired at introspect. Retrying flow from STEP 4..." -f $functionName | Write-Verbose
                         $retry = $true
                     }
                     else {
@@ -4370,7 +7021,7 @@ Function Connect-HPEGL {
                 catch {
                     "[{0}] Error during introspect: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
                     if ($_.Exception.Response -and ($_.Exception.Response.Content | ConvertFrom-Json).messages.value[0].message -eq "The session has expired.") {
-                        "[{0}] Session expired at introspect (exception). Retrying flow from STEP 5.3..." -f $functionName | Write-Verbose
+                        "[{0}] Session expired at introspect (exception). Retrying flow from STEP 4..." -f $functionName | Write-Verbose
                         $retry = $true
                     }
                     else {
@@ -4378,13 +7029,13 @@ Function Connect-HPEGL {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "Authentication failed: Error during introspect: $_"
+                        throw "[{0}] Authentication failed: Error during introspect: {1}" -f $functionName, $_
                     }
                 }
                 if ($retry -and $i -eq 0) {
                     Start-Sleep -Seconds 1
-                    # Re-run STEP 5.3: GET /as/authorization.oauth2 to get new stateToken
-                    "[{0}] Retrying STEP 5.3: GET /as/authorization.oauth2 for new stateToken" -f $functionName | Write-Verbose
+                    # Re-run STEP 4: GET /as/authorization.oauth2 to get new stateToken
+                    "[{0}] Retrying STEP 4: GET /as/authorization.oauth2 for new stateToken" -f $functionName | Write-Verbose
                     "[{0}] About to execute GET request to: '{1}'" -f $functionName, $authzUrl | Write-Verbose
                     try {
                         $response = Invoke-WebRequest $authzUrl -Method 'GET' -Headers $headers -WebSession $session
@@ -4395,7 +7046,7 @@ Function Connect-HPEGL {
                                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                             }
-                            throw "Authentication failed: Could not extract stateToken from /as/authorization.oauth2 response (retry)."
+                            throw "[{0}] Authentication failed: Could not extract stateToken from /as/authorization.oauth2 response (retry)." -f $functionName
                         }
                         $stateToken = [System.Text.RegularExpressions.Regex]::Replace($stateToken, "\\x([0-9A-Fa-f]{2})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
                         $stateToken = [System.Text.RegularExpressions.Regex]::Replace($stateToken, "\\u([0-9A-Fa-f]{4})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
@@ -4408,7 +7059,7 @@ Function Connect-HPEGL {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "Authentication failed: Failed to obtain new stateToken in retry: $_"
+                        throw "[{0}] Authentication failed: Failed to obtain new stateToken in retry: {1}" -f $functionName, $_
                     }
                 }
             }
@@ -4421,7 +7072,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: Could not extract stateHandle from introspect response."
+                throw "[{0}] Authentication failed: Could not extract stateHandle from introspect response." -f $functionName
             }
             # Validate stateHandle format (allow ~ in addition to alphanumeric, ., _, and -)
             if ($stateHandle -notmatch "^[a-zA-Z0-9._~-]+$") {
@@ -4430,7 +7081,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: Invalid stateHandle format."
+                throw "[{0}] Authentication failed: Invalid stateHandle format." -f $functionName
             }
 
             "[{0}] stateHandle: {1}*********" -f $functionName, ($stateHandle.Substring(0, [Math]::Min(10, $stateHandle.Length))) | Write-Verbose
@@ -4467,7 +7118,7 @@ Function Connect-HPEGL {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Authentication failed: Unexpected error in response messages: $($identifyResp.messages | ConvertTo-Json -Depth 20)"
+                    throw "[{0}] Authentication failed: Unexpected error in response messages: {1}" -f $functionName, ($identifyResp.messages | ConvertTo-Json -Depth 20)
                 } 
                 # Log-Cookies -Domain "https://auth.hpe.com" -Session $session -Step "Step 5 (POST /idp/idx/identify)"                 
             }
@@ -4499,7 +7150,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }
-                                    throw "Authentication failed: Incorrect password. Please verify your credentials and try again."
+                                    throw "[{0}] Authentication failed: Incorrect password. Please verify your credentials and try again." -f $functionName
                                 }
                                 "errors.E0000015" {
                                     "[{0}] Detected insufficient permissions error (errors.E0000015)" -f $functionName | Write-Verbose
@@ -4507,7 +7158,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }                                        
-                                    throw "Authentication failed: Insufficient permissions. Please ensure your account has the necessary access rights."
+                                    throw "[{0}] Authentication failed: Insufficient permissions. Please ensure your account has the necessary access rights." -f $functionName
                                 }
                                 "errors.E0000011" {
                                     "[{0}] Detected invalid token error (errors.E0000011)" -f $functionName | Write-Verbose
@@ -4515,7 +7166,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }
-                                    throw "Authentication failed: Invalid token provided. Please try again or contact your administrator."
+                                    throw "[{0}] Authentication failed: Invalid token provided. Please try again or contact your administrator." -f $functionName
                                 }
                                 "errors.E0000064" {
                                     "[{0}] Detected password expired error (errors.E0000064)" -f $functionName | Write-Verbose
@@ -4523,7 +7174,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }                                        
-                                    throw "Authentication failed: Your password has expired. Please reset your password and try again."
+                                    throw "[{0}] Authentication failed: Your password has expired. Please reset your password and try again." -f $functionName
                                 }
                                 "errors.E0000207" {
                                     "[{0}] Detected incorrect username or password error (errors.E0000207)" -f $functionName | Write-Verbose
@@ -4531,7 +7182,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }                                        
-                                    throw "Authentication failed: Incorrect username or password. Please verify your credentials and try again."
+                                    throw "[{0}] Authentication failed: Incorrect username or password. Please verify your credentials and try again." -f $functionName
                                 }
                                 default {
                                     "[{0}] Detected other error: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key | Write-Verbose
@@ -4539,7 +7190,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }
-                                    throw "Authentication failed: $($message.message) (key=$($message.i18n.key))"
+                                    throw "[{0}] Authentication failed: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key
                                 }
                             }
                         }
@@ -4548,7 +7199,7 @@ Function Connect-HPEGL {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }                        
-                    throw "Authentication failed: $StatusCode $StatusError (no error details)"
+                    throw "[{0}] Authentication failed: {1} {2} (no error details)" -f $functionName, $StatusCode, $StatusError
                 }
                 elseif ($StatusCode -eq 403) {
                     if ($errorBody -and $errorBody.messages -and $errorBody.messages.value) {
@@ -4560,7 +7211,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }
-                                    throw "Authentication failed: Invalid session. Please try logging in again."
+                                    throw "[{0}] Authentication failed: Invalid session. Please try logging in again." -f $functionName
                                 }
                                 default {
                                     "[{0}] Detected other error: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key | Write-Verbose
@@ -4568,7 +7219,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }
-                                    throw "Authentication failed: $($message.message) (key=$($message.i18n.key))"
+                                    throw "[{0}] Authentication failed: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key
                                 }
                             }
                         }
@@ -4577,7 +7228,7 @@ Function Connect-HPEGL {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Authentication failed: $StatusCode $StatusError (no error details)"
+                    throw "[{0}] Authentication failed: {1} {2} (no error details)" -f $functionName, $StatusCode, $StatusError
                 }
                 elseif ($StatusCode -eq 404) {
                     if ($errorBody -and $errorBody.messages -and $errorBody.messages.value) {
@@ -4589,7 +7240,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }
-                                    throw "Authentication failed: Resource not found. Please contact your administrator."
+                                    throw "[{0}] Authentication failed: Resource not found. Please contact your administrator." -f $functionName
                                 }
                                 default {
                                     "[{0}] Detected other error: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key | Write-Verbose
@@ -4597,7 +7248,7 @@ Function Connect-HPEGL {
                                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                     }
-                                    throw "Authentication failed: $($message.message) (key=$($message.i18n.key))"
+                                    throw "[{0}] Authentication failed: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key
                                 }
                             }
                         }
@@ -4606,7 +7257,7 @@ Function Connect-HPEGL {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Authentication failed: $StatusCode $StatusError (no error details)"
+                    throw "[{0}] Authentication failed: {1} {2} (no error details)" -f $functionName, $StatusCode, $StatusError
                 }
 
                 # Handle other unexpected errors
@@ -4614,7 +7265,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: Unexpected error: {0} {1} - {2}" -f $StatusCode, $StatusError, $_.Exception.Message
+                throw "[{0}] Authentication failed: Unexpected error: {1} {2} - {3}" -f $functionName, $StatusCode, $StatusError, $_.Exception.Message
             }
 
 
@@ -4624,7 +7275,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: Unexpected error in response messages: $($identifyResp.messages | ConvertTo-Json -Depth 20)"
+                throw "[{0}] Authentication failed: Unexpected error in response messages: {1}" -f $functionName, ($identifyResp.messages | ConvertTo-Json -Depth 20)
             }          
             
             if (-not $identifyResp.stateHandle) {
@@ -4633,7 +7284,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: Could not extract stateHandle from identify response."
+                throw "[{0}] Authentication failed: Could not extract stateHandle from identify response." -f $functionName
             }
             else {
                 "[{0}] Identification successful, stateHandle obtained." -f $functionName | Write-Verbose
@@ -4651,7 +7302,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: The username '$Username' was not recognized by HPE GreenLake. Please check the username and try again."
+                throw "[{0}] Authentication failed: The username '{1}' was not recognized by HPE GreenLake. Please check the username and try again." -f $functionName, $Username
             }
 
             # Extract the id of the authentication issuer (for potential use later)
@@ -4667,7 +7318,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: Could not extract OAuth2 Issuer Id from identify response."
+                throw "[{0}] Authentication failed: Could not extract OAuth2 Issuer Id from identify response." -f $functionName
             }
 
             # Extract the appid of the "HPE GreenLake edge-to-cloud Platform" application  (for potential use later)
@@ -4683,7 +7334,7 @@ Function Connect-HPEGL {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Authentication failed: Could not extract HPE GreenLake App Id from identify response."
+                throw "[{0}] Authentication failed: Could not extract HPE GreenLake App Id from identify response." -f $functionName
             }
 
             # Determine available authenticators and select preferred one
@@ -4750,7 +7401,7 @@ Function Connect-HPEGL {
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
                     "[{0}] {1}" -f $functionName, $errMsg | Write-Verbose
-                    throw "Authentication failed: $errMsg"
+                    throw "[{0}] Authentication failed: {1}" -f $functionName, $errMsg
                 }
             }
             # If redirect IDP with SSO with hpe.com email addresses
@@ -4772,7 +7423,7 @@ Function Connect-HPEGL {
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }                    
                     "[{0}] {1}" -f $functionName, $errMsg | Write-Verbose
-                    throw "Authentication failed: $errMsg"
+                    throw "[{0}] Authentication failed: {1}" -f $functionName, $errMsg
                 }
             }
             else {
@@ -4782,7 +7433,7 @@ Function Connect-HPEGL {
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }                    
                 "[{0}] {1}" -f $functionName, $errMsg | Write-Verbose
-                throw "Authentication failed: $errMsg"
+                throw "[{0}] Authentication failed: {1}" -f $functionName, $errMsg
             }
 
             # verbose the preferred authenticator details
@@ -4831,7 +7482,7 @@ Function Connect-HPEGL {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Authentication failed: Error during redirect to external IDP: $_"
+                    throw "[{0}] Authentication failed: Error during redirect to external IDP: {1}" -f $functionName, $_
                 }
        
                 # Get action, method, relayState, LoginHint and SAMLRequest values from the html response
@@ -4904,7 +7555,7 @@ Function Connect-HPEGL {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "Authentication failed: Could not decode SAMLRequest."
+                        throw "[{0}] Authentication failed: Could not decode SAMLRequest." -f $functionName
                     }
                 }
                 else {
@@ -4934,7 +7585,7 @@ Function Connect-HPEGL {
                     }
                     "[{0}] SAML2 IDP response failed to process: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
                     "[{0}] Exception details: {1}" -f $functionName, ($_.Exception | Out-String) | Write-Verbose
-                    throw "Authentication failed: Could not complete SAML authentication request. {1}" -f $_.Exception.Message
+                    throw "[{0}] Authentication failed: Could not complete SAML authentication request. {1}" -f $functionName, $_.Exception.Message
                 }
                 # Extract stateToken from HTML and decode
                 $stateToken = ($responseStep52.Content | Select-String -Pattern '"stateToken":"(.*?)"' | ForEach-Object { $_.Matches.Groups[1].Value })
@@ -4946,7 +7597,7 @@ Function Connect-HPEGL {
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
                     "[{0}] Failed to extract stateToken from the response." -f $functionName | Write-Verbose
-                    throw "Authentication failed: Could not extract stateToken from the SAML response."
+                    throw "[{0}] Authentication failed: Could not extract stateToken from the SAML response." -f $functionName
 
                 }
                 # Extract oktaData using regex
@@ -4983,7 +7634,7 @@ Function Connect-HPEGL {
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
                         "[{0}] Failed to extract oktaData from the response." -f $functionName | Write-Verbose
-                        throw "Authentication failed: Could not parse oktaData from the SAML response. {1}" -f $_.Exception.Message
+                        throw "[{0}] Authentication failed: Could not parse oktaData from the SAML response. {1}" -f $functionName, $_.Exception.Message
                     }
                 }
                 else {
@@ -4992,7 +7643,7 @@ Function Connect-HPEGL {
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
                     "[{0}] No oktaData found in the response." -f $functionName | Write-Verbose
-                    throw "Authentication failed: Could not find oktaData in the SAML response."
+                    throw "[{0}] Authentication failed: Could not find oktaData in the SAML response." -f $functionName
                 }
                             
                 $CompletedSteps++
@@ -5042,7 +7693,7 @@ Function Connect-HPEGL {
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
                     "[{0}] SAML2 IDP response failed to validate the authentication state. Please verify the state token and try again." -f $functionName | Write-Verbose
-                    throw "Authentication failed: Could not validate the authentication state. {1}" -f $_.Exception.Message
+                    throw "[{0}] Authentication failed: Could not validate the authentication state. {1}" -f $functionName, $_.Exception.Message
                 }               
                         
                 $RemediationValues = $responseStep53.remediation.value | Redact-StateHandle
@@ -5052,492 +7703,663 @@ Function Connect-HPEGL {
                 $stateHandle = $responseStep53.stateHandle
                 "[{0}] Extracted stateHandle: {1}...{2}" -f $functionName, $stateHandle.Substring(0, 1), $stateHandle.Substring($stateHandle.Length - 1, 1) | Write-Verbose
             
-                $challengeHref = $responseStep53.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' } | Select-Object -ExpandProperty href
-                "[{0}] Extracted challengeHref: '{1}'" -f $functionName, $challengeHref | Write-Verbose
-
-                $OktaVerify = ($responseStep53.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }).value | Where-Object { $_.name -eq 'authenticator' } | Select-Object -ExpandProperty options | Where-Object { $_.label -eq 'Okta Verify' }
-                                    
-                if (-not $OktaVerify) {
-                    "[{0}] ERROR: Okta Verify authenticator not found" -f $functionName | Write-Verbose
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    throw "Authentication failed: Okta Verify authenticator not found in response"
-                }
-                "[{0}] Found Okta Verify authenticator" -f $functionName | Write-Verbose
-
-                # Get authenticatorId for Okta Verify 
-                $authenticatorId = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "id" }).value
-                if (-not $authenticatorId) {
-                    "[{0}] ERROR: authenticatorId not found for Okta Verify" -f $functionName | Write-Verbose
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    throw "Authentication failed: AuthenticatorId not found"
-                }
-                "[{0}] Extracted authenticatorId: {1}" -f $functionName, $authenticatorId | Write-Verbose
-
-                # Get available methodType options
-                $methodOptions = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "methodType" }).options
-                if (-not $methodOptions) {
-                    "[{0}] ERROR: No methodType options found for Okta Verify" -f $functionName | Write-Verbose
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    throw "Authentication failed: No methodType options found for Okta Verify"
-                }
-                "[{0}] Available methodTypes: {1}" -f $functionName, ($methodOptions.value -join ", ") | Write-Verbose
-
-                # Select method: prefer push, fallback to totp
-                $methodType = $null
-                $pushOption = $methodOptions | Where-Object { $_.value -eq "push" }
-                $totpOption = $methodOptions | Where-Object { $_.value -eq "totp" }
-
-                if ($pushOption) {
-                    $methodType = "push"
-                    "[{0}] Selected methodType: push" -f $functionName | Write-Verbose
-                }
-                elseif ($totpOption) {
-                    $methodType = "totp"
-                    "[{0}] Push not available, selected methodType: totp" -f $functionName | Write-Verbose
-                }
-                else {
-                    "[{0}] ERROR: Neither push nor totp available for Okta Verify" -f $functionName | Write-Verbose
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    throw "Authentication failed: Neither push nor totp available for Okta Verify"
-                }
-            
-                $CompletedSteps++
-
-                #EndRegion [STEP 5.3] Authentication State Introspection
-
-                #Region [STEP 5.4]: Send Okta Verify Authenticator Request: POST request to 'https://mylogin.hpe.com/idp/idx/challenge'
-                Write-Verbose " ----------------------------------STEP 5.4--------------------------------------------------------------------------------"       
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Send Okta Verify Authenticator Request" -Id 0
-                $step++
-                "[{0}] Step 5.4: POST 'https://mylogin.hpe.com/idp/idx/challenge' to initiate Okta Verify {2}" -f $functionName, $challengeHref, $methodType | Write-Verbose
-
-                $method = "POST"
-                            
-                "[{0}] About to execute {1} request to: '{2}'" -f $functionName, $method, $challengeHref | Write-Verbose
+                # Check for device-challenge-poll (Okta FastPass/device-bound authentication)
+                $skipTraditionalOktaVerify = $false
+                $deviceChallengePoll = $responseStep53.remediation.value | Where-Object { $_.name -eq 'device-challenge-poll' }
                 
-                # Define the payload
-                $payload = @{
-                    stateHandle   = $stateHandle
-                    authenticator = @{
-                        id         = $authenticatorId
-                        methodType = $methodType
-                    }
-                } | ConvertTo-Json -Depth 10
-                
-                # Define the headers
-                $headers = @{
-                    "Content-Type" = "application/json"
-                }
-                                    
-                # Hide stateHandle value in logs for security
-                $payloadLog = $payload
-                if ($payloadLog -match '"stateHandle"\s*:\s*"[^"]+"') {
-                    $payloadLog = $payloadLog -replace '("stateHandle"\s*:\s*")([^"]+)(")', '$1[REDACTED]$3'
-                }
-                "[{0}] Payload content: `n{1}" -f $functionName, ($payloadLog | out-string) | Write-Verbose
-                
-                try {
-                    $responseStep54 = Invoke-RestMethod -Uri $challengeHref -Method $Method -ErrorAction Stop -Headers $headers -Body $payload -WebSession $Session                
-                    "[{0}] Okta Verify push notification sent successfully." -f $functionName | Write-Verbose
-                    # Redact stateHandle before verbose output
-                    $responseStep54Redacted = Redact-StateHandle $responseStep54
-                    "[{0}] Raw response for `$responseStep54: `n{1}" -f $functionName, ($responseStep54Redacted | ConvertTo-Json -Depth 50) | Write-Verbose
-                    # Log-Cookies -Domain "https://mylogin.hpe.com" -Session $session -Step "Step 5.4 (POST /idp/idx/challenge)"
-                }
-                catch {
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    "[{0}] Failed to send Okta Verify push notification. Please verify your email and try again." -f $functionName | Write-Verbose
-                    throw "Authentication failed: Could not send Okta Verify push notification. {1}" -f $_.Exception.Message
-                }
-                
-                # Capturing stateHandle, pollHref (for push), verifyHref (for totp), and correctAnswer (for push number challenge)
-                $stateHandle = $responseStep54.stateHandle
-                # "[{0}] Extracted stateHandle: {1}" -f $functionName, $stateHandle | Write-Verbose
-
-                if (-not $stateHandle) {
-                    Write-Verbose "[${functionName}] Failed to get stateHandle from introspect response"
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    throw "Authentication failed: Could not extract stateHandle from introspect response."
-                }
-
-                # Validate stateHandle format (allow ~ in addition to alphanumeric, ., _, and -)
-                if ($stateHandle -notmatch "^[a-zA-Z0-9._~-]+$") {
-                    Write-Verbose "[${functionName}] Invalid stateHandle format: $stateHandle"
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }
-                    throw "Authentication failed: Invalid stateHandle format."
-                }
-
-                if ($methodType -eq "push") {
-                    $pollHref = $responseStep54.remediation.value | Where-Object { $_.name -eq 'challenge-poll' } | Select-Object -ExpandProperty href
-                    if (-not $pollHref) {
-                        "[{0}] ERROR: No pollHref found for push authentication" -f $functionName | Write-Verbose
-                        if (-not $NoProgress) {
-                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                        }
-                        throw "Authentication failed: No pollHref found in response for push authentication"
-                    }
-                    "[{0}] Extracted pollHref: '{1}'" -f $functionName, $pollHref | Write-Verbose
-
-                    $correctAnswer = $responseStep54.currentAuthenticator.value.contextualData.correctAnswer
-                    if ($correctAnswer) {
-                        "[{0}] Extracted correctAnswer: {1}" -f $functionName, $correctAnswer | Write-Verbose
-                    }
-                    else {
-                        "[{0}] No correctAnswer found (number challenge not required)" -f $functionName | Write-Verbose
-                    }
-                }
-                elseif ($methodType -eq "totp") {
-                    # Try to get verifyHref from remediation (e.g., challenge-authenticator)
-                    $verifyHref = $responseStep54.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' } | Select-Object -ExpandProperty href
-                    if (-not $verifyHref) {
-                        # Fallback to challengeHref
-                        $verifyHref = $challengeHref
-                        "[{0}] No verifyHref found in response, falling back to challengeHref: '{1}'" -f $functionName, $verifyHref | Write-Verbose
-                    }
-                    else {
-                        "[{0}] Extracted verifyHref: '{1}'" -f $functionName, $verifyHref | Write-Verbose
-                    }
-                }
-                        
-                $CompletedSteps++
-
-                #EndRegion [STEP 5.4] Send Okta Verify Authenticator Request
-
-                #Region [STEP 5.5]: Verify Okta Verify Status: Handle Push or TOTP
-                Write-Verbose " ----------------------------------STEP 5.5--------------------------------------------------------------------------------"       
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Verify Okta Verify Status" -Id 0
-                $step++
-                Write-Verbose ("[{0}] Step 5.5: GET 'https://mylogin.hpe.com/idp/idx/authenticators/poll' to verify Okta Verify {1} status" -f $functionName, $methodType)
-
-                # $methodType ("push" or "totp") comes from Step 5.3
-                # $pollHref (push) or $verifyHref (totp) comes from Step 5.4
-                # $challengeHref (from Step 5.3) is fallback for TOTP
-
-                if ($methodType -eq "push") {
-                    # Handle Push Notification
-                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Check your phone for an Okta Verify push notification from HPE GreenLake" -Id 0
-                            
-                    Start-Sleep -Milliseconds 500
-                    # Start-Sleep -Seconds 1
-                    $completedSteps++
-                    if ($correctAnswer) {
-                        Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Respond '$correctAnswer' to the Okta Verify notification." -Id 0
-                    }
-                    else {
-                        Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Approve the Okta Verify push notification." -Id 0
-                    }
-
-                    if (-not $pollHref) {
-                        "[{0}] ERROR: No poll URL found for push authentication" -f $functionName | Write-Verbose
-                        if (-not $NoProgress) {
-                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                        }
-                        throw "Authentication failed: No poll URL provided for push authentication."
-                    }
-
-                    $timeout = [datetime]::Now.AddMinutes(2)
-                            
-                    "[{0}] About to execute POST request to: '{1}'" -f $functionName, $pollHref | Write-Verbose
-
-                    $payload = @{
-                        stateHandle = $stateHandle
-                    } | ConvertTo-Json
-                            
-                    # Hide stateHandle value in logs for security
-                    $payloadLog = $payload
-                    if ($payloadLog -match '"stateHandle"\s*:\s*"[^"]+"') {
-                        $payloadLog = $payloadLog -replace '("stateHandle"\s*:\s*")([^"]+)(")', '$1[REDACTED]$3'
-                    }
-                    "[{0}] Payload content: `n{1}" -f $functionName, $payloadLog | Write-Verbose
-
-                    do {
-                        try {
-                            $responseStep55 = Invoke-RestMethod -Uri $pollHref -Method POST -Body $payload -ContentType 'application/json' -ErrorAction Stop -WebSession $session
-                            # "[{0}] Okta Verify push notification poll response received." -f $functionName | Write-Verbose
-                        }
-                        catch {
-                            if (-not $NoProgress) {
-                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                            }
-                            "[{0}] Failed to poll Okta Verify push status: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                            throw "Authentication failed: Unable to poll Okta Verify push status. {1}" -f $_.Exception.Message
-                        }
-
-                        if ([datetime]::Now -ge $timeout) {
-                            if (-not $NoProgress) {
-                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                            }
-                            throw "Authentication failed: Timeout error! Okta Verify push verification did not succeed within 2 minutes."
-                        }
-
-                        Start-Sleep -Seconds 3
-
-                    } until ( $responseStep55.success.name -eq "success-redirect" -or ($responseStep55.messages -and $responseStep55.messages.value -and $responseStep55.messages.value[0] -and $responseStep55.messages.value[0].class -eq "ERROR") )
-
-                    if ($responseStep55.success.name -eq "success-redirect") {
-                        "[{0}] Verification via Okta Verify push notification completed successfully." -f $functionName | Write-Verbose                       
-                    }
-                    elseif ($responseStep55.messages.value[0].class -eq "ERROR") {
-                        "[{0}] Verification via Okta Verify push notification failed." -f $functionName | Write-Verbose
-                        "[{0}] Error message: {1}" -f $functionName, $responseStep55.messages.value[0].message | Write-Verbose
-                        if (-not $NoProgress) {
-                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                        }
-                        throw "Authentication failed: Unable to verify the status of the Okta Verify push notification. The notification was either rejected or an incorrect verification number was selected."
-                    }
-                }
-                elseif ($methodType -eq "totp") {
-                    # Handle TOTP
-                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Open Okta Verify and enter the 6-digit code" -Id 0
-                    Start-Sleep -Seconds 2
-                    $completedSteps++
-                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Waiting for Okta Verify code input" -Id 0
-
-                    # Use $verifyHref from Step 4.4, fallback to $challengeHref
-                    $verifyHref = if ($verifyHref) { $verifyHref } else { $challengeHref }
-                    if (-not $verifyHref) {
-                        "[{0}] ERROR: No verify URL available for TOTP (neither verifyHref nor challengeHref provided)" -f $functionName | Write-Verbose
-                        if (-not $NoProgress) {
-                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                        }
-                        throw "Authentication failed: No verify URL available for TOTP authentication. Check Step 4.4 and 4.3 responses."
-                    }
-
-                    "[{0}] Prompting user for Okta Verify TOTP code" -f $functionName | Write-Verbose
-                    $baseurlofVerifyHref = ($verifyHref -split '/')[2]
-                    Write-Host "Please open Okta Verify and enter the 6-digit code of '$baseurlofVerifyHref' for '$UserName'"
-                    $totpCode = Read-Host "Enter Okta Verify code"
+                if ($deviceChallengePoll) {
+                    "[{0}] Detected device-challenge-poll remediation (Okta FastPass/device-bound authentication)" -f $functionName | Write-Verbose
+                    "[{0}] Attempting to cancel device-challenge-poll to fall back to traditional authentication..." -f $functionName | Write-Verbose
                     
-                    if ($totpCode -notmatch '^\d{6}$') {
-                        if (-not $NoProgress) {
-                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                        }
-                        "[{0}] ERROR: Invalid TOTP code. Must be a 6-digit number." -f $functionName | Write-Verbose
-                        throw "Authentication failed: Invalid TOTP code. Must be a 6-digit number."
-                    }
+                    # Extract the poll cancel URL
+                    $pollCancelUrl = $deviceChallengePoll.href -replace '/poll$', '/poll/cancel'
+                    "[{0}] Poll cancel URL: {1}" -f $functionName, $pollCancelUrl | Write-Verbose
                     
-                    $payload = @{
-                        stateHandle = $stateHandle
-                        credentials = @{
-                            totp = $totpCode
-                        }
-                    } | ConvertTo-Json
-                    
-                    "[{0}] About to execute POST request to: '{1}'" -f $functionName, $verifyHref | Write-Verbose
-                    # Hide stateHandle value in logs for security
-                    $payloadLog = $payload
-                    if ($payloadLog -match '"stateHandle"\s*:\s*"[^"]+"') {
-                        $payloadLog = $payloadLog -replace '("stateHandle"\s*:\s*")([^"]+)(")', '$1[REDACTED]$3'
-                    }
-                    "[{0}] Payload content: `n{1}" -f $functionName, $payloadLog | Write-Verbose
-
                     try {
-                        $responseStep55 = Invoke-RestMethod -Uri $verifyHref -Method POST -Body $payload -ContentType 'application/json' -ErrorAction Stop -WebSession $session
-                        "[{0}] Okta Verify TOTP code submitted successfully. Response: `n{1}" -f $functionName, ($responseStep55 | ConvertTo-Json -Depth 50) | Write-Verbose
-                        "[{0}] Okta Verify TOTP verification response received." -f $functionName | Write-Verbose
+                        # Attempt to cancel the device-challenge-poll
+                        $cancelPayload = @{
+                            reason      = "OV_UNREACHABLE_BY_LOOPBACK"
+                            statusCode  = $null
+                            stateHandle = $stateHandle
+                        } | ConvertTo-Json -Depth 10
+                        
+                        $cancelHeaders = @{
+                            "Content-Type" = "application/json"
+                        }
+                        
+                        "[{0}] Sending cancel request to: {1}" -f $functionName, $pollCancelUrl | Write-Verbose
+                        $cancelResponse = Invoke-RestMethod -Uri $pollCancelUrl -Method POST -Headers $cancelHeaders -Body $cancelPayload -WebSession $Session -ErrorAction Stop
+                        
+                        "[{0}] Device-challenge-poll cancelled successfully" -f $functionName | Write-Verbose
+                        
+                        # Check if we got select-authenticator-authenticate after cancel
+                        $newRemediation = $cancelResponse.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }
+                        if ($newRemediation) {
+                            "[{0}] New remediation type after cancel: select-authenticator-authenticate" -f $functionName | Write-Verbose
+                            # Update response to use the cancel response which should have select-authenticator-authenticate
+                            $responseStep53 = $cancelResponse
+                            $stateHandle = $cancelResponse.stateHandle
+                            "[{0}] Successfully fell back to traditional authentication flow (select-authenticator-authenticate)" -f $functionName | Write-Verbose
+                        }
+                        else {
+                            "[{0}] Cancel succeeded but did not return select-authenticator-authenticate" -f $functionName | Write-Verbose
+                            "[{0}] New remediation type: {1}" -f $functionName, ($cancelResponse.remediation.value[0].name) | Write-Verbose
+                        }
+                    }
+                    catch {
+                        "[{0}] Failed to cancel device-challenge-poll: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                        "[{0}] Falling back to device-challenge-poll polling (Mac compatibility mode)" -f $functionName | Write-Verbose
+                        
+                        # If cancel fails, proceed with device-challenge-poll polling (Mac/desktop app scenario)
+                        $pollUrl = $deviceChallengePoll.href
+                        $pollInterval = if ($deviceChallengePoll.refresh) { $deviceChallengePoll.refresh / 1000 } else { 5 }
+                        $maxAttempts = 60  # 5 minutes timeout
+                        
+                        "[{0}] Starting device-challenge-poll polling (interval: {1}s, max attempts: {2})" -f $functionName, $pollInterval, $maxAttempts | Write-Verbose
+                        
+                        $pollPayload = @{
+                            stateHandle = $stateHandle
+                        } | ConvertTo-Json -Depth 10
+                        
+                        $pollHeaders = @{
+                            "Content-Type" = "application/json"
+                        }
+                        
+                        $attempt = 0
+                        $authSuccess = $false
+                        
+                        while ($attempt -lt $maxAttempts -and -not $authSuccess) {
+                            $attempt++
+                            Start-Sleep -Seconds $pollInterval
+                            
+                            try {
+                                $pollResponse = Invoke-RestMethod -Uri $pollUrl -Method POST -Headers $pollHeaders -Body $pollPayload -WebSession $Session -ErrorAction Stop
+                                
+                                # Check if authentication succeeded (successWithInteractionCode)
+                                if ($pollResponse.successWithInteractionCode) {
+                                    "[{0}] Device authentication succeeded via polling!" -f $functionName | Write-Verbose
+                                    $authSuccess = $true
+                                    
+                                    # Extract SAML response from successWithInteractionCode.href
+                                    $interactionCodeUrl = $pollResponse.successWithInteractionCode.href
+                                    "[{0}] Interaction code URL: {1}" -f $functionName, $interactionCodeUrl | Write-Verbose
+                                    
+                                    # Follow the interaction code redirect to get SAML
+                                    $samlResponse = Invoke-WebRequest -Uri $interactionCodeUrl -Method GET -WebSession $Session -MaximumRedirection 0 -ErrorAction SilentlyContinue
+                                    
+                                    # Extract the final redirect location which should contain the authorization code
+                                    if ($samlResponse.Headers.Location) {
+                                        $finalRedirect = $samlResponse.Headers.Location
+                                        "[{0}] Final redirect: {1}" -f $functionName, $finalRedirect | Write-Verbose
+                                        
+                                        # Parse authorization code from redirect
+                                        if ($finalRedirect -match '[?&]code=([^&]+)') {
+                                            $authCode = $matches[1]
+                                            "[{0}] Authorization code obtained from device authentication" -f $functionName | Write-Verbose
+                                            $skipTraditionalOktaVerify = $true
+                                            break
+                                        }
+                                    }
+                                }
+                                
+                                # Update stateHandle for next poll
+                                if ($pollResponse.stateHandle) {
+                                    $stateHandle = $pollResponse.stateHandle
+                                }
+                            }
+                            catch {
+                                "[{0}] Poll attempt {1}/{2} failed: {3}" -f $functionName, $attempt, $maxAttempts, $_.Exception.Message | Write-Verbose
+                            }
+                        }
+                        
+                        if (-not $authSuccess) {
+                            "[{0}] Device-challenge-poll polling timed out after {1} attempts" -f $functionName, $maxAttempts | Write-Verbose
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Authentication failed: Device authentication timed out. Please approve the authentication on your Okta Verify desktop app." -f $functionName
+                        }
+                    }
+                }
+
+                # Only proceed with traditional Okta Verify if we didn't use device authentication
+                if (-not $skipTraditionalOktaVerify) {
+                    $challengeHref = $responseStep53.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' } | Select-Object -ExpandProperty href
+                    "[{0}] Extracted challengeHref: '{1}'" -f $functionName, $challengeHref | Write-Verbose
+
+                    $OktaVerify = ($responseStep53.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }).value | Where-Object { $_.name -eq 'authenticator' } | Select-Object -ExpandProperty options | Where-Object { $_.label -eq 'Okta Verify' }
+                                    
+                    if (-not $OktaVerify) {
+                        "[{0}] ERROR: Okta Verify authenticator not found" -f $functionName | Write-Verbose
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Authentication failed: Okta Verify authenticator not found in response" -f $functionName
+                    }
+                    "[{0}] Found Okta Verify authenticator" -f $functionName | Write-Verbose
+
+                    # Get authenticatorId for Okta Verify 
+                    $authenticatorId = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "id" }).value
+                    if (-not $authenticatorId) {
+                        "[{0}] ERROR: authenticatorId not found for Okta Verify" -f $functionName | Write-Verbose
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Authentication failed: AuthenticatorId not found" -f $functionName
+                    }
+                    "[{0}] Extracted authenticatorId: {1}" -f $functionName, $authenticatorId | Write-Verbose
+
+                    # Get available methodType options
+                    $methodOptions = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "methodType" }).options
+                    if (-not $methodOptions) {
+                        "[{0}] ERROR: No methodType options found for Okta Verify" -f $functionName | Write-Verbose
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Authentication failed: No methodType options found for Okta Verify" -f $functionName
+                    }
+                    "[{0}] Available methodTypes: {1}" -f $functionName, ($methodOptions.value -join ", ") | Write-Verbose
+
+                    # Select method: prefer push, fallback to totp
+                    $methodType = $null
+                    $pushOption = $methodOptions | Where-Object { $_.value -eq "push" }
+                    $totpOption = $methodOptions | Where-Object { $_.value -eq "totp" }
+
+                    if ($pushOption) {
+                        $methodType = "push"
+                        "[{0}] Selected methodType: push" -f $functionName | Write-Verbose
+                    }
+                    elseif ($totpOption) {
+                        $methodType = "totp"
+                        "[{0}] Push not available, selected methodType: totp" -f $functionName | Write-Verbose
+                    }
+                    else {
+                        "[{0}] ERROR: Neither push nor totp available for Okta Verify" -f $functionName | Write-Verbose
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Authentication failed: Neither push nor totp available for Okta Verify" -f $functionName
+                    }
+                
+                    $CompletedSteps++
+
+                    #EndRegion [STEP 5.3] Authentication State Introspection
+
+                    #Region [STEP 5.4]: Send Okta Verify Authenticator Request: POST request to 'https://mylogin.hpe.com/idp/idx/challenge'
+                    Write-Verbose " ----------------------------------STEP 5.4--------------------------------------------------------------------------------"       
+                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Send Okta Verify Authenticator Request" -Id 0
+                    $step++
+                    "[{0}] Step 5.4: POST 'https://mylogin.hpe.com/idp/idx/challenge' to initiate Okta Verify {2}" -f $functionName, $challengeHref, $methodType | Write-Verbose
+
+                    $method = "POST"
+                            
+                    "[{0}] About to execute {1} request to: '{2}'" -f $functionName, $method, $challengeHref | Write-Verbose
+                
+                    # Define the payload
+                    $payload = @{
+                        stateHandle   = $stateHandle
+                        authenticator = @{
+                            id         = $authenticatorId
+                            methodType = $methodType
+                        }
+                    } | ConvertTo-Json -Depth 10
+                
+                    # Define the headers
+                    $headers = @{
+                        "Content-Type" = "application/json"
+                    }
+                                    
+                    # Hide stateHandle value in logs for security
+                    $payloadLog = $payload
+                    if ($payloadLog -match '"stateHandle"\s*:\s*"[^"]+"') {
+                        $payloadLog = $payloadLog -replace '("stateHandle"\s*:\s*")([^"]+)(")', '$1[REDACTED]$3'
+                    }
+                    "[{0}] Payload content: `n{1}" -f $functionName, ($payloadLog | out-string) | Write-Verbose
+                
+                    try {
+                        $responseStep54 = Invoke-RestMethod -Uri $challengeHref -Method $Method -ErrorAction Stop -Headers $headers -Body $payload -WebSession $Session                
+                        "[{0}] Okta Verify push notification sent successfully." -f $functionName | Write-Verbose
+                        # Redact stateHandle before verbose output
+                        $responseStep54Redacted = Redact-StateHandle $responseStep54
+                        "[{0}] Raw response for `$responseStep54: `n{1}" -f $functionName, ($responseStep54Redacted | ConvertTo-Json -Depth 50) | Write-Verbose
+                        # Log-Cookies -Domain "https://mylogin.hpe.com" -Session $session -Step "Step 5.4 (POST /idp/idx/challenge)"
                     }
                     catch {
                         if (-not $NoProgress) {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        "[{0}] Failed to verify Okta Verify TOTP code: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                        throw "Authentication failed: Unable to verify the Okta Verify TOTP code. {1}" -f $_.Exception.Message
+                        "[{0}] Failed to send Okta Verify push notification. Please verify your email and try again." -f $functionName | Write-Verbose
+                        throw "[{0}] Authentication failed: Could not send Okta Verify push notification. {1}" -f $functionName, $_.Exception.Message
                     }
+                
+                    # Capturing stateHandle, pollHref (for push), verifyHref (for totp), and correctAnswer (for push number challenge)
+                    $stateHandle = $responseStep54.stateHandle
+                    # "[{0}] Extracted stateHandle: {1}" -f $functionName, $stateHandle | Write-Verbose
 
-                    if ($responseStep55.success.name -eq "success-redirect") {
-                        "[{0}] Verification via Okta Verify TOTP completed successfully." -f $functionName | Write-Verbose
-                    }
-                    elseif ($responseStep55.messages -and $responseStep55.messages.value -and $responseStep55.messages.value[0].class -eq "ERROR") {
-                        "[{0}] Verification via Okta Verify TOTP failed." -f $functionName | Write-Verbose
-                        "[{0}] Error message: {1}" -f $functionName, $responseStep55.messages.value[0].message | Write-Verbose
-                        
+                    if (-not $stateHandle) {
+                        Write-Verbose "[${functionName}] Failed to get stateHandle from introspect response"
                         if (-not $NoProgress) {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "Authentication failed: Unable to verify the Okta Verify TOTP code. The code was incorrect or expired."
+                        throw "[{0}] Authentication failed: Could not extract stateHandle from introspect response." -f $functionName
                     }
-                }
 
-                # "[{0}] Raw response for `$responseStep55`: `n{1}" -f $functionName, ($responseStep55 | ConvertTo-Json -Depth 50) | Write-Verbose
-                        
-                # After success (push or TOTP), perform a final introspect to confirm overall state
-                "[{0}] Performing final introspect to confirm overall authentication state and capture cookies (POST https://mylogin.hpe.com/idp/idx/introspect)" -f $functionName | Write-Verbose
-                $body = @{ stateToken = $stateToken } | ConvertTo-Json
+                    # Validate stateHandle format (allow ~ in addition to alphanumeric, ., _, and -)
+                    if ($stateHandle -notmatch "^[a-zA-Z0-9._~-]+$") {
+                        Write-Verbose "[${functionName}] Invalid stateHandle format: $stateHandle"
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Authentication failed: Invalid stateHandle format." -f $functionName
+                    }
 
-                try {
-                    
-                    $response = Invoke-WebRequest -Uri "https://mylogin.hpe.com/idp/idx/introspect" -Method POST -Body $body -Headers $introspectHeaders -WebSession $session -ErrorAction Stop
-                    $finalIntrospectData = $response.Content | ConvertFrom-Json
-                    "[{0}] Final introspect response: `n{1}" -f $functionName, ( $response.Content | ConvertFrom-Json | Redact-StateHandle | ConvertTo-Json -Depth 50 ) | Write-Verbose
+                    if ($methodType -eq "push") {
+                        $pollHref = $responseStep54.remediation.value | Where-Object { $_.name -eq 'challenge-poll' } | Select-Object -ExpandProperty href
+                        if (-not $pollHref) {
+                            "[{0}] ERROR: No pollHref found for push authentication" -f $functionName | Write-Verbose
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Authentication failed: No pollHref found in response for push authentication" -f $functionName
+                        }
+                        "[{0}] Extracted pollHref: '{1}'" -f $functionName, $pollHref | Write-Verbose
+
+                        $correctAnswer = $responseStep54.currentAuthenticator.value.contextualData.correctAnswer
+                        if ($correctAnswer) {
+                            "[{0}] Extracted correctAnswer: {1}" -f $functionName, $correctAnswer | Write-Verbose
+                        }
+                        else {
+                            "[{0}] No correctAnswer found (number challenge not required)" -f $functionName | Write-Verbose
+                        }
+                    }
+                    elseif ($methodType -eq "totp") {
+                        # Try to get verifyHref from remediation (e.g., challenge-authenticator)
+                        $verifyHref = $responseStep54.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' } | Select-Object -ExpandProperty href
+                        if (-not $verifyHref) {
+                            # Fallback to challengeHref
+                            $verifyHref = $challengeHref
+                            "[{0}] No verifyHref found in response, falling back to challengeHref: '{1}'" -f $functionName, $verifyHref | Write-Verbose
+                        }
+                        else {
+                            "[{0}] Extracted verifyHref: '{1}'" -f $functionName, $verifyHref | Write-Verbose
+                        }
+                    }
                         
-                    # Store the response in $global:introspectResponse
-                    $global:introspectResponse = $response.Content | ConvertFrom-Json
-                    $global:stateToken = $global:introspectResponse.stateHandle
-                    $global:redirectUrl = $global:introspectResponse.success.href
-            
-                    # Log-Cookies -Domain "https://mylogin.hpe.com" -Session $session -Step "Step 5.5 (Final POST /idp/idx/introspect)"
-            
-                    "[{0}] SSO complete. Final status: SUCCESS" -f $functionName | Write-Verbose
-                    "[{0}] Retrieving user details for the current session" -f $functionName | Write-Verbose
+                    $CompletedSteps++
+
+                    #EndRegion [STEP 5.4] Send Okta Verify Authenticator Request
+
+                    #Region [STEP 5.5]: Verify Okta Verify Status: Handle Push or TOTP
+                    Write-Verbose " ----------------------------------STEP 5.5--------------------------------------------------------------------------------"       
+                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Verify Okta Verify Status" -Id 0
+                    $step++
+                    Write-Verbose ("[{0}] Step 5.5: GET 'https://mylogin.hpe.com/idp/idx/authenticators/poll' to verify Okta Verify {1} status" -f $functionName, $methodType)
+
+                    # $methodType ("push" or "totp") comes from Step 5.3
+                    # $pollHref (push) or $verifyHref (totp) comes from Step 5.4
+                    # $challengeHref (from Step 5.3) is fallback for TOTP
+
+                    if ($methodType -eq "push") {
+                        # Handle Push Notification
+                        Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Check your phone for an Okta Verify push notification from HPE GreenLake" -Id 0
                             
-                    # Capture user details
-                    $Name = $($global:introspectResponse.user.value.profile.firstName) + " " + ($global:introspectResponse.user.value.profile.lastName)
-                    "[{0}] User name to save to the current session object: {1}" -f $functionName, ($Name) | Write-Verbose
-                }
-                catch {
-                    "[{0}] Introspect POST failed: {1}" -f $functionName, $_.ErrorDetails.Message | Write-Verbose
-                    $errorResponse = $_.ErrorDetails.Message | ConvertFrom-Json -ErrorAction SilentlyContinue
-                    if ($errorResponse.messages.value.Count -gt 0 -and $errorResponse.messages.value[0].i18n.key -eq "idx.session.expired") {
-                        "[{0}] Session expired. Attempting to retry the introspect request with the new stateToken." -f $functionName | Write-Verbose
-                        # Retry the introspect request with the new stateToken
-                        $introspectBody = @{ stateHandle = $global:stateToken } | ConvertTo-Json
-                        $response = Invoke-WebRequest -Uri "https://mylogin.hpe.com/idp/idx/introspect" -Method POST -Body $introspectBody -Headers $introspectHeaders -WebSession $webSession -UseBasicParsing
-                        $global:introspectResponse = $response.Content | ConvertFrom-Json
+                        Start-Sleep -Milliseconds 500
+                        # Start-Sleep -Seconds 1
+                        $completedSteps++
+                        if ($correctAnswer) {
+                            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Respond '$correctAnswer' to the Okta Verify notification." -Id 0
+                        }
+                        else {
+                            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Approve the Okta Verify push notification." -Id 0
+                        }
+
+                        if (-not $pollHref) {
+                            "[{0}] ERROR: No poll URL found for push authentication" -f $functionName | Write-Verbose
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Authentication failed: No poll URL provided for push authentication." -f $functionName
+                        }
+
+                        $timeout = [datetime]::Now.AddMinutes(2)
+                            
+                        "[{0}] About to execute POST request to: '{1}'" -f $functionName, $pollHref | Write-Verbose
+
+                        $payload = @{
+                            stateHandle = $stateHandle
+                        } | ConvertTo-Json
+                            
+                        # Hide stateHandle value in logs for security
+                        $payloadLog = $payload
+                        if ($payloadLog -match '"stateHandle"\s*:\s*"[^"]+"') {
+                            $payloadLog = $payloadLog -replace '("stateHandle"\s*:\s*")([^"]+)(")', '$1[REDACTED]$3'
+                        }
+                        "[{0}] Payload content: `n{1}" -f $functionName, $payloadLog | Write-Verbose
+
+                        do {
+                            try {
+                                $responseStep55 = Invoke-RestMethod -Uri $pollHref -Method POST -Body $payload -ContentType 'application/json' -ErrorAction Stop -WebSession $session
+                                # "[{0}] Okta Verify push notification poll response received." -f $functionName | Write-Verbose
+                            }
+                            catch {
+                                if (-not $NoProgress) {
+                                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                                }
+                                "[{0}] Failed to poll Okta Verify push status: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                                throw "[{0}] Authentication failed: Unable to poll Okta Verify push status. {1}" -f $functionName, $_.Exception.Message
+                            }
+
+                            if ([datetime]::Now -ge $timeout) {
+                                if (-not $NoProgress) {
+                                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                                }
+                                throw "[{0}] Authentication failed: Timeout error! Okta Verify push verification did not succeed within 2 minutes." -f $functionName
+                            }
+
+                            Start-Sleep -Seconds 3
+
+                        } until ( $responseStep55.success.name -eq "success-redirect" -or ($responseStep55.messages -and $responseStep55.messages.value -and $responseStep55.messages.value[0] -and $responseStep55.messages.value[0].class -eq "ERROR") )
+
+                        if ($responseStep55.success.name -eq "success-redirect") {
+                            "[{0}] Verification via Okta Verify push notification completed successfully." -f $functionName | Write-Verbose
+                        
+                            # Update stateHandle from the successful response
+                            if ($responseStep55.stateHandle) {
+                                $stateHandle = $responseStep55.stateHandle
+                                "[{0}] Updated stateHandle from successful push response" -f $functionName | Write-Verbose
+                            }
+                        }
+                        elseif ($responseStep55.messages.value[0].class -eq "ERROR") {
+                            "[{0}] Verification via Okta Verify push notification failed." -f $functionName | Write-Verbose
+                            "[{0}] Error message: {1}" -f $functionName, $responseStep55.messages.value[0].message | Write-Verbose
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            Write-Error @"
+Authentication failed: Unable to verify the status of the Okta Verify push notification.
+
+The notification was either rejected or an incorrect verification number was selected.
+"@ -ErrorAction Stop
+                        }
                     }
-                    else {
+                    elseif ($methodType -eq "totp") {
+                        # Handle TOTP
+                        Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Open Okta Verify and enter the 6-digit code" -Id 0
+                        Start-Sleep -Seconds 2
+                        $completedSteps++
+                        Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Waiting for Okta Verify code input" -Id 0
+
+                        # Use $verifyHref from Step 4.4, fallback to $challengeHref
+                        $verifyHref = if ($verifyHref) { $verifyHref } else { $challengeHref }
+                        if (-not $verifyHref) {
+                            "[{0}] ERROR: No verify URL available for TOTP (neither verifyHref nor challengeHref provided)" -f $functionName | Write-Verbose
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Authentication failed: No verify URL available for TOTP authentication. Check Step 4.4 and 4.3 responses." -f $functionName
+                        }
+
+                        "[{0}] Prompting user for Okta Verify TOTP code" -f $functionName | Write-Verbose
+                        $baseurlofVerifyHref = ($verifyHref -split '/')[2]
+                        Write-Host "Please open Okta Verify and enter the 6-digit code of '$baseurlofVerifyHref' for '$UserName'"
+                        $totpCode = Read-Host "Enter Okta Verify code"
+                    
+                        if ($totpCode -notmatch '^\d{6}$') {
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            "[{0}] ERROR: Invalid TOTP code. Must be a 6-digit number." -f $functionName | Write-Verbose
+                            throw "[{0}] Authentication failed: Invalid TOTP code. Must be a 6-digit number." -f $functionName
+                        }
+                    
+                        $payload = @{
+                            stateHandle = $stateHandle
+                            credentials = @{
+                                totp = $totpCode
+                            }
+                        } | ConvertTo-Json
+                    
+                        "[{0}] About to execute POST request to: '{1}'" -f $functionName, $verifyHref | Write-Verbose
+                        # Hide stateHandle value in logs for security
+                        $payloadLog = $payload
+                        if ($payloadLog -match '"stateHandle"\s*:\s*"[^"]+"') {
+                            $payloadLog = $payloadLog -replace '("stateHandle"\s*:\s*")([^"]+)(")', '$1[REDACTED]$3'
+                        }
+                        "[{0}] Payload content: `n{1}" -f $functionName, $payloadLog | Write-Verbose
+
+                        try {
+                            $responseStep55 = Invoke-RestMethod -Uri $verifyHref -Method POST -Body $payload -ContentType 'application/json' -ErrorAction Stop -WebSession $session
+                            "[{0}] Okta Verify TOTP code submitted successfully. Response: `n{1}" -f $functionName, ($responseStep55 | ConvertTo-Json -Depth 50) | Write-Verbose
+                            "[{0}] Okta Verify TOTP verification response received." -f $functionName | Write-Verbose
+                        }
+                        catch {
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            "[{0}] Failed to verify Okta Verify TOTP code: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                            throw "[{0}] Authentication failed: Unable to verify the Okta Verify TOTP code. {1}" -f $functionName, $_.Exception.Message
+                        }
+
+                        if ($responseStep55.success.name -eq "success-redirect") {
+                            "[{0}] Verification via Okta Verify TOTP completed successfully." -f $functionName | Write-Verbose
+                        
+                            # Update stateHandle from the successful response
+                            if ($responseStep55.stateHandle) {
+                                $stateHandle = $responseStep55.stateHandle
+                                "[{0}] Updated stateHandle from successful TOTP response" -f $functionName | Write-Verbose
+                            }
+                        }
+                        elseif ($responseStep55.messages -and $responseStep55.messages.value -and $responseStep55.messages.value[0].class -eq "ERROR") {
+                            "[{0}] Verification via Okta Verify TOTP failed." -f $functionName | Write-Verbose
+                            "[{0}] Error message: {1}" -f $functionName, $responseStep55.messages.value[0].message | Write-Verbose
+                        
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Authentication failed: Unable to verify the Okta Verify TOTP code. The code was incorrect or expired." -f $functionName
+                        }
+                    }
+
+                    # "[{0}] Raw response for `$responseStep55`: `n{1}" -f $functionName, ($responseStep55 | ConvertTo-Json -Depth 50) | Write-Verbose
+                        
+                    # After success (push or TOTP), perform a final introspect to confirm overall state
+                    "[{0}] Performing final introspect to confirm overall authentication state and capture cookies (POST https://mylogin.hpe.com/idp/idx/introspect)" -f $functionName | Write-Verbose
+                    $body = @{ stateHandle = $stateHandle } | ConvertTo-Json
+
+                    try {
+                    
+                        $response = Invoke-WebRequest -Uri "https://mylogin.hpe.com/idp/idx/introspect" -Method POST -Body $body -Headers $introspectHeaders -WebSession $session -ErrorAction Stop
+                        $finalIntrospectData = $response.Content | ConvertFrom-Json
+                        "[{0}] Final introspect response: `n{1}" -f $functionName, ( $response.Content | ConvertFrom-Json | Redact-StateHandle | ConvertTo-Json -Depth 50 ) | Write-Verbose
+                        
+                        # Store the response in $global:introspectResponse
+                        $global:introspectResponse = $response.Content | ConvertFrom-Json
+                        $global:stateToken = $global:introspectResponse.stateHandle
+                        $global:redirectUrl = $global:introspectResponse.success.href
+            
+                        # Log-Cookies -Domain "https://mylogin.hpe.com" -Session $session -Step "Step 5.5 (Final POST /idp/idx/introspect)"
+            
+                        "[{0}] SSO complete. Final status: SUCCESS" -f $functionName | Write-Verbose
+                        "[{0}] Retrieving user details for the current session" -f $functionName | Write-Verbose
+                            
+                        # Capture user details
+                        $Name = $($global:introspectResponse.user.value.profile.firstName) + " " + ($global:introspectResponse.user.value.profile.lastName)
+                        "[{0}] User name to save to the current session object: {1}" -f $functionName, ($Name) | Write-Verbose
+                    }
+                    catch {
+                        "[{0}] Introspect POST failed: {1}" -f $functionName, $_.ErrorDetails.Message | Write-Verbose
+                        $errorResponse = $_.ErrorDetails.Message | ConvertFrom-Json -ErrorAction SilentlyContinue
+                        if ($errorResponse.messages.value.Count -gt 0 -and $errorResponse.messages.value[0].i18n.key -eq "idx.session.expired") {
+                            "[{0}] Session expired. Attempting to retry the introspect request with the new stateToken." -f $functionName | Write-Verbose
+                            # Retry the introspect request with the new stateToken
+                            $introspectBody = @{ stateHandle = $global:stateToken } | ConvertTo-Json
+                            $response = Invoke-WebRequest -Uri "https://mylogin.hpe.com/idp/idx/introspect" -Method POST -Body $introspectBody -Headers $introspectHeaders -WebSession $webSession -UseBasicParsing
+                            $global:introspectResponse = $response.Content | ConvertFrom-Json
+                        }
+                        else {
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            throw "[{0}] Authentication failed: Introspect POST failed with unexpected error: {1}" -f $functionName, $_.Exception.Message
+                        }
+                    }
+
+                    if ($finalIntrospectData.success.name -ne "success-redirect") {
                         if (-not $NoProgress) {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "Authentication failed: Introspect POST failed with unexpected error: $($_.Exception.Message)"
-                    }
-                }
+                    
+                        # Build detailed error message
+                        Write-Error @"
+Authentication failed: Okta authentication did not complete successfully.
 
-                if ($finalIntrospectData.success.name -ne "success-redirect") {
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+This error can occur for multiple reasons:
+
+1. MFA Challenge Not Completed
+   - Okta Verify push notification was denied, ignored, or timed out
+   - TOTP code was not entered or was incorrect
+   - Authentication request expired before completion
+
+2. User Not Assigned to HPE GreenLake Application
+   - Contact your Okta administrator to verify you have access to the HPE GreenLake application
+   - Ensure you have the required application role assignments
+
+3. Missing Required Licenses (Okta)
+   - User account may lack required Okta licenses or features
+   - Contact your Okta administrator to verify licensing
+
+4. Okta Configuration Issues
+   - SAML assertion generation failed
+   - Application integration settings are incorrect
+   - Required claims or attributes are missing
+
+5. Session or State Issues
+   - Authentication session expired
+   - State handle became invalid during the authentication flow
+
+Introspect status: $($finalIntrospectData.status)
+For complete Okta setup prerequisites, see: $script:HelpUrl
+"@ -ErrorAction Stop
                     }
-                    throw "Authentication failed: Final introspect failed: $($finalIntrospectData.status)"
-                }
                         
-                $redirectUrl = $finalIntrospectData.success.href
-                # Hide stateToken value in logs for security
-                $redirectUrlLog = $redirectUrl
-                if ($redirectUrlLog -match 'stateToken=[^&]+') {
-                    $redirectUrlLog = $redirectUrlLog -replace '(stateToken=)[^&]+', '$1[REDACTED]'
-                }
-                "[{0}] Redirect URL: {1}" -f $functionName, $redirectUrlLog | Write-Verbose
-                # Update stateHandle if new one is returned
-                if ($finalIntrospectData.stateHandle) {
-                    $stateHandle = $finalIntrospectData.stateHandle
-                }
-
-                $completedSteps++
-
-
-                #EndRegion [STEP 5.5] Verify Okta Verify Status
-
-                #Region [STEP 5.6]: Acquire SAML response: GET request to 'https://mylogin.hpe.com/login/token/redirect?stateToken=...'
-                Write-Verbose " ----------------------------------STEP 5.6--------------------------------------------------------------------------------"        
-                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Acquire SAML response" -Id 0
-                $step++
-                # Hide stateToken value in logs for security
-                $redirectUrlLog = $global:redirectUrl
-                if ($redirectUrlLog -match 'stateToken=[^&]+') {
-                    $redirectUrlLog = $redirectUrlLog -replace '(stateToken=)[^&]+', '$1[REDACTED]'
-                }
-                Write-Verbose ("[{0}] Step 5.6: GET '{1}' to acquire SAMLResponse" -f $functionName, $redirectUrlLog)
-
-                "[{0}] About to GET SAMLResponse from: '{1}'" -f $functionName, $redirectUrlLog | Write-Verbose
-
-                # Log-Cookies -Domain "https://mylogin.hpe.com" -Session $session -Step "Before Step 5.6 (GET SAMLResponse)"
-
-                $responseStep56 = Invoke-WebRequest -Uri $redirectUrl -Method GET -ErrorAction Stop -WebSession $session   
-                "[{0}] SAML response acquired successfully." -f $functionName | Write-Verbose
-                # Extract and display only the </script><form id="appForm" ... section from the HTML content
-                $formSection = ($responseStep56.Content -join "`n") -match '(<form id="appForm"[\s\S]+?</form>)' | Out-Null
-                $formSection = $matches[1]
-                # Hide sensitive values in logs (RelayState, SAMLResponse)
-                $formSectionRedacted = $formSection
-                $formSectionRedacted = $formSectionRedacted -replace '(name="RelayState" type="hidden" value=")[^"]+(")', '$1[REDACTED]$2'
-                $formSectionRedacted = $formSectionRedacted -replace '(name="SAMLResponse" type="hidden" value=")[^"]+(")', '$1[REDACTED]$2'
-                "[{0}] Extracted script from SAML section:`n{1}" -f $functionName, $formSectionRedacted | Write-Verbose
-                
-                # Log cookies set by the response
-                # Log-Cookies -Domain "https://mylogin.hpe.com" -Session $session -Step "After Step 5.6 (GET SAMLResponse)"
-                
-                # Extract actionUrl
-                $encodedString = ($responseStep56.Content | Select-String -Pattern 'action="(.*?)"' | ForEach-Object { $_.Matches.Groups[1].Value } | Select-Object -First 1)
-                if (-not $encodedString) {
-                    "[{0}] ERROR: No action URL found in response!" -f $functionName | Write-Verbose
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                    $redirectUrl = $finalIntrospectData.success.href
+                    # Hide stateToken value in logs for security
+                    $redirectUrlLog = $redirectUrl
+                    if ($redirectUrlLog -match 'stateToken=[^&]+') {
+                        $redirectUrlLog = $redirectUrlLog -replace '(stateToken=)[^&]+', '$1[REDACTED]'
                     }
-                    throw "Authentication failed: Action URL not found"
-                }
-                $actionUrl = [System.Web.HttpUtility]::HtmlDecode($encodedString)
-                "[{0}] Decoded actionUrl: '{1}'" -f $functionName, $actionUrl | Write-Verbose
+                    "[{0}] Redirect URL: {1}" -f $functionName, $redirectUrlLog | Write-Verbose
+                    # Update stateHandle if new one is returned
+                    if ($finalIntrospectData.stateHandle) {
+                        $stateHandle = $finalIntrospectData.stateHandle
+                    }
 
-                # Extract method for actionUrl (POST or GET)
-                $method = ($responseStep56.Content | Select-String -Pattern 'method="(POST|GET)"' | ForEach-Object { $_.Matches.Groups[1].Value } | Select-Object -First 1)
-                if (-not $method) {
-                    "[{0}] ERROR: No form method found in response! Defaulting to POST." -f $functionName | Write-Verbose
-                    $method = "POST"
-                }
-                "[{0}] Extracted form method: '{1}'" -f $functionName, $method | Write-Verbose
+                    $completedSteps++
 
-                # Extract RelayState
-                $encodedRelayState = ($responseStep56.Content -join "`n" | Select-String -Pattern 'name="RelayState" type="hidden" value="([^"]+)"' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 1
-                if (-not $encodedRelayState) {
-                    "[{0}] ERROR: No RelayState found in response!" -f $functionName | Write-Verbose
-                    if (-not $NoProgress) {
-                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                    }                            
-                    throw "Authentication failed: RelayState not found"
-                }
-                $RelayState = [System.Web.HttpUtility]::HtmlDecode($encodedRelayState)
-                $encodedRelayState = [System.Web.HttpUtility]::UrlEncode($RelayState)
-                # Hide okta_key value in logs for security
-                $RelayStateLog = $RelayState
-                if ($RelayStateLog -match 'okta_key=[^&]+') {
-                    $RelayStateLog = $RelayStateLog -replace '(okta_key=)[^&]+', '$1[REDACTED]'
-                }
-                "[{0}] Extracted RelayState: '{1}'" -f $functionName, $RelayStateLog | Write-Verbose
-                # "[{0}] Encoded RelayState: '{1}'" -f $functionName, $encodedRelayState | Write-Verbose
+
+                    #EndRegion [STEP 5.5] Verify Okta Verify Status
+
+                    #Region [STEP 5.6]: Acquire SAML response: GET request to 'https://mylogin.hpe.com/login/token/redirect?stateToken=...'
+                    Write-Verbose " ----------------------------------STEP 5.6--------------------------------------------------------------------------------"        
+                    Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Acquire SAML response" -Id 0
+                    $step++
+                    # Hide stateToken value in logs for security
+                    $redirectUrlLog = $global:redirectUrl
+                    if ($redirectUrlLog -match 'stateToken=[^&]+') {
+                        $redirectUrlLog = $redirectUrlLog -replace '(stateToken=)[^&]+', '$1[REDACTED]'
+                    }
+                    Write-Verbose ("[{0}] Step 5.6: GET '{1}' to acquire SAMLResponse" -f $functionName, $redirectUrlLog)
+
+                    "[{0}] About to GET SAMLResponse from: '{1}'" -f $functionName, $redirectUrlLog | Write-Verbose
+
+                    # Log-Cookies -Domain "https://mylogin.hpe.com" -Session $session -Step "Before Step 5.6 (GET SAMLResponse)"
+
+                    $responseStep56 = Invoke-WebRequest -Uri $redirectUrl -Method GET -ErrorAction Stop -WebSession $session   
+                    "[{0}] SAML response acquired successfully." -f $functionName | Write-Verbose
+                    # Extract and display only the </script><form id="appForm" ... section from the HTML content
+                    $formSection = ($responseStep56.Content -join "`n") -match '(<form id="appForm"[\s\S]+?</form>)' | Out-Null
+                    $formSection = $matches[1]
+                    # Hide sensitive values in logs (RelayState, SAMLResponse)
+                    $formSectionRedacted = $formSection
+                    $formSectionRedacted = $formSectionRedacted -replace '(name="RelayState" type="hidden" value=")[^"]+(")', '$1[REDACTED]$2'
+                    $formSectionRedacted = $formSectionRedacted -replace '(name="SAMLResponse" type="hidden" value=")[^"]+(")', '$1[REDACTED]$2'
+                    "[{0}] Extracted script from SAML section:`n{1}" -f $functionName, $formSectionRedacted | Write-Verbose
+                
+                    # Log cookies set by the response
+                    # Log-Cookies -Domain "https://mylogin.hpe.com" -Session $session -Step "After Step 5.6 (GET SAMLResponse)"
+                
+                    # Extract actionUrl
+                    $encodedString = ($responseStep56.Content | Select-String -Pattern 'action="(.*?)"' | ForEach-Object { $_.Matches.Groups[1].Value } | Select-Object -First 1)
+                    if (-not $encodedString) {
+                        "[{0}] ERROR: No action URL found in response!" -f $functionName | Write-Verbose
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Authentication failed: Action URL not found" -f $functionName
+                    }
+                    $actionUrl = [System.Web.HttpUtility]::HtmlDecode($encodedString)
+                    "[{0}] Decoded actionUrl: '{1}'" -f $functionName, $actionUrl | Write-Verbose
+
+                    # Extract method for actionUrl (POST or GET)
+                    $method = ($responseStep56.Content | Select-String -Pattern 'method="(POST|GET)"' | ForEach-Object { $_.Matches.Groups[1].Value } | Select-Object -First 1)
+                    if (-not $method) {
+                        "[{0}] ERROR: No form method found in response! Defaulting to POST." -f $functionName | Write-Verbose
+                        $method = "POST"
+                    }
+                    "[{0}] Extracted form method: '{1}'" -f $functionName, $method | Write-Verbose
+
+                    # Extract RelayState
+                    $encodedRelayState = ($responseStep56.Content -join "`n" | Select-String -Pattern 'name="RelayState" type="hidden" value="([^"]+)"' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value } | Select-Object -First 1
+                    if (-not $encodedRelayState) {
+                        "[{0}] ERROR: No RelayState found in response!" -f $functionName | Write-Verbose
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }                            
+                        throw "[{0}] Authentication failed: RelayState not found" -f $functionName
+                    }
+                    $RelayState = [System.Web.HttpUtility]::HtmlDecode($encodedRelayState)
+                    $encodedRelayState = [System.Web.HttpUtility]::UrlEncode($RelayState)
+                    # Hide okta_key value in logs for security
+                    $RelayStateLog = $RelayState
+                    if ($RelayStateLog -match 'okta_key=[^&]+') {
+                        $RelayStateLog = $RelayStateLog -replace '(okta_key=)[^&]+', '$1[REDACTED]'
+                    }
+                    "[{0}] Extracted RelayState: '{1}'" -f $functionName, $RelayStateLog | Write-Verbose
+                    # "[{0}] Encoded RelayState: '{1}'" -f $functionName, $encodedRelayState | Write-Verbose
             
-                # Extract the SAMLResponse value
-                $encodedSAMLResponse = ($responseStep56.Content -join "`n" | Select-String -Pattern 'name="SAMLResponse" type="hidden" value="([^"]+)"' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value }
-                # "[{0}] Extracted Encoded SAMLResponse: `n{1}" -f $functionName, $encodedSAMLResponse | Write-Verbose
+                    # Extract the SAMLResponse value
+                    $encodedSAMLResponse = ($responseStep56.Content -join "`n" | Select-String -Pattern 'name="SAMLResponse" type="hidden" value="([^"]+)"' -AllMatches).Matches | ForEach-Object { $_.Groups[1].Value }
+                    # "[{0}] Extracted Encoded SAMLResponse: `n{1}" -f $functionName, $encodedSAMLResponse | Write-Verbose
 
-                $SAMLResponse = [System.Web.HttpUtility]::HtmlDecode($encodedSAMLResponse)
-                # "[{0}] Extracted Decoded SAMLResponse: `n{1}" -f $functionName, $SAMLResponse | Write-Verbose
-                $completedSteps++
+                    $SAMLResponse = [System.Web.HttpUtility]::HtmlDecode($encodedSAMLResponse)
+                    # "[{0}] Extracted Decoded SAMLResponse: `n{1}" -f $functionName, $SAMLResponse | Write-Verbose
+                    $completedSteps++
                 
 
-                #EndRegion [STEP 5.6] Acquire SAML response
+                    #EndRegion [STEP 5.6] Acquire SAML response
+
+                } # End if (-not $skipTraditionalOktaVerify)
 
                 #Region [STEP 5.7]: POST SAMLResponse to 'https://auth.hpe.com/sso/saml2/0oaxkzvt641W1SCSY357'
                 Write-Verbose " ----------------------------------STEP 5.7--------------------------------------------------------------------------------"
@@ -5580,7 +8402,7 @@ Function Connect-HPEGL {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Authentication failed: SAML POST failed with error: $($_.Exception.Message)"
+                    throw "[{0}] Authentication failed: SAML POST failed with error: {1}" -f $functionName, $_.Exception.Message
                 }
 
                 # Extract stateToken from HTML (example regex)
@@ -5621,14 +8443,84 @@ Function Connect-HPEGL {
                         $redirectUrlLog = $redirectUrlLog -replace '(stateToken=)[^&]+', '$1[REDACTED]'
                     }
                     "[{0}] Redirect URL from introspect: {1}" -f $functionName, $redirectUrlLog | Write-Verbose
+                }                
+                # Check if we're being asked to re-authenticate (MFA step-up scenario)
+                elseif ($introspectResult.remediation -and $introspectResult.remediation.value) {
+                    $remediationActions = $introspectResult.remediation.value | ForEach-Object { $_.name }
+                    "[{0}] Remediation actions required: {1}" -f $functionName, ($remediationActions -join ', ') | Write-Verbose
+                    
+                    # Check for select-authenticator-authenticate which indicates MFA step-up is required
+                    if ($remediationActions -contains 'select-authenticator-authenticate') {
+                        $availableAuthenticators = @()
+                        foreach ($remediation in $introspectResult.remediation.value) {
+                            if ($remediation.name -eq 'select-authenticator-authenticate' -and $remediation.value) {
+                                foreach ($value in $remediation.value) {
+                                    if ($value.name -eq 'authenticator' -and $value.options) {
+                                        foreach ($option in $value.options) {
+                                            $availableAuthenticators += $option.label
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        $authenticatorList = if ($availableAuthenticators.Count -gt 0) { 
+                            "`n`nAvailable authenticators: $($availableAuthenticators -join ', ')" 
+                        }
+
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+
+                        Write-Error @"
+Authentication failed: Outdated Okta Verify app detected.
+
+ROOT CAUSE: Your Okta Verify mobile app is too old to meet current security requirements.
+
+IMMEDIATE SOLUTIONS:
+1. UPDATE Okta Verify on your mobile device to the latest version 
+2. RE-ENROLL your device if updating doesn't work  
+
+WHY THIS HAPPENS:
+- Initial MFA succeeded with basic authentication context
+- Token exchange requires enhanced device attestation  
+- Your outdated Okta Verify app cannot provide the required security proof${authenticatorList}
+
+Contact IT support if updating the app doesn't resolve this issue.
+
+Technical details: MFA step-up triggered due to insufficient device attestation during SAML-to-OIDC token exchange.
+"@ -ErrorAction Stop
+
+                    }
+                    else {
+                        # Other remediation actions that we don't handle
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+                        $remediationList = $remediationActions -join ', '
+                        Write-Error @" 
+Authentication failed: Unexpected remediation actions required: $remediationList
+
+Please contact your IT administrator.
+"@ -ErrorAction Stop 
+                    }
                 }
                 else {
+                    # Neither success nor known remediation patterns
                     if (-not $NoProgress) {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Authentication failed: Introspect did not return a success href. Response: $($response.Content)"
+                    Write-Error @"
+Authentication failed: Introspect did not return a success href or recognized remediation pattern.
+
+Response: $($response.Content)
+"@ -ErrorAction Stop
                 }
+
+                #endregion [STEP 5.8] Post to introspect to exchange stateToken for authorization code
 
                 #endregion [STEP 5.8] Post to introspect to exchange stateToken for authorization code
 
@@ -5719,7 +8611,7 @@ Function Connect-HPEGL {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Authentication failed: Unable to obtain authorization code after submitting credentials."
+                    throw "[{0}] Authentication failed: Unable to obtain authorization code after submitting credentials." -f $functionName
                 } 
                 else {
                     "[{0}] Authorization code obtained successfully." -f $functionName | Write-Verbose
@@ -5776,7 +8668,7 @@ Function Connect-HPEGL {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "Authentication failed: Unexpected error in response messages: $($challengeResp.messages | ConvertTo-Json -Depth 20)"
+                        throw "[{0}] Authentication failed: Unexpected error in response messages: {1}" -f $functionName, ($challengeResp.messages | ConvertTo-Json -Depth 20)
                     }  
 
                     # If no errors in messages, assume authentication is successful
@@ -5810,7 +8702,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }
-                                        throw "Authentication failed: Incorrect password. Please verify your credentials and try again."
+                                        throw "[{0}] Authentication failed: Incorrect password. Please verify your credentials and try again." -f $functionName
                                     }
                                     "errors.E0000015" {
                                         "[{0}] Detected insufficient permissions error (errors.E0000015)" -f $functionName | Write-Verbose
@@ -5818,7 +8710,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }                                        
-                                        throw "Authentication failed: Insufficient permissions. Please ensure your account has the necessary access rights."
+                                        throw "[{0}] Authentication failed: Insufficient permissions. Please ensure your account has the necessary access rights." -f $functionName
                                     }
                                     "errors.E0000011" {
                                         "[{0}] Detected invalid token error (errors.E0000011)" -f $functionName | Write-Verbose
@@ -5826,7 +8718,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }
-                                        throw "Authentication failed: Invalid token provided. Please try again or contact your administrator."
+                                        throw "[{0}] Authentication failed: Invalid token provided. Please try again or contact your administrator." -f $functionName
                                     }
                                     "errors.E0000064" {
                                         "[{0}] Detected password expired error (errors.E0000064)" -f $functionName | Write-Verbose
@@ -5834,7 +8726,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }                                        
-                                        throw "Authentication failed: Your password has expired. Please reset your password and try again."
+                                        throw "[{0}] Authentication failed: Your password has expired. Please reset your password and try again." -f $functionName
                                     }
                                     "errors.E0000207" {
                                         "[{0}] Detected incorrect username or password error (errors.E0000207)" -f $functionName | Write-Verbose
@@ -5842,7 +8734,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }                                        
-                                        throw "Authentication failed: Incorrect username or password. Please verify your credentials and try again."
+                                        throw "[{0}] Authentication failed: Incorrect username or password. Please verify your credentials and try again." -f $functionName
                                     }
                                     default {
                                         "[{0}] Detected other error: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key | Write-Verbose
@@ -5850,7 +8742,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }
-                                        throw "Authentication failed: $($message.message) (key=$($message.i18n.key))"
+                                        throw "[{0}] Authentication failed: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key
                                     }
                                 }
                             }
@@ -5859,7 +8751,7 @@ Function Connect-HPEGL {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }                        
-                        throw "Authentication failed: $StatusCode $StatusError (no error details)"
+                        throw "[{0}] Authentication failed: {1} {2} (no error details)" -f $functionName, $StatusCode, $StatusError
                     }
                     elseif ($StatusCode -eq 403) {
                         if ($errorBody -and $errorBody.messages -and $errorBody.messages.value) {
@@ -5871,7 +8763,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }
-                                        throw "Authentication failed: Invalid session. Please try logging in again."
+                                        throw "[{0}] Authentication failed: Invalid session. Please try logging in again." -f $functionName
                                     }
                                     default {
                                         "[{0}] Detected other error: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key | Write-Verbose
@@ -5879,7 +8771,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }
-                                        throw "Authentication failed: $($message.message) (key=$($message.i18n.key))"
+                                        throw "[{0}] Authentication failed: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key
                                     }
                                 }
                             }
@@ -5888,7 +8780,7 @@ Function Connect-HPEGL {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "Authentication failed: $StatusCode $StatusError (no error details)"
+                        throw "[{0}] Authentication failed: {1} {2} (no error details)" -f $functionName, $StatusCode, $StatusError
                     }
                     elseif ($StatusCode -eq 404) {
                         if ($errorBody -and $errorBody.messages -and $errorBody.messages.value) {
@@ -5900,7 +8792,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }
-                                        throw "Authentication failed: Resource not found. Please contact your administrator."
+                                        throw "[{0}] Authentication failed: Resource not found. Please contact your administrator." -f $functionName
                                     }
                                     default {
                                         "[{0}] Detected other error: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key | Write-Verbose
@@ -5908,7 +8800,7 @@ Function Connect-HPEGL {
                                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                                         }
-                                        throw "Authentication failed: $($message.message) (key=$($message.i18n.key))"
+                                        throw "[{0}] Authentication failed: {1} (key={2})" -f $functionName, $message.message, $message.i18n.key
                                     }
                                 }
                             }
@@ -5917,7 +8809,7 @@ Function Connect-HPEGL {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "Authentication failed: $StatusCode $StatusError (no error details)"
+                        throw "[{0}] Authentication failed: {1} {2} (no error details)" -f $functionName, $StatusCode, $StatusError
                     }
 
                     # Handle other unexpected errors
@@ -5953,7 +8845,11 @@ Function Connect-HPEGL {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Connection error! Multi-factor authentication (MFA) enrollment is required. Please log in to the HPE GreenLake GUI and complete the MFA setup using one of the available methods before proceeding with this library."
+                    Write-Error @"
+Connection error! Multi-factor authentication (MFA) enrollment is required.
+
+Please log in to the HPE GreenLake GUI and complete the MFA setup using one of the available methods before proceeding with this library.
+"@ -ErrorAction Stop
                 }
                 # PUSH (Okta Verify) with push notification
                 elseif ($preferredAuthenticator -and $preferredAuthenticator.methodType -eq 'push') {
@@ -6018,7 +8914,7 @@ Function Connect-HPEGL {
                                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                             }
-                            throw "Maximum number of Okta Verify push polling attempts ($maxPolls) reached. MFA approval not received."
+                            throw "[{0}] Maximum number of Okta Verify push polling attempts ({1}) reached. MFA approval not received." -f $functionName, $maxPolls
                         }
                         if ($challengeResp.messages -and $challengeResp.messages.value -and $challengeResp.messages.value[0].message) {
                             "[{0}] Okta Verify push polling error: {1}" -f $functionName, $challengeResp.messages.value[0].message | Write-Verbose
@@ -6026,7 +8922,7 @@ Function Connect-HPEGL {
                                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                             }
-                            throw "Okta Verify push polling error: $($challengeResp.messages.value[0].message)"
+                            throw "[{0}] Okta Verify push polling error: {1}" -f $functionName, $challengeResp.messages.value[0].message
                         }
                     }   
                     $Step++
@@ -6116,7 +9012,7 @@ Function Connect-HPEGL {
                                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                             }
-                            throw "Authentication failed: '$($preferredAuthenticator.name)' code expired."
+                            throw "[{0}] Authentication failed: '{1}' code expired." -f $functionName, $preferredAuthenticator.name
                         }
                         elseif ($_.Exception.Response -and $_.Exception.Response.StatusCode.value__ -eq 400) {
                             "[{0}] {1} code rejected. HTTP 400 Bad Request received." -f $functionName, $preferredAuthenticator.name | Write-Verbose
@@ -6124,7 +9020,11 @@ Function Connect-HPEGL {
                                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                             }
-                            throw "Authentication failed: The code entered for '$($preferredAuthenticator.name)' was incorrect (HTTP 400). Please verify your authenticator app and try again."
+                            Write-Error @"
+Authentication failed: The code entered for '$($preferredAuthenticator.name)' was incorrect (HTTP 400).
+
+Please verify your authenticator app and try again.
+"@ -ErrorAction Stop
                         }
                         else {
                             "[{0}] {1} code rejected. Error: {2}" -f $functionName, $preferredAuthenticator.name, $errMsg | Write-Verbose
@@ -6132,7 +9032,7 @@ Function Connect-HPEGL {
                                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                             }
-                            throw "Authentication failed: The code entered for '$($preferredAuthenticator.name)' was rejected. Error: $errMsg"
+                            throw "[{0}] Authentication failed: The code entered for '{1}' was rejected. Error: {2}" -f $functionName, $preferredAuthenticator.name, $errMsg
                         }
                     }
 
@@ -6156,7 +9056,7 @@ Function Connect-HPEGL {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "Authentication failed: '$($preferredAuthenticator.name)' code rejected."
+                        throw "[{0}] Authentication failed: '{1}' code rejected." -f $functionName, $preferredAuthenticator.name
                     }
                 }
 
@@ -6265,7 +9165,7 @@ Function Connect-HPEGL {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Connection error! Unable to obtain authorization code after submitting credentials."
+                    throw "[{0}] Connection error! Unable to obtain authorization code after submitting credentials." -f $functionName
                 } 
                 else {
                     "[{0}] Authorization code obtained successfully." -f $functionName | Write-Verbose
@@ -6275,6 +9175,8 @@ Function Connect-HPEGL {
                 $completedSteps++
                 #endregion STEP 5.2: End credential submission and redirect handling                       
             }
+
+            $tokenUrl = "https://sso.common.cloud.hpe.com/as/token.oauth2"
         }
     
         ##############################################################################################################################################################################################
@@ -6287,18 +9189,21 @@ Function Connect-HPEGL {
         "[{0}] Step 6: POST https://sso.common.cloud.hpe.com/as/token.oauth2" -f $functionName | Write-Verbose
         "[{0}] Code verifier (for token): {1}...{2}" -f $functionName, $codeVerifier.Substring(0, 1), $codeVerifier.Substring($codeVerifier.Length - 1, 1) | Write-Verbose
         "[{0}] Code challenge (for token): {1}...{2}" -f $functionName, $codeChallenge.Substring(0, 1), $codeChallenge.Substring($codeChallenge.Length - 1, 1) | Write-Verbose
+        
         $tokenPayloadObj = @{
-            client_id     = $dynamicClientId
+            grant_type    = "authorization_code"
             code          = $authCode
             redirect_uri  = $RedirectUri
             code_verifier = $codeVerifier
-            grant_type    = "authorization_code"
+            client_id     = $dynamicClientId
         }
-        "[{0}] About to execute POST request to: '{1}'" -f $functionName, "https://sso.common.cloud.hpe.com/as/token.oauth2" | Write-Verbose
+        "[{0}] About to execute POST request to: '{1}'" -f $functionName, $tokenUrl | Write-Verbose
+        
         $tokenPayloadLog = $tokenPayloadObj.Clone()
         # Hide sensitive code and code_verifier values in logs
         $tokenPayloadLog.code = '[REDACTED]'
         $tokenPayloadLog.code_verifier = '[REDACTED]'        
+        
         "[{0}] Payload content: `n{1}" -f $functionName, ($tokenPayloadLog | Out-String) | Write-Verbose
 
         # Convert token payload to URL-encoded string for application/x-www-form-urlencoded
@@ -6309,8 +9214,37 @@ Function Connect-HPEGL {
         $bodyStringLog = $bodyString -replace '(code=)[^&]+', '$1[REDACTED]' -replace '(code_verifier=)[^&]+', '$1[REDACTED]'
         "[{0}] Token request body (urlencoded): {1}" -f $functionName, $bodyStringLog | Write-Verbose
         
-        $tokenResponse = Invoke-RestMethod -Uri "https://sso.common.cloud.hpe.com/as/token.oauth2" -Method Post -Body $bodyString -ContentType "application/x-www-form-urlencoded" 
-        "[{0}] Tokens retrieved successfully" -f $functionName | Write-Verbose
+        try {
+            $tokenResponse = Invoke-RestMethod -Uri $tokenUrl -Method Post -Body $bodyString -ContentType "application/x-www-form-urlencoded"
+            "[{0}] Token exchange successful - Status: {1}" -f $functionName, $tokenResponse.StatusCode | Write-Verbose
+        }   
+        catch {
+            if (-not $NoProgress) {
+                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+            }
+            "[{0}] Failed to exchange OAuth code for tokens: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+            
+            # Try to get error response body
+            $errorBody = $null
+            if ($_.Exception.Response) {
+                try {
+                    $errorBody = $_.ErrorDetails.Message
+                }
+                catch {
+                    $errorBody = "Could not read error details"
+                }
+            }
+            elseif ($_.ErrorDetails) {
+                $errorBody = $_.ErrorDetails.Message
+            }
+            
+            if ($errorBody) {
+                "[{0}] Error details: {1}" -f $functionName, $errorBody | Write-Verbose
+            }
+            
+            throw "[{0}] Authentication failed: Could not exchange OAuth code for access token. {1}" -f $functionName, $_.Exception.Message
+        }
         
         $Oauth2AccessToken = $tokenResponse.access_token
         "[{0}] OAuth2 Access Token: '{1}...'" -f $functionName, ($oauth2AccessToken.Substring(0, [Math]::Min(50, $oauth2AccessToken.Length))) | Write-Verbose
@@ -6552,7 +9486,8 @@ System.String
                     if ($_.Exception.Response) {
                         try {
                             $Response = $_.Exception.Response | ConvertTo-Json -Depth 10
-                        } catch {
+                        }
+                        catch {
                             $Response = $_.Exception.Response.ToString()
                         }
                     }
@@ -6967,7 +9902,19 @@ Function Connect-HPEGLWorkspace {
                         Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                     }
-                    throw "Workspace '$Name' not found. Use Get-HPEGLWorkspace to list available workspaces."
+                    Write-Error @"
+Workspace '$Name' not found or not accessible.
+
+This error can occur for multiple reasons:
+
+1. Workspace does not exist in HPE GreenLake
+2. Workspace name is misspelled
+3. User does not have access permissions to this workspace
+   - Contact your HPE GreenLake workspace administrator
+   - Verify you have been assigned the appropriate role (Observer, Operator, or Administrator)
+
+To view available workspaces: Get-HPEGLWorkspace
+"@ -ErrorAction Stop
                 }
             }
             else {
@@ -7217,7 +10164,20 @@ Function Connect-HPEGLWorkspace {
                     Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "Workspace '$Name' not found for user '$($Global:HPEGreenLakeSession.username)'. Use Get-HPEGLWorkspace to list available workspaces."
+                $errorMessage = @"
+Workspace '$Name' not found or not accessible for user '$($Global:HPEGreenLakeSession.username)'.
+
+This error can occur for multiple reasons:
+
+1. Workspace does not exist in HPE GreenLake
+2. Workspace name is misspelled
+3. User does not have access permissions to this workspace
+   - Contact your HPE GreenLake workspace administrator
+   - Verify you have been assigned the appropriate role (Observer, Operator, or Administrator)
+
+To view available workspaces: Get-HPEGLWorkspace
+"@
+                throw $errorMessage
             }
             $WorkspaceId = $Workspace.platform_customer_id
             $MyWorkspaceName = $Workspace.company_name
@@ -7289,7 +10249,7 @@ Function Connect-HPEGLWorkspace {
                     "[{0}] Found {1} existing API credentials to remove." -f $functionName, $APIcredentials.Count | Write-Verbose
 
                     if ($APIcredentials) {
-                        '[{0}] Found existing API credentials: {1}' -f $functionName, ($APIcredentials | Select-Object -ExpandProperty name -Unique) | Write-Verbose
+                        '[{0}] Found existing API credentials: {1}' -f $functionName, (($APIcredentials | Select-Object -ExpandProperty name -Unique) -join ', ') | Write-Verbose
                         $APIcredentials | Remove-HPEGLAPICredential -Force | Out-Null
                         "[{0}] Existing API credentials removed." -f $functionName | Write-Verbose
                     }
@@ -7301,6 +10261,45 @@ Function Connect-HPEGLWorkspace {
                     Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
+                
+                # Check for 403 Forbidden error (insufficient permissions)
+                $ErrorMessage = $_.Exception.Message
+                if ($ErrorMessage -match "403" -or $ErrorMessage -match "Forbidden") {
+                    Write-Error @"
+Insufficient permissions to remove API credentials (403 Forbidden).
+
+Your user account does not have the required permissions to remove existing API credentials in this workspace.
+
+ROLES THAT CANNOT MANAGE API CREDENTIALS:
+The following roles will result in a 403 Forbidden error when attempting to create or remove API credentials:
+- Workspace Member
+- Identity domain and SCIM integration (Administrator, Viewer)
+- Identity domain and SSO (Administrator, Viewer)
+- Identity user administrator
+- Identity user group administrator
+- Identity user group membership administrator
+- Orders (Administrator, Operator, Observer)
+- Organization administrator
+- Organization workspace (Administrator, Viewer)
+
+REQUIRED PERMISSIONS:
+You need a role with workspace-level API credential management permissions, such as:
+- Workspace Observer (minimum required role)
+- Workspace Operator
+- Workspace Administrator
+
+SOLUTIONS:
+1. Contact your Workspace Administrator to:
+   - Grant you a role with API credential management permissions
+   - Or manually remove old API credentials from your account
+2. Connect without the -RemoveExistingCredentials parameter (old credentials will remain but may cause "maximum of 7 API clients" error later)
+3. Use a different user account with at least 'Workspace Observer' role privileges
+
+For more information about roles and permissions, visit:
+https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us
+"@ -ErrorAction Stop
+                }
+                
                 $PSCmdlet.ThrowTerminatingError($_)
             }
 
@@ -7317,6 +10316,8 @@ Function Connect-HPEGLWorkspace {
                     }
                     throw "API Credential creation failed: $($GLPAPICreationTask.Exception)"
                 }
+
+                "[{0}] Created new GLP API credential: {1}" -f $functionName, $global:HPEGLAPIClientCredentialName | Write-Verbose
             }
             catch {
                 if (-not $NoProgress) {
@@ -7325,8 +10326,63 @@ Function Connect-HPEGLWorkspace {
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
                 $ErrorMessage = $_.Exception.Message
-                if ($ErrorMessage -match "You have reached the maximum of 7 personal API clients") {
-                    Throw "You have reached the maximum limit of 7 personal API clients. A possible fix is to use the -RemoveExistingCredentials parameter when connecting to automatically remove previously generated credentials created by this library.`nCaution: Removing existing credentials may impact other active library sessions related to your user that are currently using those credentials. This could cause authentication failures in other running PowerShell sessions until they reconnect."
+                
+                # Check for 403 Forbidden error (insufficient permissions)
+                if ($ErrorMessage -match "403" -or $ErrorMessage -match "Forbidden") {
+                    Write-Error @"
+Insufficient permissions to create API credentials (403 Forbidden).
+
+IMPORTANT: This PowerShell library requires the ability to create temporary API credentials to function properly. 
+API credential creation is a mandatory requirement for Connect-HPEGL to establish a connection and interact with HPE GreenLake services.
+
+Your user account does not have the required permissions to create API credentials in this workspace.
+
+ROLES THAT CANNOT MANAGE API CREDENTIALS:
+The following roles will result in a 403 Forbidden error when attempting to create or remove API credentials:
+- Workspace Member
+- Identity domain and SCIM integration (Administrator, Viewer)
+- Identity domain and SSO (Administrator, Viewer)
+- Identity user administrator
+- Identity user group administrator
+- Identity user group membership administrator
+- Orders (Administrator, Operator, Observer)
+- Organization administrator
+- Organization workspace (Administrator, Viewer)
+
+REQUIRED PERMISSIONS:
+You need a role with workspace-level API credential management permissions, such as:
+- Workspace Observer (minimum required role)
+- Workspace Operator
+- Workspace Administrator
+
+SOLUTIONS:
+1. Contact your Workspace Administrator or Identity user administrator to grant you a role with API credential management permissions (at minimum 'Workspace Observer')
+2. Use a different user account that has the required permissions
+
+For more information about roles and permissions, visit:
+https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us
+"@ -ErrorAction Stop
+                }
+                elseif ($ErrorMessage -match "You have reached the maximum of 7 personal API clients") {
+                    Write-Error @"
+You have reached the maximum limit of 7 personal API clients.
+
+CAUSE:
+HPE GreenLake enforces a maximum of 7 personal API client credentials per user account. This limit has been reached, preventing new credential creation.
+
+SOLUTION:
+Use the -RemoveExistingCredentials parameter when connecting to automatically remove old credentials created by this library:
+
+    Connect-HPEGL -Credential `$credentials -Workspace "MyWorkspace" -RemoveExistingCredentials
+
+This will clean up unused credentials from previous sessions that were not properly removed by Disconnect-HPEGL.
+
+CAUTION:
+Removing existing credentials may affect other active PowerShell sessions using those credentials. Those sessions will need to reconnect after cleanup.
+
+ALTERNATIVE:
+Manually remove old credentials via the HPE GreenLake web portal (Manage Workspace > Personal API clients) before reconnecting.
+"@ -ErrorAction Stop                
                 }
                 else {
                     Throw "Failed to create HPE GreenLake API credential: $ErrorMessage"
@@ -7343,7 +10399,7 @@ Function Connect-HPEGLWorkspace {
             Write-Verbose ("[{0}] Step 4: Create new API session" -f $functionName)
             $GLPTemporaryCredentials = $Global:HPEGreenLakeSession.apiCredentials | Where-Object { $_.name -match "GLP-$Global:HPEGLAPIClientCredentialName" }
             if ($GLPTemporaryCredentials) {
-                "[{0}] Found temporary GLP credentials '{1}'" -f $functionName, $GLPTemporaryCredentials.name | Write-Verbose
+                "[{0}] Create session using temporary GLP credentials '{1}'" -f $functionName, $GLPTemporaryCredentials.name | Write-Verbose
                 try {
                     $SecureClientSecret = $GLPTemporaryCredentials.secure_client_secret | ConvertTo-SecureString
                     $Bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureClientSecret)
@@ -8357,10 +11413,10 @@ function Invoke-RepackageObjectWithType {
 Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest', 'Connect-HPEOnepass', 'Connect-HPEGL', 'Disconnect-HPEGL', 'Connect-HPEGLWorkspace', 'Invoke-HPEGLAutoReconnect', 'Get-HPEGLJWTDetails' -Alias *
 
 # SIG # Begin signature block
-# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBlR1QvZZqls4GC
-# 553FnPd9nAP7J9hUzCfKZ5eF7Tt2JqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAgz3IcSK1/RxzO
+# Zs1eorBYVyy0TpF092mzJIW13Bi696CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -8456,154 +11512,147 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgk5Wl8pjlkb3yZXhkFp+nWZbvmDnWlIjbtc3A/ThUDPwwDQYJKoZIhvcNAQEB
-# BQAEggIAg41kiKcZMQcnhLO6w3DLtnMv77BJ+JZ0IkBzbiALBo8dX6f5cuW1vlu4
-# uwyKOyw1B33zPyo6u9lbztJJCJk4IBLk5Ur64e4TFCOuaG5Cc+rYe2ymsxETxs1Y
-# 8M0HbrOvRUuLtoSmiNt4qwi6gYJYPUoLb7c8zdb5PuobtKxFBY0jBe6PlPGATbwx
-# Jslsp2L0BYAA4zS31XyOg40sozrd6TmZTqnI2/KvOlJmEWvp0TmGgPqCee8nO8Yn
-# fUvUyYWsRi1WGo+zmI8g2WNPIavAL40pT4CUDxLps7Y9bP/h2eKu769aPIgG0HsF
-# r5omxwGBZN6UDR7u4Y6XODuQ+8oh2+jKu2UH2fcI3qUJTT8u5DzdsBCcIOfg5xCH
-# dlS7ka58MOomAwcUE9b4cppi14r6FfNNC/RGK+Y4k48Uuu6sO8S19aQIEU0YwjTv
-# jy1uKS+dFH3BNJ1w3AP4EKNU4ZBIvsb288a6WlGpYkCgDR3lbmV13pUeV087WZ69
-# pFCwXvuFLlzW5J7PzozZBepL4L0VRD/R0h9rr0Nj+F5LCWgRbDQXAui/W7Ckk1WN
-# ybnFGm5xwJXxuY9RgbSofYwWXpzeySvyef+XvaeI8XmbGiXz5Pc1sUqRx8ufgE2m
-# bN9VdYG4e0KmZy6oGtzoJQFnhhunEZUmy713h3S0h+npHs1x8ZWhghjoMIIY5AYK
-# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwxhNVhMYVUz1r3Z4EMDIA43DkRO66s4PDSOU1
-# X175ttwQdS2kUAbKTaP74kL8r9n/AhQzaNQGB19969GiCkVQeir3ztnmJBgPMjAy
-# NTEwMTMxMjAyNTNaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
-# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
-# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
-# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
-# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
-# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
-# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
-# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
-# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
-# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
-# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
-# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
-# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
-# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
-# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
-# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
-# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
-# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
-# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
-# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
-# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
-# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
-# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
-# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
-# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
-# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
-# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
-# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
-# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
-# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
-# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
-# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
-# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
-# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
-# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
-# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
-# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
-# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
-# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
-# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
-# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
-# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
-# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
-# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
-# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
-# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
-# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
-# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
-# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
-# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
-# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
-# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
-# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
-# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
-# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
-# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
-# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
-# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
-# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
-# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
-# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
-# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
-# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
-# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
-# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
-# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
-# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
-# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
-# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
-# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
-# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
-# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
-# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
-# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
-# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
-# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
-# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
-# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
-# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
-# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
-# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
-# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
-# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
-# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
-# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
-# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
-# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
-# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
-# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
-# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
-# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
-# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
-# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
-# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
-# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
-# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
-# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
-# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
-# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
-# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
-# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
-# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
-# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
-# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjUxMDEzMTIwMjUzWjA/BgkqhkiG9w0BCQQxMgQwz3Z0VdYdlUpraBy2rYW4
-# Gv5xGJ33eTmFEy22lTM71oT6lD7h/MmJj+ljuGOc54pBMIIBegYLKoZIhvcNAQkQ
-# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
-# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
-# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
-# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
-# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
-# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgA6RLFcEG4dJjU8t34CxgARD8ZQywDypwyTiqQko8nlmlB+Hu1yeQfEwIHFf0/B
-# bT29raltmuv0yzY9xkRW+nfQPc6NXbB4CMMuolmdQORWx6HZ8uZfmCinzXmvoj8d
-# oDbC1Oh7ur/GPCu7NZeIauvQGnUWkGkLSNWNbnF+BFmxvBnxiT4JzDAH/mdnSz68
-# tfOaWftA2oLm2DnJrmXu8yJVsRdOCKaRQ+GZNgkv8Zd/2xILQNYCFxb/0h4c1Y5Q
-# 0pYmGmVqxlRmyymKjIQIoLXynTFCzxNBT1a4o9Shvu1t91ssEBEmb+xv3bbFMwz5
-# qfCo8svYng6Z/KAYYjwwZl7hkYHVpYSyi3v/Vik1U0/5QVaRs63u3JItC5rVna+O
-# NgO1ZsslXjZsYqG26khv7WQ3NqWpeN/7klZygGlBfbPJvmYhSH3bpKXFd2VYJNyY
-# bhtETt1fAiCIvDvVclVwLSEKtsJib532Zcd37sQeaszUHPEVYRTk0h0PRc26woXy
-# JyuaXzWv5j14HTkhqLCZ/4EtA8kpG5vGlQdzFj9z/9HqMLJjhDb9biLATjPO+5Oj
-# kfMcsvacVDg6ZIISKN/J11xIqABZkY7bGiRP//mCjf9wyXw8aqVbkBh1tzR6y5u/
-# MJL1SiJdfGsf35xnDVZJBFV50oK09oYeXllkP/kEbh2bgQ==
+# IgQg4K9xm8Uv9Mu9nRz+CaUt46UuQfdTzbDlUaWPOVPt9o0wDQYJKoZIhvcNAQEB
+# BQAEggIAeeYuwopqXHQdinAbCv7wxXRtdzs1gffQje7uj4oOpYoTtc4nMvMMNRFq
+# qaGrsUWcllnFyi5ZRqyOAynZNG4JKG5GM21/SlpL4biNXrkTDTLexWrAWRWjJ458
+# fS8iXuwqKwPV6g+JIV3G9QpeVH25oScgkRAWT7M4FC4+wjg4ckUVCGG7ZGo5le5s
+# 9UQxRSazr+PmRltMpsckVhPrLkC4MRujUHeyDPUdF3P734rh9NE1fgvuiNPIy0Uk
+# 5h6DTSGn/P4avkQVjdsx8h5RsTiJO6YH3zJMD6NWebc/XFqKNcTGFkg4AaE2f9ZN
+# JRZl3c0G6FjdmICiBF79kIQc2HtrYp/e5lzWDzTiPQO/IcY0y3f4Yv9s1C1OUWjk
+# mhhSZQ2Wix6Y097dnZ+tG4apCP+jls0HcxdjpTu5bweAo23SgZiRBL8rwMW3QM+i
+# 30EAtEnVd687HWulO7oRizwxMKG0FuWqXnJ6o/tFG3DIPrVbYHQC/HGAV+ZX1HRG
+# 6XQHGkyT5dspFo18BKFbYzvldiVy/hQnw67e6gzMQPIEyFuhywWCBz8V3bUQXMHE
+# McLx+0TDqiEApjeaeLnHo/TpG5Wn2gng6fDTs0JqUiIR+BnKYgVp4enSy7fEgr5b
+# gkh9IcYUW0KUVtKiqGYyppyUpBdxF54S58Xi9sO72phQQqlIQ1mhgheXMIIXkwYK
+# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMLjCqQsEzMxCmn3PRCkV2PPd+bX9aAZO8dIouUSDeNEa
+# 6Mkt1JPHnH2xbXm3LUOXfAIQNqVYKr8vkm4o1h3aF/g5aBgPMjAyNTExMjUxNTM0
+# NTNaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
+# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
+# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
+# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
+# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
+# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
+# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
+# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
+# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
+# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
+# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
+# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
+# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
+# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
+# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
+# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
+# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
+# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
+# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
+# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
+# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
+# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
+# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
+# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
+# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
+# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
+# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
+# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
+# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
+# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
+# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
+# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
+# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
+# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
+# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
+# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
+# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
+# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
+# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
+# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
+# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
+# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
+# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
+# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
+# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
+# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
+# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
+# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
+# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
+# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
+# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
+# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
+# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
+# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
+# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
+# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
+# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
+# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
+# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
+# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
+# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
+# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
+# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
+# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
+# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
+# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
+# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
+# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
+# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
+# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
+# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
+# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
+# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
+# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
+# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
+# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
+# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
+# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
+# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
+# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
+# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
+# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
+# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
+# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
+# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
+# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
+# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
+# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
+# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
+# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
+# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
+# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
+# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
+# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
+# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
+# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
+# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
+# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjUxMTI1
+# MTUzNDUzWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwKl7/O66xI4szCoNbXlHFBJqg
+# ItkGpir6O50YhaBUWVqpGpgJZl/WnaT1ZkD+HexHMA0GCSqGSIb3DQEBAQUABIIC
+# AGk2d0eGA+Ds0tmz2xaLsWO/KzaycRoRiF7w1BfQNVzMt1peAEXg5n01E842ioD1
+# LZXwjpXEGcbH3mjQQ1cNo8FMgVGdI55xLAmcDgV5xocLvWKNvDXGnA7k0IhUOD4D
+# ck2dYX0Q1EPfDRBeCrRh5o5OBGFMr0fgccugjqHTlvNfLjOKiJGDcFPIR85oo4Um
+# 39w1L165lCgb8mkBY0GmNOwDIVhwlc7clxwZY942KB5z2rQMTskA6PVGl2fahKrk
+# O+ZIfUcMcBCocipMd6fYPTo/QjK+liNqdZVWT4tYaNQ8UfD59vcxcI4IrPZ1v7w4
+# lrixUHQsA0f3vmMq87g7SFI0cNItoVzMxwGNxFlkUW4GpQvfHvbztiXDx4nxzMLT
+# UJyJxaeTYfFMb7OWntXIKcDH28LoyMT9ImtR4aLYZ72JLB9Yn7WaYf/1ZqMW5Lgt
+# 0p4tvsEde22YzACQeCpHuOW5amxfiDnJaVQjBkMhBgJanPn0dZAurrGWrOcazLlD
+# Qb/w9zG/87O/Z+zjdoRk+e+T4wxSy60SvMNlDm8FyX9YeViXfNAnrB9dFU+RDAks
+# pACRZyzUD8j0T8i7OYHMgiD3f8k2Wv0GLMH7Rt/iOJBvLyfP+Ng9Vj/aMIHk2kFb
+# wmL3AsBOUr2WDcDvaVxnrcjCuXKphD8q0fVcBshj4xNt
 # SIG # End signature block
