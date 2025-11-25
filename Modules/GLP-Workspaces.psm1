@@ -72,7 +72,7 @@ Function Get-HPEGLWorkspace {
         $ReturnData = [System.Collections.ArrayList]::new()
         $AllCollection = [System.Collections.ArrayList]::new()
         
-        $Uri = (Get-WorkspacesListUri) + "?count_per_page=5"
+        $Uri = (Get-WorkspacesListUri) + "?count_per_page=50"
         
         # GET WORKSPACES (if any) [Does not include the currently connected workspace]
 
@@ -1146,7 +1146,7 @@ Function Get-HPEGLWorkspaceSAMLSSODomain {
     If specified, returns the Identity Provider (IdP) X509 certificate.
 
     .PARAMETER DownloadServiceProviderMetadata
-    If specified, downloads the SAML SSO metadata file of the Service Provider (SP, i.e., HPE GreenLake) to the specified file path. This metadata is used by Identity Providers (IdPs) like ADFS to establish trust and facilitate Single Sign-On (SSO) interactions.
+    If specified, downloads the SAML SSO metadata file of the Service Provider (SP, i.e., HPE GreenLake) to the specified file path. This metadata is used by Identity Providers (IdPs) like OKTA to establish trust and facilitate Single Sign-On (SSO) interactions.
 
     .PARAMETER WhatIf
     Displays the raw REST API call that would be executed, without actually sending the request. Useful for understanding the native REST API interactions with GLP.
@@ -1254,7 +1254,12 @@ Function Get-HPEGLWorkspaceSAMLSSODomain {
 
                     if ($ShowIDPCertificate) {
 
-                        $ReturnData = $Collection.saml_idp_config.signing_certificate
+                        $certBase64 = $Collection.saml_idp_config.signing_certificate
+
+                        $pemCert = "-----BEGIN CERTIFICATE-----`n"
+                        $pemCert += ($certBase64 -split '(.{64})' | Where-Object { $_ }) -join "`r`n"
+                        $pemCert += "`n-----END CERTIFICATE-----"
+                        return $pemCert
 
                     }
                     else {
@@ -1321,7 +1326,11 @@ Function Get-HPEGLWorkspaceSAMLSSODomain {
                         [xml]$MetadataFile = Invoke-WebRequest -Method GET -Uri $MetadataURL
         
                         if ($ShowSPCertificate) {
-                            return $MetadataFile.EntityDescriptor.SPSSODescriptor.KeyDescriptor.KeyInfo.X509Data.X509Certificate
+                            $certBase64 = $MetadataFile.EntityDescriptor.SPSSODescriptor.KeyDescriptor.KeyInfo.X509Data.X509Certificate
+                            $pemCert = "-----BEGIN CERTIFICATE-----`n"
+                            $pemCert += ($certBase64 -split '(.{64})' | Where-Object { $_ }) -join "`r`n"
+                            $pemCert += "`n-----END CERTIFICATE-----"
+                            return $pemCert
                         }
                         elseif ($DownloadServiceProviderMetadata) {
                             $MetadataFile.Save($DownloadServiceProviderMetadata)
@@ -2623,8 +2632,8 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # SIG # Begin signature block
 # MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBEOA8bXkBWeUfN
-# gN2SgHvx2cHyKS39fBtHBn3tvLEErqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDB6Gvg/iyvaoO+
+# IrL628QvPRLmRvLmZ+RAjnNHRDLo5qCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -2725,23 +2734,23 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg2CJE3z3Py6B37jIWi3ZtRyZzVpY5w5kThyx/CqvtF5QwDQYJKoZIhvcNAQEB
-# BQAEggIAgopW6JF4w1NLLW6/A4EdR6oCx0LluHy1B/eIco8zUg6iT2MkYBnoNWNC
-# 4YCYS1ctAstcLYBtdpi9fyMstQBhiA0r+4UniyIHf+zFc8PyMvULgT7AiCacpDKD
-# oOf/1Dpnx/wXwc3enAZvNU0cPJWXC5RrOfqqhi+FM89QpV+ETd9ZaTAKu/E1YaaB
-# qZCg+Y6foX1u/el0N+B55B4kgvdvJy68PvKHTQW2GuhlyR1N4JuQRD7cDSXrc0EY
-# pNHyhu3XNfH++RsDpSqzsHqJB5gJf0OAmVDBEhcpp4EgY4WkY0mDvoz4ci9Je7FL
-# b/X7Ca69KWcJ67GR1Vif6uvbKHAd9Yu+GF1y9sZievwiqezQuEo0bjgsyxA8XJh9
-# uvSzg4F9O1pmDz6ztcxc970C6bkoelSeLVAFNQYJCa0x8/qLoUIO3PEfQkWZe5Sz
-# z1giR196F97sgDCYLOgKK4f/n1723o7fGPZF4AAb2os7UbHzjRvrQO27rRngW38J
-# FS5RpYZ7MYHLkl0J5hqKoaiytZ+VWrd+YGgbw/Ax65uRpIA1hDtDjGIEwtvsG0L8
-# u4+uu+FM2VMWVZa59lFrYv8+VHlmcUqrEQctg9YqJjFAfaVmKU+S10Ks8IoDirNO
-# b9A3xtRnMC1EaJC13yAWlDaD29LtyX6qbBPLX0pzy5zirK7x3zihghjoMIIY5AYK
+# IgQgklw40s7U0PtD3iERf6dDPsz2a3kGZbObZh1x/27b7E0wDQYJKoZIhvcNAQEB
+# BQAEggIAfDjRbGlnJ4a45BA93f52NffOjY/F1hO0Mzl00Dv5FgHa26emvPShiBMH
+# 4cZDy9EWNvaPKgCpQ4/o/RwUN0Wm1nSGBzBxCDuDVB2ZBPvJ19CBeszghZvRrxz4
+# wauuEWtU+oyvEfForFM07qc6jBn2WR0U/OXERiT9vYJm6LbQobfD7Fxn2rNhRoaI
+# M4FQxPuPeMj111k+2OUgsJ7i8ysQXA4zZ2lp3DkQ8iAJj78gEvHPBRS0HzvqDXjW
+# geC6biXSH5N7NiwnTNwMS9IgHiNwbFDAgHBNndLGAd0jPTQXJW3amd4Jnx6mJoRJ
+# qgk4MNxFB7sUmlVvPsaQSOVKqVMOtqlhIHc2HmenkdEx/k/5YOj3fw2CAtVEvgkW
+# qjwR7WJUAPQJp3XWJ8wdn1m35Ylh+os4e1DpzObmTfytylnWah6RrTJWDSnSMIeR
+# a4k9b5POT8e2KMaghmj7OHQDouY0Xj8qQcSB+eBroCLf1l77lTwDcE52wVdYdLCM
+# kYpjcK57kHLq/i/JuK+lf7PFcZV3e/4Z9TQgBSXSXNhw9DwJl1/5gQHofrXQBj1B
+# /EUpOBI5F4VyxxGnteYVMKo/1pIdjk3tiAjuTBbd+0MRw1b8Ex/rFPwhnBggAbix
+# D6zCU7o7GCySQUkv68aI0/nvNQVltc7DCA8R35ABwKJsBunP05uhghjoMIIY5AYK
 # KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwJBfe0f0wB4dEgf7hydos8L/8s/CKZb0KoLrh
-# JKIABp29wil0a98RGgpFRosAbBR7AhQkxl5DEYw6mU+eXlWoLJcpr6nuNBgPMjAy
-# NTEwMDIxNTU0NTFaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
+# AQEwQTANBglghkgBZQMEAgIFAAQwzp6lNv5gkxzt1II1aWvk+K6QaWT5KHCE6LgV
+# uCWoomDdiT0NkaYRsBgcG1kUTNu/AhRkYgTDxyFxS4GVjFkaa6EKyTHasBgPMjAy
+# NTExMjUxNTM0MTdaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
 # b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
 # dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
 # oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
@@ -2849,8 +2858,8 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
 # IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
 # BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjUxMDAyMTU1NDUxWjA/BgkqhkiG9w0BCQQxMgQwfVoEs/yHGe5yTGprZ/2/
-# gqYnjR/qWEWi/bYkDe5vSkQfOhTSWKWEPcmQp5J76DIhMIIBegYLKoZIhvcNAQkQ
+# DxcNMjUxMTI1MTUzNDE3WjA/BgkqhkiG9w0BCQQxMgQw6akr1SvUkn/UCIE1fHNN
+# s2XsSS+GlpCxj/A5/3N+UccLGmx2W6pdjhvKvf+eOC3GMIIBegYLKoZIhvcNAQkQ
 # AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
 # hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
 # ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
@@ -2859,15 +2868,15 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
 # VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
 # aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgBH7vs5CQxxUKR0ARlnpbVyuWjc+eZdsUNI2PH9/6aOuxDLlrugq98zMe7zeyCS
-# DnKJBcoB3vy9V4mPVaqWkV6bj891toOfphJAVDGwXEqBs5o/+2JlfT++UnPGseB0
-# N/i7lnQlbgMRBZj/BtZpBzYoY5UUA4OacLrcLAczZ7SET6jTlBfKN1Wm4XpgBPhP
-# QBI9gtBTl3t87nLAbaOhHtJ13fjrd+aWKzHozOHgDYgPBmxp1hOMVLzkYF/mBjyD
-# c5LQReTVHRHJivRcYIlztsPYtOmvKs4l0Ld20d2WTTSbj6i3bD/LQm8kJIc1K7oj
-# BzogoJ4Gf4nF/WCBBMcB2AwtNT5cpvAvwNQBOvLR/r66fA2WAcvPXynj9lUJQDr5
-# ohzUtgLIsdRgitQYuTwDCqmiyyEAT+0tJjtXgVrDqF5UDD0BnPRlcqBT1Av8obq+
-# vjKztr0sToC9DbeiXJ/MqlJNSbkV5lMlEl9lTx/P90LohjpnBS1nZGuXRV0csbD+
-# ftnIkZCo4WQARkKCcScyVhq7k5rcAafX5F7brc1WcA2H0RomifxSNggA8VNjEKrB
-# no6QmLDAUXzF0H01ewZxvHKRsF66zdvq4fwota0E1l7DNdYG/WW9dBMneGFt5Wpy
-# 71C6YJza2tBjrYVZTxxcaZiaWLxIb0CZlQlsv6bKOvxbGw==
+# AgB4wVHBZYPCDllNkfbIFScq1Q+M1hJlkaC8iv4sdu5BA5Cv0H4G0zFXGYZ/pi3t
+# ppTjRYSDwFJ5SmM0iVHGLvr9PxCdPJ8En6Aq/23F/8CgHJxePJXnlixzyHsT4Fds
+# wiCckEFaeFZy3VDNoIdLsd/OtIfBW2cbquOyZPyphRFJlpQMxLr31hzTRuyHukLG
+# kIBnHLH9oWzWbecea2XSJ86Jj8Lm98JDGrrvt9IQEGffQJYiKnS4Nr5qG0sXs6Bt
+# 5sBKJ+blK2/Y9POtYBn5r45DuI5EznBVQSAr+dllLNNu4Lmv2idiMhOUcPq/vLqt
+# nGtODoVnOFvAQrDf7sUNk0nxkh5F1Er6kyMjgtWPvimuRhRdzaZ6axb9SYBrIN1R
+# 3MeGuEZw2q56uWiCFi9GPGBHSs4zDHJXPU99N6oxqs/8ZL/j/Z2qKXqq4Aba23xi
+# WgrwUpVtgqUUxskIHQANCEHx6jZ9h236s4tfRXTMM/zG5D7jqAEHxV/U/4a3KDbK
+# zFrNnsOE3pi0ARaw5nD6KYOeM4FaEokLK4TYVd5rCC/+pCPqqVIOC8kPcbJImJBH
+# jXsCf3HMo73Ujp9JM7txU2BgzVJJOiihjBZJVmw0ljIlgk4PBjibfZ+mwGdUKq6j
+# XYa0Oo8y70Y56m9wSiLNv8uHLeJPlrlyESBiQ9lgolLVwA==
 # SIG # End signature block
