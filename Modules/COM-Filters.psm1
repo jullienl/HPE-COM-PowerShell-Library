@@ -23,6 +23,10 @@ Function Get-HPECOMFilter {
     .PARAMETER MatchingResources 
     Optional switch parameter that can be used with -Name to get ressources matching a saved filter.
 
+    .PARAMETER ShowSBACCompatibleFilters 
+    Optional switch parameter that returns only filters that are enabled for Scope-Based Access Control (SBAC) in HPE GreenLake Platform.
+    These filters can be referenced when creating scope groups using New-HPEGLScopeGroup.
+
     .PARAMETER Filterableproperties 
     Optional switch parameter that can be used to get information about resource properties usable in saved filters.
    
@@ -45,6 +49,11 @@ Function Get-HPECOMFilter {
     Return all ressources matching the saved filter named 'gen11'.
 
     .EXAMPLE
+    Get-HPECOMFilter -Region us-west -ShowSBACCompatibleFilters
+
+    Return all filters that are enabled for Scope-Based Access Control (SBAC). These filters can be used when creating scope groups in HPE GreenLake Platform.
+
+    .EXAMPLE
     Get-HPECOMFilter -Region us-west -Filterableproperties 
 
     Return information about resource properties usable in saved filters. 
@@ -60,6 +69,11 @@ Function Get-HPECOMFilter {
     
         [Parameter (Mandatory)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -82,6 +96,9 @@ Function Get-HPECOMFilter {
 
         [Parameter (ParameterSetName = 'MatchingResources')]
         [Switch]$MatchingResources,
+
+        [Parameter (ParameterSetName = 'Name')]
+        [Switch]$ShowSBACCompatibleFilters,
 
         [Parameter (ParameterSetName = 'Filterableproperties')]
         [Switch]$Filterableproperties,
@@ -154,6 +171,12 @@ Function Get-HPECOMFilter {
             if ($name -and -not $MatchingResources) {
 
                 $CollectionList = $CollectionList | Where-Object name -eq $Name
+
+            }
+
+            if ($ShowSBACCompatibleFilters) {
+
+                $CollectionList = $CollectionList | Where-Object enabledForRRP -eq $True
 
             }   
 
@@ -235,9 +258,12 @@ Function New-HPECOMFilter {
     .PARAMETER Description 
     Optional parameter to describe the filter. 
     
-    .PARAMETER EnabledForRRP
-    Parameter to Flag the filter for use with scope-based access control (SBAC) used by resource restriction policies in HPE GreenLake.
-    Only administrators with full access to all scopes can create, edit, or delete RRP-enabled filters. The use of some resource properties may be disallowed in RBAC-enabled filters.
+    .PARAMETER EnabledForScopeAccess
+    Enables this filter for scope-based access control (SBAC) in HPE GreenLake Platform.
+    When enabled, this filter can be referenced when creating scope groups in GLP to define access boundaries for users and roles.
+    Only administrators with full access to all scopes can create, edit, or delete scope-enabled filters. The use of some resource properties may be disallowed in scope-enabled filters.
+    
+    Note: This replaces the legacy Resource Restriction Policies (RRP) concept. The alias 'EnabledForRRP' is supported for backward compatibility.
  
     .PARAMETER DryRun 
     Switch parameter to not create the saved filter but instead to perform validation of the filter name and syntax as if creating the filter.
@@ -246,10 +272,10 @@ Function New-HPECOMFilter {
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    New-HPECOMFilter -Region us-west -Name Gen11 -EnabledForRRP -Description "Filter for Gen11 servers" -Filter "serverGeneration eq 'GEN_11'"
+    New-HPECOMFilter -Region us-west -Name Gen11 -EnabledForScopeAccess -Description "Filter for Gen11 servers" -Filter "serverGeneration eq 'GEN_11'"
     
     Create a new saved filter named 'Gen11' in the central western US region using the property 'serverGeneration' equal to 'GEN_11'" to create the filter. 
-    Also flags the filter for use with resource restriction policies used by scope-based access control (SBAC) (can be created using New-HPEGLResourceRestrictionPolicy).
+    Also enables the filter for use with scope-based access control (SBAC) in HPE GreenLake (can be referenced when creating scope groups using New-HPEGLScopeGroup).
 
     .EXAMPLE
     New-HPECOMFilter -Region us-west -Name Gen11-RHEL-Workload-Dev -Filter "serverGeneration in ('GEN_11') and host/osName in ('Red Hat Enterprise Linux')" -FilterTags "'Workload' eq 'Dev' and 'Location' eq 'Paris'" 
@@ -281,6 +307,11 @@ Function New-HPECOMFilter {
         
         [Parameter (Mandatory)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -308,7 +339,9 @@ Function New-HPECOMFilter {
         
         [String]$Description,
         
-        [switch]$EnabledForRRP,
+        [Parameter()]
+        [Alias('EnabledForRRP')]  # Backward compatibility
+        [switch]$EnabledForScopeAccess,
      
         [switch]$DryRun,
 
@@ -378,7 +411,7 @@ Function New-HPECOMFilter {
                     name               = $Name
                     description        = $Description
                     filterResourceType = "compute-ops-mgmt/server"
-                    enabledForRRP      = [bool]$EnabledForRRP
+                    enabledForRRP      = [bool]$EnabledForScopeAccess
                     filterTags         = $FilterTags
                 }
             }
@@ -388,7 +421,7 @@ Function New-HPECOMFilter {
                     name               = $Name
                     description        = $Description
                     filterResourceType = "compute-ops-mgmt/server"
-                    enabledForRRP      = [bool]$EnabledForRRP
+                    enabledForRRP      = [bool]$EnabledForScopeAccess
                     filterTags         = $FilterTags
                     filter             = $Filter
                 }
@@ -399,7 +432,7 @@ Function New-HPECOMFilter {
                     name               = $Name
                     description        = $Description
                     filterResourceType = "compute-ops-mgmt/server"
-                    enabledForRRP      = [bool]$EnabledForRRP
+                    enabledForRRP      = [bool]$EnabledForScopeAccess
                     filter             = $Filter
                 }
                 
@@ -507,6 +540,11 @@ Function Remove-HPECOMFilter {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -677,16 +715,20 @@ Function Set-HPECOMFilter {
     .PARAMETER Description 
     Optional. Describes the filter.
 
-    .PARAMETER EnabledForRRP
-    Boolean. Flags the filter for use with resource restriction policies used by scope-based access control (SBAC). Only administrators with full access to all scopes can create, edit, or delete RRP-enabled filters. The use of some resource properties may be disallowed in RRP-enabled filters.
+    .PARAMETER EnabledForScopeAccess
+    Boolean. Enables this filter for scope-based access control (SBAC) in HPE GreenLake Platform.
+    When enabled, this filter can be referenced when creating scope groups in GLP to define access boundaries for users and roles.
+    Only administrators with full access to all scopes can create, edit, or delete scope-enabled filters. The use of some resource properties may be disallowed in scope-enabled filters.
+    
+    Note: This replaces the legacy Resource Restriction Policies (RRP) concept. The alias 'EnabledForRRP' is supported for backward compatibility.
 
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    Set-HPECOMFilter -Region us-west -Name Gen11 -EnabledForRRP:$True -NewName Gen11-servers
+    Set-HPECOMFilter -Region us-west -Name Gen11 -EnabledForScopeAccess:$True -NewName Gen11-servers
 
-    Changes the name of the filter named 'Gen11' to 'Gen11-servers' in the western US region and enables it for resource restriction policy.
+    Changes the name of the filter named 'Gen11' to 'Gen11-servers' in the western US region and enables it for scope-based access control.
 
     .EXAMPLE
     Set-HPECOMFilter -Region us-west -Name Gen11-Workload-Dev -FilterTags "'Workload-Dev' eq 'Dev' and 'Discover' eq 'Demo'"
@@ -719,6 +761,11 @@ Function Set-HPECOMFilter {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -754,8 +801,9 @@ Function Set-HPECOMFilter {
         [ValidateScript({ $_.Length -le 10000 })]
         [String]$Description,
 
-        [Parameter (ValueFromPipelineByPropertyName)] 
-        [bool]$EnabledForRRP,
+        [Parameter (ValueFromPipelineByPropertyName)]
+        [Alias('EnabledForRRP')]  # Backward compatibility
+        [bool]$EnabledForScopeAccess,
 
         [Switch]$WhatIf
     ) 
@@ -843,11 +891,11 @@ Function Set-HPECOMFilter {
             }
 
 
-            if (-not $PSBoundParameters.ContainsKey('EnabledForRRP')) {
+            if (-not $PSBoundParameters.ContainsKey('EnabledForScopeAccess')) {
                 $Payload.enabledForRRP = $FilterResource.enabledForRRP
             }
             else {
-                $Payload.enabledForRRP = [bool]$EnabledForRRP
+                $Payload.enabledForRRP = [bool]$EnabledForScopeAccess
             }
 
 
@@ -981,10 +1029,10 @@ Export-ModuleMember -Function 'Get-HPECOMFilter', 'New-HPECOMFilter', 'Remove-HP
 
 
 # SIG # Begin signature block
-# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDgrUJo9kh5eHi9
-# EqQHyuMB2fvnJQPCj02fAkuyPcDm8KCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBTIGxtCv8H/vVz
+# XiPBGcpC580suPTFHxGbmxbXvgyK8KCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -1080,154 +1128,147 @@ Export-ModuleMember -Function 'Get-HPECOMFilter', 'New-HPECOMFilter', 'Remove-HP
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgiEcYQwL15X1+QhZ+eaShbIvUmfF7RwgZIYjHKTyV18swDQYJKoZIhvcNAQEB
-# BQAEggIAqaFrttJjBDKPRbNgoexmjmmLwk6A/RJpPGhZfpy0Zyv9+GkYMQ/96+y0
-# vyDqpuRB9C2aOUFoUfNcBdMYej8DLTANYcdJbcFJP/okJvHc4bl3x1biFIu/QCzu
-# kToUgTMTA3U34Zy2XcvKymQbd46RLQjWeaAH1pqte0ywgmvhtDrPHb0jerfdj5zs
-# F4nSP/xUQwRPAJS/GFjkrH3mlnI6zBUz2f6ZxVrR3PUNj+NMhcITHYtw0xfH+1zi
-# ZZeveelpjOxIx9eYiJg0GKG7oSp470gKVW9+cj4VYm2Rx/7kHe4GAh/7IjPu+cab
-# fYLLlIjf0tfs2lueAiLMwh+xvojeP7r3reKBfTQAY7rn0C5vYjN4NTDFEJQWQ9Us
-# 241z1MbehCQsyG9NLEkRGwH7HU+6qSolVoXfWq8PuRSPIrRSZraJApa0HOJBvvSL
-# V7V7P6nxWiXLtqDB+y4z31PJ9s9PiXFTo+y80KDU3rdjirYbavb4+SdO2B3G3oRS
-# gDlfWnZ/pVl7IqM/162vuK77UZElGkJMxoGaIh0ljJ43zry2pgzGtw5HPzUnbhOi
-# UPoCHSY4tWUo2gzg/NPParxNZyHgMZQGjiZVqsIbCCK0HVSBnRVtgiAJTg0tTzxw
-# wEp2rgDoKsP2LZk78uzctYAdPckC2PKgtsNX7+05XHd3OK6v5i6hghjpMIIY5QYK
-# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwPBt26G8Tt7bU5vj6dvIuxjXDTjwDFjTHVCIf
-# jtTcgRgXJjE5SjMgEs0tEcZWwmgFAhUAjWJ8E+/7auznOV3pRAG8yjy46L4YDzIw
-# MjUxMDAyMTU0NTA3WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
-# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
-# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
-# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
-# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
-# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
-# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
-# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
-# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
-# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
-# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
-# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
-# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
-# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
-# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
-# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
-# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
-# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
-# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
-# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
-# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
-# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
-# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
-# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
-# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
-# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
-# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
-# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
-# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
-# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
-# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
-# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
-# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
-# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
-# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
-# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
-# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
-# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
-# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
-# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
-# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
-# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
-# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
-# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
-# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
-# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
-# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
-# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
-# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
-# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
-# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
-# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
-# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
-# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
-# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
-# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
-# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
-# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
-# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
-# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
-# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
-# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
-# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
-# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
-# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
-# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
-# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
-# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
-# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
-# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
-# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
-# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
-# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
-# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
-# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
-# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
-# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
-# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
-# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
-# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
-# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
-# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
-# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
-# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
-# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
-# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
-# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
-# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
-# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
-# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
-# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
-# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
-# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
-# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
-# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
-# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
-# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
-# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
-# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
-# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
-# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
-# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
-# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI1MTAwMjE1NDUwN1owPwYJKoZIhvcNAQkEMTIEMDrJTI51KqvqZ7keFXdy
-# exxqP8T03qdrt/fchoPqCc6ndk5YVAKC+6tbh9fRbBmbpjCCAXoGCyqGSIb3DQEJ
-# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
-# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
-# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
-# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
-# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
-# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAm3aOCb1uNK0bLf/2PMT7r+DfDIlg7DlxWkPQkhyNSpyQLtYfo7bXJRMFIfPW
-# AMlb5Oj+e53SHubGniAzCIW4rCv8le+Md+uJUi6G1fZhb03RxslcgIIDYzJuzoRG
-# X9jFt9syx5sb4XI9XblHZSD1ufF+lY2tEZlzwZGbN8ntA1GSQIBBiCT4c8wM1ZyT
-# fi2U/cIkA8qeWzQT/v5K+PRJOKPL6Uk5HPsojkcTgp2HcD4Jhpmlkz7mhpifATlQ
-# x22l86+QAwFtVYRpYprz3W72oUNI2jJhHuquGnqOHYlrpsav2xkZdkIh0IJy2Btb
-# +MG/0pTDVD7f6+2BCdQ7inlYzDJHr6Yc6FirB0J5N5ACSum8Xdf+VaTJLOK5eHmf
-# FjGF6+iY7m55lMCX8S4RLz2taZjHsSL4Kfozzoj2rwO7AK9VEd49fcsyMd/iefiF
-# axnUCVYqq0jXHPw/q934+tXt4rzbYwpI4Muq5Mic/oEG8kli8lBegJmXXNZYqg+V
-# 7AtT/Ot7fSG/8obavqqgD/m0RbpeIe9GLp0vOU+K4HvvGY+RT3oPXRPMcXbJTDVE
-# knAUl5DWWNCCv7zA9GetL/psqIDRBs3q9DnJ/vOSFxH2/AMCrcyfL05de1/GYGUf
-# X3u+bGr5JlxWowVO1bwHfIig2PyV+GdGRddQC1b5DOIQt24=
+# IgQgBga9qpC/lH9Ng3TSl0LeXozZF2ZYHXucotpXWnFhyqQwDQYJKoZIhvcNAQEB
+# BQAEggIAiaZt7h9AM/7FnuYOhL02poX8g53odIw6XcHlPiL6BkUoLkZjh90DW7Ut
+# Qh/S419OnxYpBUfBbPT7hjYP9ApFWBqkwBq33q+NZault3qq2B5xrcry5GJdJziJ
+# VPjsPPkDmZDiW11Y6dZS94PWXnp8qM8LLYYIzpeTlzbukjDAPzM+JfAMNADMXbE2
+# zJ4HhtbWJsaZ6ILTWILDl9TAokAnf9B6gJgNeza9ObRsNcfzq9/DbNsF7DmIZJ06
+# bkV/L6g/4fFw4p7BIbX0AMl5T8eWse/TV0h4F3tk0XdWSN2aXZj89vkQKjwJtpQ9
+# QQ5yNlQkkjKgNQXPqLN3EftCeJKLUobHsdmtKussgVkFvXYPR6C4rJvgGy1rLCRM
+# Z/mIJhqEO7ldYPrGPJ5CLheUxjjehgN6m0RBofTvGE2c15ceghi/gmyrl+LEkkqh
+# 3uYSLJY/ltFsXQhjolP7p62IIRpWL1iyt9n3fCNlJAt1OSsxn0Gmj9kNcw1q+56E
+# 0fWlPE7rLQzMaX455qbxQwEyZ31I/pBAsFDtS4dWS9+qwqtzfIEFKLSxnDI5lKzP
+# Fg/dtsua99/Es+WnqX5qA1k82AGs11Z+JlLd2WxSdIwKYbztXycygPbqkVVXYpyZ
+# zwP8Yz7EBBOci4byEaQr4CN94kKPZsG9MCIRAYRZ+V08iatKkGWhgheXMIIXkwYK
+# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMNObSeKuCzXl5mNxd980BSe7+3cr2BuoApd+egPtzHPM
+# Iyk90HXYSCJO1ngcRt6mfwIQFfDF9CXdWG019SvCvyTtjhgPMjAyNjAxMTkxODE3
+# MDFaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
+# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
+# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
+# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
+# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
+# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
+# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
+# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
+# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
+# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
+# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
+# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
+# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
+# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
+# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
+# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
+# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
+# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
+# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
+# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
+# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
+# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
+# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
+# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
+# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
+# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
+# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
+# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
+# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
+# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
+# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
+# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
+# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
+# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
+# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
+# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
+# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
+# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
+# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
+# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
+# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
+# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
+# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
+# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
+# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
+# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
+# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
+# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
+# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
+# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
+# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
+# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
+# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
+# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
+# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
+# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
+# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
+# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
+# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
+# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
+# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
+# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
+# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
+# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
+# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
+# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
+# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
+# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
+# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
+# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
+# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
+# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
+# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
+# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
+# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
+# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
+# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
+# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
+# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
+# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
+# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
+# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
+# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
+# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
+# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
+# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
+# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
+# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
+# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
+# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
+# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
+# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
+# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
+# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
+# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
+# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
+# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
+# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMTE5
+# MTgxNzAxWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQw7n6xpwbE1BzRj62obIqFWadH
+# 7R3vTaM9f9m0k4JHk5VB0fpWlCW7/Y1oNoilTgtaMA0GCSqGSIb3DQEBAQUABIIC
+# ANPe8OD/OermSSNVKCTGrAvDL5iZVZNy92tErLXj2DiIuvZoCXyJ3ggnw6AQdck0
+# iBpMKbwrjkY3TPiVAHlGHWo4Idf6EeHqjXS2wrCGpbGiY8IDjzI6fs6hEwtILC29
+# FBLRPucdCM1AEVXmDid4Vi8xD8KyitI9WtBE7euQ1Zf6SerTN8RXCCx+muox6pZq
+# I2Go0U4WzEHViQD44NDmhZ70p4FdbxZWKKVZpfuGEOHTwUu4bcjTB2UUWALVu08k
+# wQ9tYcB+vaxON6jxHfxqECxfjAjSJYmF2VsSDq5jMF7c0b97HgvRWuBNKWS8wrhh
+# RJO2QRkZ9MuP53Yi0j/Gq2ghs59MDtsOxTudNpKkl2dNrS1Oy7ShorKaODH4M6qC
+# Lp9fHhDgylSZcZstR6ReFru0Ysrtq59g5fsqA6yMzV5tdZobhkZLc3CTQm3ng1zI
+# fkhqqaGINk61Y6amBqmEkR9J1LiIZPKZTHt8lPGb4/YajbXwAE93hwteF+f39dVP
+# +7ho2h/lTZ9r6LRNrpj3rj/sJEnc7mVN5ys5sATCnZSkKReVjpd79N1EwYyhN8Qq
+# O5UYhohIriVIVuO+vpMvLpg2y4+fD8cWspCx8NjvyMDRKydH294jQTiUmTprsmG0
+# Ahku3uAw06GSV75UPGMJvmvABpWiwKusRM8VYMeRyw1i
 # SIG # End signature block

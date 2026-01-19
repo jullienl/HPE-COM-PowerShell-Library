@@ -36,6 +36,11 @@ Function Get-HPECOMMetricsConfiguration {
     
         [Parameter (Mandatory)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -408,6 +413,11 @@ Function Disable-HPECOMMetricsConfiguration {
     Param( 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -602,8 +612,8 @@ Export-ModuleMember -Function 'Get-HPECOMMetricsConfiguration', 'Enable-HPECOMMe
 # SIG # Begin signature block
 # MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDCl5rpOan6qDdW
-# JBOUqkpLCn7SDGcgd6U4z02ZRJRhoaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCA1DiwsBrIaPzIi
+# +o5lDMNanr7ZDKtBV206MX8LrtilcKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -704,23 +714,23 @@ Export-ModuleMember -Function 'Get-HPECOMMetricsConfiguration', 'Enable-HPECOMMe
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgJsehrXSiJiU2yq0FEI2kwTTumIIRu7zkmm82eDvKv24wDQYJKoZIhvcNAQEB
-# BQAEggIAo6sLhTAJEaWzecFrCv1nJ6hXwMnkH8r60408WexWMsWiKs/Hst9zuMhw
-# zFlgEiqA+28Dyj0fIIePSUOfymsjwbvI1gdQMwBwMPDfPnXiAYgB6a6Dis0D7z0D
-# KPWEyEpS4LA+pHFghYEhkPXbT8IgtD/2dueWa/hotP2RmS/yarkNSceAox1UqLBt
-# QLEBN+C4YLL0mRP2l5itfAQrARpoqPM5A1FxlaXeBP78k4aqwSeh9l8vR01mykmi
-# 9LA5vGB8vlJppYUxhAgnteSxF3vRxNdWum293R42Pppa5A17WkmvtuvoVvGtmfNK
-# PY+xxtrDzJmgu/rau11qZGrN+O0icVK0u2QGGrFrtxJjs4EUb81OViMh69jbeMyq
-# /2cOkSt/RRyxohriEXk3AOUK7/tX9y5hr/WXGE8LoQ2jaaV8KcXITJ73bYURE8FB
-# PHY1CJHV43Qu65jeb2Fn05HsYFD+z0ZslbfvLr9VYAyW41D2GLPtieGhzgPMQs0c
-# zor4ZDhCJ4gTzDQg+PX6QvpoxCxSy5PzpxFusXy+RCP0j42bbwh8v5W5mntF5K4W
-# EyYo99WgEOJkQMmK9XdbenvbIG1YbWiJgusJYT8rUDdHbAU/29/P9JNg0IL4ymGc
-# dftdIXcGg3E2xjNeuztBKkqAe6N8EQvdX2C/9a5T9Quafg2BIauhghjpMIIY5QYK
+# IgQga4FxM7ihZ9gcOectpn8hmjxvdjiZ43Qx3+N2X498n7IwDQYJKoZIhvcNAQEB
+# BQAEggIAX1/2VfDr5km8buUEEd7g9HmMInYR8YIQUDNkJtjd2k1CjCPu703zrjXY
+# 5hb3dblUZr6B2eHkdlhce8vvsehrFXik8iN5SYFP428N0QcLy+qmkcr/JB3pNvL3
+# 05ZuBCRnNyp3TJ7Os+wndjpS9jZg0olYdU5pLNULL331WZhXKL1sZ7yqbSTh45Pt
+# 05e1KdhfGwrOFlZKCCgpvKDWeQg9Qag/qrgyBqoAeWHzIdRwU+qvLECRs1Zk3AA2
+# O+WY3RCPRu2Dg5NTjEBxmxcuDdgCy4I2Ltk2xeyqr1FjtmM4u9SnC4Lu7YVr421M
+# DnWPPheO1AE8M9SQcTJrdfgyAli+noola8xP09HtADhygo60GdLXNKuyFRc6vqJ7
+# nK7qwatIFI1I/f9P20ttdjk35I3rlWv6qnOBB1TT1SwfbF1cfi8YeTJAttotn0aB
+# TgWm6hzZtmWgtCpDbpBUSN8d3vt8gx8qpHcA2zNYad8SHYJcivX4TYMCCX6zqLrX
+# ISh+Vocyc2Y0clr1sN3j92rVsDxMh+iZkkjQYJ7ZV+K4LkWYSxcUdDxrDNq+Afpk
+# ML4R6v/K8632fM158t+uee3h+feVRWh3ZfLNdVHxWEVT4W4Nm78VqkCpdHF4HANc
+# QOnYTiP26VGY2/qLUzNKwuEd7Q/vTwxVSe8KA3f0Xkba8hhESR6hghjpMIIY5QYK
 # KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwGdsi8FwIus/elt3zZ8Uj2L5uya95wEG2tt/J
-# O8sZqULlBZAEQFjr9MeotNl8lCCSAhUAyxD9xVQyKbIOz5KCrmqqpkEAmjMYDzIw
-# MjUxMDAyMTU0NzE2WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# AQEwQTANBglghkgBZQMEAgIFAAQwrifCkbxK0q+kuf/czXb8SG6Hbr28cC0kE3DP
+# 1rB4bk6AJ/l8/nGPAZpphBVjTY0LAhUAwn4tFDmibVq6jqpzBmEzj83HM7EYDzIw
+# MjYwMTE5MTgxOTIyWqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
 # WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
 # Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
 # yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
@@ -828,8 +838,8 @@ Export-ModuleMember -Function 'Get-HPECOMMetricsConfiguration', 'Enable-HPECOMMe
 # BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
 # ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
 # AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI1MTAwMjE1NDcxNlowPwYJKoZIhvcNAQkEMTIEMGZYLPfVLaPT9CRvhWZm
-# KFSYa3vbVJT9aXWPyiJ61Hiy9iNSuUanf+DEukq32bskJjCCAXoGCyqGSIb3DQEJ
+# MQ8XDTI2MDExOTE4MTkyMlowPwYJKoZIhvcNAQkEMTIEMLiMRnrONtw/XlNNkwjJ
+# MQKmygrMoqq7FlMxVjbuXSlHxIOhQJfD5uKRsU2qE1ovJjCCAXoGCyqGSIb3DQEJ
 # EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
 # eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
 # U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
@@ -838,15 +848,15 @@ Export-ModuleMember -Function 'Get-HPECOMMetricsConfiguration', 'Enable-HPECOMMe
 # dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
 # UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
 # dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAgXJp5LzPYLpH6/06FDNRHxQnp68T6v4g8k9LVIP2+WDP3ZUT1KzQzD4eeg2z
-# HjeYFEaIQcLTQZplX7Ze5Jg/9ukiI29W2S/eKmeTOj1qDD034lJhoW48+LLEtR/h
-# 287IWNTYfUdyKlKRRNkTfGBptjKK5sKwYIowKhDp07PzCzy8CL4k4chSNgI9lUiJ
-# PXvI47iJ8YdF8dRw7jHZaIAasnHdx1r514xGtIttXLRfDFTVDknb6ESOu05oVNC+
-# JHqVAAWb0O3wlksN/LEABXvmZ7Q3acLlyvJ9vCsjc1V9uHddztGZXIMY0IgFLhWz
-# 5VSt1JcDGW5flaLOw5rNfEUlO/beBSDWllNY7xg43+bxBcn+saF0QCQSA74y/uFk
-# yICU5ut+p4+rVytte67zPmyhrGANyLlW1GODFuDjQrHgyDrxj2NFFSWTGvOFTwaJ
-# o0yhxWCLxm5OnDsfFL25T250XjP7ixx6+x/gb3lTF1+bIAMWwm2Mg4a/JA/ZQKSy
-# L+Y/NNQesvntxRXz02754H9jV5ri94WeImLX/SuNu2j9AwJfaC/1ASyJbBqWI90/
-# uWkao+UrS0xTwVSXQu37pz6IL3CRr1JtMEInUJu9hUoSw2/rA9KTSjvKjP8pYyZY
-# FEXNYA6nrSP03QETtE2R3EH62B2aMAIim8lb3zBIljUZv68=
+# ggIAiKu3hib07kPn+O3fCG139I8hSdPisFC6tfycqAbh/ukLDcYmRbYCNAGo7mka
+# /URt8657ppLMHiSwD4Z6dDjL5yT8Uk7d6W/IoZB7vjbCGdyclqGCqJSaUai4aY2g
+# TR4mbB2CgmMECCOlsjhl7ExBmeGGF21z813p9JQD83E/W+SV6TAhwGgsz5of6NhZ
+# ubEyYLxIoyJTcKgXAUQCilGPqC2j3Bj1Qor+hSQMIqbfES3+RG9Xf6TNz/NRkg5r
+# V/AKYqZ7/I4RHTI3sa536oUKnQMqQku+iN9tdVpEpggvbljAXfwc7ikfjuReLZRJ
+# BO5I6CGg8kTGnSydWKx4IIlBB5U5T3loR+ChqKJvPRVjFWWAeMtcGxWXZ3RgtB/W
+# lr0eXTwdTVS1X0CCFKYR+9Pq01KbxslaZA0Xt+gxe3IUwfKuJKeVdl97PH4OEINW
+# z1puitBB77v4I4RCTd7FKVvlBHq24210k72+Ook4UCLXUy5cJ9rqs73aBQUuqGqj
+# 8xMSf3KPcb3xZMQdMu3KmJNpyopguaqNaY/knjQNvYS5kEm71LZWHoR1XtMJSz6u
+# 8VSw9sIOKsnIMz4fYmFPYJyZmvUc2jdFGEjCPqBJUxWZd2ninh980BfhH5TcNQZ0
+# qXl/eh/efgE+x0jF5/U6G6R/b5cV+TW2zkoSZwjc8RQzBJo=
 # SIG # End signature block

@@ -190,13 +190,312 @@ Function Get-HPEGLService {
     }
 }
 
+Function Get-HPEGLServiceScopeFilter {
+    <#
+    .SYNOPSIS
+    Retrieve scope filters for service instances.
+
+    .DESCRIPTION
+    This Cmdlet returns the scope filters (formerly known as Resource Restriction Policies) that are available in service instances.
+    Scope filters enable scope-based access control (SBAC) in HPE GreenLake Platform, allowing you to restrict user access to specific resources within a service.
+    
+    When called without parameters, it retrieves scope filters from all provisioned services across all regions.
+    When called with ServiceName and ServiceRegion, it retrieves scope filters for that specific service instance.
+
+    .PARAMETER ServiceName
+    Name of the service to retrieve scope filters from (can be retrieved using 'Get-HPEGLService'). 
+    If not specified, scope filters from all provisioned services will be returned.
+    Must be used together with ServiceRegion.
+
+    .PARAMETER ServiceRegion 
+    Name of the region of the service (can be retrieved using 'Get-HPEGLService').
+    If not specified, scope filters from all provisioned services will be returned.
+    Must be used together with ServiceName.
+
+    .PARAMETER FilterName
+    Optional parameter to display a specific scope filter by name.
+
+    .PARAMETER WhatIf 
+    Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    Get-HPEGLServiceScopeFilter
+
+    Returns all scope filters from all provisioned services across all regions.
+
+    .EXAMPLE
+    Get-HPEGLServiceScopeFilter -ServiceName 'Compute Ops Management' -ServiceRegion "eu-central"
+
+    Returns all scope filters for the Compute Ops Management service in the Central European region.
+
+    .EXAMPLE
+    Get-HPEGLServiceScopeFilter -ServiceName 'Compute Ops Management' -ServiceRegion "us-west" -FilterName "Production_Servers"
+
+    Returns the 'Production_Servers' scope filter for the 'Compute Ops Management' service in the US western region.
+
+    .EXAMPLE
+    Get-HPEGLServiceScopeFilter -ServiceName 'Compute Ops Management' -ServiceRegion "eu-central" | Select-Object Name, Description, Service, Region
+
+    Returns all scope filters for COM in eu-central with selected properties displayed.
+
+   #>
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
+    Param( 
+
+        [Parameter(ValueFromPipelineByPropertyName, ValueFromPipeline)]
+        [ValidateNotNullOrEmpty()]
+        [ArgumentCompleter({
+            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+            try {
+                # Check if session exists
+                if (-not $Global:HPEGreenLakeSession) { return @() }
+                
+                $Services = Get-HPEGLService -ShowProvisioned -Verbose:$false -ErrorAction SilentlyContinue | 
+                    Select-Object -ExpandProperty Name -Unique
+                
+                if ($Services) {
+                    $Services | Where-Object { $_ -like "*$wordToComplete*" } | ForEach-Object {
+                        if ($_ -match '\s') { "'$_'" } else { $_ }
+                    }
+                }
+            }
+            catch { @() }
+        })]
+        [String]$ServiceName,   
+        
+        [Parameter(ValueFromPipelineByPropertyName, ValueFromPipeline)]
+        [ValidateNotNullOrEmpty()]
+        [ArgumentCompleter({
+            param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+            try {
+                # Check if session exists
+                if (-not $Global:HPEGreenLakeSession) { return @() }
+                
+                # If ServiceName is provided, only show regions where that service is provisioned
+                if ($fakeBoundParameters.ServiceName) {
+                    $Regions = Get-HPEGLService -ShowProvisioned -Verbose:$false -ErrorAction SilentlyContinue | 
+                        Where-Object { $_.Name -eq $fakeBoundParameters.ServiceName } | 
+                        Select-Object -ExpandProperty region -Unique
+                }
+                else {
+                    $Regions = Get-HPEGLService -ShowProvisioned -Verbose:$false -ErrorAction SilentlyContinue | 
+                        Select-Object -ExpandProperty region -Unique
+                }
+                
+                if ($Regions) {
+                    $Regions | Where-Object { $_ -like "*$wordToComplete*" } | Sort-Object
+                }
+            }
+            catch { @() }
+        })]
+        [String]$ServiceRegion,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        [String]$FilterName,
+
+        [Switch]$WhatIf
+
+    ) 
+    
+    Begin {
+  
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        try {
+            $_Services = Get-HPEGLService -ShowProvisioned 
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        # If no ServiceName/ServiceRegion specified, get scope filters from all provisioned services
+        if (-not $ServiceName -and -not $ServiceRegion) {
+            "[{0}] No service specified. Retrieving scope filters from all provisioned services" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            
+            $AllScopeFilters = @()
+            foreach ($Service in $_Services) {
+                "[{0}] Processing service '{1}' in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Service.Name, $Service.region | Write-Verbose
+                
+                # Recursively call this function with specific service and region
+                $ServiceFilters = Get-HPEGLServiceScopeFilter -ServiceName $Service.Name -ServiceRegion $Service.region -FilterName $FilterName -WhatIf:$WhatIf
+                
+                if ($ServiceFilters) {
+                    $AllScopeFilters += $ServiceFilters
+                }
+            }
+            
+            return $AllScopeFilters
+        }
+
+        # Validate that both ServiceName and ServiceRegion are provided together
+        if (($ServiceName -and -not $ServiceRegion) -or (-not $ServiceName -and $ServiceRegion)) {
+            throw "Both ServiceName and ServiceRegion must be specified together."
+        }
+
+        "[{0}] Retrieving scope filters for service '{1}' in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceName, $ServiceRegion | Write-Verbose
+            
+        # PRE-VALIDATION: Check if service is provisioned in the specified region
+        $_Service = $_Services | Where-Object { $_.Name -eq $ServiceName -and $_.region -eq $ServiceRegion }
+                
+        if (-not $_Service) {
+            # Service not provisioned - validation failure
+            if ($WhatIf) {
+                Write-Warning "Service '$ServiceName' is not provisioned in the '$ServiceRegion' region. Cannot display API request."
+                return
+            }
+            else {
+                # Get-* cmdlets return nothing silently for "not found" (no error)
+                "[{0}] Service '{1}' is not provisioned in the '{2}' region - returning nothing" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceName, $ServiceRegion | Write-Verbose
+                return
+            }
+        }
+
+        # Validation passed - proceed with API call
+        # Get workspace ID from global session
+        $WorkspaceId = $Global:HPEGreenLakeSession.WorkspaceId
+        
+        # Determine service provider slug based on service name
+        $ServiceSlug = switch ($ServiceName) {
+            'Compute Ops Management' { 'compute-ops-mgmt' }
+            'Backup and Recovery' { 'data-services-cloud-console' }
+            'Private Cloud Business Edition' { 'private-cloud-business-edition' }
+            default { 
+                # For services without explicit mapping, try converting name to slug format
+                $ServiceName.ToLower() -replace '\s+', '-'
+            }
+        }
+
+        # Build GRN pattern for the filter query
+        $GrnPattern = "grn:glp/workspaces/$WorkspaceId/regions/$ServiceRegion/providers/$ServiceSlug/filter/*"
+        
+        # Build URI with query parameters
+        $EncodedGrn = [System.Web.HttpUtility]::UrlEncode($GrnPattern)
+        $Uri = "{0}/internal-authorization/v2alpha1/resources?grn={1}&limit=200&offset=0" -f (Get-HPEGLAPIOrgbaseURL), $EncodedGrn
+       
+        try {
+            $Response = Invoke-HPEGLWebRequest -Method Get -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+        }
+        catch {
+            # If this is a 400/403/404 error, the service likely doesn't support scope filters or access is denied
+            $StatusCode = $_.Exception.Response.StatusCode.value__
+            if ($StatusCode -in 400, 403, 404) {
+                if ($WhatIf) {
+                    Write-Warning "Service '$ServiceName' in region '$ServiceRegion' does not support scope filters or access denied. Cannot display API request."
+                    return
+                }
+                else {
+                    "[{0}] Service '{1}' in region '{2}' does not support scope filters or access denied (HTTP {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceName, $ServiceRegion, $StatusCode | Write-Verbose
+                    return
+                }
+            }
+            else {
+                # For other errors, throw
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+        }
+
+        # Invoke-HPEGLWebRequest already returns the items array for paginated responses
+        $Collection = $Response
+
+        if ($Null -ne $Collection -and $Collection.Count -gt 0) {
+           
+            if ($FilterName) {
+                $Collection = $Collection | Where-Object displayName -eq $FilterName
+            }
+            else {
+                # Exclude default "AllScopes" filters that grant access to everything
+                $Collection = $Collection | Where-Object displayName -ne 'AllScopes'
+            }
+
+            # Transform the response to match the legacy format
+            $ReturnData = @()
+            
+            # Cache for COM filters by region to avoid multiple calls for same region
+            $ComFiltersCache = @{}
+            
+            foreach ($Item in $Collection) {
+                
+                # Extract region from GRN
+                if ($Item.grn -match 'regions/([^/]+)/providers/[^/]+/filter/') {
+                    $ExtractedRegion = $Matches[1]
+                }
+                else {
+                    $ExtractedRegion = $ServiceRegion
+                }
+
+                # Try to get additional details from COM filter if available
+                # Only retrieve for Compute Ops Management service
+                $Description = $null
+                $FilterExpression = $null
+                
+                if ($ServiceName -eq 'Compute Ops Management' -and $Item.displayName) {
+                    # Check if we already have filters for this region
+                    if (-not $ComFiltersCache.ContainsKey($ExtractedRegion)) {
+                        try {
+                            "[{0}] Retrieving COM filter details for region '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExtractedRegion | Write-Verbose
+                            $ComFiltersCache[$ExtractedRegion] = Get-HPECOMFilter -Region $ExtractedRegion -Verbose:$false
+                        }
+                        catch {
+                            "[{0}] Unable to retrieve COM filter details for region '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ExtractedRegion, $_.Exception.Message | Write-Verbose
+                            $ComFiltersCache[$ExtractedRegion] = $null
+                        }
+                    }
+                    
+                    # Look up the matching filter
+                    if ($ComFiltersCache[$ExtractedRegion]) {
+                        $MatchingComFilter = $ComFiltersCache[$ExtractedRegion] | Where-Object { $_.Name -eq $Item.displayName }
+                        if ($MatchingComFilter) {
+                            $Description = $MatchingComFilter.Description
+                            $FilterExpression = $MatchingComFilter.Filter
+                        }
+                    }
+                }
+                
+                $FilterObject = [PSCustomObject]@{
+                    Name        = $Item.displayName
+                    Description = $Description
+                    Service     = $ServiceName
+                    Region      = $ExtractedRegion
+                    Filter      = $FilterExpression
+                    Id          = $Item.id
+                    Type        = $Item.type
+                    GRN         = $Item.grn
+                }
+
+                $ReturnData += $FilterObject
+            }
+
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $ReturnData -ObjectName "Service.ScopeFilter"         
+            $ReturnData = $ReturnData | Sort-Object Name
+
+            return $ReturnData
+        }     
+       
+        else {
+            return 
+        }
+    }
+}
+
 Function Get-HPEGLServiceResourceRestrictionPolicy {
     <#
     .SYNOPSIS
-    Retrieve resource restriction policies.
+    [DEPRECATED] Retrieve resource restriction policies. Use Get-HPEGLServiceScopeFilter instead.
 
     .DESCRIPTION
     This Cmdlet returns the resource restriction policies that are available in a service instance.
+    
+    DEPRECATION NOTICE: This cmdlet is deprecated and maintained for backward compatibility only.
+    HPE GreenLake has transitioned from "Resource Restriction Policies" to "Scope-Based Access Control" with scope filters.
+    Please use 'Get-HPEGLServiceScopeFilter' for new implementations.
 
     .PARAMETER ServiceName
     Parameter to display resource restriction policy for a service name (can be retrieved using 'Get-HPEGLService').
@@ -216,9 +515,9 @@ Function Get-HPEGLServiceResourceRestrictionPolicy {
     Returns all resource restriction policies for the Compute Ops Management service in the Central European region.
 
     .EXAMPLE
-    Get-HPEGLServiceResourceRestrictionPolicy -ServiceName 'Compute Ops Management' -ServiceRegion "us-west" -PolicyName RRP_ESXi_Houston
+    Get-HPEGLServiceResourceRestrictionPolicy -ServiceName 'Compute Ops Management' -ServiceRegion "us-west" -PolicyName ESXi_Houston
 
-    Returns the 'RRP_ESXi_Houston' resource restriction policy for the 'Compute Ops Management' service in the US western region.
+    Returns the 'ESXi_Houston' resource restriction policy for the 'Compute Ops Management' service in the US western region.
 
    #>
     [CmdletBinding(DefaultParameterSetName = 'WithoutService')]
@@ -248,6 +547,9 @@ Function Get-HPEGLServiceResourceRestrictionPolicy {
 
     Process {
 
+        # DEPRECATION WARNING
+        Write-Warning "[DEPRECATED] This function is deprecated. HPE has replaced Resource Restriction Policies (RRP) with Scope-Based Access Control (SBAC). Please use 'Get-HPEGLServiceScopeFilter' instead. This function will be removed in a future release."
+
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
 
          try {
@@ -259,7 +561,7 @@ Function Get-HPEGLServiceResourceRestrictionPolicy {
 
         if ($ServiceName) {
             
-            "[{0}] Retrieving resource restriction policy filters for service '{1}' in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceName, $ServiceRegion | Write-Verbose
+            "[{0}] Retrieving legacy resource restriction policy (RRP) filters for service '{1}' in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceName, $ServiceRegion | Write-Verbose
                 
             $_Service = $_Services | Where-Object { $_.Name -eq $ServiceName -and $_.region -eq $ServiceRegion }
                     
@@ -274,7 +576,7 @@ Function Get-HPEGLServiceResourceRestrictionPolicy {
             }
         }
         else {
-            "[{0}] Retrieving all resource restriction policy filters" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            "[{0}] Retrieving all legacy resource restriction policy (RRP) filters" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
             $Uri = (Get-AuthorizationResourceRestrictionsUri) 
         }
        
@@ -307,7 +609,7 @@ Function Get-HPEGLServiceResourceRestrictionPolicy {
 
                 $ResourceRestrictionId = $Item.resource_restriction_policy_id
 
-                $uri = (Get-AuthorizationResourceRestrictionUri) + "/" + $ResourceRestrictionId 
+                $uri = (Get-ResourceRestrictionPolicyUri) + $ResourceRestrictionId 
                 try {
                     [array]$ScopeResources = Invoke-HPEGLWebRequest -Method Get -Uri $uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
                 }
@@ -790,7 +1092,7 @@ Function Remove-HPEGLService {
        
        
         if (-not $AppRegionfound) {
-            # Must return a message if Serviceis not found in the region
+            # Must return a message if Service is not found in the region
             "[{0}] Service '{1}' not available in '{2}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
 
             if ($WhatIf) {
@@ -827,7 +1129,10 @@ Function Remove-HPEGLService {
 
                 $title = "All users will lose access and this will permanently delete all device and user data. Confirm that you would like to remove '{0}' from '{1}'." -f $name, $Region
                 $question = 'This action is irreversible and cannot be canceled or undone once the process has begun. Are you sure you want to proceed?'
-                $choices = '&Yes', '&No'
+                
+                $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Confirm removal of the service. All users will lose access and all device and user data will be permanently deleted."
+                $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Cancel the service removal operation. The service will remain provisioned."
+                $choices = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
     
                 $decision = $Host.UI.PromptForChoice($title, $question, $choices, 1)
     
@@ -2305,7 +2610,10 @@ Function Remove-HPEGLAPICredential {
 
                 $title = "You are about to delete an API credential used by this module to interact with HPE GreenLake service instances. Confirm that you would like to remove '{0}'" -f $name
                 $question = "This action will impact all actions because there will be no more access to these service instances. Are you sure you want to proceed?"
-                $choices = '&Yes', '&No'
+                
+                $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Confirm deletion of the API credential. This will prevent the module from accessing HPE GreenLake service instances."
+                $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Cancel the deletion operation. The API credential will remain active."
+                $choices = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
                 
                 $decision = $Host.UI.PromptForChoice($title, $question, $choices, 1)
 
@@ -2816,13 +3124,13 @@ function Set-HPECOMJobTemplatesVariable {
 
 
 # Export only public functions and aliases
-Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceResourceRestrictionPolicy', 'New-HPEGLService', 'Remove-HPEGLService', 'Add-HPEGLDeviceToService', 'Remove-HPEGLDeviceFromService', 'Get-HPEGLAPIcredential', 'New-HPEGLAPIcredential', 'Remove-HPEGLAPICredential' -Alias *
+Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceScopeFilter', 'Get-HPEGLServiceResourceRestrictionPolicy', 'New-HPEGLService', 'Remove-HPEGLService', 'Add-HPEGLDeviceToService', 'Remove-HPEGLDeviceFromService', 'Get-HPEGLAPIcredential', 'New-HPEGLAPIcredential', 'Remove-HPEGLAPICredential' -Alias *
 
 # SIG # Begin signature block
-# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDv42qYnABOn9cv
-# RttcFc6f4wAgky297IvR/0VDNOoBYqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBXvaXtYeJRko+Y
+# kXi/Qvc8QWsVMI7qSdDLy66QST3HxqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -2918,154 +3226,154 @@ Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceResourceRestr
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgLDx7NpwXnUIBmNDl66BDrj5BlAeENjNhlyy0lnZdiwwwDQYJKoZIhvcNAQEB
-# BQAEggIAYsKet2j2uV0bGXYQXT6ONpkFTakcs8bYW9V6KKdLxgHMX5akEH8346Vl
-# gx1Cp8oH7jHuIPkAXF9Tt10czWA4vdJlQ05GXK/JTgJBN0J0cvDK+GNv7a/g2QV/
-# 8ZOSJaokcQok1SD15fPd4ulUBw1DOxtkK8+LQUPe4KxBiC+1Wo/J7EZcADE2qw4p
-# ngwm69ncx/D506N7mw/yDh+bVTJF1mNqGp3wefnpAymTtsuVmuElWFT2hxr+Wnx1
-# pCjs1hITs634QYqUuelRWv7YeaFvtvKrCLpN65peW2Mg6iY5Ra9jzxWHeMo/gcuq
-# lIFzwleMOyfXWg5T86h2hPnNm7TYZ/adZ4dz6Se00EhKIwmu6qv7R24jBhTNjcBI
-# dszS4btTem6CuIawfHWlN4Lp2GdG8FI3kLbrfVqoeV+I+iH6djCH002MnhSfH+Rk
-# RKZvU53x/9RnSwboHIYHp+awVoE3+9kGUEWDNZUCQvFk0loZ9vRMSh0zgnWf4/YW
-# TyGPj8w2m+A1r9kgBjtbFjqqBO4tfwayPEqemFyBOQqz0xttkI+4bfr1Wi5SFOSf
-# MqTF2Bt79oAcryzCTlfWoNmIr6w2ACgGkMzKncMtk4CLZKdSAML6TCe52mYcndhy
-# Bgh4nfRI/nt77Fj/URqjWBOFfuZgHsfHvktolWyWEm3iZezoSWWhghjpMIIY5QYK
-# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwsamtZLFYp+4OxroQpwDi1S4RNUlSxQ+j3RpP
-# K7BZZM7xUhljmeKl94NfR/WKV3/cAhUArLE5hch8CdybHC+l3jUGQsyslGQYDzIw
-# MjUxMTI1MTUzMzQ5WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
-# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
-# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
-# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
-# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
-# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
-# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
-# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
-# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
-# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
-# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
-# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
-# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
-# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
-# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
-# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
-# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
-# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
-# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
-# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
-# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
-# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
-# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
-# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
-# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
-# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
-# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
-# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
-# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
-# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
-# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
-# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
-# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
-# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
-# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
-# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
-# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
-# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
-# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
-# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
-# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
-# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
-# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
-# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
-# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
-# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
-# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
-# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
-# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
-# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
-# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
-# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
-# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
-# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
-# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
-# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
-# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
-# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
-# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
-# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
-# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
-# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
-# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
-# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
-# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
-# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
-# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
-# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
-# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
-# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
-# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
-# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
-# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
-# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
-# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
-# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
-# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
-# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
-# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
-# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
-# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
-# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
-# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
-# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
-# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
-# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
-# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
-# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
-# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
-# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
-# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
-# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
-# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
-# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
-# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
-# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
-# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
-# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
-# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
-# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
-# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
-# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
-# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI1MTEyNTE1MzM0OVowPwYJKoZIhvcNAQkEMTIEMGGpFuGBpNZdXA15KzJ3
-# QkfKMBsbqjMUg/S5/RpYYkHq8/ag7XTGC7gvGZBWxPcMbDCCAXoGCyqGSIb3DQEJ
-# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
-# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
-# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
-# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
-# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
-# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAdi3dnxDfwi8yQxrwsXrGnt8m+dDLS6JlBuxcwJ+BBHrJrnLmOaM0Wp1mcAiw
-# k+sMs6w7cKaXTDuPlSRth5imwr43syhGo9TpeA3nG0cq/B+gPjEcRASM3dqn+Jlh
-# /q5zdvVv4fTMSGFHDB/3Of0a90/rMCfC6tw2Np1gaeBPnk0yii/pA+5ZrRCrdVGG
-# gpQf3PiWeJXYw2a3txJv+w1dU22kdclrmwATD57Tq5jUnOWc4zX4GO2RQnO1aQY8
-# vVBrJ8wSnthlG+Y7HfoF9UlUxatJGF/0We6Rhiw4y0OI0lxW3DQ4I8mP4Fpu58XG
-# w1LIpNVCmjQpWNICG/TilnlRPuFOuMDHlG3J4lsr6aaxRzVyxy3GRO6NE74++/sz
-# /FM8dAEXmapLQ8qxqjiiv2juWtWMswtQhwsX6y/nVxSADz5TknANlotzA0CsqVH2
-# cjofgZS0edF8ZeX3xSwxby4RZyUU3m9exBm582fLaBVtxg2jq1sELvTp9353Rds0
-# E5ifc8HVd1vZZ3TLRYa69pW4VP268VLktXYmTwKCvjyOuL0cBWTiUgTiUZF6JcZ7
-# lUwKBjR8DVgLdDgYuZwuxJ+/8VDNaid/N5Lyu3fkjMuupF1Ibp/FrPvINRwqKBZo
-# bl9s40ev220ToWnp6m52ISiRwlfgr1WbGJr8xNVXSgwJaJM=
+# IgQgjsE9vkI1BfM6In088URHy/WFKeYSMCZ7/hC4b5wwEtkwDQYJKoZIhvcNAQEB
+# BQAEggIAu0CIpEyxWb7GGHQI6DN0f1UZQyRauzYKTdkphHzoA4IyI9xDT5VQGcxz
+# f4P303LDFQVNRBBdcoQmWrlrNHYH7q6pQEk03Ni4e41WAnMcdJpbslsYCVsDqgx7
+# HktwCzoZ69gDp1r2tuAlY2NGtOn60QvqoI497x+TMsG7qe07oXk7PWjeocR69OiD
+# p7YOwqvndxfMONUYqauWjzm8G/xNXsJyAPbNR4Ypobl7Om9PBNDr70JS2kFUBmcx
+# X4lHI6g+IbO6vbtgyz43Un6EbtCq6WLfKiByZipYOJXvTg26l9JGjoWydn8CmdkR
+# brlF6tDKwc+1ga7ZfXO6huzNwEF2hQgROab8sGWLac1Jg8MEnnS1a7WYDIxgEQFg
+# 6f7dCbN+fo3sfEo4TSVyqQFOOe+IqD3cUuIHz0WXD135PLJfU6SDhoUaYdJiO9OK
+# bzm+0XF9ha+0Nx1VercgjwsBSaP5ik88Hf7Vjg53HYdOy/8p1Xv3UhupnjUDv8LZ
+# s1GgUSlAEueLTr/Gq3biksn2uaKe+pf5mzA6E8GF+0/A1bT3CNwDfWJ6uaPJtU9L
+# D4nEoXzuP3dQLPY2oB3C47X63O6cASJVsoncSTwOM6xusQV6hiITgnMmwSwIXHs5
+# s/7p5OZDWMBSR0p7nlnR8iyvSX3wRcPkhi7lbPKsCfWVJ8nSrpyhghjoMIIY5AYK
+# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwQUMbfdRr56XhPKoM1eVpljtfeCYC4vkfR41G
+# 34TYj2CtIJM3FVtW4a84T454ixhSAhQ3Xp/q3vcuew2B1cdGFpOsBwm20RgPMjAy
+# NjAxMTkxODI0MTNaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
+# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
+# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
+# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
+# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
+# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
+# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
+# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
+# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
+# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
+# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
+# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
+# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
+# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
+# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
+# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
+# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
+# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
+# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
+# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
+# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
+# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
+# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
+# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
+# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
+# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
+# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
+# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
+# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
+# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
+# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
+# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
+# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
+# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
+# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
+# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
+# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
+# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
+# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
+# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
+# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
+# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
+# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
+# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
+# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
+# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
+# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
+# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
+# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
+# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
+# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
+# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
+# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
+# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
+# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
+# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
+# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
+# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
+# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
+# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
+# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
+# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
+# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
+# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
+# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
+# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
+# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
+# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
+# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
+# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
+# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
+# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
+# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
+# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
+# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
+# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
+# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
+# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
+# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
+# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
+# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
+# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
+# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
+# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
+# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
+# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
+# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
+# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
+# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
+# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
+# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
+# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
+# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
+# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
+# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
+# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
+# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
+# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
+# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
+# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
+# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
+# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
+# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
+# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
+# DxcNMjYwMTE5MTgyNDEzWjA/BgkqhkiG9w0BCQQxMgQwcjI97IFk3juBSigmgco7
+# lCTgdcpww1jWwhUxAbX3B2+1ovQ5X2IgKW6CcK2innnDMIIBegYLKoZIhvcNAQkQ
+# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
+# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
+# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
+# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
+# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
+# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
+# AgBoIeLGWVW4eKZBvAGJ7c/ycd7ChoY1WyDoLdJ/3zWOdZJXA7LO8iCEXZTGeWCD
+# Mw3Zlr9I4/rv3/Dt4SUpUe8HNsoje/GNDzJ2z83/I0Cgz37nfxxhHgtLYSvrQjDV
+# lmwUhwc2LRvDLfb+hU2yK3Mrx/VaUhaFEHjjrFzqwyeTecwRCHa+M5O3tmq3S9NV
+# myLibtL4NQEI8ThWHWf9msr7vncx4+q1nVGF+EshPbRvMOLQnD6VimsD8P83Ku/B
+# 4sk9l0EmIaNXIUyWvp4iNMTZtfWjkSC/Fqi9yk/oPOWJyyxoDbFIKc+4FwkUGjyk
+# Jekmi0xvmUXUqEQR2GqdgTYAP+5VrzPlbdOfam9Q6iaykqCBrl/DOqR9Cmknnkpe
+# YQ69kEiveu8wLH3v/r0taerBlyyZe1I0OQY86iqfd2UjGytxPO5Jcw3lFfFbG7S3
+# 21EXxUdgze2nuqJNfOAVbmzKKVac65L9AQ+2z/KFGlq8hcH9KFUjMBiHeHxSc6iV
+# xXefkD29qKdYUjXxImqWV2T9TxFZviRKMll7GlUuXamv2Vw4WWWrJrSM+i+h5dY2
+# z5aOgENPb1c+/O+hBj99NbBhY+l4IAdDGwO+8ZrzSwhqOus87VhoWZfZlGgVp3TT
+# s5nYBfr5037xEq/S5EYt5BDTfrePHWhRGGMifqJXKoUFBw==
 # SIG # End signature block

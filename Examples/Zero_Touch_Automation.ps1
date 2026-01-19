@@ -199,8 +199,8 @@ foreach ($AdministratorUserEmail in $AdministratorUserEmails) {
 }
 
 foreach ($ObserverUserEmail in $ObserverUserEmails) {
-    $resp = $ObserverUserEmail | Add-HPEGLRoleToUser -ComputeOpsManagementRole Observer
-    "`n[Add the Compute Ops Management observer role to '{0}'] - Status: {1} - Details: {2}" -f $ObserverUserEmail, $resp.Status, $resp.Details
+    $resp = $ObserverUserEmail | Add-HPEGLRoleToUser -RoleName 'Compute Ops Management viewer'
+    "`n[Add the Compute Ops Management Viewer role to '{0}'] - Status: {1} - Details: {2}" -f $ObserverUserEmail, $resp.Status, $resp.Details
 }
 
 # Create a new location 
@@ -345,8 +345,8 @@ $resp = New-HPECOMSettingServerOSImage -Region $Region -Name $OSSettingName -Ope
 
 # Create a new server setting for FIRMWARE 
  
-$Gen10_Firmware_Bundle = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion -Generation 10 | Select-Object -ExpandProperty releaseVersion
-$Gen11_Firmware_Bundle = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion -Generation 11 | Select-Object -ExpandProperty releaseVersion
+$Gen10_Firmware_Bundle = Get-HPECOMFirmwareBaseline -Region $Region -LatestVersion -Generation 10 | Select-Object -ExpandProperty releaseVersion
+$Gen11_Firmware_Bundle = Get-HPECOMFirmwareBaseline -Region $Region -LatestVersion -Generation 11 | Select-Object -ExpandProperty releaseVersion
 $resp = New-HPECOMSettingServerFirmware -Region $Region -Name $FirmwareSettingName -Gen10FirmwareBundleReleaseVersion $Gen10_Firmware_Bundle -Gen11FirmwareBundleReleaseVersion $Gen11_Firmware_Bundle 
 "`n[Create a new server setting for FIRMWARE ] - Status: {0} - Details: {1}" -f $resp.Status, $resp.Details
 

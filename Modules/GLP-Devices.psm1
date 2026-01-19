@@ -41,6 +41,9 @@ Function Get-HPEGLDevice {
     .PARAMETER ServiceDeliveryName
     Specifies the service delivery contact's name or email address to filter devices assigned to that contact.
 
+    .PARAMETER ShowTags
+    Optional parameter to display device tags along with key device information in a simplified view.
+
     .PARAMETER Limit
     Defines the number of devices to be displayed.
 
@@ -181,6 +184,10 @@ Function Get-HPEGLDevice {
         [Alias ('ServiceDeliveryEmail')]
         [String]$ServiceDeliveryName,
         
+        [Parameter (ParameterSetName = 'Archived')]
+        [Parameter (ParameterSetName = 'NotArchived')]
+        [Switch]$ShowTags,
+
         [Parameter (ParameterSetName = 'Archived')]
         [Parameter (ParameterSetName = 'NotArchived')]
         [int]$Limit,
@@ -337,10 +344,10 @@ Function Get-HPEGLDevice {
                         }
                         if ($null -ne $_.location) {
                             $_.location | Add-Member -Type NoteProperty -Name name -Value $MatchedServerID.location_name -Force
-                            $_.location | Add-Member -Type NoteProperty -Name streetAddress -Value $MatchedServerID.street_address -Force
+                            $_.location | Add-Member -Type NoteProperty -Name streetAddress -Value $MatchedServerID.streetAddress -Force
                             $_.location | Add-Member -Type NoteProperty -Name country -Value $MatchedServerID.country -Force
                             $_.location | Add-Member -Type NoteProperty -Name city -Value $MatchedServerID.city -Force
-                            $_.location | Add-Member -Type NoteProperty -Name postalCode -Value $MatchedServerID.postal_Code -Force
+                            $_.location | Add-Member -Type NoteProperty -Name postalCode -Value $MatchedServerID.postalCode -Force
                             $_.location | Add-Member -Type NoteProperty -Name state -Value $MatchedServerID.state -Force
                         }
                     }
@@ -485,11 +492,42 @@ Function Get-HPEGLDevice {
                 $CollectionList = $CollectionList | Where-Object { $_.serviceDelivery.name -eq $ServiceDeliveryName -or $_.serviceDelivery.email -eq $ServiceDeliveryName }
             }   
 
-            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "Device"    
-
-            $ReturnData = $ReturnData | Sort-Object { $_.serverName, $_.serialNumber }
-
-            return $ReturnData 
+            if ($ShowTags) {
+                
+                # Create simplified objects with tags information
+                $TagsCollection = $CollectionList | ForEach-Object {
+                    
+                    # Format tags as comma-separated string
+                    $tagsString = ""
+                    if ($_.tags -and $_.tags.PSObject.Properties) {
+                        $tagsList = @()
+                        foreach ($tag in $_.tags.PSObject.Properties) {
+                            $tagsList += "$($tag.Name)=$($tag.Value)"
+                        }
+                        $tagsString = $tagsList -join ", "
+                    }
+                    
+                    [PSCustomObject]@{
+                        Name         = $_.serverName
+                        SerialNumber = $_.serialNumber
+                        Model        = $_.model
+                        PartNumber   = $_.partNumber
+                        Service      = $_.application.name
+                        Region       = $_.application.region
+                        Tags         = $tagsString
+                        Location     = $_.location.name
+                    }
+                }
+                
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $TagsCollection -ObjectName "Device.Tags"
+                $ReturnData = $ReturnData | Sort-Object Name, SerialNumber
+                return $ReturnData
+            }
+            else {
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "Device"    
+                $ReturnData = $ReturnData | Sort-Object { $_.serverName, $_.serialNumber }
+                return $ReturnData
+            } 
             
         }
         else {
@@ -4250,10 +4288,13 @@ Function Get-HPEGLLocation {
     .PARAMETER Name 
     (Optional) Specifies the name of a location to display its details.
 
+    .PARAMETER ShowDetails
+    (Optional) If specified, retrieves detailed information about the location(s), including complete address information and primary contact phone number.
+
     .PARAMETER ShowServers
     If specified, the Cmdlet will return a list of servers located in the specified location. 
     This parameter requires that a Compute Ops Management instance is available in the workspace.
-
+    
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
 
@@ -4263,9 +4304,19 @@ Function Get-HPEGLLocation {
     Returns all physical locations.
 
     .EXAMPLE
+    Get-HPEGLLocation -ShowDetails
+
+    Returns all physical locations with detailed information including complete addresses and primary contact phone number.
+
+    .EXAMPLE
     Get-HPEGLLocation -Name "Geneva"
 
     Returns the Geneva location information.
+
+    .EXAMPLE
+    Get-HPEGLLocation -Name "Geneva" -ShowDetails
+
+    Returns detailed information for the Geneva location including complete address and primary contact phone number.
 
     .EXAMPLE
     Get-HPEGLLocation -Name "Geneva" -ShowServers
@@ -4277,9 +4328,13 @@ Function Get-HPEGLLocation {
     [CmdletBinding(DefaultParameterSetName = 'Name')]
     Param( 
         [Parameter(Mandatory, ParameterSetName = "ShowServers")]
+        [Parameter(ParameterSetName = "ShowDetails")]
         [Parameter(ParameterSetName = "Name")]
         [String]$Name,  
         
+        [Parameter(ParameterSetName = "ShowDetails")]
+        [switch]$ShowDetails,
+
         [Parameter(ParameterSetName = "ShowServers")]
         [switch]$ShowServers,
  
@@ -4312,33 +4367,38 @@ Function Get-HPEGLLocation {
         }
        
 
-        if ($Null -ne $Collection.data) {
-              
-            $CollectionList = $Collection.data 
+        if ($Null -ne $Collection) {
 
-            # $ListOfDetailedLocations = [System.Collections.ArrayList]::new()
-            $ListOfDetailedLocations = @()
+            if ($ShowDetails) {
 
-            foreach ($Location in $CollectionList) {
+                "[{0}] Retrieving detailed location information" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-                "[{0}] Selected collection data '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Location.name | Write-Verbose
-
-                $Uri = (Get-DevicesLocationUri) + "/" + $Location.id
-
-                "[{0}] URI for the '{1}' location: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Location.name, $Uri | Write-Verbose
-
-                try {
-                    [array]$_Resp = Invoke-HPEGLWebRequest -Method Get -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
-
-                    # [void]$ListOfDetailedLocations.Add($_Resp)
-                    $ListOfDetailedLocations += $_Resp
+                $ListOfDetailedLocations = @()
+    
+                foreach ($Location in $Collection) {
+    
+                    "[{0}] Selected collection data '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Location.name | Write-Verbose
+    
+                    $Uri = (Get-DevicesLocationUri) + "/" + $Location.id
+    
+                    "[{0}] URI for the '{1}' location: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Location.name, $Uri | Write-Verbose
+    
+                    try {
+                        [array]$_Resp = Invoke-HPEGLWebRequest -Method Get -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+    
+                        # [void]$ListOfDetailedLocations.Add($_Resp)
+                        $ListOfDetailedLocations += $_Resp
+                
+                    }
+                    catch {
             
-                }
-                catch {
-        
-                    $PSCmdlet.ThrowTerminatingError($_)
-            
-                }
+                        $PSCmdlet.ThrowTerminatingError($_)
+                
+                    }
+                }              
+            }
+            else {
+                $ListOfDetailedLocations = $Collection
             }
                        
             if ($Name) {
@@ -4356,7 +4416,7 @@ Function Get-HPEGLLocation {
 
                 $ListofServers = @()
 
-                if ($Location) {
+                if ($Null -ne $ListOfDetailedLocations -and $ListOfDetailedLocations.Count -gt 0) {
 
                     $Location = $ListOfDetailedLocations
 
@@ -4409,7 +4469,15 @@ Function Get-HPEGLLocation {
                 return
             }
                 
-            $ReturnData = Invoke-RepackageObjectWithType -RawObject $ListOfDetailedLocations -ObjectName "Location" 
+            if ($ShowDetails) {
+                "[{0}] Returning detailed location information" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $ListOfDetailedLocations -ObjectName "Location.Details" 
+
+            }
+            else {
+                "[{0}] Returning basic location information" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $ListOfDetailedLocations -ObjectName "Location" 
+            }
 
             $ReturnData = $ReturnData | Sort-Object name, country
 
@@ -4604,6 +4672,14 @@ Function New-HPEGLLocation {
         [Parameter (Mandatory, ParameterSetName = "Default")]
         [Parameter (Mandatory, ParameterSetName = "ShippingReceiving")]
         [ValidateNotNullOrEmpty()]
+        [ValidateScript({
+            if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                $true
+            }
+            else {
+                Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
+            }
+        })]
         [String]$PostalCode,
         
         [Parameter (Mandatory, ParameterSetName = "ShippingReceiving")]
@@ -4628,6 +4704,14 @@ Function New-HPEGLLocation {
 
         [Parameter (Mandatory, ParameterSetName = "ShippingReceiving")]
         [ValidateNotNullOrEmpty()]
+        [ValidateScript({
+            if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                $true
+            }
+            else {
+                Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
+            }
+        })]
         [String]$ShippingReceivingPostalCode,    
 
         [Parameter (Mandatory, ParameterSetName = "Default")]
@@ -4764,7 +4848,7 @@ Function New-HPEGLLocation {
             $PrimaryContactInfo = Get-HPEGLUser -Email $PrimaryContactEmail
 
             if ( $PrimaryContactInfo) {
-                $PrimaryContactName = $PrimaryContactInfo.contact.first_name + " " + $PrimaryContactInfo.contact.last_name
+                $PrimaryContactName = $PrimaryContactInfo.firstname + " " + $PrimaryContactInfo.lastname
             }
             else {
                 Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
@@ -4776,11 +4860,11 @@ Function New-HPEGLLocation {
                 $ShippingReceivingContactInfo = Get-HPEGLUser -Email $ShippingReceivingContactEmail
 
                 if ( $ShippingReceivingContactInfo) {
-                    $ShippingReceivingContactName = $ShippingReceivingContactInfo.contact.first_name + " " + $ShippingReceivingContactInfo.contact.last_name
+                    $ShippingReceivingContactName = $ShippingReceivingContactInfo.firstname + " " + $ShippingReceivingContactInfo.lastname
 
                 }
                 else {
-                    Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
+                    Write-Warning "$ShippingReceivingContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
                     $ShippingReceivingContactName = "NONGLP"
 
                 }
@@ -4791,11 +4875,11 @@ Function New-HPEGLLocation {
                 $SecurityContactInfo = Get-HPEGLUser -Email $SecurityContactEmail
 
                 if ( $SecurityContactInfo) {
-                    $SecurityContactName = $SecurityContactInfo.contact.first_name + " " + $SecurityContactInfo.contact.last_name
+                    $SecurityContactName = $SecurityContactInfo.firstname + " " + $SecurityContactInfo.lastname
 
                 }
                 else {
-                    Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
+                    Write-Warning "$SecurityContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
                     $SecurityContactName = "NONGLP"
                 }
             }
@@ -4805,11 +4889,11 @@ Function New-HPEGLLocation {
                 $OperationsContactInfo = Get-HPEGLUser -Email $OperationsContactEmail
 
                 if ( $OperationsContactInfo) {
-                    $OperationsContactName = $OperationsContactInfo.contact.first_name + " " + $OperationsContactInfo.contact.last_name
+                    $OperationsContactName = $OperationsContactInfo.firstname + " " + $OperationsContactInfo.lastname
 
                 }
                 else {
-                    Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
+                    Write-Warning "$OperationsContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
                     $OperationsContactName = "NONGLP"
                 }
             }
@@ -4821,13 +4905,13 @@ Function New-HPEGLLocation {
             $LocationAddressList = [System.Collections.ArrayList]::new()
 
             $StreetAddress = [PSCustomObject]@{
-                country         = $Country
-                street_address  = $Street
-                street_address2 = $Street2
-                city            = $City
-                state           = $State
-                postal_code     = $PostalCode
-                type            = "street"
+                country        = $Country
+                streetAddress  = $Street
+                streetAddress2 = $Street2
+                city           = $City
+                state          = $State
+                postalCode     = $PostalCode
+                type           = "street"
 
             }
 
@@ -4836,13 +4920,13 @@ Function New-HPEGLLocation {
             if ($ShippingReceivingCountry) {
 
                 $ShippingReceivingAddress = [PSCustomObject]@{
-                    country         = $ShippingReceivingCountry
-                    street_address  = $ShippingReceivingStreet
-                    street_address2 = $ShippingReceivingStreet2
-                    city            = $ShippingReceivingCity
-                    state           = $ShippingReceivingState
-                    postal_code     = $ShippingReceivingPostalCode
-                    type            = "shipping_receiving"
+                    type           = "shipping_receiving"
+                    country        = $ShippingReceivingCountry
+                    streetAddress  = $ShippingReceivingStreet
+                    streetAddress2 = $ShippingReceivingStreet2
+                    city           = $ShippingReceivingCity
+                    state          = $ShippingReceivingState
+                    postalCode     = $ShippingReceivingPostalCode
                 }
                     
                 $LocationAddressList += $ShippingReceivingAddress
@@ -4856,10 +4940,10 @@ Function New-HPEGLLocation {
 
 
             $PrimaryContact = [PSCustomObject]@{ 
-                type         = "primary"
-                name         = $PrimaryContactName
-                phone_number = $PrimaryContactPhone
-                email        = $PrimaryContactEmail
+                type        = "primary"
+                name        = $PrimaryContactName
+                phoneNumber = $PrimaryContactPhone
+                email       = $PrimaryContactEmail
             }              
             
             $ContactsList += $PrimaryContact 
@@ -4868,10 +4952,10 @@ Function New-HPEGLLocation {
             if ($ShippingReceivingContactEmail) {
     
                 $ShippingReceivingContact = [PSCustomObject]@{ 
-                    type         = "shipping_receiving"
-                    name         = $ShippingReceivingContactName
-                    phone_number = $ShippingReceivingContactPhone
-                    email        = $ShippingReceivingContactEmail
+                    type        = "shipping_receiving"
+                    name        = $ShippingReceivingContactName
+                    phoneNumber = $ShippingReceivingContactPhone
+                    email       = $ShippingReceivingContactEmail
                 }
 
                 $ContactsList += $ShippingReceivingContact
@@ -4881,10 +4965,10 @@ Function New-HPEGLLocation {
             if ($SecurityContactEmail) {
 
                 $SecurityContact = [PSCustomObject]@{ 
-                    type         = "security"
-                    name         = $SecurityContactName
-                    phone_number = $SecurityContactPhone
-                    email        = $SecurityContactEmail
+                    type        = "security"
+                    name        = $SecurityContactName
+                    phoneNumber = $SecurityContactPhone
+                    email       = $SecurityContactEmail
                 }
 
                 $ContactsList += $SecurityContact
@@ -4893,10 +4977,10 @@ Function New-HPEGLLocation {
             if ($OperationsContactEmail) {
 
                 $OperationsContact = [PSCustomObject]@{ 
-                    type         = "operations"
-                    name         = $OperationsContactName
-                    phone_number = $OperationsContactPhone
-                    email        = $OperationsContactEmail
+                    type        = "operations"
+                    name        = $OperationsContactName
+                    phoneNumber = $OperationsContactPhone
+                    email       = $OperationsContactEmail
                 }
 
                 $ContactsList += $OperationsContact
@@ -4905,15 +4989,15 @@ Function New-HPEGLLocation {
             # Building payload
 
             $Payload = [PSCustomObject]@{
-                name               = $Name
-                description        = $Description
-                type               = "building"
-                addresses          = $LocationAddressList
-                contacts           = $ContactsList
-                validated          = $true
-                validation_cycle   = $ValidationCycle
-                validated_by_email = $Global:HPEGreenLakeSession.username
-                validated_by_name  = $Global:HPEGreenLakeSession.name
+                name             = $Name
+                description      = $Description
+                locationType     = "building"
+                addresses        = $LocationAddressList
+                contacts         = $ContactsList
+                validated        = $true
+                validationCycle  = $ValidationCycle
+                validatedByEmail = $Global:HPEGreenLakeSession.username
+                validatedByName  = $Global:HPEGreenLakeSession.name
 
             } | ConvertTo-Json -Depth 5
    
@@ -4933,7 +5017,7 @@ Function New-HPEGLLocation {
 
             }
             catch {
-
+                "[{0}] Failed to create location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
                     $objStatus.Details = "Location cannot be created!"
@@ -5184,6 +5268,14 @@ Function Set-HPEGLLocation {
         [String]$State,
 
         [Parameter (ParameterSetName = "PrimaryAddress")]
+        [ValidateScript({
+            if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                $true
+            }
+            else {
+                Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
+            }
+        })]
         [String]$PostalCode,
         
         [Parameter (ParameterSetName = "ShippingReceivingAddress")]
@@ -5202,6 +5294,14 @@ Function Set-HPEGLLocation {
         [String]$ShippingReceivingState,    
 
         [Parameter (ParameterSetName = "ShippingReceivingAddress")]
+        [ValidateScript({
+            if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                $true
+            }
+            else {
+                Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
+            }
+        })]
         [String]$ShippingReceivingPostalCode,    
 
         [Parameter (ParameterSetName = "RemoveShippingReceivingAddress")]
@@ -5276,9 +5376,8 @@ Function Set-HPEGLLocation {
 
         try {
             
-            $Locations = Get-HPEGLLocation 
+            $Locations = Get-HPEGLLocation -ShowDetails
             $Users = Get-HPEGLUser 
-
             
         }
         catch {
@@ -5399,9 +5498,9 @@ Function Set-HPEGLLocation {
                     # Building payload
             
                     $Payload = [PSCustomObject]@{
-                        name        = $Name
-                        description = $Description
-                        type        = "building"
+                        name         = $Name
+                        description  = $Description
+                        locationType = "building"
             
                     } | ConvertTo-Json -Depth 5
                 }
@@ -5421,9 +5520,9 @@ Function Set-HPEGLLocation {
                 }
                 if (-not $PSBoundParameters.ContainsKey('Street')) {
             
-                    if (($Locationfound.addresses | Where-Object type -eq Street ).street_address) {
+                    if (($Locationfound.addresses | Where-Object type -eq Street ).streetAddress) {
                                 
-                        $Street = ($Locationfound.addresses | Where-Object type -eq Street ).street_address
+                        $Street = ($Locationfound.addresses | Where-Object type -eq Street ).streetAddress
                     }
                     else {
                         $Street = $Null
@@ -5431,9 +5530,9 @@ Function Set-HPEGLLocation {
                 }
                 if (-not $PSBoundParameters.ContainsKey('Street2')) {
             
-                    if (($Locationfound.addresses | Where-Object type -eq Street ).street_address2) {
+                    if (($Locationfound.addresses | Where-Object type -eq Street ).streetAddress2) {
                                 
-                        $Street2 = ($Locationfound.addresses | Where-Object type -eq Street ).street_address2
+                        $Street2 = ($Locationfound.addresses | Where-Object type -eq Street ).streetAddress2
                     }
                     else {
                         $Street2 = $Null
@@ -5460,9 +5559,9 @@ Function Set-HPEGLLocation {
                 }
                 if (-not $PSBoundParameters.ContainsKey('PostalCode')) {
             
-                    if (($Locationfound.addresses | Where-Object type -eq Street ).postal_code) {
+                    if (($Locationfound.addresses | Where-Object type -eq Street ).postalCode) {
                                 
-                        $PostalCode = ($Locationfound.addresses | Where-Object type -eq Street ).postal_code
+                        $PostalCode = ($Locationfound.addresses | Where-Object type -eq Street ).postalCode
                     }
                     else {
                         $PostalCode = $Null
@@ -5474,14 +5573,14 @@ Function Set-HPEGLLocation {
                     $PrimaryAddressId = ($Locationfound.addresses | Where-Object type -eq Street).id
 
                     $StreetAddress = [PSCustomObject]@{
-                        country         = $Country
-                        street_address  = $Street
-                        street_address2 = $Street2
-                        city            = $City
-                        state           = $State
-                        postal_code     = $PostalCode
-                        type            = "street"
-                        id              = $PrimaryAddressId
+                        country        = $Country
+                        streetAddress  = $Street
+                        streetAddress2 = $Street2
+                        city           = $City
+                        state          = $State
+                        postalCode     = $PostalCode
+                        type           = "street"
+                        id             = $PrimaryAddressId
                     }
 
                     $LocationAddressList += $StreetAddress 
@@ -5502,9 +5601,9 @@ Function Set-HPEGLLocation {
                 }
                 if (-not $PSBoundParameters.ContainsKey('ShippingReceivingStreet')) {
             
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).street_address) {
+                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).streetAddress) {
                                 
-                        $ShippingReceivingStreet = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).street_address
+                        $ShippingReceivingStreet = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).streetAddress
                     }
                     else {
                         $ShippingReceivingStreet = $Null
@@ -5512,9 +5611,9 @@ Function Set-HPEGLLocation {
                 }
                 if (-not $PSBoundParameters.ContainsKey('ShippingReceivingStreet2')) {
             
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).street_address2) {
+                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).streetAddress2) {
                                 
-                        $ShippingReceivingStreet2 = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).street_address2
+                        $ShippingReceivingStreet2 = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).streetAddress2
                     }
                     else {
                         $ShippingReceivingStreet2 = $Null
@@ -5544,9 +5643,9 @@ Function Set-HPEGLLocation {
                 }
                 if (-not $PSBoundParameters.ContainsKey('ShippingReceivingPostalCode')) {
             
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).postal_code) {
+                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).postalCode) {
                                 
-                        $ShippingReceivingPostalCode = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).postal_code
+                        $ShippingReceivingPostalCode = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).postalCode
                     }
                     else {
                         $ShippingReceivingPostalCode = $Null
@@ -5563,25 +5662,25 @@ Function Set-HPEGLLocation {
                         $ShippingAddressId = ($Locationfound.addresses | Where-Object type -eq shipping_receiving).id
                         
                         $ShippingReceivingAddress = [PSCustomObject]@{
-                            country         = $ShippingReceivingCountry
-                            street_address  = $ShippingReceivingStreet
-                            street_address2 = $ShippingReceivingStreet2
-                            city            = $ShippingReceivingCity
-                            state           = $ShippingReceivingState
-                            postal_code     = $ShippingReceivingPostalCode
-                            type            = "shipping_receiving"
-                            id              = $ShippingAddressId 
+                            country        = $ShippingReceivingCountry
+                            streetaddress  = $ShippingReceivingStreet
+                            streetaddress2 = $ShippingReceivingStreet2
+                            city           = $ShippingReceivingCity
+                            state          = $ShippingReceivingState
+                            postalcode     = $ShippingReceivingPostalCode
+                            type           = "shipping_receiving"
+                            id             = $ShippingAddressId 
                         }
                     }
                     else {
                         $ShippingReceivingAddress = [PSCustomObject]@{
-                            country         = $ShippingReceivingCountry
-                            street_address  = $ShippingReceivingStreet
-                            street_address2 = $ShippingReceivingStreet2
-                            city            = $ShippingReceivingCity
-                            state           = $ShippingReceivingState
-                            postal_code     = $ShippingReceivingPostalCode
-                            type            = "shipping_receiving"
+                            country        = $ShippingReceivingCountry
+                            streetaddress  = $ShippingReceivingStreet
+                            streetaddress2 = $ShippingReceivingStreet2
+                            city           = $ShippingReceivingCity
+                            state          = $ShippingReceivingState
+                            postalcode     = $ShippingReceivingPostalCode
+                            type           = "shipping_receiving"
                         }
 
                     }
@@ -5618,25 +5717,25 @@ Function Set-HPEGLLocation {
 
                         $Country = ($Locationfound.addresses | Where-Object type -eq Street ).country
                     
-                        $Street = ($Locationfound.addresses | Where-Object type -eq Street ).street_address
+                        $Street = ($Locationfound.addresses | Where-Object type -eq Street ).streetAddress
         
-                        $Street2 = ($Locationfound.addresses | Where-Object type -eq Street ).street_address2
+                        $Street2 = ($Locationfound.addresses | Where-Object type -eq Street ).streetAddress2
         
                         $City = ($Locationfound.addresses | Where-Object type -eq Street ).city
         
                         $State = ($Locationfound.addresses | Where-Object type -eq Street ).state
         
-                        $PostalCode = ($Locationfound.addresses | Where-Object type -eq Street ).postal_code
+                        $PostalCode = ($Locationfound.addresses | Where-Object type -eq Street ).postalCode
         
                         $StreetAddress = [PSCustomObject]@{
-                            country         = $Country
-                            street_address  = $Street
-                            street_address2 = $Street2
-                            city            = $City
-                            state           = $State
-                            postal_code     = $PostalCode
-                            type            = "street"
-                            id              = $StreetAddressId 
+                            country        = $Country
+                            streetaddress  = $Street
+                            streetaddress2 = $Street2
+                            city           = $City
+                            state          = $State
+                            postalcode     = $PostalCode
+                            type           = "street"
+                            id             = $StreetAddressId 
         
                         }
 
@@ -5698,11 +5797,11 @@ Function Set-HPEGLLocation {
                     $ContactsList += $ContactInfo             
                     
                     $PrimaryContact = [PSCustomObject]@{ 
-                        type         = "primary"
-                        name         = $PrimaryContactName
-                        phone_number = $PrimaryContactPhone
-                        email        = $PrimaryContactEmail
-                        location_id  = $Locationfound.id
+                        type        = "primary"
+                        name        = $PrimaryContactName
+                        phoneNumber = $PrimaryContactPhone
+                        email       = $PrimaryContactEmail
+                        locationId  = $Locationfound.id
                     }              
                 
                     $ContactsList += $PrimaryContact 
@@ -5740,11 +5839,11 @@ Function Set-HPEGLLocation {
                     if (! ($Locationfound.contacts | Where-Object type -eq shipping_receiving)) {
 
                         $ShippingReceivingContact = [PSCustomObject]@{ 
-                            type         = "shipping_receiving"
-                            name         = $ShippingReceivingContactName
-                            phone_number = $ShippingReceivingContactPhone
-                            email        = $ShippingReceivingContactEmail
-                            location_id  = $Locationfound.id
+                            type        = "shipping_receiving"
+                            name        = $ShippingReceivingContactName
+                            phoneNumber = $ShippingReceivingContactPhone
+                            email       = $ShippingReceivingContactEmail
+                            locationId  = $Locationfound.id
                         }
 
                         $ContactsList += $ShippingReceivingContact
@@ -5763,11 +5862,11 @@ Function Set-HPEGLLocation {
                         $ContactsList += $ContactInfo  
 
                         $ShippingReceivingContact = [PSCustomObject]@{ 
-                            type         = "shipping_receiving"
-                            name         = $ShippingReceivingContactName
-                            phone_number = $ShippingReceivingContactPhone
-                            email        = $ShippingReceivingContactEmail
-                            location_id  = $Locationfound.id
+                            type        = "shipping_receiving"
+                            name        = $ShippingReceivingContactName
+                            phoneNumber = $ShippingReceivingContactPhone
+                            email       = $ShippingReceivingContactEmail
+                            locationId  = $Locationfound.id
                         }
 
                         $ContactsList += $ShippingReceivingContact
@@ -5844,11 +5943,11 @@ Function Set-HPEGLLocation {
                     if (! ($Locationfound.contacts | Where-Object type -eq security)) {
 
                         $SecurityContact = [PSCustomObject]@{ 
-                            type         = "security"
-                            name         = $SecurityContactName
-                            phone_number = $SecurityContactPhone
-                            email        = $SecurityContactEmail
-                            location_id  = $Locationfound.id
+                            type        = "security"
+                            name        = $SecurityContactName
+                            phoneNumber = $SecurityContactPhone
+                            email       = $SecurityContactEmail
+                            locationId  = $Locationfound.id
 
                         }
 
@@ -5868,11 +5967,11 @@ Function Set-HPEGLLocation {
                         $ContactsList += $ContactInfo  
 
                         $SecurityContact = [PSCustomObject]@{ 
-                            type         = "security"
-                            name         = $SecurityContactName
-                            phone_number = $SecurityContactPhone
-                            email        = $SecurityContactEmail
-                            location_id  = $Locationfound.id
+                            type        = "security"
+                            name        = $SecurityContactName
+                            phoneNumber = $SecurityContactPhone
+                            email       = $SecurityContactEmail
+                            locationId  = $Locationfound.id
                         }
 
                         $ContactsList += $SecurityContact
@@ -5947,11 +6046,11 @@ Function Set-HPEGLLocation {
                     if (! ($Locationfound.contacts | Where-Object type -eq operations)) {
 
                         $OperationsContact = [PSCustomObject]@{ 
-                            type         = "operations"
-                            name         = $OperationsContactName
-                            phone_number = $OperationsContactPhone
-                            email        = $OperationsContactEmail
-                            location_id  = $Locationfound.id
+                            type        = "operations"
+                            name        = $OperationsContactName
+                            phoneNumber = $OperationsContactPhone
+                            email       = $OperationsContactEmail
+                            locationId  = $Locationfound.id
                         }
 
                         $ContactsList += $OperationsContact
@@ -5970,11 +6069,11 @@ Function Set-HPEGLLocation {
                         $ContactsList += $ContactInfo  
 
                         $OperationsContact = [PSCustomObject]@{ 
-                            type         = "operations"
-                            name         = $OperationsContactName
-                            phone_number = $OperationsContactPhone
-                            email        = $OperationsContactEmail
-                            location_id  = $Locationfound.id
+                            type        = "operations"
+                            name        = $OperationsContactName
+                            phoneNumber = $OperationsContactPhone
+                            email       = $OperationsContactEmail
+                            locationId  = $Locationfound.id
                         }
 
                         $ContactsList += $OperationsContact
@@ -6020,10 +6119,10 @@ Function Set-HPEGLLocation {
 
                 if ( $LocationAddressList) {
                     $Payload = [PSCustomObject]@{
-                        name        = $Name
-                        description = $Description
-                        type        = "building"
-                        addresses   = $LocationAddressList
+                        name         = $Name
+                        description  = $Description
+                        locationType = "building"
+                        addresses    = $LocationAddressList
         
                     } | ConvertTo-Json -Depth 5
                 }
@@ -6031,10 +6130,10 @@ Function Set-HPEGLLocation {
                 if ( $ContactsList) {
 
                     $Payload = [PSCustomObject]@{
-                        name        = $Name
-                        description = $Description
-                        type        = "building"
-                        contacts    = $ContactsList
+                        name         = $Name
+                        description  = $Description
+                        locationType = "building"
+                        contacts     = $ContactsList
 
                     } | ConvertTo-Json -Depth 5
                 }
@@ -6042,11 +6141,11 @@ Function Set-HPEGLLocation {
                 
                 if ( $LocationAddressList -and $ContactsList) {
                     $Payload = [PSCustomObject]@{
-                        name        = $Name
-                        description = $Description
-                        type        = "building"
-                        addresses   = $LocationAddressList
-                        contacts    = $ContactsList
+                        name         = $Name
+                        description  = $Description
+                        locationType = "building"
+                        addresses    = $LocationAddressList
+                        contacts     = $ContactsList
 
         
                     } | ConvertTo-Json -Depth 5
@@ -6057,8 +6156,8 @@ Function Set-HPEGLLocation {
                 # Modify Location
                 try {
 
-                    $Response = Invoke-HPEGLWebRequest -Uri $Uri -method 'PUT' -body $Payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
-                    
+                    $Response = Invoke-HPEGLWebRequest -Uri $Uri -method 'PATCH' -body $Payload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+
                     if (-not $WhatIf) {
 
                         "[{0}] Location '{1}' successfully updated" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
@@ -6178,9 +6277,20 @@ Function Remove-HPEGLLocation {
             $decision = 0
         }
         else {
-            $title = "Any assigned devices will be released. Any associated addresses will no longer be accessible for automated support case creation. All associated contacts will no longer be assigned to any devices assigned to this location." 
-            $question = 'Are you sure you want to proceed?'
-            $choices = '&Yes', '&No'
+            $title = "Remove Location: $Name" 
+            $question = @"
+Any assigned devices will be released.
+Any associated addresses will no longer be accessible for automated support case creation.
+All associated contacts will no longer be assigned to any devices assigned to this location.
+
+Are you sure you want to proceed?
+"@
+            
+            # Create choice descriptions with help messages
+            $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Confirm deletion of the location '$Name' and release all associated devices, addresses, and contacts."
+            $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Cancel the deletion operation. The location '$Name' will remain unchanged."
+            
+            $choices = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
             $decision = $Host.UI.PromptForChoice($title, $question, $choices, 1)
         }
            
@@ -7297,10 +7407,10 @@ Export-ModuleMember -Function `
 
 
 # SIG # Begin signature block
-# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBiqZqLV2bUk4sU
-# K10RcXnE6/51LDF4KS7VFjmVSnhXcaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB8BGf5Ye5uQETx
+# zW/LIWo1Gigu3/FsmHf0HGyAT3Pw26CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -7396,154 +7506,147 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgqvUIRTM8HF0n6rPYIYHtL53rZhm3ZyFpb58U0h4H5C8wDQYJKoZIhvcNAQEB
-# BQAEggIAwrOUSMhfhoXdILgmIvL0IE/GdQGh3yj0Ao5tiDCvQR1LtQb8XawQLBHj
-# KQirV9n+hhqtjNcyFHJBgqKoJqFvDjU2XZhQcyL9vGvipPsjm51/LyHJaWMIj6AJ
-# C2BlHam8JFeOTyK14fAKTUWsUAGae8/qSQdFC9UCHoJ2rqk9nswahCra3LSabyxk
-# pUYZkmAuzwqTyOgd70nA2IGgi07/rlYK3TNcoM+koMtQLMPiB7VCgYSpTX3hqXTs
-# OK/HQnEYqj2XYzi07Yuzb7y59VISOFoB91VMSSX/7VZdIjnpNGKMh9RwmXEKLGoH
-# 2CLc1Kt75nkUvQrmrSUA/g7ZoB5x7JpszFDFE+aoEeHGPQMdtNb2zMzBw9Vb+X3J
-# +QH4wv8BhPeqQbklGtdIILPxPSUAv/CTP6jh3+e3WHnTR3BAsfmRliOicvKGkQSi
-# QeNi+9Nww5kPbmgJhRPZL6yfRVPimdJopSl1WrcytdvPjiiZRY4h2BxO56/7gYoW
-# MpHgnQuBooYFmY1hHAc8jaBN+onXziAjkidgZoL0zCpi1yYfLQObZwdsonG3xUFt
-# kQQ7PXvqqaC6GNXum1MwPu+YKj6faA96bmdZmc4Zt/y4xD8U1oOokEavUu5fjAMg
-# fjo3+snL1yGCOvamzDSRYm3yTvty0cWBrjPzGSYbc7PWAIp8oGGhghjpMIIY5QYK
-# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwaWQGWQzQhaozUFpiwvzc0EVP8TmmGEMqGng6
-# gFKks1Tgj6RdJzPUWoWLntB1RhP0AhUAjnFyRvXvKvhwXFSVcgSitXcdDR8YDzIw
-# MjUxMDAzMTAwOTM0WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
-# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
-# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
-# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
-# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
-# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
-# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
-# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
-# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
-# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
-# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
-# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
-# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
-# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
-# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
-# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
-# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
-# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
-# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
-# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
-# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
-# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
-# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
-# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
-# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
-# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
-# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
-# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
-# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
-# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
-# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
-# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
-# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
-# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
-# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
-# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
-# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
-# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
-# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
-# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
-# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
-# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
-# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
-# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
-# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
-# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
-# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
-# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
-# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
-# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
-# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
-# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
-# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
-# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
-# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
-# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
-# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
-# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
-# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
-# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
-# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
-# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
-# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
-# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
-# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
-# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
-# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
-# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
-# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
-# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
-# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
-# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
-# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
-# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
-# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
-# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
-# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
-# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
-# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
-# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
-# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
-# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
-# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
-# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
-# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
-# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
-# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
-# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
-# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
-# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
-# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
-# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
-# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
-# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
-# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
-# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
-# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
-# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
-# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
-# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
-# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
-# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
-# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI1MTAwMzEwMDkzNFowPwYJKoZIhvcNAQkEMTIEMHrNeqZFLH94QBqYd1E8
-# hVaVk22R/Q3wrh8xRqgw5/dkiqLCTHmbyCb7+MJyPAuQ3DCCAXoGCyqGSIb3DQEJ
-# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
-# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
-# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
-# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
-# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
-# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIANozgF2W4J3uqp5na07K9xf1oxx3V896vg16+xYgdjLLJ/raoCrCfTpbympss
-# olhrLvdwTnmHtNGPSQToDhCpjA9rQE7UewkbOdDT+u2BTwByhl3DkIoMRiv/Vdol
-# 6A/JKGn2cQSKeGJ6ZMalMW1ANB3o0rSybA8Y/adlxehRFPBv41X1l2PSy4hCwQco
-# 1jgJQp88RF1//rM8kT94BgOX7MgaQtNqfJLmBIg9TdZoAkUmUoFJsOIGez71cwfA
-# j9kuvVDaRLr7AvkDIJP5Fu+TTBjstTMgzR4yNjUljsnfcsea/bfPzlttB7kVj3df
-# 4hVvZa5WiQZk+qiKCZ7AIr4bOjAM4Gu3oQk4xsOZLyhl10+d/3AhjyBQl8lVhaLv
-# XDo16CGvOvQtLD+7hpPX8KyQmR9oLubhAI9JZvymI4x4BFAYuqEEDCPQCyAUhbrS
-# FKgK9xpa7xkNGSwX/+F9awDStiXG7mN/bnAjxVin5pZzcyQt1YNhfwI4hH9ydoZP
-# e8dqnrrq/yCxvQ8eBud/cNDnITtCsRTkDxToGk/BddBmMO2733Zg9oEO/6tgKyZX
-# XJyBuyilHFtKdVSFuYVr3Kw082CpUrCR2SdL/rGG+PYR1krafGWj1XVHYTr6jfXy
-# IH54qK3KCrsJTvFoBjiB28twqAUFY5XEQe1XtYmq583wWDM=
+# IgQgFyOm+18bWUz4QEY47iIw9ixoJaHKcGliaUaCV/3UE40wDQYJKoZIhvcNAQEB
+# BQAEggIAUN8TkhKOXtAMC4uZhNymBdgE0zFoh7yHEz0/QRwF14CG46nuxwunQGgd
+# /ZH2BksHHiBfhLV4Pl6yqtxZcnEt2G6//psRphaqnufG1nbtq+pM3tbO2baL8YTi
+# oNhqYN5yFThkuG8TSvzkdz4yAQHPyGZ4eYlMa3EheXp5eHuIFEK3rXbQItzkHnQd
+# LqA0z9bTVmbj3ntgAeYxg5EWzSodUxXHNlpkKclGYm3TvjBFFXyLmZPG1SCrS0UQ
+# Jj4/Hz+24wApfA+ZssEAKgfUPgrw+q0katEnqbYxbPtiZmQ+MQaAmc5BIyQ0xjHi
+# cgO0dbnHCPOqKeBrsKKYxhebp7+Texo4NSWtNHv24QLKEwrVsSwD+LJ4b1DOhixo
+# GI+cXNBA4226JVkQ4EpsP9VsQq6lInLt/QKCa80tOEi2gfEbagvbbwWgvTCmlPJL
+# 5PDIMjgA8uHK+2C6DEmnlxiGjDst38M23MPBUIDMkIekRRvgAix3mUYmf9bgAImU
+# voC8lCgwTuiVIJOTTpuQFKCxaFr+Qm+R5f0PXdwPRbWOYj2RX/+ec++Y9LPkoc4Y
+# 3ssJMDX2hvjC6jZ6+U62frIZzXMU4YnaBBlgVVe5yP0QVXNN51OuzsxvijARtxUU
+# 4C8tr+5tWeq1X7op5AYvGWXRaZ9xIP8OqRJh7EfPVZKt/XuOFLqhgheYMIIXlAYK
+# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMN3bmfmppWEjxg/Io/wJqqWCieyWsMUbZRrUUVW+CUFa
+# GGyEVxYJqUFRSPWcj12iRgIRAKHjy1RqjtE49u5lXYojHUEYDzIwMjYwMTE5MTgy
+# MzA5WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
+# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
+# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
+# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
+# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
+# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
+# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
+# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
+# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
+# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
+# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
+# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
+# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
+# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
+# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
+# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
+# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
+# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
+# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
+# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
+# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
+# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
+# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
+# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
+# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
+# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
+# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
+# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
+# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
+# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
+# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
+# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
+# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
+# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
+# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
+# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
+# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
+# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
+# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
+# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
+# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
+# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
+# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
+# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
+# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
+# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
+# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
+# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
+# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
+# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
+# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
+# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
+# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
+# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
+# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
+# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
+# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
+# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
+# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
+# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
+# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
+# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
+# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
+# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
+# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
+# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
+# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
+# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
+# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
+# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
+# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
+# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
+# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
+# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
+# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
+# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
+# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
+# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
+# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
+# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
+# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
+# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
+# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
+# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
+# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
+# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
+# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
+# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
+# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
+# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
+# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
+# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
+# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
+# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
+# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
+# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
+# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
+# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
+# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
+# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
+# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDEx
+# OTE4MjMwOVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMPFeqQB+fb4S4U0eDelbAqGA
+# xyzM7HbLFJWBpomftgpAE/uaoIZyVJQbu4rJuW9HNzANBgkqhkiG9w0BAQEFAASC
+# AgBMcnkg8PEYY93AiqEq1wZiJYD+eDwjApp+p1F7CwDqHhtcN445yDmLm335R2rh
+# mamstVpzSj/nEJQJP7ebOeb+egUXVi1udD+7GqSgXFioEZ+gWXUxykgKpdebLpuR
+# F2EnRnQOEyXCS9sXuX50EeGGkA+qLc7mesERbPTj1hPFSw2hVEvix983PByAiy1s
+# FXVw8Fl4pleXGnOriVCMdoXBxUmjEv1fiXNeSZQenCPXET4OfynI4TUmWwjK/4BE
+# vA2cJUBXUTxUbc38JHK0oD38eH+ri2nmNLB2kFTEgBB3z93s9De6/JWB0/VA0r0r
+# 20GFSsh4avBKlHchuuasHIhN86GKjadijjPP1DH7RgdfSOlqIQiYn2TM0IxY0zS9
+# 1Dzn8c3nwh0w4h5dyyrwvQK2DnOgWc8I9qQMI2NJ5xooY2MBACQCbxY5L9Rn7NJc
+# gkNW4fAPVnmd6UvtHwynyxi7NDQZpM269j8XUTWc1G64emvocxhy+R9fmpr7A5vv
+# B+dCeVjkYPHl/7Rj92U2svUWjrw5qyHM2ULyRss2XDJKo8uMTZm/IO7e5jIeN6CH
+# QekkMjFPOpo7u9GaRzmS4h2U5WBopjo0cVuQmo0PCpoPTTKkH97VOJkAvjttYopi
+# ctetEfnfrUJeXvLSsGE14nrDwax7/Uf8Zunn43mAooxNTw==
 # SIG # End signature block

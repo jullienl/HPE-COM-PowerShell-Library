@@ -59,6 +59,11 @@ function Wait-HPECOMJobComplete {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -333,6 +338,11 @@ Function Get-HPECOMJob {
     
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -452,7 +462,7 @@ Function Get-HPECOMJob {
             $JobResourceUri
         }
         else {
-            Get-COMGetJobUri
+            Get-COMJobsUri
         }
 
         # Helper function to add a filter to the URI
@@ -671,6 +681,11 @@ Function Start-HPECOMserver {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -1197,6 +1212,11 @@ Function Restart-HPECOMserver {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -1726,6 +1746,11 @@ Function Stop-HPECOMserver {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2157,8 +2182,8 @@ function Update-HPECOMServerFirmware {
     .PARAMETER ServerSerialNumber
     Specifies the serial number of the server on which the firmware update will be performed.
     
-    .PARAMETER FirmwareBundleReleaseVersion
-    Mandatory parameter that defines the firmware bundle release version to use for updating the server. This release version can be found using 'Get-HPECOMFirmwareBundle'.
+    .PARAMETER FirmwareBaselineReleaseVersion
+    Mandatory parameter that defines the firmware baseline release version to use for updating the server. This release version can be found using 'Get-HPECOMFirmwareBaseline'.
 
     .PARAMETER ScheduleTime
     Specifies the date and time when the server firmware update should be executed. 
@@ -2203,54 +2228,54 @@ function Update-HPECOMServerFirmware {
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    Update-HPECOMServerFirmware -Region us-west -ServerSerialNumber 2M28490180 -FirmwareBundleReleaseVersion "2024.04.00.01" -InstallHPEDriversAndSoftware -PowerOffAfterUpdate -DisablePrerequisiteCheck -AllowFirmwareDowngrade
+    Update-HPECOMServerFirmware -Region us-west -ServerSerialNumber 2M28490180 -FirmwareBaselineReleaseVersion "2024.04.00.01" -InstallHPEDriversAndSoftware -PowerOffAfterUpdate -DisablePrerequisiteCheck -AllowFirmwareDowngrade
 
-    This command updates the firmware on a server with serial number `2M28490180` located in the `us-west` region using firmware bundle release version `2024.04.00.01`. The cmdlet waits for the job to complete and displays a progress bar. 
+    This command updates the firmware on a server with serial number `2M28490180` located in the `us-west` region using firmware baseline release version `2024.04.00.01`. The cmdlet waits for the job to complete and displays a progress bar. 
     It also installs HPE drivers and software, powers off the server after the update, disables the prerequisite check, and allows firmware downgrade.
     
     .EXAMPLE
-    Update-HPECOMServerFirmware -Region us-west -ServerSerialNumber 2M28490180 -FirmwareBundleReleaseVersion "2024.04.00.01" -Async
+    Update-HPECOMServerFirmware -Region us-west -ServerSerialNumber 2M28490180 -FirmwareBaselineReleaseVersion "2024.04.00.01" -Async
 
-    This command updates the firmware on a server with serial number `2M28490180` located in the `us-west` region using firmware bundle release version `2024.04.00.01`. The cmdlet immediately returns the asynchronous job resource to monitor.
+    This command updates the firmware on a server with serial number `2M28490180` located in the `us-west` region using firmware baseline release version `2024.04.00.01`. The cmdlet immediately returns the asynchronous job resource to monitor.
 
     .EXAMPLE
-    "CZ12312312", "DZ12312312" | Update-HPECOMServerFirmware -Region eu-central -FirmwareBundleReleaseVersion "2024.04.00.01"
+    "CZ12312312", "DZ12312312" | Update-HPECOMServerFirmware -Region eu-central -FirmwareBaselineReleaseVersion "2024.04.00.01"
 
-    This command updates the firmware on servers with serial numbers `CZ12312312` and `DZ12312312` located in the `eu-central` region using firmware bundle release version `2024.04.00.01`.
+    This command updates the firmware on servers with serial numbers `CZ12312312` and `DZ12312312` located in the `eu-central` region using firmware baseline release version `2024.04.00.01`.
     By default, it does not install HPE drivers and software, does not power off the server after the update, enables the prerequisite check, and does not allow firmware downgrade.
 
     .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Name HOL58 | Update-HPECOMServerFirmware -FirmwareBundleReleaseVersion "2024.04.00.01"
+    Get-HPECOMServer -Region eu-central -Name HOL58 | Update-HPECOMServerFirmware -FirmwareBaselineReleaseVersion "2024.04.00.01"
 
-    This command updates the firmware on a server with the name `HOL58` located in the `us-west` region using firmware bundle release version `2024.04.00.01`. 
+    This command updates the firmware on a server with the name `HOL58` located in the `us-west` region using firmware baseline release version `2024.04.00.01`. 
     By default, it does not install HPE drivers and software, does not power off the server after the update, enables the prerequisite check, and does not allow firmware downgrade.
 
     .EXAMPLE
-    Get-HPECOMServer -Region us-west -ConnectedState True -PowerState OFF -Model 'ProLiant DL385 Gen10 Plus' | Update-HPECOMServerFirmware -FirmwareBundleReleaseVersion "2024.04.00.01" -PowerOffAfterUpdate -AllowFirmwareDowngrade -Async 
+    Get-HPECOMServer -Region us-west -ConnectedState True -PowerState OFF -Model 'ProLiant DL385 Gen10 Plus' | Update-HPECOMServerFirmware -FirmwareBaselineReleaseVersion "2024.04.00.01" -PowerOffAfterUpdate -AllowFirmwareDowngrade -Async 
 
-    This command update all DL385 Gen10 Plus servers that are powered off and connected to COM with the specified firmware bundle release version. 
+    This command update all DL385 Gen10 Plus servers that are powered off and connected to COM with the specified firmware baseline release version. 
     The first command retrieves a list of all "ProLiant DL385 Gen10 Plus" servers in the "us-west" region that are currently powered off and connected.
     The retrieved servers are then piped (|) to the Update-HPECOMServerFirmware cmdlet, which updates their firmware to the specified version.
     The command also powers off the servers after the update, allows firmware downgrade and returns mmediately the async task.
 
     .EXAMPLE
-    Update-HPECOMServerFirmware -Region eu-central -ServerSerialNumber DZ12312312 -FirmwareBundleReleaseVersion 2024.04.00.02 -ScheduleTime (Get-Date).AddMonths(6) -InstallHPEDriversAndSoftware -PowerOffAfterUpdate -AllowFirmwareDowngrade
+    Update-HPECOMServerFirmware -Region eu-central -ServerSerialNumber DZ12312312 -FirmwareBaselineReleaseVersion 2024.04.00.02 -ScheduleTime (Get-Date).AddMonths(6) -InstallHPEDriversAndSoftware -PowerOffAfterUpdate -AllowFirmwareDowngrade
 
-    This command creates a schedule to update the firmware of a server with the serial number `DZ12312312` in the `eu-central` region using firmware bundle release version `2024.04.00.01`. 
+    This command creates a schedule to update the firmware of a server with the serial number `DZ12312312` in the `eu-central` region using firmware baseline release version `2024.04.00.01`. 
     The update is scheduled to occur six months from the current date and includes installing HPE drivers and software while allowing firmware downgrade.
     The command also powers off the server after the update.
 
     .EXAMPLE
-    Update-HPECOMServerFirmware -Region eu-central -ServerSerialNumber DZ12312312 -FirmwareBundleReleaseVersion "2024.04.00.01" -WaitForPowerOfforReboot -WaitForPowerOfforRebootTimeout 24 
+    Update-HPECOMServerFirmware -Region eu-central -ServerSerialNumber DZ12312312 -FirmwareBaselineReleaseVersion "2024.04.00.01" -WaitForPowerOfforReboot -WaitForPowerOfforRebootTimeout 24 
 
-    This command updates the firmware on a server with serial number `DZ12312312` located in the `eu-central` region using firmware bundle release version `2024.04.00.01`.
+    This command updates the firmware on a server with serial number `DZ12312312` located in the `eu-central` region using firmware baseline release version `2024.04.00.01`.
     The cmdlet waits for the user to power off or reboot the server before performing the installation, with a timeout of 24 hours.
     After 24 hours, if the server is not powered off or rebooted, the firmware update will be canceled.
 
     .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Model "ProLiant DL360 Gen10 Plus" | Update-HPECOMServerFirmware -FirmwareBundleReleaseVersion 2024.04.00.02 -ScheduleTime (Get-Date).AddDays(4) -InstallHPEDriversAndSoftware  -AllowFirmwareDowngrade
+    Get-HPECOMServer -Region eu-central -Model "ProLiant DL360 Gen10 Plus" | Update-HPECOMServerFirmware -FirmwareBaselineReleaseVersion 2024.04.00.02 -ScheduleTime (Get-Date).AddDays(4) -InstallHPEDriversAndSoftware  -AllowFirmwareDowngrade
 
-    This example retrieves a list of all "ProLiant DL360 Gen10 Plus" servers in the `eu-central` region and schedules a firmware update for them using bundle version `2024.04.00.02`. 
+    This example retrieves a list of all "ProLiant DL360 Gen10 Plus" servers in the `eu-central` region and schedules a firmware update for them using baseline version `2024.04.00.02`. 
     The update is scheduled to occur four days from the current date and includes installing HPE drivers and software while allowing firmware downgrade.
 
     .INPUTS
@@ -2295,6 +2320,11 @@ function Update-HPECOMServerFirmware {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2317,7 +2347,8 @@ function Update-HPECOMServerFirmware {
         [String]$ServerSerialNumber,
         
         [Parameter (Mandatory)]
-        [String]$FirmwareBundleReleaseVersion,
+        [Alias('FirmwareBundleReleaseVersion')]
+        [String]$FirmwareBaselineReleaseVersion,
 
         [Parameter (Mandatory, ParameterSetName = 'ScheduleSerialNumber')]
         [ValidateScript({
@@ -2424,7 +2455,7 @@ function Update-HPECOMServerFirmware {
  
         try {
             if ($Region) {
-                $Bundles = Get-HPECOMFirmwareBundle -Region $Region -ReleaseVersion $FirmwareBundleReleaseVersion 
+                $Bundles = Get-HPECOMFirmwareBaseline -Region $Region -ReleaseVersion $FirmwareBaselineReleaseVersion 
             }
             else {
                 return
@@ -2439,7 +2470,7 @@ function Update-HPECOMServerFirmware {
         if (-not $Bundles) {
 
             # Must return a message if not found
-            $ErrorMessage = "Firmware bundle release version '{0}' cannot be found in the Compute Ops Management instance!" -f $FirmwareBundleReleaseVersion
+            $ErrorMessage = "Firmware baseline release version '{0}' cannot be found in the Compute Ops Management instance!" -f $FirmwareBaselineReleaseVersion
             throw $ErrorMessage
             
         }
@@ -2571,10 +2602,10 @@ function Update-HPECOMServerFirmware {
                     $Resource.duration = '00:00:00'
                     $Resource.resultCode = "FAILURE"
                     $Resource.Status = "Failed"
-                    $Resource.message = "Firmware bundle release version '{0}' cannot be found in the Compute Ops Management instance!" -f $FirmwareBundleReleaseVersion
+                    $Resource.message = "Firmware baseline release version '{0}' cannot be found in the Compute Ops Management instance!" -f $FirmwareBaselineReleaseVersion
                     
                     if ($WhatIf) {
-                        $ErrorMessage = "Firmware bundle release version '{0}' cannot be found in the Compute Ops Management instance!" -f $FirmwareBundleReleaseVersion
+                        $ErrorMessage = "Firmware baseline release version '{0}' cannot be found in the Compute Ops Management instance!" -f $FirmwareBaselineReleaseVersion
                         Write-warning $ErrorMessage
                         continue
                     }
@@ -2911,6 +2942,11 @@ function Update-HPECOMServeriLOFirmware {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -3495,6 +3531,11 @@ function Update-HPECOMGroupFirmware {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -4018,6 +4059,11 @@ function Stop-HPECOMGroupFirmware {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -4295,6 +4341,11 @@ function Invoke-HPECOMGroupFirmwareComplianceCheck {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -4636,6 +4687,11 @@ function Get-HPECOMGroupFirmwareCompliance {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -4875,6 +4931,11 @@ function Invoke-HPECOMServerExternalStorage {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -5363,6 +5424,11 @@ function Invoke-HPECOMGroupInternalStorageConfiguration {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -5727,6 +5793,11 @@ function Invoke-HPECOMGroupOSInstallation {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -6145,6 +6216,11 @@ function Invoke-HPECOMGroupBiosConfiguration {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -6496,6 +6572,11 @@ function Invoke-HPECOMGroupiLOConfiguration {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -6818,6 +6899,11 @@ function Invoke-HPECOMGroupiLOConfigurationCompliance {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -7152,6 +7238,11 @@ function Get-HPECOMGroupiLOConfigurationCompliance {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -7339,6 +7430,11 @@ function Invoke-HPECOMGroupExternalStorageConfiguration {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -7593,6 +7689,11 @@ function Invoke-HPECOMGroupExternalStorageComplianceCheck {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -7989,6 +8090,11 @@ function Update-HPECOMApplianceFirmware {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -8290,6 +8396,11 @@ function Get-HPECOMIloSecuritySatus {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -8540,6 +8651,11 @@ function Enable-HPECOMIloIgnoreRiskSetting {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -9016,6 +9132,11 @@ function Disable-HPECOMIloIgnoreRiskSetting {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -9584,8 +9705,8 @@ Export-ModuleMember -Function `
 # SIG # Begin signature block
 # MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDhSjfzL9TlLqsJ
-# FB1AHyDwY7RGHmtLYLjF71R/unOTIqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDDU+yc3Nd4rGZy
+# t7unsaBwF5P22Bh+3r1IZgD6nXFKd6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -9686,23 +9807,23 @@ Export-ModuleMember -Function `
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg8wIXJUzkjTaG8ywjCzz+/Mzoc7PyvV40+lL/qg+PzT4wDQYJKoZIhvcNAQEB
-# BQAEggIAfaAyCLM6ulB1DiardZsA2Ly4w3u1ifJksiDa28M8/IKnJERkYiLAtce6
-# wBcdNP+JVvw5/3aeQ/4aS4Enje9IuOf3CB6mieoxd+dwVyWZoyW9iusCPQAFIFhH
-# AbtSI044Me9tfMPwX+55LQjYqgsNHb0RuB+Jm8AJhWC8GZqnuUaot63B/jaS11QJ
-# QPlQvg8kKTaoGsvLXSuX9DolCxcPneIHYK2g/U0/3d0S+m0s6Jtgy6pv2K3EmJyR
-# CsUuYT5B4wvA/5v4k4flcE/cvIxYm2bpJS+Vbbbqcgh4ANluKPI0CKPbtLG1r+rg
-# bkcdGVMT0m8aJ9+9X5Wxj6Q9efBBGcmdeDxX84M4tnbw+h/EoeWtEB2hxU2+7pO4
-# 3GhE9d4w7sfqifMt3MUek73aoKMbJE5/rqbdR7521Ddy7jLSdx7YtQQXoLnxrprg
-# /HkAEwXnodfw9uASTtZmPN4qgH0H5Nt8nqGRd/8P6Gwm6Nlyqv1RKmo8qDvqmCcs
-# hZeVwAmZPySBBH1q1PkNALGAC5Q/gh85Xo535KHxh4uryDwNjKBy0IBUxVeDG0mr
-# 0A8JwrlJAsNRsEH4cvUqLnCzFFrwnndfEzKbpEijOFySXIYHsckYbrQkxTathe04
-# tmcHGM1EuiMGC1IiihVYqaoNTD/VeuVVokd7+31WGMX/i98Gw8qhghjoMIIY5AYK
+# IgQgXb+NGH+CJ/V+YUchGlG/blzwUzY6EQ9W6qJNpaSTz28wDQYJKoZIhvcNAQEB
+# BQAEggIAe1Z9F6l+5FaLFmUF78tJ8j508C++0UplphXpZdrMFFYOkziWk2VwkNhb
+# cSCOiivZpbQM8/btXrJLihmTsZwPc+/pJWI0XeFt+P8bEunG75/NSVu26m5wTOxN
+# ehfB2XqPBzE+vdvk6S3wyAa4RrHgA28PrIs+8NPxe0gLbUS4w87THikfGNpupMm9
+# +KutfjtfZmxfbRFVGsc0TZ4OO5S0RtNvWzMM4SodNq9VzExUWOSfMkn+eiS3okRJ
+# 8b74zl0xvQ0TB9jPTU0y0orIjEQPj3o071JFI1lclEMZbGxqH1hrHVVhzSHX9yzp
+# MywFm/25Fj30Znq2eTuCjZYHZZUzMK2+OFZtymQp+Z7BrjqRjQnAGwM88sQyd7J+
+# U2hE3kJcND/F3SW6ja5pixmVzJ5Rd2O2U8781snH/b5jNgL3Cv1dmB+cKqmPZqWd
+# qg2FaFxqKubP9QtLYkTuwrPLeVMQr1p1x6lHg3pkjC9pnDmAQ2UHQFj/sLxArx4e
+# JPMkBOysrlPBFMxJfsQW/WGebUgm6x/mhKgftvbelcsweklok3eYjqL+VA590cCn
+# TlAW5L7KRpYE7agUyDtDBG7Nf+7WP/8x1sSy5tXIOwiORCvrFTm95elf1fyzwzMV
+# VeJ+mH+7tm/YXUjqhLG8Bs5sMs9T5MU8Sfcz5eWH9s6gaIaG1wOhghjoMIIY5AYK
 # KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwiy2sLCxe5UxSSiVj2UMAB2mAdBg142Boc4CN
-# ZZbz7QYTqxzHk5qIqVf+bZxZSeSZAhQF5eZQH2FiPcVNexnjn0mlIRCypRgPMjAy
-# NTEwMDMxMDA4MjlaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
+# AQEwQTANBglghkgBZQMEAgIFAAQwhLqkKuQ46ZXv65nqbRZpTy/fE8Ul2GP0M/wj
+# UTJvp6ru5hABzBpOziH00UGz2X6GAhRhqPl+fobWuBuC6BZ97xZcJzRG6hgPMjAy
+# NjAxMTkxODE4NDZaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
 # b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
 # dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
 # oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
@@ -9810,8 +9931,8 @@ Export-ModuleMember -Function `
 # ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
 # IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
 # BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjUxMDAzMTAwODI5WjA/BgkqhkiG9w0BCQQxMgQweDs81M3fg5+JC2RQDAhi
-# 5XAPHaWE2JjAcSHA/UoNxEaXetlaqxHS6DwQHyIgz59EMIIBegYLKoZIhvcNAQkQ
+# DxcNMjYwMTE5MTgxODQ2WjA/BgkqhkiG9w0BCQQxMgQwedHqOfUKwyggjzIsQ6KF
+# tktW7ER8FuTTx8/q/AHzKIdgyGAlVsCNvO90rZv3QVS3MIIBegYLKoZIhvcNAQkQ
 # AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
 # hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
 # ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
@@ -9820,15 +9941,15 @@ Export-ModuleMember -Function `
 # IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
 # VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
 # aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgB7Epb/fVtchIQevvcY7Y5xmFP+cxDaYrfhv1wkezzuA5/EdSRplZ0BxKtuHuc5
-# WNxs2uf22XbYh+lKxJ+aBZN9dDKFXhTIFlDv45cE25IwchX3DFx51F6OiIopK8oe
-# dUnNvPfeEFwno/jcjuyRC/gR7hVRiz2V0nxcZY4tGBl/XUazijFXxvXrPW6h7Raq
-# EmX4NOkq1Kq/VYb7Vnb/ZB46/GUt3BAI6rjPMAdS0avkEIrDbajvyedpZJi2LwPF
-# OUpodTf5/+WNP0VobQ2Wmsi8B9CZ/+EEkXdRIrUKEbDHORNo2HvhFyxKmaU9iER8
-# oMb98tehtpo61N8sd5HL0TbVe1iH7apmAjnOA15QFkCtlg/ysEfBftG5MAn0V3b1
-# w4zNEo6kv/ePetvaRe2cJRW7NsnZov/HjaH2S+Y7O3D5AAo2yCvLKDQGu2u8vgWm
-# RXCL4HQCzaQNqQSpVcjgMGnsptKKdXuAPt5M88OVIyMrATomWaC9hrWTiy0GMUPO
-# SSfuK0Gub4wFDpq91WdWabof2OyHFXDj1912nkR3NFG+iIF3Nw6GD4uXY+3giF9p
-# c68jB5F+oqM1SNtThtUWwH01pJFaZSsO5XwlhepH33rBrmaqayFbSL1jjgdJ9NLH
-# lgig7bhTn6W9hF+g4KCWG5yZa9bWE9oNdRX6Q3Fankyqqw==
+# AgAQcM+vH6MjUAENSqd1fx1ecBnAgME1FpXwaVUlGJQf4331rn/fsErb763C0IvL
+# kqOo+ZKJPlxRgiAWo+tgltdew0rawbUWmTq4ioi/9hIXjnY95IvVaDRLZ2NDkc4P
+# rKaCMhg7KAzvJXLKvI8gRFfoqmdh+JO4hWeKrE7OXPRDApEXBI1usrwtEExqa8wa
+# FIxcjE2duuEosiRye5vbIVqHNGGfj/TGUxH4tZndXT4aAkT41fhN3PpJiy25p6RA
+# CKIuep7WI48l+wy3FXt/LT153TwmlB+dY11ZvJiF3VTVF9TgkRiNaooPemIQJlsn
+# RP7ccj4VLLbiCE3zDzeXNtMHogzFEjNXpHso8bemekv2ICmmvT5Y5IB/aBLyEExh
+# dPJQI74RbmrhE4L8xhkcDGto5wOIMLIAPOwwp0xxm8EgGtqhWGt4ZT4SfAvAAUXn
+# 7/JsKtGiJbtjJbM2GLZzL72p6e2HjKJ/o5OioHrn6N7dHv2jw93kCat2qY3U6kfZ
+# m3qeHu4FgxjOw+bUN+Gc0a+co3t5E7X0YNAnL7xChw+FNM5vVE7feJA7PTQKlN8W
+# ssUPACR/KoTH5w5Ep8xdN7izTrDK0iWm+F+OEOcOGfU7+QlL8iYWvpPGI5rq+YTn
+# fSN6v/DISXar7YV2MFfOx4ERZuErWKFuxGCmKhIY0NHtBQ==
 # SIG # End signature block

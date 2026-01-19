@@ -38,20 +38,53 @@ Function Get-HPECOMServer {
     .PARAMETER Limit 
     This parameter allows you to define a limit on the number of servers to be displayed. 
     
+    .PARAMETER ShowHealthStatus 
+    Optional parameter that can be used to get the server health status including overall health summary, fans, memory, network, power supplies, processor, storage, temperature, BIOS, and health LED status.
+    Note: The default table view displays the most commonly used properties. Use Format-List or Select-Object * to view all properties including redundancy states (fanRedundancy, liquidCoolingRedundancy, powerSupplyRedundancy), liquidCooling, smartStorage, and connectionType.
+
+    .PARAMETER ShowLocation 
+    Optional parameter that can be used to get the server location.
+
     .PARAMETER ShowGroupMembership 
     Optional parameter that can be used to get the server group membership.
+
+    .PARAMETER ShowGroupCompliance
+    Optional parameter that can be used when a server is a member of a group to get comprehensive compliance status for all compliance types (firmware, iLO settings, and external storage).
 
     .PARAMETER ShowGroupFirmwareCompliance
     Optional parameter that can be used when a server is a member of a group to get the group firmware compliance. 
     This parameter allows you to check if the server is compliant with the group's firmware baseline (if any).
-      
-    .PARAMETER ShowGroupFirmwareDeviation
-    Optional parameter that can be used when a server is member of a group to get the group firmware deviation.
-    This parameter can be useful for identifying deviations from the group's firmware baseline (if any), ensuring that the server is up to date and compliant with the group (if any).
-
-    .PARAMETER ShowLocation 
-    Optional parameter that can be used to get the server location.
     
+    Returns the following properties for the server:
+    - Server: Server name
+    - SerialNumber: Server serial number
+    - Group: Group name the server belongs to
+    - State: Compliance state (Compliant, Not Compliant, Unknown, etc.)
+    - Score: Compliance score percentage (e.g., 25% indicates 25% compliant)
+    - ErrorReason: Reason for compliance failure if applicable
+    - Criticality: Severity level of the firmware update (Recommended, Critical, Optional)
+    - Deviations: Number of firmware components that deviate from the group's baseline
+    - WillItRebootTheServer: Indicates if applying the update will reboot the server (Yes/No)
+    - GracefullShutdownAttempt: Indicates if a graceful shutdown will be attempted before reboot (Yes/No)
+    - TotalDownloadSize: Total size of firmware updates to download (e.g., 40 MB)
+
+    .PARAMETER ShowGroupFirmwareDeviation
+    Optional parameter that can be used when a server is a member of a group to get detailed firmware component deviations from the group's firmware baseline.
+    
+    Returns the following properties for each firmware component that deviates:
+    - ComponentName: Name of the firmware component (e.g., System ROM, NIC, Boot Controller)
+    - ExpectedVersion: Firmware version expected by the group's baseline
+    - InstalledVersion: Currently installed firmware version on the server
+    - ComponentFilename: Filename of the firmware update package
+    
+    This parameter is useful for identifying specific firmware components that need updates to comply with the group's baseline.
+
+    .PARAMETER ShowGroupiLOSettingsCompliance
+    Optional parameter that can be used when a server is a member of a group to get the group iLO settings compliance.
+
+    .PARAMETER ShowGroupExternalStorageCompliance
+    Optional parameter that can be used when a server is a member of a group to get the group external storage compliance.
+
     .PARAMETER ShowAlerts 
     Optional parameter that can be used to get the server alerts. 
 
@@ -68,6 +101,9 @@ Function Get-HPECOMServer {
 
     .PARAMETER ShowSubscriptionDetails
     Optional parameter that can be used to get the subscription details for the specified server.
+
+    .PARAMETER ShowAutoiLOFirmwareUpdateStatus
+    Optional parameter that can be used to get the status of the automatic iLO firmware update configuration.
     
     .PARAMETER ShowNotificationStatus 
     Optional parameter that can be used to get the server notification status. 
@@ -77,19 +113,16 @@ Function Get-HPECOMServer {
 
     .PARAMETER ShowSecurityParametersDetails 
     Optional parameter that can be used to get the server security parameter details. 
-    
-    .PARAMETER ShowAdapterToSwitchPortMappings 
-    Optional parameter that can be used to get the network connectivity of the adapter port to the connected switch port of the server. 
-    
-    .PARAMETER ShowAutoiLOFirmwareUpdateStatus
-    Optional parameter that can be used to get the status of the automatic iLO firmware update configuration.
 
-    .PARAMETER ShowExternalStorageDetails 
-    Optional parameter that can be used to get the server external storage details. 
-   
     .PARAMETER CheckifserverHasStorageVolume 
     Optional parameter that can be used to validate the presence of a storage volume for the server 
     specified for operating system installation. The response returned is a boolean.
+
+    .PARAMETER ShowExternalStorageDetails 
+    Optional parameter that can be used to get the server external storage details. 
+    
+    .PARAMETER ShowAdapterToSwitchPortMappings 
+    Optional parameter that can be used to get the network connectivity of the adapter port to the connected switch port of the server. 
 
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -125,6 +158,21 @@ Function Get-HPECOMServer {
     This command returns the group firmware compliance report of the server with name 'ESX-1' if it is a member of a group with a compatible firmware baseline.
 
     .EXAMPLE
+    Get-HPECOMserver -Region eu-central -Name ESX-1 -ShowGroupCompliance 
+
+    This command returns the comprehensive group compliance report (firmware, iLO settings, and external storage) for the server with name 'ESX-1' if it is a member of a group.
+
+    .EXAMPLE
+    Get-HPECOMserver -Region eu-central -Name ESX-1 -ShowGroupiLOSettingsCompliance 
+
+    This command returns the group iLO settings compliance report for the server with name 'ESX-1' if it is a member of a group.
+
+    .EXAMPLE
+    Get-HPECOMserver -Region eu-central -Name ESX-1 -ShowGroupExternalStorageCompliance 
+
+    This command returns the group external storage compliance report for the server with name 'ESX-1' if it is a member of a group with external storage configured.
+
+    .EXAMPLE
     Get-HPECOMserver -Region eu-central -Name ESX-1 -ShowGroupFirmwareDeviation 
 
     This command returns the firmware components of the server with name 'ESX-1' that have deviations from the group's firmware baseline if it is a member of a group with a compatible firmware baseline.
@@ -133,6 +181,11 @@ Function Get-HPECOMServer {
     Get-HPECOMServer -Region eu-central -Name ESX-1.domain.lab -ShowAlerts
 
     This command returns the alerts of the server with name 'ESX-1.domain.lab'.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -Name ESX-1 -ShowHealthStatus
+
+    This command returns the health status details of the server with name 'ESX-1', including overall health summary, component health (fans, memory, network, power supplies, processor, storage, temperature, BIOS), redundancy states, and health LED status.
 
     .EXAMPLE
     Get-HPECOMServer -Region us-west -ShowServersWithRecentSupportCases
@@ -262,6 +315,11 @@ Function Get-HPECOMServer {
     
         [Parameter(Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -279,14 +337,7 @@ Function Get-HPECOMServer {
         [String]$Region,  
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ByName')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithNameForbidFilters')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'CheckifserverHasStorageVolumeWithNameForbidFilters')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ExternalStorageDetailsWithNameForbidFilters')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupMembershipWithNameForbidFilters')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'GroupFirmwareComplianceWithNameForbidFilters')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'LocationWithNameForbidFilters')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'NotificationStatusWithNameForbidFilters')]
-        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SecurityParametersWithNameForbidFilters')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'WithNameForbidFilters')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AdapterToSwitchPortMappingsName')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AlertsName')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ShowServersWithShowSupportDetails')]
@@ -297,17 +348,9 @@ Function Get-HPECOMServer {
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ShowSupportDetailsName')]
         [String]$Name,
         
+        # Filter Parameters
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
-        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
-        [Parameter (ParameterSetName = 'LocationWithoutName')]
-        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
-        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
-        [Parameter (ParameterSetName = 'SubscriptionDetailsWithoutName')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
@@ -323,15 +366,6 @@ Function Get-HPECOMServer {
         
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
-        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
-        [Parameter (ParameterSetName = 'LocationWithoutName')]
-        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
-        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
-        [Parameter (ParameterSetName = 'SubscriptionDetailsWithoutName')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
@@ -346,29 +380,11 @@ Function Get-HPECOMServer {
     
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
-        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
-        [Parameter (ParameterSetName = 'LocationWithoutName')]
-        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
-        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
-        [Parameter (ParameterSetName = 'SubscriptionDetailsWithoutName')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
         [String]$Model,
         
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
-        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
-        [Parameter (ParameterSetName = 'LocationWithoutName')]
-        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
-        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
-        [Parameter (ParameterSetName = 'SubscriptionDetailsWithoutName')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
@@ -380,11 +396,48 @@ Function Get-HPECOMServer {
             })]
         [ValidateSet ('ON', 'OFF')]
         [String]$PowerState,
-        
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
-        [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithNameForbidFilters')]
-        [Switch]$CheckIfServerHasStorageVolume,
-        
+
+        [Parameter (ParameterSetName = 'ByName')]
+        [Parameter (ParameterSetName = 'Other')]
+        [Parameter (ParameterSetName = 'ShowServersWithRecentSupportCases')]
+        [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
+        [ValidateRange(1, 100)]
+        [int]$Limit,
+
+        # Basic Server Information
+        [Parameter (ParameterSetName = 'HealthStatusWithoutName')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$ShowHealthStatus,
+
+        [Parameter (ParameterSetName = 'LocationWithoutName')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$ShowLocation,
+
+        # Group-Related Parameters
+        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$ShowGroupMembership,
+
+        [Parameter (ParameterSetName = 'GroupComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$ShowGroupCompliance,
+
+        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$ShowGroupFirmwareCompliance,
+            
+        [Parameter (ParameterSetName = 'GroupFirmwareDeviationName')]
+        [Switch]$ShowGroupFirmwareDeviation,
+
+        [Parameter (ParameterSetName = 'GroupiLOSettingsComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$ShowGroupiLOSettingsCompliance,
+
+        [Parameter (ParameterSetName = 'GroupExternalStorageComplianceWithoutName')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$ShowGroupExternalStorageCompliance,
+
+        # Support & Subscription Parameters
         [Parameter (ParameterSetName = 'AlertsName')]
         [Switch]$ShowAlerts,
 
@@ -401,58 +454,34 @@ Function Get-HPECOMServer {
         [Parameter (ParameterSetName = 'SubscriptionDetailsWithoutName')]
         [Parameter (ParameterSetName = 'SubscriptionDetailsName')]
         [Switch]$ShowSubscriptionDetails,
-        
-        [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsName')]
-        [Switch]$ShowAdapterToSwitchPortMappings,
-        
+
+        # Configuration & Settings Parameters
         [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithNameForbidFilters')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
         [Switch]$ShowAutoiLOFirmwareUpdateStatus,
-        
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
-        [Parameter (ParameterSetName = 'ExternalStorageDetailsWithNameForbidFilters')]
-        [Switch]$ShowExternalStorageDetails,
-
-        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
-        [Parameter (ParameterSetName = 'GroupMembershipWithNameForbidFilters')]
-        [Switch]$ShowGroupMembership,
-
-        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithNameForbidFilters')]
-        [Switch]$ShowGroupFirmwareCompliance,
-    
-        [Parameter (ParameterSetName = 'GroupFirmwareDeviationName')]
-        [Switch]$ShowGroupFirmwareDeviation,
-
-        [Parameter (ParameterSetName = 'LocationWithoutName')]
-        [Parameter (ParameterSetName = 'LocationWithNameForbidFilters')]
-        [Switch]$ShowLocation,    
     
         [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
-        [Parameter (ParameterSetName = 'NotificationStatusWithNameForbidFilters')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
         [Switch]$ShowNotificationStatus,
         
         [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
-        [Parameter (ParameterSetName = 'SecurityParametersWithNameForbidFilters')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
         [Switch]$ShowSecurityParameters,
         
         [Parameter (ParameterSetName = 'SecurityParametersDetailsName')]
         [Switch]$ShowSecurityParametersDetails,
-            
-        [Parameter (ParameterSetName = 'ByName')]
-        [Parameter (ParameterSetName = 'Other')]
-        [Parameter (ParameterSetName = 'AutoiLOFirmwareUpdateStatusWithoutName')]
+
+        # Storage & Network Parameters
         [Parameter (ParameterSetName = 'CheckifserverHasStorageVolumeWithoutName')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$CheckIfServerHasStorageVolume,
+        
         [Parameter (ParameterSetName = 'ExternalStorageDetailsWithoutName')]
-        [Parameter (ParameterSetName = 'GroupMembershipWithoutName')]
-        [Parameter (ParameterSetName = 'GroupFirmwareComplianceWithoutName')]
-        [Parameter (ParameterSetName = 'LocationWithoutName')]
-        [Parameter (ParameterSetName = 'NotificationStatusWithoutName')]
-        [Parameter (ParameterSetName = 'SecurityParametersWithoutName')]
-        [Parameter (ParameterSetName = 'SubscriptionDetailsWithoutName')]
-        [Parameter (ParameterSetName = 'ShowServersWithRecentSupportCases')]
-        [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
-        [int]$Limit,
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$ShowExternalStorageDetails,
+        
+        [Parameter (ParameterSetName = 'AdapterToSwitchPortMappingsName')]
+        [Switch]$ShowAdapterToSwitchPortMappings,
 
         [Switch]$WhatIf
         
@@ -463,6 +492,27 @@ Function Get-HPECOMServer {
         $Caller = (Get-PSCallStack)[1].Command
         
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        # Validate only one Show* parameter is specified
+        $ShowParameters = @(
+            'ShowAlerts', 'ShowSupportDetails', 'ShowServersWithRecentSupportCases', 'ShowSupportCases',
+            'ShowSubscriptionDetails', 'ShowAdapterToSwitchPortMappings', 'ShowAutoiLOFirmwareUpdateStatus',
+            'ShowExternalStorageDetails', 'ShowGroupMembership', 'ShowGroupFirmwareCompliance',
+            'ShowGroupCompliance', 'ShowGroupiLOSettingsCompliance', 'ShowGroupExternalStorageCompliance',
+            'ShowGroupFirmwareDeviation', 'ShowLocation', 'ShowNotificationStatus', 'ShowSecurityParameters',
+            'ShowSecurityParametersDetails', 'ShowHealthStatus'
+        )
+        
+        $SpecifiedShowParams = $ShowParameters | Where-Object { $PSBoundParameters.ContainsKey($_) }
+        
+        if ($SpecifiedShowParams.Count -gt 1) {
+            throw "Only one Show* parameter can be specified at a time. You specified: $($SpecifiedShowParams -join ', ')"
+        }
+
+        # Validate CheckIfServerHasStorageVolume is not combined with any Show* parameter
+        if ($PSBoundParameters.ContainsKey('CheckIfServerHasStorageVolume') -and $SpecifiedShowParams.Count -gt 0) {
+            throw "CheckIfServerHasStorageVolume cannot be combined with Show* parameters. You specified: CheckIfServerHasStorageVolume and $($SpecifiedShowParams -join ', ')"
+        }
 
         $Uri = Get-COMServersUri 
    
@@ -1391,7 +1441,45 @@ Function Get-HPECOMServer {
                 $NewCollectionList = $NewCollectionList | Sort-Object -Property serverName, serialNumber
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.SecurityParameters"  
 
-            }   
+            }  
+            elseif ($ShowHealthStatus) {
+
+                $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                foreach ($Item in $CollectionList) {
+
+                    "[{0}] Item: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
+
+                    # Extract health data from hardware.health object
+                    $healthData = [PSCustomObject]@{
+                        name = $Item.name
+                        serialNumber = $Item.hardware.serialNumber
+                        model = $Item.hardware.model
+                        connectionType = $Item.connectionType
+                        healthSummary = if ($Item.hardware.health.summary) { $Item.hardware.health.summary } else { "UNKNOWN" }
+                        fans = if ($Item.hardware.health.fans) { $Item.hardware.health.fans } else { "UNKNOWN" }
+                        fanRedundancy = if ($Item.hardware.health.fanRedundancy) { $Item.hardware.health.fanRedundancy } else { "NOT_PRESENT" }
+                        liquidCooling = if ($Item.hardware.health.liquidCooling) { $Item.hardware.health.liquidCooling } else { "UNKNOWN" }
+                        liquidCoolingRedundancy = if ($Item.hardware.health.liquidCoolingRedundancy) { $Item.hardware.health.liquidCoolingRedundancy } else { "NOT_PRESENT" }
+                        memory = if ($Item.hardware.health.memory) { $Item.hardware.health.memory } else { "UNKNOWN" }
+                        network = if ($Item.hardware.health.network) { $Item.hardware.health.network } else { "UNKNOWN" }
+                        powerSupplies = if ($Item.hardware.health.powerSupplies) { $Item.hardware.health.powerSupplies } else { "UNKNOWN" }
+                        powerSupplyRedundancy = if ($Item.hardware.health.powerSupplyRedundancy) { $Item.hardware.health.powerSupplyRedundancy } else { "NOT_PRESENT" }
+                        processor = if ($Item.hardware.health.processor) { $Item.hardware.health.processor } else { "UNKNOWN" }
+                        storage = if ($Item.hardware.health.storage) { $Item.hardware.health.storage } else { "UNKNOWN" }
+                        temperature = if ($Item.hardware.health.temperature) { $Item.hardware.health.temperature } else { "UNKNOWN" }
+                        bios = if ($Item.hardware.health.bios) { $Item.hardware.health.bios } else { "UNKNOWN" }
+                        smartStorage = if ($Item.hardware.health.smartStorage) { $Item.hardware.health.smartStorage } else { "UNKNOWN" }
+                        healthLED = if ($Item.hardware.health.healthLED) { $Item.hardware.health.healthLED } else { "UNKNOWN" }
+                    }
+
+                    [void]$NewCollectionList.add($healthData)
+                }
+
+                $NewCollectionList = $NewCollectionList | Sort-Object -Property name, serialNumber
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.Health"  
+
+            }  
             elseif ($ShowSubscriptionDetails) {
 
                 # Add required properties to object
@@ -1401,6 +1489,33 @@ Function Get-HPECOMServer {
                 $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name subscriptionTier -value $_.state.subscriptionTier -Force }
                 $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name subscriptionKey -value $_.state.subscriptionKey -Force }
                 $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name subscriptionExpiresAt -value $_.state.subscriptionExpiresAt -Force }
+
+                # Get unique subscription keys from servers
+                $uniqueKeys = $CollectionList | Where-Object { $_.subscriptionKey } | Select-Object -ExpandProperty subscriptionKey -Unique
+
+                # Build lookup hashtable for subscription available quantities
+                $subscriptionLookup = @{}
+                foreach ($key in $uniqueKeys) {
+                    try {
+                        $subscription = Get-HPEGLSubscription -SubscriptionKey $key
+                        if ($subscription) {
+                            $subscriptionLookup[$key] = $subscription.availableQuantity
+                        }
+                    }
+                    catch {
+                        # Silently continue if subscription not found
+                    }
+                }
+
+                # Add available quantity to each server
+                $CollectionList | ForEach-Object {
+                    if ($_.subscriptionKey -and $subscriptionLookup.ContainsKey($_.subscriptionKey)) {
+                        $_ | Add-Member -type NoteProperty -name subscriptionAvailable -value $subscriptionLookup[$_.subscriptionKey] -Force
+                    }
+                    else {
+                        $_ | Add-Member -type NoteProperty -name subscriptionAvailable -value $null -Force
+                    }
+                }
 
                 # Get location from GLP first
                 try {
@@ -1574,6 +1689,150 @@ Function Get-HPECOMServer {
                 $ReturnData = $NewCollectionList
 
             }
+            elseif ($ShowGroupCompliance) {
+
+                $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                $_GroupMemberships = (Get-HPECOMServer -Region $Region -ShowGroupMembership )
+
+                foreach ($Item in $CollectionList) {
+
+                    "[{0}] Item: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
+
+                    if ($Item.connectionType -eq 'OneView') {
+                        Write-Warning "Group compliance details are not available for server '$($Item.hardware.serialnumber)' because it is managed by HPE OneView."
+                        continue
+                    }
+
+                    try {
+
+                        $_GroupName = $_GroupMemberships | Where-Object { $_.hardware.serialNumber -eq $Item.hardware.serialNumber } | Select-Object -ExpandProperty associatedGroupname
+
+                        "[{0}] `$_Groupname found: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_GroupName | Write-Verbose
+                        
+                        if ($_GroupName -and $_GroupName -ne "No group" -and $_GroupName -ne "Unsupported") {
+
+                            $_Resp = Get-HPECOMGroup -Region $Region -Name $_GroupName -ShowCompliance
+                            
+                            # Add server information to the compliance data
+                            $_Resp | Add-Member -type NoteProperty -name serverName -value $Item.name -Force
+                            $_Resp | Add-Member -type NoteProperty -name serialNumber -value $Item.hardware.serialNumber -Force
+                            
+                            [void]$NewCollectionList.add($_Resp)
+                            
+                        }
+                        else {
+                            "[{0}] No group found!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                        }
+
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                            
+                    }
+                }
+
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.GroupCompliance"
+
+            }
+            elseif ($ShowGroupiLOSettingsCompliance) {
+
+                $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                $_GroupMemberships = (Get-HPECOMServer -Region $Region -ShowGroupMembership )
+
+                foreach ($Item in $CollectionList) {
+
+                    "[{0}] Item: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
+
+                    if ($Item.connectionType -eq 'OneView') {
+                        Write-Warning "Group iLO settings compliance details are not available for server '$($Item.hardware.serialnumber)' because it is managed by HPE OneView."
+                        continue
+                    }
+
+                    try {
+
+                        $_GroupName = $_GroupMemberships | Where-Object { $_.hardware.serialNumber -eq $Item.hardware.serialNumber } | Select-Object -ExpandProperty associatedGroupname
+
+                        "[{0}] `$_Groupname found: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_GroupName | Write-Verbose
+                        
+                        if ($_GroupName -and $_GroupName -ne "No group" -and $_GroupName -ne "Unsupported") {
+
+                            $_Resp = Get-HPECOMGroup -Region $Region -Name $_GroupName -ShowiLOSettingsCompliance
+                            
+                            # Add server information to the compliance data
+                            $_Resp | Add-Member -type NoteProperty -name serverName -value $Item.name -Force
+                            $_Resp | Add-Member -type NoteProperty -name serialNumber -value $Item.hardware.serialNumber -Force
+                            
+                            [void]$NewCollectionList.add($_Resp)
+                            
+                        }
+                        else {
+                            "[{0}] No group found!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                        }
+
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                            
+                    }
+                }
+
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.GroupiLOSettingsCompliance"
+
+            }
+            elseif ($ShowGroupExternalStorageCompliance) {
+
+                $NewCollectionList = [System.Collections.ArrayList]::new()
+
+                $_GroupMemberships = (Get-HPECOMServer -Region $Region -ShowGroupMembership )
+
+                foreach ($Item in $CollectionList) {
+
+                    "[{0}] Item: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
+
+                    if ($Item.connectionType -eq 'OneView') {
+                        Write-Warning "Group external storage compliance details are not available for server '$($Item.hardware.serialnumber)' because it is managed by HPE OneView."
+                        continue
+                    }
+
+                    try {
+
+                        $_GroupName = $_GroupMemberships | Where-Object { $_.hardware.serialNumber -eq $Item.hardware.serialNumber } | Select-Object -ExpandProperty associatedGroupname
+
+                        "[{0}] `$_Groupname found: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_GroupName | Write-Verbose
+                        
+                        if ($_GroupName -and $_GroupName -ne "No group" -and $_GroupName -ne "Unsupported") {
+
+                            $_Resp = Get-HPECOMGroup -Region $Region -Name $_GroupName -ShowExternalStorageCompliance
+                            
+                            # Filter for only this server from the returned array and add group name
+                            if ($_Resp) {
+                                $_ServerCompliance = $_Resp | Where-Object { $_.serialNumber -eq $Item.hardware.serialNumber }
+                                if ($_ServerCompliance) {
+                                    $_ServerCompliance | Add-Member -type NoteProperty -name groupName -value $_GroupName -Force
+                                    [void]$NewCollectionList.add($_ServerCompliance)
+                                }
+                            }
+                            
+                        }
+                        else {
+                            "[{0}] No group found!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                        }
+
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                            
+                    }
+                }
+
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $NewCollectionList -ObjectName "COM.Servers.GroupExternalStorageCompliance"
+
+            }
             elseif ($ShowGroupFirmwareDeviation) {
 
                 $NewCollectionList = [System.Collections.ArrayList]::new()
@@ -1583,6 +1842,11 @@ Function Get-HPECOMServer {
                 foreach ($Item in $CollectionList) {
 
                     "[{0}] Item: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Item | Write-Verbose
+
+                    if ($Item.connectionType -eq 'OneView') {
+                        Write-Warning "Group firmware deviation details are not available for server '$($Item.hardware.serialnumber)' because it is managed by HPE OneView."
+                        continue
+                    }
 
                     try {
                         
@@ -1800,6 +2064,11 @@ Function Get-HPECOMServeriLOSSO {
     
         [Parameter(Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2143,6 +2412,11 @@ Function Enable-HPECOMServerAutoiLOFirmwareUpdate {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2356,6 +2630,11 @@ Function Disable-HPECOMServerAutoiLOFirmwareUpdate {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2533,6 +2812,11 @@ Function Get-HPECOMServerActivationKey {
     Param( 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2688,6 +2972,11 @@ Function New-HPECOMServerActivationKey {
     Param( 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2864,6 +3153,11 @@ Function Remove-HPECOMServerActivationKey {
     Param( 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -3025,6 +3319,11 @@ Function Get-HPECOMEmailNotificationPolicy {
 
         [Parameter (Mandatory)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -3234,6 +3533,11 @@ Function Enable-HPECOMEmailNotificationPolicy {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -3581,6 +3885,11 @@ Function Disable-HPECOMEmailNotificationPolicy {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -3895,10 +4204,10 @@ Export-ModuleMember -Function `
 
 
 # SIG # Begin signature block
-# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCD2HGBmxghy9IFS
-# f+h55uaYWAP+qywO9CfD8Wh7zYbKj6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBqB8jVbNQwkzW0
+# wGKpeujT61JnGJUAr5Q3O9BJ3eEMHqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -3994,147 +4303,147 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgtZTnHmQdk1iBFtwbc79WMxhywsLjA8klaMAGJq/jbOwwDQYJKoZIhvcNAQEB
-# BQAEggIAqhACW+iipMg03pWt0UMXsR/KXnWRjGSquTrvJEpl9baRi/HC18YV5Za/
-# N3aSbLnIbFTEWVeni+fPppTT0rbZll+197aBgjdcOLTsz0m+0jk1KOePBGNFOFK3
-# z0XmrUqRNoLuRXx8p43UElu3H2MPsOZPF5NihPsRKEeRmoTZhZrJ3OCmPuXr+9vj
-# Rh235AR3RQV+POBrPMjaKrHCN6HAQWUOEdd3/JnMs5C2pZxKsTeDnN2pREvzM8Ni
-# mUUQemsLaCQed9x+xjCWAag2hwPNxUdNLlzEiwadd6woJN/6NCa+Uy83fGLFQ0VF
-# dS3S+bCR3/S5rvPyg/8aFXE6Uk22DHPj/m3XJU3wv5F9XMOpST7Bs4KG7sHCycZM
-# lnbBmR/MCJcdgIIhIikuQLjeW/6YEHfPDhJfvv+WPud0Ob28slSRdPJYs8WculHF
-# glZXTaxetbqfrCNv7bsKELvaxJ4V1BbgCwyO4HbhQuo2rtA/30r6ukT1fSWG3tQz
-# QX6uk1oa9WuARqtrjCKlDuOkaP8CwCk6P+RFf3qaadbJY3TjFSxkWcKGvoNhCHAV
-# v8k7OfQVCU25FSrXZeybVHlJHLnWUGt5GbiMpqplM1Tut6nPBvS30w+L/3xJ9LwD
-# L4a0oztOgYARHbJbCrcuaDWE++hgsjRlAZcRZE43xYhR4MEU+eChgheYMIIXlAYK
-# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMIOWOBTgrQU4tVHHx6Lj5CH8GSFxcCxp+g7g/KwvROo0
-# gnztOnoPZSCiOaGmGkDhXwIRAK1Kmfluq0sVR/UxLhWbrZEYDzIwMjUxMDEzMTIw
-# MjAzWqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
-# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
-# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
-# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
-# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
-# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
-# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
-# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
-# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
-# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
-# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
-# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
-# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
-# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
-# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
-# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
-# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
-# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
-# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
-# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
-# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
+# IgQgdDzV5oJgxd+1gh3lq1U5kY8j5A5apvVnx+txRuxBcMQwDQYJKoZIhvcNAQEB
+# BQAEggIAb15axgJW6spPVotu3YFHnDA9bjOGq4Oc0SVwJwJVBVoqQMJUlUFsfVPf
+# SJuShjd+FrMER/+WHgLvWuD0g5Dw3SEf93cw1R1gh4fbnpPh/WNYMJWxocYMc7FA
+# PwxUOY7NsI3HRSw6g/PCtaUZob/LbeK1mqy45BboJ4kyf8bBzVHLl0uIaHILT/wd
+# V4Zm26YzmvEQDzCPy9UnQ5mPVP5dvlfAEA+ojNROhazMYgUQ2RPD7P5vFykxdh7y
+# QvDgmpJtD0w8M0l0htIQxrWYbSIpz2xz7KyHMgddb+F+fZbU/bMauya6Ax9SjBVd
+# 8yt3ljwd2J+IFbP5NKzetPHvKz2uaCb0GWWAxTY5G074KCbOmAih1lR1nFU/s8D/
+# uDjcwxQ/yDf3vJCLX240ICv+rvNz5eoyPz5Ao2zTZ5pJLJ7AbcCyhKNXfmWZ9Cmm
+# 8ieyHmAow45lV4CcX72O2fNi7aqXVggng4mryLQ8TXwAXjaWrFt6FxlQX0xUuUtq
+# AhdR+tkX2TdyyC8x4OiHxqcpzImSltHzBu7HsJSzXQ9kw0A4XAAESGPV6kPbE/4P
+# bBszofp7fjIwNxnxsp2LInUTu8uoA8xcTuETpsVWVu7PR95JSKAu01KzeHDjc9HI
+# A/TU8GVaq/p8t9prFrv4Fm0+g2bZROmeo2q7eAdBpaoXArltjWmhgheXMIIXkwYK
+# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMLJbj8qxGdUWzYf0slnOwuZa2IesF0rD0D3p2WAiuFIO
+# yS/GNz5z+05lgLXFkTxOBgIQekKDSDKjszLIITy2rfEAJBgPMjAyNjAxMTkxODIx
+# MDJaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
+# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
+# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
+# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
+# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
+# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
+# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
+# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
+# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
+# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
+# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
+# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
+# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
+# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
+# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
+# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
+# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
+# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
+# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
+# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
+# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
 # ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
-# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
-# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
-# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
-# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
-# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
-# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
-# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
-# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
-# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
-# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
-# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
-# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
-# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
-# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
-# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
-# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
-# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
-# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
-# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
-# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
-# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
-# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
-# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
-# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
-# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
-# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
-# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
-# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
-# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
-# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
-# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
-# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
-# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
-# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
-# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
-# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
-# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
-# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
-# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
-# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
-# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
-# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
-# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
-# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
-# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
-# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
-# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
-# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
-# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
-# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
-# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
-# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
-# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
-# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
-# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
-# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
-# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
-# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
-# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
-# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
-# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
-# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
-# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
-# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
-# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
-# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
-# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
-# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
-# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
-# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
-# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
-# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
-# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
-# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
-# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
-# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
-# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
-# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
-# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
-# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI1MTAx
-# MzEyMDIwM1owKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
-# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMNtp0pB/OhADJ7VumX89XMQI
-# jkdBAGpoE6tyfc5u4cZ9nEPl/0wm9wBeNMLMvrrbdDANBgkqhkiG9w0BAQEFAASC
-# AgC/X+v+lM0bfmLE/R/2+6OQ2DfrlP+3Ohvy3ZhuIDxkOShMxhrlKuwDmg6pkubz
-# O09yoMAakaYajluxmjOAukFk8mt7kOs6UZf35amyApvaZjWjFojjOw57fYi/8ElL
-# +BhcFeGp1g35q0wC+2vIsZncS5UgyeCB4em1frPo+da54eV9Vu87ZNBoO7HwW3mV
-# WvuAar8NA/UL1MyrTr4RiUyWdWXdaommpvgmhNJzLGexYaVGe0DXuxVY2CnOFUaa
-# YTArJNnz9llXZMR+TYOaGDFeEIUUY6wo39wYXY954dg9NNq89Wvc+LcC3WehW43u
-# 2DYwjRt0vReGLtMlM/PS6RIbDSWmicISDhMuBSxQyOxUMURldCl2jfxseXEscYcQ
-# Rk00TvmvjTiKvrpWw2KVgKLrDIBx9xepI5R70NtuvW82QGmHXfmpIN152GjsZmc3
-# nq14kr38mH0T0rLmZRLJKJhK9Z6yycONNtX+KAUvSjgDSks6WScJUo1I56fYWzSQ
-# ydmcUkF+oaopRw0A5hCKHq8V6C6O1MJDtLlZy1ZaF8ORlZH8935bbi7b3at0aPgv
-# Lf/WkYjORfWVZoEZJk7+/06rwLX/cu8MnwnjrnsiU7yIoexzoS0J3XbIgC78Eb4U
-# U7FEeEQXQHqlpGfYdRnRmODEJFFH0l95vftewd96G2z1wg==
+# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
+# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
+# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
+# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
+# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
+# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
+# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
+# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
+# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
+# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
+# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
+# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
+# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
+# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
+# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
+# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
+# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
+# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
+# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
+# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
+# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
+# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
+# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
+# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
+# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
+# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
+# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
+# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
+# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
+# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
+# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
+# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
+# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
+# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
+# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
+# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
+# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
+# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
+# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
+# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
+# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
+# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
+# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
+# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
+# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
+# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
+# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
+# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
+# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
+# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
+# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
+# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
+# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
+# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
+# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
+# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
+# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
+# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
+# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
+# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
+# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
+# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
+# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
+# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
+# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
+# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
+# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
+# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
+# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
+# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
+# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
+# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
+# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
+# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
+# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
+# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
+# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMTE5
+# MTgyMTAyWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwq5NnoUxuerEM6gavt5ky4O/n
+# Pq93wVtxOaojrdTMpdIbIY3yB4Q/pK7p0OX29UteMA0GCSqGSIb3DQEBAQUABIIC
+# AHiKYe+Rd53luAjxdAmgRCAwd2+kxENciIyOioP0/67eT3S6Bn8QmWa7/WgguJOQ
+# rWzDCy8eSrLIuH/eNGoYK6NR1h9mTRFWuesLk5c7lsE293dQVxupIX+6vb6bl6E+
+# EQzqCmHOMumhSgDgamkwWBDXMPp+kBv8pf21UA+vuXAB1tRhj+kn+1urMq1Tq/zO
+# dlAbSD3KMZwzyFL0xLeGvKO1FiEOEy198U6l3P2y2s1x20s5yNelUGDcsk7b/HNn
+# 5Q4oUewMmc/hqs6bn3KYpMXjxhPVCRtTZYt+ldzSyrM9bAyPG+gXL97AjRh11Xue
+# Gtgtp/PmxzkHsCYAl4IA/vFrOipuORd+m1JqH7/FsNsReGfFi5w4zmba5MEbQwNa
+# vHTEblQyZl0cWF+BLuKoWkiYbrSRgQhr2MCPLIBAFkB73Qw8BjSdx09GIFgwmmGA
+# duQcw9TktVadw8F1+e2Mqb/OlXbX/Zrphvc6oghyVyXPM7wHO9Ep95tCaAsZMmzg
+# UNwmlTJwSlpDteRd8K5vL9ioZAwRLGxEbS61JLVCBSPkqC2Hq24m4+4vHNzHBSVC
+# Gw1T06sMuviqmyXuaj9qPjbXGwQiYZD28SbW6FEANrlrEKfYgmzfpdC7tmd6auRT
+# HFtE2eh53RWHa2MeF4z14UwNRA+QwSKOc7c5bZPOfJu4
 # SIG # End signature block

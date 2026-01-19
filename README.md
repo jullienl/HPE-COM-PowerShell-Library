@@ -8,7 +8,7 @@ This library is actively maintained with continuous updates to support new HPE G
 
 | Version | Downloads | Status | PowerShell |
 |---------|-----------|--------|------------|
-| 1.0.18 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
+| 1.0.19 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
 
 
 ## Table of Contents
@@ -82,7 +82,7 @@ Get up and running in 3 steps:
       Restart-HPECOMServer -Region "eu-central" -ServerSerialNumber 'CZ12312312' -ScheduleTime (Get-Date).AddHours(6)
 
       # Browse available firmware bundles
-      Get-HPECOMFirmwareBundle -Region "eu-central"
+      Get-HPECOMFirmwareBaseline -Region "eu-central"
 
       # Organize servers into groups
       Get-HPECOMGroup -Region "us-west"
@@ -102,7 +102,7 @@ Get up and running in 3 steps:
 ```powershell
 # Get detailed help for any cmdlet
 Get-Help Connect-HPEGL -Full
-Get-Help Set-HPEGLWorkspaceSAMLSSODomain -Examples
+Get-Help Set-HPEGLSSOConnection -Examples
 
 # Enable verbose output for debugging
 Connect-HPEGL -SSOEmail "user@company.com" -Workspace "Production" -Verbose
@@ -137,22 +137,33 @@ Get-Command -Module HPECOMCmdlets
   - Visit: https://common.cloud.hpe.com
   - Setup guide: [HPE GreenLake Cloud User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
 
-- **Role-Based Access Control**:
 
-  - **Minimum Required Role**: Observer (read-only access to resources)
+- **Roles and permissions:**
+  Minimum required role to connect and view resources:
+  - HPE GreenLake Workspace Observer (view-only access)
+  - HPE Compute Ops Management Viewer (view-only access for each COM instance)
 
-  - **Required Service Access**:
-    - **HPE GreenLake Platform service manager**
-    - **Compute Ops Management** (access required for each COM instance you intend to manage)
+  Additional roles required for management operations:
+  - HPE GreenLake Workspace Administrator: Required for workspace creation and management
+  - HPE Compute Ops Management Administrator: Required for COM instance provisioning and management
+
+  Note: Multiple roles can be assigned to a single user. Contact your HPE GreenLake administrator to request appropriate role assignments.
+
 
 - **Workspace Type Compatibility**:
 
-  > ⚠️ **Important: Enhanced Workspace Support**
-  >
-  > **Enhanced workspaces** are not fully supported in the current version of this library. Development is in progress to add complete support for enhanced workspace features.
-  >
-  > If you encounter issues with enhanced workspaces, [open an issue](https://github.com/jullienl/HPE-COM-PowerShell-Library/issues) with details about your workspace configuration
- 
+  - **Enhanced workspaces (IAMv2):** Fully supported since v1.0.19 
+    - ✅ Complete feature set including new organization management, user groups, and scope-based access control (SBAC)
+    - ✅ Advanced identity features: domains, SSO connections, authentication policies
+    - ✅ Modern user and role management with improved security
+    - ✅ All new features and functionality
+    
+  - **Legacy workspaces (IAMv1):** Continued support with compatibility mode
+    - ✅ Core functionality remains fully operational
+    - ⚠️ Some SAML SSO domain functions are deprecated (migration guidance provided)
+    - ⚠️ Limited access to newer IAMv2-specific features (user groups, advanced SBAC, etc.)
+    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.19.md#migration-guide) in release notes for updating deprecated functions 
+
 ## Best Practices & Performance Considerations
 
 ### API Rate Limiting
@@ -223,29 +234,31 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
     - When both methods are available, Okta Verify push notifications take precedence
 
 ### SAML Single Sign-On (SSO) with passwordless authentication 
-
-  > ⚠️ **Important: Testing & Environment Variations**
-  >
-  > While this library has been tested with **Okta**, **Microsoft Entra ID**, and **PingIdentity** in standard configurations, Identity Provider implementations can vary significantly across organizations due to:
-  > - Custom authentication policies and security settings
-  > - Regional differences and cloud environments
-  > - Organization-specific configurations and restrictions
-  > - Version differences in IdP software
-  >
-  > If you encounter authentication issues specific to your environment:
-  > - 🐛 **Report Bugs**: [Open an issue](https://github.com/jullienl/HPE-COM-PowerShell-Library/issues)
-  > - 💬 **Get Help**: [GitHub Discussions](https://github.com/jullienl/HPE-COM-PowerShell-Library/discussions)
-  > - 📘 **Check Guide**: [SAML SSO Configuration Tutorial](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)
         
   - **Supported Identity Providers**:
 
-    | Identity Provider      | Implementation     | Status             | Push Notifications | TOTP Codes | Number Matching | Timeout | Cloud Environment             | Last Tested |
-    | ---------------------- | ------------------ | ------------------ | ------------------ | ---------- | --------------- | ------- | ----------------------------- |---------------|
-    | **Okta**               | Okta SAML + Okta Verify | ✅ Fully Supported | ✅ Yes             | ✅ Yes     | Optional        | 2 min   | All Okta regions             | Nov-2025  |
-    | **Microsoft Entra ID** | Entra ID SAML + Microsoft Authenticator | ✅ Fully Supported | ✅ Yes             | ❌ No      | Mandatory       | 2 min   | Commercial cloud only        | Nov-2025  |
-    | **PingIdentity**       | PingOne SAML + PingID MFA | ✅ Fully Supported | ✅ Yes             | ✅ Yes     | Optional        | 2 min   | All PingOne regions          | Nov-2025  |
-    | **PingIdentity**       | PingFederate SAML + PingID MFA | ⚠️ Not Tested | ✅ Expected     | ✅ Expected | Optional        | 2 min   | All PingOne regions          | Nov-2025  |
+    | Identity Provider      | Implementation     | Status             | Push Notifications | TOTP Codes | Number Matching | Timeout | Cloud Environment             | Requirements | Last Tested |
+    | ---------------------- | ------------------ | ------------------ | ------------------ | ---------- | --------------- | ------- | ----------------------------- | ------------ | ----------- |
+    | **Okta (OIE only)**    | Okta SAML + Okta Verify | ✅ Fully Supported | ✅ Yes             | ✅ Yes     | Optional        | 2 min   | All Okta regions             | **Requires OIE**<br>❌ Classic not supported | Dec-2025  |
+    | **Microsoft Entra ID** | Entra ID SAML + Microsoft Authenticator | ✅ Fully Supported | ✅ Yes             | ❌ No      | Mandatory       | 2 min   | Commercial cloud only        | — | Nov-2025  |
+    | **PingIdentity**       | PingOne SAML + PingID MFA | ✅ Fully Supported | ✅ Yes             | ✅ Yes     | Optional        | 2 min   | All PingOne regions          | — | Nov-2025  |
+    | **PingIdentity**       | PingFederate SAML + PingID MFA | ⚠️ Not Tested | ✅ Expected     | ✅ Expected | Optional        | 2 min   | All PingOne regions          | — | Nov-2025  |
 
+
+      > ⚠️ **Important: Testing & Environment Variations**
+      >
+      > While this library has been tested with **Okta**, **Microsoft Entra ID**, and **PingIdentity** in standard configurations, Identity Provider implementations can vary significantly across organizations due to:
+      > - Custom authentication policies and security settings
+      > - Regional differences and cloud environments
+      > - Organization-specific configurations and restrictions
+      > - Version differences in IdP software
+      >
+      > If you encounter authentication issues specific to your environment:
+      > - 🐛 **Report Bugs**: [Open an issue](https://github.com/jullienl/HPE-COM-PowerShell-Library/issues)
+      > - 💬 **Get Help**: [GitHub Discussions](https://github.com/jullienl/HPE-COM-PowerShell-Library/discussions)
+      > - 📘 **Check Guide**: [SAML SSO Configuration Tutorial](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)
+
+ 
   - **⚠️ Unsupported Identity Providers**
     - Identity Providers **not listed in the table above** (such as Google Workspace, Salesforce Identity, IBM Security Verify, Auth0, OneLogin, etc.) are **not supported** by this library.
     - **Why?** While these providers may support SAML 2.0, their authentication flows differ significantly and have not been tested or implemented in this library.
@@ -261,7 +274,7 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
           - Your Identity Provider name and version
           - Authentication methods your organization uses
           - Your specific use case and requirements
-  
+
   - **Passwordless Authentication**:
     - This library implements passwordless authentication in accordance with industry security best practices recommended by Microsoft, NIST, and FIDO Alliance
     - Uses cryptographic keys and biometric verification to eliminate password-related vulnerabilities including phishing, credential stuffing, and brute force attacks
@@ -283,16 +296,33 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
     - ✅ Identity Provider configured with HPE GreenLake as a SAML 2.0 application
     - ✅ Passwordless authentication methods enabled (push notifications and/or TOTP)
     - ✅ User has appropriate application access permissions
-    - ✅ Domain pre-claimed in workspace (use `Get-HPEGLWorkspaceSAMLSSODomain` to verify, `Set-HPEGLWorkspaceSAMLSSODomain` to configure)
+    - ✅ Domain pre-claimed in workspace (use `Get-HPEGLDomain` to verify, `Get-HPEGLSSOConnection` to check configuration)
 
-    > **Quick Setup**: Use the following cmdlets to manage SAML SSO domains in your workspace:
-    > - `New-HPEGLWorkspaceSAMLSSODomain` - Create a new SAML SSO domain
-    > - `Set-HPEGLWorkspaceSAMLSSODomain` - Update domain configuration (certificate, attributes, timeouts)
-    > - `Get-HPEGLWorkspaceSAMLSSODomain` - View current domain configuration
-    > - `Remove-HPEGLWorkspaceSAMLSSODomain` - Remove a domain configuration
-    >
-    > **Note**: These cmdlets have been tested with standard enterprise workspaces. Enhanced workspace support is currently in development. 
+  - **Quick Setup with PowerShell**: Automate SAML SSO configuration using these cmdlets to manage domains, connections, and authentication policies in your workspace:
+
+    **Initial Configuration (4 Steps):**
+    1. **`New-HPEGLDomain`** - Claim your organization's domain in HPE GreenLake
+    2. **`Test-HPEGLDomain`** - Verify domain ownership via DNS TXT record validation
+    3. **`New-HPEGLSSOConnection`** - Configure SAML SSO connection to your Identity Provider (Okta, Entra ID, or PingIdentity)
+    4. **`New-HPEGLSSOAuthenticationPolicy`** - Apply SSO authentication policy to your workspace
+
+    **Management & Monitoring:**
+    - **View Configuration:**
+      - `Get-HPEGLDomain` - List workspace domains and ownership status
+      - `Get-HPEGLSSOConnection` - Display SSO connection details and metadata
+      - `Get-HPEGLSSOAuthenticationPolicy` - Review active authentication policies
     
+    - **Update Configuration:**
+      - `Set-HPEGLSSOConnection` - Modify SSO connection (certificates, SAML attributes, session timeouts)
+      - `Set-HPEGLSSOAuthenticationPolicy` - Update authentication policy settings
+    
+    - **Remove Configuration:**
+      - `Remove-HPEGLDomain` - Delete a domain from workspace
+      - `Remove-HPEGLSSOConnection` - Remove SSO connection
+      - `Remove-HPEGLSSOAuthenticationPolicy` - Delete authentication policy
+
+    > 💡 **Tip**: Use `Get-Help <cmdlet-name> -Examples` to see practical usage scenarios for each cmdlet.
+
   - **Configuration Guide**:  
 
     > 📘 **[Complete SAML SSO Setup Guide](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)**  
@@ -301,6 +331,31 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
     Additional Resources:
       - 📖 [HPE GreenLake Cloud User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us) - Official HPE documentation for workspace and authentication configuration
       - 💬 [GitHub Discussions](https://github.com/jullienl/HPE-COM-PowerShell-Library/discussions) - Community support and Q&A
+
+  - **⚠️ Okta Identity Engine (OIE) Requirement**
+    
+    > **IMPORTANT**: This library **requires Okta Identity Engine (OIE)** for Okta SSO authentication. **Okta Classic Engine is not supported**.
+    
+    **Why OIE is Required:**
+    - Okta Classic Engine's authentication API (`/api/v1/authn`) requires password-based authentication
+    - This library implements passwordless authentication using the IDX API (`/idp/idx/*`), which is only available in OIE
+    - Classic Engine cannot support the passwordless MFA flows required by this module
+    
+    **How to Check Your Okta Environment:**
+    - Log into your Okta Admin Console
+    - Navigate to any page within the Admin Console, such as the **Dashboard**.
+    - Scroll to the bottom of the page and look at the footer section. You'll see a version number displayed there (e.g., something like "2025.12.0")    
+    - Check the suffix of that version number:
+       - If it ends with **E** (e.g., 2025.12.0**E**), your org is running on the **Okta Identity Engine (OIE)**.
+       - If it ends with **C** (e.g., 2025.12.0**C**), your org is running on the **Classic Engine**.
+    
+         <img src="Images/SAML_SSO_0A.png" alt="Screenshot" width="70%">
+    
+    **How to Upgrade to OIE:**
+    - Contact your Okta administrator or Okta support
+    
+    **Additional Resources:**
+    - 📖 [Okta Identity Engine Overview](https://support.okta.com/help/s/product-hub/oie/overview?language=en_US) - Official Okta documentation
 
 
 
@@ -784,7 +839,7 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 
 🔗 [PowerShell Gallery](https://www.powershellgallery.com/packages/HPECOMCmdlets)
 
-* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.182en_us)
+* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.192en_us)
 * [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 

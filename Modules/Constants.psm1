@@ -51,9 +51,6 @@ function Get-COMFirmwareBundlesUri { $script:COMFirmwareBundlesUri }
 [String]$COMGroupsUri = '/compute-ops-mgmt/v1beta3/groups'
 function Get-COMGroupsUri { $script:COMGroupsUri }
 
-[String]$COMGetJobUri = '/compute-ops-mgmt/v1/jobs'
-function Get-COMGetJobUri { $script:COMGetJobUri }
-
 [String]$COMJobsUri = '/compute-ops-mgmt/v1/jobs'
 function Get-COMJobsUri { $script:COMJobsUri }
 
@@ -80,6 +77,9 @@ function Get-COMServersUri { $script:COMServersUri }
 
 [String]$COMServersUIDoorwayUri = '/ui-doorway/compute/v2/servers'
 function Get-COMServersUIDoorwayUri { $script:COMServersUIDoorwayUri }
+
+[String]$COMGroupsUIDoorwayUri = '/ui-doorway/compute/v2/groups'
+function Get-COMGroupsUIDoorwayUri { $script:COMGroupsUIDoorwayUri }
 
 [String]$COMUserPreferencesUri = '/compute-ops-mgmt/v1/user-preferences'
 function Get-COMUserPreferencesUri { $script:COMUserPreferencesUri }
@@ -113,9 +113,6 @@ function Get-OpenidConfiguration { $script:OpenidConfiguration }
 
 [String]$SessionLoadAccountUri = $HPEGLUIbaseURL + '/authn/v1/session/load-account/'
 function Get-SessionLoadAccountUri { $script:SessionLoadAccountUri }
-
-[String]$LoadAccountUri = $HPEGLUIbaseURL + '/accounts/ui/v1/user/load-account/'
-function Get-LoadAccountUri { $script:SessionLoadAccountUri }
 
 [String]$AuthnUri = '/api/v1/authn'
 function Get-AuthnUri { $script:AuthnUri }
@@ -162,32 +159,65 @@ function Get-WorkspacesListUri { $script:WorkspacesListUri }
 [String]$CurrentWorkspaceUri = $HPEGLUIbaseURL + '/accounts/ui/v1/customer/profile/contact'
 function Get-CurrentWorkspaceUri { $script:CurrentWorkspaceUri }
 
+[String]$MyUISessionUri = $HPEGLAPIOrgbaseURL + '/internal-sessions/v1alpha1/my-ui-session'
+function Get-MyUISessionUri { $script:MyUISessionUri }
+
 [String]$WorkspacesUri = $HPEGLAPIbaseURL + '/workspaces/v1/workspaces'
-function Get-WorkspacesUri { $script:WorkspacesUri }
+function Get-Workspacev1Uri { $script:WorkspacesUri }
 
 [String]$WorkspacesV2Uri = $HPEGLAPIOrgbaseURL + '/organizations/v2alpha1/workspaces'
-function Get-WorkspacesV2Uri { $script:WorkspacesV2Uri }
+function Get-Workspacev2Uri { $script:WorkspacesV2Uri }
 
 [String]$WorkspaceMigrationUri = $HPEGLAPIOrgbaseURL + '/internal-identity/v2alpha1/workspaces/'
 function Get-WorkspaceMigrationUri { $script:WorkspaceMigrationUri }
 
-[String]$UsersUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/um/users'
+[String]$DomainUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/domain-requests'
+function Get-DomainUri { $script:DomainUri }
+
+[String]$DomainDeleteUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/domains'
+function Get-DomainDeleteUri { $script:DomainDeleteUri }
+
+[String]$SSOConnectionUri = $HPEGLAPIOrgbaseURL + '/identity/v2alpha1/sso-profiles'
+function Get-SSOConnectionUri { $script:SSOConnectionUri }
+
+[String]$IdPValidateMetadataUrlUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/sso-profiles/idp-url'
+function Get-IdPValidateMetadataUrlUri { $script:IdPValidateMetadataUrlUri }
+
+[String]$IdPValidateMetadataFileUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/sso-profiles/metadata'
+function Get-IdPValidateMetadataFileUri { $script:IdPValidateMetadataFileUri }
+
+[String]$AuthenticationPolicyUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/sso-authentication-policies'
+function Get-AuthenticationPolicyUri { $script:AuthenticationPolicyUri }
+
+[String]$UsersUri = $HPEGLAPIOrgbaseURL + '/identity/v2beta1/scim/v2/Users'
 function Get-UsersUri { $script:UsersUri }
 
-[String]$UsersStatsUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/um/stats'
-function Get-UsersStatsUri { $script:UsersStatsUri }
+[String]$UsersWithAuthSourceUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v2/um/users'
+function Get-UsersWithAuthSourceUri { $script:UsersWithAuthSourceUri }
 
-[String]$UsersRolesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/um/customers/roles'
+[String]$WorkspaceMembersUri = $HPEGLAPIOrgbaseURL + '/organizations/v2alpha1/workspaces'
+function Get-UserTenantWorkspaceMembershipUri { $script:WorkspaceMembersUri }
+
+[String]$WorkspaceUsersUri = $HPEGLAPIOrgbaseURL + '/workspaces/v2alpha1/workspaces'
+function Get-WorkspaceUsersUri { $script:WorkspaceUsersUri }
+
+[String]$UsersRolesUri = $HPEGLAPIOrgbaseURL + '/internal-platform-tenant-ui/v2/roles'
 function Get-UsersRolesUri { $script:UsersRolesUri }
 
 [String]$AuthzUsersRolesUri = $HPEGLUIbaseURL + '/authorization/ui/v2/customers/users/'
 function Get-AuthzUsersRolesUri { $script:AuthzUsersRolesUri }
 
-[String]$AuthzRolesUri = $HPEGLUIbaseURL + '/authorization/ui/v2/customers/'
-function Get-AuthzRolesUri { $script:AuthzRolesUri }
+[String]$RoleAssignmentsV2Alpha2Uri = $HPEGLAPIOrgbaseURL + '/internal-platform-tenant-ui/v2alpha2/role-assignments'
+function Get-RoleAssignmentsUri { $script:RoleAssignmentsV2Alpha2Uri }
 
-[String]$AuthzUsersRolesAssignmentsUri = $HPEGLUIbaseURL + '/authorization/ui/v2/customers/'
-function Get-AuthzUsersRolesAssignmentsUri { $script:AuthzUsersRolesAssignmentsUri }
+[String]$AuthorizationRoleAssignmentsV2Alpha2Uri = $HPEGLAPIOrgbaseURL + '/authorization/v2alpha2/role-assignments'
+function Get-AuthorizationRoleAssignmentsV2Alpha2Uri { $script:AuthorizationRoleAssignmentsV2Alpha2Uri }
+
+[String]$ScimUserGroupsUri = $HPEGLAPIOrgbaseURL + '/identity/v2alpha1/scim/v2/extensions/Users'
+function Get-ScimUserGroupsUri { $script:ScimUserGroupsUri }
+
+[String]$CreateUserUri = $HPEGLAPIOrgbaseURL + '/internal-platform-tenant-ui/v2alpha2/users'
+function Get-CreateUserUri { $script:CreateUserUri }
 
 [String]$InviteUserUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/um/invite-user'
 function Get-InviteUserUri { $script:InviteUserUri }
@@ -195,8 +225,11 @@ function Get-InviteUserUri { $script:InviteUserUri }
 [String]$ReInviteUserUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/um/resend-invite'
 function Get-ReInviteUserUri { $script:ReInviteUserUri }
 
-[String]$UserPreferencesUri = $HPEGLUIbaseURL + '/accounts/ui/v1/user/profile/preferences'
+[String]$UserPreferencesUri = $HPEGLUIbaseURL + '/user-prefs/v1alpha1/preferences'
 function Get-UserPreferencesUri { $script:UserPreferencesUri }
+
+[String]$SaveUserPreferencesUri = $HPEGLUIbaseURL + '/user-prefs/v1alpha1/save-preferences'
+function Get-SaveUserPreferencesUri { $script:SaveUserPreferencesUri }
 
 [String]$DevicesUri = $HPEGLAPIbaseURL + '/devices/v1/devices'
 function Get-DevicesUri { $script:DevicesUri }
@@ -216,7 +249,8 @@ function Get-DevicesApplicationInstanceUri { $script:DevicesApplicationInstanceU
 [String]$DevicesATagsUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/devices/tags'
 function Get-DevicesATagsUri { $script:DevicesATagsUri }
 
-[String]$DevicesLocationUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/locations'
+[String]$DevicesLocationUri = $HPEGLAPIbaseURL + '/locations/v1/locations'
+# [String]$DevicesLocationUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/locations'
 function Get-DevicesLocationUri { $script:DevicesLocationUri }
 
 [String]$SubscriptionsUri = $HPEGLAPIbaseURL + '/subscriptions/v1/subscriptions'
@@ -231,18 +265,20 @@ function Get-AddLicenseDevicesUri { $script:AddLicenseDevicesUri }
 [String]$RemoveLicensesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/unclaim'
 function Get-RemoveLicensesUri { $script:RemoveLicensesUri }
 
+[String]$PreclaimLicenseUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license'
+function Get-PreclaimLicenseUri { $script:PreclaimLicenseUri }
+
 [String]$LicenseDevicesProductTypeDeviceUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license?product_type=DEVICE'
 function Get-LicenseDevicesProductTypeDeviceUri { $script:LicenseDevicesProductTypeDeviceUri }
 
 [String]$ServiceSubscriptionsListUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/service-subscriptions'
 function Get-ServiceSubscriptionsListUri { $script:ServiceSubscriptionsListUri }
 
-# [String]$AutoLicenseDevicesUri = $HPEGLAPIbaseURL + '/subscriptions/v1/auto-subscription-settings'  # not enough info in the API
-[String]$AutoLicenseDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/autolicense'
-function Get-AutoLicenseDevicesUri { $script:AutoLicenseDevicesUri }
+[String]$AutoSubscriptionSettingsUri = $HPEGLAPIbaseURL + '/subscriptions/v1/auto-subscription-settings'
+function Get-AutoSubscriptionSettingsUri { $script:AutoSubscriptionSettingsUri }
 
-[String]$AutoRenewalDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/auto-renewal'
-function Get-AutoRenewalDevicesUri { $script:AutoRenewalDevicesUri }
+[String]$AutoReassignmentSettingsUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/auto-renewal'
+function Get-AutoReassignmentSettingsUri { $script:AutoReassignmentSettingsUri }
 
 [String]$ApplicationsProvisionsUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/applications/provisions'
 function Get-ApplicationsProvisionsUri { $script:ApplicationsProvisionsUri }
@@ -250,11 +286,15 @@ function Get-ApplicationsProvisionsUri { $script:ApplicationsProvisionsUri }
 [String]$RegionsUri = $HPEGLUIbaseURL + '/geo/ui/v1/regions'
 function Get-RegionsUri { $script:RegionsUri }
 
+# Used by deprecated Get-HPEGLServiceResourceRestrictionPolicy function (legacy RRP endpoint)
 [String]$AuthorizationResourceRestrictionsUri = $HPEGLUIbaseURL + '/authorization/ui/v1/resource_restrictions' 
 function Get-AuthorizationResourceRestrictionsUri { $script:AuthorizationResourceRestrictionsUri }
 
-[String]$AuthorizationResourceRestrictionUri = $HPEGLUIbaseURL + '/authorization/ui/v1/resource_restriction' 
-function Get-AuthorizationResourceRestrictionUri { $script:AuthorizationResourceRestrictionUri }
+[String]$InternalAuthorizationResourcesUri = $HPEGLAPIOrgbaseURL + '/internal-authorization/v2alpha1/resources'
+function Get-InternalAuthorizationResourcesUri { $script:InternalAuthorizationResourcesUri }
+
+[String]$ScopeGroupsV2Alpha1Uri = $HPEGLAPIOrgbaseURL + '/authorization/v2alpha1/scope-groups'
+function Get-ScopeGroupsUri { $script:ScopeGroupsV2Alpha1Uri }
 
 [String]$ApplicationsLoginUrlUri = $HPEGLUIbaseURL + '/authn/v1/onboarding/login-url/'
 function Get-ApplicationsLoginUrlUri { $script:ApplicationsLoginUrlUri }
@@ -262,15 +302,17 @@ function Get-ApplicationsLoginUrlUri { $script:ApplicationsLoginUrlUri }
 [String]$ApplicationsAPICredentialsUri = $HPEGLUIbaseURL + '/authn/v1/token-management/credentials'
 function Get-ApplicationsAPICredentialsUri { $script:ApplicationsAPICredentialsUri }
 
-[String]$ResourceRestrictionsPolicyUri = $HPEGLUIbaseURL + '/authorization/ui/v1/resource_restrictions'
-function Get-ResourceRestrictionsPolicyUri { $script:ResourceRestrictionsPolicyUri }
-
+# Legacy RRP URI - Not currently used (reserved for backward compatibility)
 [String]$ResourceRestrictionsPolicyUsersUri = $HPEGLUIbaseURL + '/authorization/ui/v2/resource_restriction/'
 function Get-ResourceRestrictionsPolicyUsersUri { $script:ResourceRestrictionsPolicyUsersUri }
 
 [String]$AuthZApplicationsUri = $HPEGLUIbaseURL + '/authorization/ui/v1/applications/'
 function Get-AuthZApplicationsUri { $script:AuthZApplicationsUri }
 
+# [DEPRECATED] Legacy Resource Restriction Policy (RRP) API endpoints
+# HPE GreenLake has replaced RRP with Scope-Based Access Control (SBAC)
+# These constants are maintained for backward compatibility with deprecated functions
+# Use Get-HPEGLServiceScopeFilter and scope group functions instead
 [String]$ResourceRestrictionPolicyUri = $HPEGLUIbaseURL + '/authorization/ui/v1/resource_restriction/'
 function Get-ResourceRestrictionPolicyUri { $script:ResourceRestrictionPolicyUri }
 
@@ -315,8 +357,8 @@ function Get-APIClientCredentialTemplateName { $script:APIClientCredentialTempla
 # SIG # Begin signature block
 # MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCANY8b+KeSMSPPU
-# 11nMLK1SfCUKeWagfT5KLAyKy5oP36CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDR3kHiZ2SLI5C2
+# XvXIG7W9WRiVopMT+Cr2IhYCZk8BPaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -417,23 +459,23 @@ function Get-APIClientCredentialTemplateName { $script:APIClientCredentialTempla
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgF/E7x6G0sbBAbYo9Uniy3XsqpZogO5SdKJTt7X86KtswDQYJKoZIhvcNAQEB
-# BQAEggIAV+3TB2z/7/iBFG7NfZg56y7dhUVyKiGNJXyienJEVvDMwChkpSkTbCIo
-# L8R9NQGeknqa2NccoTfkiyd0/Ou/WeW6c0iHTscy6eVXrrN2R/iYuHeydt9egp1F
-# ZWi1UMoC3QBRdk+LBs0ZrtQBdIjLD/U7sr6LjeqeO5DXRoaZUTA1rnospwFKR+uG
-# GzbfN+DQgzRzL4pl/Q+Nzb7mmeXZ448lfSYfaS8uYn2+QeTmNB4vsDN6Sy/9VNSP
-# LRiosJ7+HA15xtXuVSTalOrVIpU7b4/pJIDUx1GZKP4AVEhKOZ276T95QWlQx8SJ
-# osmTT+flHozPuRYpvNPWE1XMbHLwMidJK12/XdbbbMoAgcR9AgXxb0YGfWHLyV/h
-# 4MjyPid0bCTWBU9hi8qe4zEPCbWD2BWoxqtH8wfaq1feXZCzHAT0kX542dp/kq8v
-# A7NOUUT1Wz6ZA7OiA3TDjR/T3q7YQMI/4wRU7kg6lcIpcAEl0nWk6qaROUNnNPME
-# fu4sINpuWSjNAI2YfVREYysC/jMl3ngUvW5WLILFcNKhQVh5bwgapg0xFSdfMqHc
-# mvI6yVyuq/T7L8VRPS13Lh8hnq+AIKN4mwJqY1VOdP2HFiSQKUvLnhRz8ml8tUek
-# M10darWJVjlw6JFklm75EKeOfP9zcNJq9EB4stWSryBGmYK9XYyhgheYMIIXlAYK
+# IgQgVcO+SGTX/tLnkFbYPf/nf6g/VTeRhoMw+CbHZ+2tkXkwDQYJKoZIhvcNAQEB
+# BQAEggIAPs75iJFviR5hMeTA9KVn4AHIdTWmL8Vu4/Vzjq+qZ08v5225d6lDEui6
+# RnH8Fl5zi05AE6UIfmGlgYYLdcQPU0Cx1De02xZTRaUWrxLBBzi/vKnTMzENeCuQ
+# 5/j6Lcs7LK8lBctlFksvYWvpR0VLvPBAydT2dqmmp34Ulb743QYSKD5gFOoo+bDC
+# 3NZB7M2lznIqxnTGvBrlRfeNE5liLIXSTG95rgaH3CcxoFpo0biLacw2xG7gdoFf
+# /F4r3KYUuZPWAwXxvCZsGOJznvLGL5M2LBuYgnt9VQZS6oqiZAp21R3cNaJ8B2pT
+# Gt3bwLXwdCNDyjsuWKmWVeoZgzzECbEhXvUWE5M8yLoqyiizWeMUCtwmSH1hfT5K
+# 4uRHsJLTM9hNxCYFPE5inGRhKepFo1saOOD0B1erTMtPSNwvd68V4tOD9QqpQV9F
+# txh+vd4tuTV8JUSGDkHHLPtBMm3bKUGFEhJXgrSLtiVGxf3OEQIlQJNl6em+4dTb
+# aOS8fQojFSTXOOKJuviw188KPJ0zuuC7n2WlTY0igrmKoAfo4LLnK3gdpVFxj22/
+# 66FBIdbuIzWw8UYglvxjXdMCoTnjY/WnwVpTulGNCOIuTPrsYswu/BvFqFXSENcc
+# Hf3FxFu6ACFImzQWiXZ47BheEJKRhElCvDfDBVHlNujHrz2Os5OhgheYMIIXlAYK
 # KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMFx/oDH7WQCvWWy6iAanNZzXiZ+Ts3SvqOfrBQ4FfoEp
-# JkDSW2u+PPJKqx1uoQTRPwIRAJVfb8ecyLCRfJ/MWQqg0v4YDzIwMjUxMDAyMTU1
-# MDM0WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQYJYIZIAWUDBAICBQAEMLPzsaHCGd8U2j0/hBEqNgsgT6Fkg+BnZOSQRCFr03vU
+# sVybfsBhAaKUhnBgQTtPuwIRAMDDm3zOXr9DIrUbWhAGhAMYDzIwMjYwMTE5MTgy
+# MjM4WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
 # DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
 # MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
 # NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
@@ -539,20 +581,20 @@ function Get-APIClientCredentialTemplateName { $script:APIClientCredentialTempla
 # aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
 # EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
 # NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI1MTAw
-# MjE1NTAzNFowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDEx
+# OTE4MjIzOFowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
 # llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMHQ052QU6hmmxWcUFSX1mirS
-# NQ7QbbUX4ghBDMb8FfIZK+a27OBbMXTUoEDsLoes5zANBgkqhkiG9w0BAQEFAASC
-# AgDZYoNVh6xoowtwjH50aTbkfPpB7BRuh42Lc8w8V4met6ircnZBCwSkz/GdOFb9
-# CxhBqoujCDAQaLZlTbSKh9LFQl+r3nXS1bVJKZRzOb8nEQO9xSIgpWqm6BXXcU2R
-# zpHXCOz4+0raI1VaHJy5hLwTuT75gOaOnOja7DPUBkNxOd9VLrC/j8vuoYVR5GBN
-# tjFTveAsVcCEAc58JH5y3BvcHeglhauJ+t4JWFHF14srxRRIO9St5B+83RkuliR8
-# UbCZXR+GSSVcdFcmG+Uvl1H+btdIHCH4Cz9IzFJonb5K5H101g5jt7bB0G3H0YhU
-# C+drmW2ueYGPn6fvcCoZs2QjSBOzC9hnB7BrFqvTTQBrb2K1zUVKZfaAb9DtL0cB
-# gVXzI0gkZlDVKqqSmeUakFVSNm34RZyUBbkp63tJqKu7QZ2Tg0A3wyltFOC4Yip2
-# TiZZ/ZhVrFjBhODn1S3f5uSGSJCRVekjQKdkNV0KLvUv3AP+JE4+55z5adLQMA7I
-# MgOgi0F9PxTymw7wIvkuEoFEIL/P8AJ0GAnMzIQIWJO3dNXj3FzKPAYenuYHCIgz
-# J+BtMsUPBeU1+WpQsZWV67AcxGJyRBOtqNGcnnkqnwp2GOAMZWLbG00IjeV3HEDh
-# CtzbDUUkiZ6BSWn/1Z0NqWrs7FrPp4NNczwEa64+Xl+uDQ==
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMJIY3iThdIHUh7Ef0AiWmJIa
+# YqvPGcKiu4H0BS2H0uA5RKM0DnPuf3tob+/N389oWTANBgkqhkiG9w0BAQEFAASC
+# AgApua0PVOvZXVKQNIhuwpvBvEb1+B270Nq+aKTEiE1F5enrbMINSrZHS8d+cq4M
+# X6o1xpLvzI495AhOn0rBH1F6EFf1uy2N+mZHJnmC/Md+OUHSpqUubpUAilBvex1G
+# wDc8YbfLcZnsmckaFF9gWLe0xR1+rUt4ySoutXRmY3EVNFN50784nI/bWvyQ8mRC
+# hRe4eq4blgTOjw6DrrJhJ3DCePk7DLEVQnosokdkZ35wATUK47wKtiyjLqbp+yNk
+# 4xQq9o2NDmbxc3SbuY46/5Etms+uogNzP2vMSWMuVc/mjyapPl1WHpzztg/lgN6h
+# fMN6NnnjGL2UPYlv8jZVWJUp+RzjHyI8Bq547SKcHyakFIzQntrjoay43r9ueFxR
+# wqNdVvQY9/CsjAZT/xtiOA8k8g0Y+94Ji+kmzw8P/LLH2vl/GBQ1dndZy6cc2b0Y
+# q2+8oYPSDbAuI4OQUT8zpE6zS48Zt2y5Dppc8HCIsSXhmUfVLaekdBb078iwl1lK
+# VIjOnCT8vGOCrped5xTxoubm9A59xXsgIiSUna6jMpWFPWNmtxDSg/S8iEZusPKF
+# HFOY6LVUpPuS+R4fqP3vfCRAr6cZjtkdPJ4Gnapw64QHwzsV9h0EiDlxh8GzRNFS
+# KfGMx0kKapLcnyw1aJDSTDcFNELmlKDE8H4/fWg9l6mrnw==
 # SIG # End signature block

@@ -54,6 +54,9 @@ function Invoke-HPEGLWebRequest {
     .PARAMETER ReturnFullObject
     Switch parameter to return the full response object, including all properties, instead of only the items collection when an items property is present in the response.
     
+    .PARAMETER SkipPaginationLimit
+    Switch parameter to skip the automatic addition of limit and offset query parameters. Use this when calling APIs that do not support pagination or when you want to use the URI exactly as provided.
+    
     .PARAMETER WhatIfBoolean
     Switch parameter to show the user what would happen if the cmdlet was to run without actually running it.
 
@@ -120,6 +123,8 @@ function Invoke-HPEGLWebRequest {
         
         [switch]$ReturnFullObject,
 
+        [switch]$SkipPaginationLimit,
+
         $WhatIfBoolean = $false
 
     )
@@ -145,9 +150,20 @@ function Invoke-HPEGLWebRequest {
             # It allows these cmdlets to run without requiring an active workspace session, i.e. when Connect-HPEGLWorkspace has not yet been executed. 
             if (-not $PSBoundParameters.ContainsKey('SkipSessionCheck')) {
                 Write-Error @"
-No active HPE GreenLake workspace session found.
+No active HPE GreenLake session found.
 
-Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmdlet.
+CAUSE:
+You have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish an authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Credential (Get-Credential)
+    Connect-HPEGL -Workspace "MyWorkspace"
+
+After connecting, you will be able to use HPE GreenLake cmdlets.
 "@ -ErrorAction Stop
 
             }
@@ -273,7 +289,7 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                     "[{0}] ------------------------------------ Detected URI: UI Doorway ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
                     # Process pagination for GET 
-                    if ($Method -eq "GET" -or $Method -eq "POST") {
+                    if (($Method -eq "GET" -or $Method -eq "POST") -and -not $SkipPaginationLimit) {
                         # if ($Method -eq "GET" -or ($Method -eq "POST" -and -not $Body)) {
 
                         $AllCollection = [System.Collections.ArrayList]::new()
@@ -639,7 +655,17 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                                              
                         
                         # When HTML is detected, it means the session has expired or been closed
-                        Throw "Error - Session has expired or been closed! Connect-HPEGL must be executed again!"
+                        Write-Error @"
+HPE GreenLake session has expired or been closed.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Credential (Get-Credential)
+    Connect-HPEGL -Workspace "MyWorkspace"
+"@ -ErrorAction Stop
                     }                   
                     catch {
 
@@ -683,31 +709,14 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
 
                         # Extract JSON block from the exception string
                         $exceptionString = $_ | Out-String
+                        $errorData = $exceptionString
 
-                        if ($exceptionString -match '(\{[\s\S]*\})') {
-                            $jsonBlock = $matches[1]
-                            $decodedJson = [System.Text.RegularExpressions.Regex]::Unescape($jsonBlock) # Decode Unicode escape sequences
-                            # Pretty-print the JSON content
-                            try {
-                                $prettyJson = $decodedJson | ConvertFrom-Json | ConvertTo-Json -Depth 30
-                                "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $prettyJson | Write-Verbose
-                                $errorData = $prettyJson
-                            }
-                            catch {
-                                # Fallback to raw decoded JSON if parsing fails
-                                "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $decodedJson | Write-Verbose
-                                $errorData = $decodedJson
-                            }
-                        }
-                        else {
-                            "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exceptionString | Write-Verbose
-                            $errorData = $exceptionString
-                        }
+                        "[{0}] Exception raw content:`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exceptionString | Write-Verbose
 
-                        Write-Verbose "--------------------------------------------------------------------------------------------------------------------------------------" 
+                        Write-Verbose "--------------------------------------------------------------------------------------------------------------------------------------"
 
                         if ($statusCode -in 408, 500, 502, 503, 504) {
-                            "[{0}] HTTP error {1} encountered. Retrying in 1 second... (Attempt {2} of {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode, $attempt, $MaxRetries | Write-Verbose  
+                            "[{0}] HTTP error {1} encountered. Retrying in 1 second... (Attempt {2} of {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode, $attempt, $MaxRetries | Write-Verbose
                             Start-Sleep -Seconds 1
                         }
                         else {
@@ -718,31 +727,22 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                                     [Management.Automation.ErrorCategory]::AuthenticationError,
                                     $null
                                 )
-                                $errorRecord | Add-Member -MemberType NoteProperty -Name "Message" -Value "Session has expired or been closed! Connect-HPEGL must be executed again!" -Force
+                                $errorRecord | Add-Member -MemberType NoteProperty -Name "Message" -Value @"
+HPE GreenLake session has expired or is unauthorized.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Credential (Get-Credential)
+    Connect-HPEGL -Workspace "MyWorkspace"
+"@ -Force
                                 $PSCmdlet.ThrowTerminatingError($errorRecord)
                             }
                             else {
                                 "[{0}] Non-retriable error encountered. Exiting retry loop." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                                 break
-                                # # Exit the loop and propagate the exception, but append API error message if present
-                                # $complete = $true
-                                # # Try to extract a 'message' property from the exception raw content
-                                # $apiMessage = $null
-                                # $exceptionString = $_ | Out-String
-                                # if ($exceptionString -match '(\{[\s\S]*\})') {
-                                #     $jsonBlock = $matches[1]
-                                #     try {
-                                #         $json = $jsonBlock | ConvertFrom-Json -ErrorAction Stop
-                                #         if ($json.message) { $apiMessage = $json.message }
-                                #     }
-                                #     catch {}
-                                # }
-                                # if ($apiMessage) {
-                                #     throw ("{0} | API Error: {1}" -f $_.Exception.Message, $apiMessage)
-                                # }
-                                # else {
-                                #     throw $_
-                                # }
                             }
                         }
                     }
@@ -840,8 +840,8 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
 
                     "[{0}] ------------------------------------ Detected URI: HPE GreenLake Platform API ------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-                    # Process pagination for GET 
-                    if ($Method -eq "GET") {
+                    # Process pagination for GET (skip when SkipPaginationLimit is specified)
+                    if ($Method -eq "GET" -and -not $SkipPaginationLimit) {
 
                         $AllCollection = [System.Collections.ArrayList]::new()
 
@@ -939,10 +939,7 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                     catch {
                         $attempt++
                         $lastException = $_         
-                        $script:LastException = $_             
-
-                        # Extract error string for better diagnostics
-                        $errorString = $_ | Out-String
+                        $script:LastException = $_
                         $errorMsg = $_.Exception.Message
                         $parsedErrorMsg = $null
                         # Try to extract message from JSON if errorMsg is empty
@@ -975,31 +972,14 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
 
                         # Extract JSON block from the exception string
                         $exceptionString = $_ | Out-String
+                        $errorData = $exceptionString
 
-                        if ($exceptionString -match '(\{[\s\S]*\})') {
-                            $jsonBlock = $matches[1]
-                            $decodedJson = [System.Text.RegularExpressions.Regex]::Unescape($jsonBlock) # Decode Unicode escape sequences
-                            # Pretty-print the JSON content
-                            try {
-                                $prettyJson = $decodedJson | ConvertFrom-Json | ConvertTo-Json -Depth 30
-                                "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $prettyJson | Write-Verbose
-                                $errorData = $prettyJson
-                            }
-                            catch {
-                                # Fallback to raw decoded JSON if parsing fails
-                                "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $decodedJson | Write-Verbose
-                                $errorData = $decodedJson
-                            }
-                        }
-                        else {
-                            "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exceptionString | Write-Verbose
-                            $errorData = $exceptionString
-                        }
+                        "[{0}] Exception raw content:`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exceptionString | Write-Verbose
 
-                        Write-Verbose "--------------------------------------------------------------------------------------------------------------------------------------" 
+                        Write-Verbose "--------------------------------------------------------------------------------------------------------------------------------------"
 
                         if ($statusCode -in 408, 500, 502, 503, 504) {
-                            "[{0}] HTTP error {1} encountered. Retrying in 1 second... (Attempt {2} of {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode, $attempt, $MaxRetries | Write-Verbose  
+                            "[{0}] HTTP error {1} encountered. Retrying in 1 second... (Attempt {2} of {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode, $attempt, $MaxRetries | Write-Verbose
                             Start-Sleep -Seconds 1
                         }
                         else {
@@ -1040,11 +1020,58 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                     Write-Verbose "-------------------------------------------- Enhanced Exception Handling (`$ErrorMsg) ------------------------------------------------------------------"
                     # "[{0}] Raw error details: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMsg | Write-Verbose
 
+                    $originalErrorData = $errorData
+                    $jsonParsingFailed = $false
+                    
                     try {
                         $errorData = $errorData | ConvertFrom-Json -ErrorAction Stop
                     }
                     catch {
-                        $errorData = $null  # JSON parsing failed
+                        "[{0}] JSON parsing failed due to malformed JSON, attempting to fix and re-parse..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        $jsonParsingFailed = $true
+                        
+                        # Try to fix common JSON issues
+                        try {
+                            # Fix triple quotes and other common escaping issues
+                            $fixedJson = $originalErrorData -replace '"""', '\"'  # Replace triple quotes with single quote
+                            $fixedJson = $fixedJson -replace '\\"""', '\\"'        # Fix escaped triple quotes
+                            
+                            "[{0}] Attempting to parse fixed JSON..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $errorData = $fixedJson | ConvertFrom-Json -ErrorAction Stop
+                            "[{0}] Successfully parsed fixed JSON!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $jsonParsingFailed = $false
+                        }
+                        catch {
+                            "[{0}] JSON fix attempt failed, extracting fields manually from raw string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            
+                            # Try to extract key fields manually from the raw string using regex
+                            # Use non-greedy match to capture everything including smart quotes/escaped chars
+                            $message = if ($originalErrorData -match '"message"\s*:\s*"(.*?)"[,\}]') { 
+                                ($matches[1] -replace '\\"', '"' -replace '"', '"' -replace '"', '"') 
+                            } else { $null }
+                            $errorCode = if ($originalErrorData -match '"errorCode"\s*:\s*"([^"]+)"') { $matches[1] } else { $null }
+                            $httpStatusCode = if ($originalErrorData -match '"httpStatusCode"\s*:\s*"?(\d+)"?') { $matches[1] } else { $null }
+                            
+                            # Try to parse rawError as JSON object for cleaner verbose display
+                            $rawErrorObj = $originalErrorData
+                            try {
+                                # Clean up the JSON string first - remove smart quotes and fix formatting
+                                $rawErrorObj = $originalErrorData | ConvertFrom-Json -ErrorAction Stop
+                                $rawErrorObj = $cleanedJson | ConvertFrom-Json -ErrorAction Stop
+                                "[{0}] Successfully parsed rawError as JSON object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            } catch {
+                                # Keep as string if parsing fails
+                                "[{0}] Could not parse rawError as JSON, keeping as string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            }
+                            
+                            # Create a simplified object with extracted fields
+                            $errorData = [PSCustomObject]@{
+                                message = $message
+                                errorCode = $errorCode
+                                httpStatusCode = $httpStatusCode
+                                rawError = $rawErrorObj
+                            }
+                        }
                     }
 
                     # "[{0}] Parsed `$errorData: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData | Write-Verbose
@@ -1081,19 +1108,36 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                     $Message = if ($errorData.message) { [System.Text.RegularExpressions.Regex]::Unescape($errorData.message) } else { $lastException.Exception.Message }
                     # "[{0}] Base message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Message | Write-Verbose
                     $msg = if ($exceptionMessage) { "{0} - {1}" -f $Message, $exceptionMessage } else { $Message }
-                    # "[{0}] Final constructed message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose                   
+                    # "[{0}] Final constructed message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
+
+                    # Check for GreenLake 403 Forbidden - missing role assignment
+                    if ($errorData.httpStatusCode -eq 403 -and $Message -match 'Insufficient permission') {
+                        "[{0}] 403 Forbidden detected with 'Insufficient permission' - likely missing HPE GreenLake role assignment" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        
+                        $EnhancedError = "Insufficient permissions to perform this HPE GreenLake operation.`n`n"
+                        $EnhancedError += "CAUSE:`nYou do not have the required role assigned in this workspace.`n`n"
+                        $EnhancedError += "ACTION REQUIRED:`nAssign yourself the appropriate role using Add-HPEGLRoleToUser.`n`n"
+                        $EnhancedError += "Example:`n"
+                        $EnhancedError += "    Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Workspace Administrator'`n`n"
+                        $EnhancedError += "To check your current roles, run: Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles`n"
+                        $EnhancedError += "To see available roles, run: Get-HPEGLRole"
+                        
+                        $msg = $EnhancedError
+                    }
+                   
 
                     If ($msg) {
-                        # Attach enhanced message to lastException
-                        "[{0}] Attached Details to lastException: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
+                        # Create new exception with enhanced message while preserving original exception and Details property
+                        "[{0}] Creating new exception with enhanced message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
     
+                        $newException = New-Object System.Exception($msg, $lastException.Exception)
+                        $newException | Add-Member -NotePropertyName 'Details' -NotePropertyValue $msg -Force
                         $errorRecord = New-Object System.Management.Automation.ErrorRecord(
-                            $lastException.Exception,
+                            $newException,
                             "CustomErrorID",
                             [System.Management.Automation.ErrorCategory]::NotSpecified,
                             $null
                         )
-                        $errorRecord.Exception | Add-Member -NotePropertyName 'Details' -NotePropertyValue $msg -Force
                     }
                     else {
                         "[{0}] No message constructed, using last exception message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $lastException.Exception.Message | Write-Verbose
@@ -1106,9 +1150,29 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                         $errorRecord.Exception | Add-Member -NotePropertyName 'Details' -NotePropertyValue "" -Force
                     }
                     
+                    # Normalize status code property for consistency across success and error responses
+                    # API error responses use 'httpStatusCode', but success responses use 'StatusCode'
+                    # Add StatusCode as an alias to httpStatusCode for consistent access pattern
+                    if ($errorData.httpStatusCode -and -not $errorData.StatusCode) {
+                        $errorData | Add-Member -MemberType NoteProperty -Name "StatusCode" -Value $errorData.httpStatusCode -Force
+                        "[{0}] Normalized error response: Added StatusCode property ({1}) for consistency" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData.StatusCode | Write-Verbose
+                    }
+                    
                     # Store error data in global variable
                     $Global:HPECOMInvokeReturnData = $errorData
-                    "[{0}] Set Global:HPECOMInvokeReturnData: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Global:HPECOMInvokeReturnData | ConvertTo-Json -Depth 5) | Write-Verbose
+                    
+                    # Create a clean copy for verbose output with unescaped rawError
+                    $cleanErrorData = $errorData.PSObject.Copy()
+                    if ($cleanErrorData.rawError) {
+                        try {
+                            # Parse rawError string as JSON for cleaner display
+                            $cleanErrorData.rawError = $cleanErrorData.rawError | ConvertFrom-Json
+                        } catch {
+                            # If parsing fails, keep as string but unescape it
+                            $cleanErrorData.rawError = [System.Text.RegularExpressions.Regex]::Unescape($cleanErrorData.rawError)
+                        }
+                    }
+                    "[{0}] Set Global:HPECOMInvokeReturnData: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), (($cleanErrorData | Select-Object * -ExcludeProperty rawError) | ConvertTo-Json -Depth 5 -WarningAction SilentlyContinue) | Write-Verbose
 
                 }
                 else {
@@ -1161,7 +1225,17 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
 
                         # HPEOnepass URI expiration detection
                         if ($InvokeReturnData.message -match "expired") {
-                            write-error "Session gets expired! You must run 'Connect-HPEGL' again!"
+                            write-error @"
+HPE OnePass session has expired.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Credential (Get-Credential)
+    Connect-HPEGL -Workspace "MyWorkspace"    
+"@
                         }
 
                         # Main logic for handling API responses
@@ -1340,17 +1414,27 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                                 }                               
                             }
                             else {
-                                "[{0}] Response detected with no items (total is 0)" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                                "[{0}] Leaving Invoke-HPEGLWebRequest and returning no content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                                return
+                            "[{0}] Response detected with no items (total is 0)" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            "[{0}] Leaving Invoke-HPEGLWebRequest and returning no content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            return
+                        }
+                    }
+                    # GLP API Pagination detection
+                    elseif ($InvokeReturnData.PSObject.Properties['total']) {
+                        "[{0}] Response detected with a count/total content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            
+                        # If ReturnFullObject is requested, return immediately without pagination processing
+                        if ($ReturnFullObject) {
+                            "[{0}] ReturnFullObject requested - skipping pagination processing and returning full response" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $Depth = if ($paginationOptimalDepth -and $paginationOptimalDepth -is [int]) { $paginationOptimalDepth } else { $optimalDepth }
+                            if (-not $Depth -or $Depth -lt 1) {
+                                $Depth = 15  # Safe default
                             }
-                        }   
-                        # GLP API Pagination detection
-                        elseif ($InvokeReturnData.PSObject.Properties['total']) {    
+                            "[{0}] Leaving Invoke-HPECOMWebRequest and returning the full response content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InvokeReturnData | ConvertTo-Json -Depth $Depth) | Write-Verbose
+                            return $InvokeReturnData
+                        }
                             
-                            "[{0}] Response detected with a count/total content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            
-                            if ($InvokeReturnData.total -gt 0) {
+                        if ($InvokeReturnData.total -gt 0) {
 
                                 "[{0}] Total items is {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.total | Write-Verbose
 
@@ -1361,29 +1445,51 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                                     $InvokeReturnData = $InvokeReturnData.content
                                 }
 
-                                # Validate items property
-                                if (-not $InvokeReturnData.PSObject.Properties['items']) {
-                                    Write-Error "[$($MyInvocation.InvocationName.ToString().ToUpper())] Items property missing in response"
+                                # Dynamically detect the collection property name (items, roles, users, etc.)
+                                $collectionProperty = $null
+                                $commonCollectionNames = @('items', 'roles', 'users', 'members', 'resources', 'data')
+                                foreach ($propName in $commonCollectionNames) {
+                                    if ($InvokeReturnData.PSObject.Properties[$propName]) {
+                                        $collectionProperty = $propName
+                                        "[{0}] Detected collection property: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $collectionProperty | Write-Verbose
+                                        break
+                                    }
+                                }
+
+                                # If no standard collection property found, look for any array property
+                                if (-not $collectionProperty) {
+                                    foreach ($prop in $InvokeReturnData.PSObject.Properties) {
+                                        if ($prop.Value -is [System.Collections.IEnumerable] -and $prop.Value.GetType().Name -ne 'String') {
+                                            $collectionProperty = $prop.Name
+                                            "[{0}] Detected non-standard collection property: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $collectionProperty | Write-Verbose
+                                            break
+                                        }
+                                    }
+                                }
+
+                                # Validate collection property exists
+                                if (-not $collectionProperty) {
+                                    Write-Error "[$($MyInvocation.InvocationName.ToString().ToUpper())] No collection property (items/roles/users/etc.) found in response"
                                     return
                                 }
 
                                 # Get all paginated pages (if any)
                                 # When the query 'limit' is used, the number of items returned is equal to the limit set so only one page is available (no pagination is used).
                                 # 'count' = 'limit'  - 'total' is always the total nb of items available without the limit.
-                                if ($Method -eq "GET" -and -not $queryParameters["limit"]) {
+                                if ($Method -eq "GET" -and -not $queryParameters["limit"] -and -not $SkipPaginationLimit) {
                                     $Offset = 0
                                     $failedPages = [System.Collections.ArrayList]::new() 
-                                    # Always wrap items in array to handle single-object/single-item responses
-                                    $itemsArray = @()
-                                    if ($InvokeReturnData.items -is [System.Collections.IEnumerable] -and $InvokeReturnData.items.GetType().Name -ne 'String') {
-                                        $itemsArray = @($InvokeReturnData.items)
+                                    # Always wrap collection in array to handle single-object/single-item responses
+                                    $collectionArray = @()
+                                    if ($InvokeReturnData.$collectionProperty -is [System.Collections.IEnumerable] -and $InvokeReturnData.$collectionProperty.GetType().Name -ne 'String') {
+                                        $collectionArray = @($InvokeReturnData.$collectionProperty)
                                     }
-                                    elseif ($null -ne $InvokeReturnData.items) {
-                                        $itemsArray = @($InvokeReturnData.items)
+                                    elseif ($null -ne $InvokeReturnData.$collectionProperty) {
+                                        $collectionArray = @($InvokeReturnData.$collectionProperty)
                                     }
-                                    $AllCollection = [PSCustomObject]@{ items = $itemsArray }
+                                    $AllCollection = [PSCustomObject]@{ $collectionProperty = $collectionArray }
 
-                                    $itemsCount = if ($AllCollection.items) { $AllCollection.items.Count } else { 0 }
+                                    $itemsCount = if ($AllCollection.$collectionProperty) { $AllCollection.$collectionProperty.Count } else { 0 }
                                     "[{0}] Total of items: '{1}' - Number of items per page: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.total, $itemsCount | Write-Verbose
 
                                     if (-not $pagination -or $pagination -le 0) {
@@ -1426,13 +1532,13 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                                                 "[{0}] Adding page '{1}' to the result" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($i + 1) | Write-Verbose
                                                 # Always wrap page items in array before appending
                                                 $pageItems = @()
-                                                if ($InvokeReturnMoreData.items -is [System.Collections.IEnumerable] -and $InvokeReturnMoreData.items.GetType().Name -ne 'String') {
-                                                    $pageItems = @($InvokeReturnMoreData.items)
+                                                if ($InvokeReturnMoreData.$collectionProperty -is [System.Collections.IEnumerable] -and $InvokeReturnMoreData.$collectionProperty.GetType().Name -ne 'String') {
+                                                    $pageItems = @($InvokeReturnMoreData.$collectionProperty)
                                                 }
-                                                elseif ($null -ne $InvokeReturnMoreData.items) {
-                                                    $pageItems = @($InvokeReturnMoreData.items)
+                                                elseif ($null -ne $InvokeReturnMoreData.$collectionProperty) {
+                                                    $pageItems = @($InvokeReturnMoreData.$collectionProperty)
                                                 }
-                                                $AllCollection.items += $pageItems
+                                                $AllCollection.$collectionProperty += $pageItems
                                             }
                                             catch {
                                                 $errorMsg = $_.Exception.Message
@@ -1472,9 +1578,9 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                                         "[{0}] Leaving Invoke-HPECOMWebRequest and returning the full response content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InvokeReturnData | ConvertTo-Json -Depth $Depth) | Write-Verbose
                                         return $InvokeReturnData
                                     }
-                                    elseif ($InvokeReturnData.items) {
-                                        "[{0}] Leaving Invoke-HPECOMWebRequest and returning the items content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InvokeReturnData.items | ConvertTo-Json -Depth $Depth) | Write-Verbose
-                                        return $InvokeReturnData.items
+                                    elseif ($InvokeReturnData.$collectionProperty) {
+                                        "[{0}] Leaving Invoke-HPECOMWebRequest and returning the '{1}' content: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $collectionProperty, ($InvokeReturnData.$collectionProperty | ConvertTo-Json -Depth $Depth) | Write-Verbose
+                                        return $InvokeReturnData.$collectionProperty
                                     }
                                     else {
                                         "[{0}] Leaving Invoke-HPECOMWebRequest and returning the full response content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InvokeReturnData | ConvertTo-Json -Depth $Depth) | Write-Verbose
@@ -1493,9 +1599,9 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                                         "[{0}] Leaving Invoke-HPECOMWebRequest and returning the full response content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InvokeReturnData | ConvertTo-Json -Depth $Depth) | Write-Verbose
                                         return $InvokeReturnData
                                     }
-                                    elseif ($InvokeReturnData.items) {
-                                        "[{0}] Leaving Invoke-HPECOMWebRequest and returning the items content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InvokeReturnData.items | ConvertTo-Json -Depth $Depth) | Write-Verbose
-                                        return $InvokeReturnData.items
+                                    elseif ($InvokeReturnData.$collectionProperty) {
+                                        "[{0}] Leaving Invoke-HPECOMWebRequest and returning the '{1}' content: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $collectionProperty, ($InvokeReturnData.$collectionProperty | ConvertTo-Json -Depth $Depth) | Write-Verbose
+                                        return $InvokeReturnData.$collectionProperty
                                     }
                                     else {
                                         "[{0}] Leaving Invoke-HPECOMWebRequest and returning the full response content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InvokeReturnData | ConvertTo-Json -Depth $Depth) | Write-Verbose
@@ -1550,9 +1656,18 @@ Please run 'Connect-HPEGLWorkspace' to establish a session before using this cmd
                     }                    
                 }
                 else {
-                    # Content is not JSON format
-                    "[{0}] Response is not JSON format, returning raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-Verbose
-                    return $InvokeReturnData
+                    # Content is not JSON format - return simplified object to avoid serialization warnings
+                    "[{0}] Response is not JSON format, creating simplified response object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    $simplifiedResponse = [PSCustomObject]@{
+                        StatusCode = $InvokeReturnData.StatusCode
+                        StatusDescription = $InvokeReturnData.StatusDescription
+                        Content = $InvokeReturnData.Content
+                        Headers = $InvokeReturnData.Headers
+                    }
+                    
+                    "[{0}] Returning simplified response object (StatusCode: {1})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $simplifiedResponse.StatusCode | Write-Verbose
+                    return $simplifiedResponse
                 }          
             }  
             else {
@@ -1809,7 +1924,7 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
 
 
             # Process pagination for GET 
-            if ($Method -eq "GET") {
+            if ($Method -eq "GET" -and -not $SkipPaginationLimit) {
 
                 $AllCollection = [System.Collections.ArrayList]::new()
 
@@ -1900,7 +2015,10 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                     }
 
                     $InvokeReturnData = Invoke-WebRequest -Uri $Url -Method $Method -Headers $headers -Body $Payload -ContentType $ContentType
+                    
+                    # Create a global variable to store the Invoke-WebRequest response
                     $Global:HPECOMInvokeReturnData = $InvokeReturnData
+                    
                     "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-Verbose
                     if ($InvokeReturnData.Content) {
                         "[{0}] Response content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.Content | Write-Verbose
@@ -1948,16 +2066,19 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                         $decodedJson = [System.Text.RegularExpressions.Regex]::Unescape($jsonBlock)
                         try {
                             $prettyJson = $decodedJson | ConvertFrom-Json | ConvertTo-Json -Depth 30
-                            "[{0}] Exception raw content (parsing): `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $prettyJson | Write-Verbose
+                            "[{0}] Exception raw content (parsing):" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $prettyJson -split "`r?`n" | ForEach-Object { Write-Verbose $_ }
                             $errorData = $prettyJson
                         }
                         catch {
-                            "[{0}] Exception raw content (fallback): `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $decodedJson | Write-Verbose
+                            "[{0}] Exception raw content (fallback):" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $decodedJson -split "`r?`n" | ForEach-Object { Write-Verbose $_ }
                             $errorData = $decodedJson
                         }
                     }
                     else {
-                        "[{0}] Exception raw content (unparsed): `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exceptionString | Write-Verbose
+                        "[{0}] Exception raw content (unparsed):" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        $exceptionString -split "`r?`n" | ForEach-Object { Write-Verbose $_ }
                         $errorData = $exceptionString
                     }
 
@@ -1998,11 +2119,54 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                     Write-Verbose "-------------------------------------------- Enhanced Exception Handling (`$ErrorMsg) ------------------------------------------------------------------"
                     # "[{0}] Raw error details: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMsg | Write-Verbose
 
+                    $originalErrorData = $errorData
+                    $jsonParsingFailed = $false
+                    
                     try {
                         $errorData = $errorData | ConvertFrom-Json -ErrorAction Stop
                     }
                     catch {
-                        $errorData = $null  # JSON parsing failed
+                        "[{0}] JSON parsing failed due to malformed JSON, attempting to fix and re-parse..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        $jsonParsingFailed = $true
+                        
+                        # Try to fix common JSON issues
+                        try {
+                            # Fix triple quotes and other common escaping issues
+                            $fixedJson = $originalErrorData -replace '"""', '\"'  # Replace triple quotes with single quote
+                            $fixedJson = $fixedJson -replace '\\"""', '\\"'        # Fix escaped triple quotes
+                            
+                            "[{0}] Attempting to parse fixed JSON..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $errorData = $fixedJson | ConvertFrom-Json -ErrorAction Stop
+                            "[{0}] Successfully parsed fixed JSON!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $jsonParsingFailed = $false
+                        }
+                        catch {
+                            "[{0}] JSON fix attempt failed, extracting fields manually from raw string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            
+                            # Try to extract key fields manually from the raw string using regex
+                            $message = if ($originalErrorData -match '"message"\s*:\s*"([^"]+)"') { $matches[1] } else { $null }
+                            $errorCode = if ($originalErrorData -match '"errorCode"\s*:\s*"([^"]+)"') { $matches[1] } else { $null }
+                            $httpStatusCode = if ($originalErrorData -match '"httpStatusCode"\s*:\s*"?(\d+)"?') { $matches[1] } else { $null }
+                            
+                            # Try to parse rawError as JSON object for cleaner verbose display
+                            $rawErrorObj = $originalErrorData
+                            try {
+                                # Try to parse directly - if it has smart quotes it will fail and we'll keep as string
+                                $rawErrorObj = $originalErrorData | ConvertFrom-Json -ErrorAction Stop
+                                "[{0}] Successfully parsed rawError as JSON object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            } catch {
+                                # Keep as string if parsing fails
+                                "[{0}] Could not parse rawError as JSON, keeping as string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            }
+                            
+                            # Create a simplified object with extracted fields
+                            $errorData = [PSCustomObject]@{
+                                message = $message
+                                errorCode = $errorCode
+                                httpStatusCode = $httpStatusCode
+                                rawError = $rawErrorObj
+                            }
+                        }
                     }
 
                     # "[{0}] Parsed `$errorData: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData | Write-Verbose
@@ -2039,19 +2203,37 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                     $Message = if ($errorData.message) { [System.Text.RegularExpressions.Regex]::Unescape($errorData.message) } else { $lastException.Exception.Message }
                     # "[{0}] Base message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Message | Write-Verbose
                     $msg = if ($exceptionMessage) { "{0} - {1}" -f $Message, $exceptionMessage } else { $Message }
-                    # "[{0}] Final constructed message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose                   
+                    # "[{0}] Final constructed message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
+
+                    # Check for COM 403 Forbidden - missing role assignment
+                    if ($errorData.httpStatusCode -eq 403 -and $Message -match 'Insufficient permission') {
+                        "[{0}] 403 Forbidden detected with 'Insufficient permission' - likely missing COM role assignment" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        
+                        $EnhancedError = "Insufficient permissions to perform this Compute Ops Management operation.`n`n"
+                        $EnhancedError += "CAUSE:`nYou do not have a Compute Ops Management role assigned in this workspace.`n`n"
+                        $EnhancedError += "ACTION REQUIRED:`nAssign yourself one of the following roles using Add-HPEGLRoleToUser:`n"
+                        $EnhancedError += "  - 'Compute Ops Management administrator' (full access)`n"
+                        $EnhancedError += "  - 'Compute Ops Management operator' (operational access)`n`n"
+                        $EnhancedError += "Example:`n"
+                        $EnhancedError += "    Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Compute Ops Management administrator'`n`n"
+                        $EnhancedError += "To check your current roles, run: Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles"
+                        
+                        $msg = $EnhancedError
+                    }
+                   
 
                     If ($msg) {
-                        # Attach enhanced message to lastException
-                        "[{0}] Attached Details to lastException: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
+                        # Create new exception with enhanced message while preserving original exception and Details property
+                        "[{0}] Creating new exception with enhanced message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
     
+                        $newException = New-Object System.Exception($msg, $lastException.Exception)
+                        $newException | Add-Member -NotePropertyName 'Details' -NotePropertyValue $msg -Force
                         $errorRecord = New-Object System.Management.Automation.ErrorRecord(
-                            $lastException.Exception,
+                            $newException,
                             "CustomErrorID",
                             [System.Management.Automation.ErrorCategory]::NotSpecified,
                             $null
                         )
-                        $errorRecord.Exception | Add-Member -NotePropertyName 'Details' -NotePropertyValue $msg -Force
                     }
                     else {
                         "[{0}] No message constructed, using last exception message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $lastException.Exception.Message | Write-Verbose
@@ -2064,9 +2246,29 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                         $errorRecord.Exception | Add-Member -NotePropertyName 'Details' -NotePropertyValue "" -Force
                     }
                     
+                    # Normalize status code property for consistency across success and error responses
+                    # API error responses use 'httpStatusCode', but success responses use 'StatusCode'
+                    # Add StatusCode as an alias to httpStatusCode for consistent access pattern
+                    if ($errorData.httpStatusCode -and -not $errorData.StatusCode) {
+                        $errorData | Add-Member -MemberType NoteProperty -Name "StatusCode" -Value $errorData.httpStatusCode -Force
+                        "[{0}] Normalized error response: Added StatusCode property ({1}) for consistency" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData.StatusCode | Write-Verbose
+                    }
+                    
                     # Store error data in global variable
                     $Global:HPECOMInvokeReturnData = $errorData
-                    "[{0}] Set Global:HPECOMInvokeReturnData: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Global:HPECOMInvokeReturnData | ConvertTo-Json -Depth 5) | Write-Verbose
+                    
+                    # Create a clean copy for verbose output with unescaped rawError
+                    $cleanErrorData = $errorData.PSObject.Copy()
+                    if ($cleanErrorData.rawError) {
+                        try {
+                            # Parse rawError string as JSON for cleaner display
+                            $cleanErrorData.rawError = $cleanErrorData.rawError | ConvertFrom-Json
+                        } catch {
+                            # If parsing fails, keep as string but unescape it
+                            $cleanErrorData.rawError = [System.Text.RegularExpressions.Regex]::Unescape($cleanErrorData.rawError)
+                        }
+                    }
+                    "[{0}] Set Global:HPECOMInvokeReturnData: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), (($cleanErrorData | Select-Object * -ExcludeProperty rawError) | ConvertTo-Json -Depth 5 -WarningAction SilentlyContinue) | Write-Verbose
 
                 }
                 else {
@@ -2291,8 +2493,18 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                         }
                     }
                     else {
-                        "[{0}] Response is not JSON format, returning raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData | Write-Verbose
-                        return $InvokeReturnData
+                        # Content is not JSON format - return simplified object to avoid serialization warnings
+                        "[{0}] Response is not JSON format, creating simplified response object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        
+                        $simplifiedResponse = [PSCustomObject]@{
+                            StatusCode = $InvokeReturnData.StatusCode
+                            StatusDescription = $InvokeReturnData.StatusDescription
+                            Content = $InvokeReturnData.Content
+                            Headers = $InvokeReturnData.Headers
+                        }
+                        
+                        "[{0}] Returning simplified response object (StatusCode: {1})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $simplifiedResponse.StatusCode | Write-Verbose
+                        return $simplifiedResponse
                     }
                 }
                 catch {
@@ -2571,17 +2783,18 @@ ACCOUNT REQUIREMENTS
   - Create an account at https://common.cloud.hpe.com
   - Account creation guide: https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html
 
-ROLE-BASED ACCESS
 
-Minimum required role: Observer (view-only access)
-- Observer: View resources and configurations
-- Operator: View and edit resources
-- Administrator: View, edit, and delete resources
-- Custom roles: Create tailored access permissions
+REQUIRED ROLES AND PERMISSIONS
 
-Required roles for both:
-• HPE GreenLake Platform service manager
-• Compute Ops Management service manager (access required for each COM instance you plan to manage)
+Minimum required role to connect and view resources:
+ - HPE GreenLake Workspace Observer (view-only access)
+ - HPE Compute Ops Management Viewer (view-only access for each COM instance)
+
+Additional roles required for management operations:
+ - HPE GreenLake Workspace Administrator: Required for workspace creation and management
+ - HPE Compute Ops Management Administrator: Required for COM instance provisioning and management
+
+Note: Multiple roles can be assigned to a single user. Contact your HPE GreenLake administrator to request appropriate role assignments.
 
 WORKSPACE MANAGEMENT
 
@@ -2651,13 +2864,46 @@ HPEGreenLakeSession
 
 When a valid connection is established with the HPE GreenLake platform, several properties are added to the 
 `${Global:HPEGreenLakeSession}` connection tracker variable. The object returned will contain the following public properties:
+
+SESSION ARCHITECTURE
+
+The library maintains two distinct web sessions for security and operational separation:
+
+1. AuthSession (Authentication Session)
+   - Created during: OAuth2/OIDC authentication flow (Steps 1-6 of Connect-HPEGL)
+   - Purpose: Manages authentication handshake with HPE authentication services and external identity providers
+   - Endpoints: 
+     * auth.hpe.com (HPE's own Okta tenant for HPE Account authentication)
+     * sso.common.cloud.hpe.com (HPE OAuth2 token endpoint)
+     * mylogin.hpe.com (when using SSO with customer's Okta IdP)
+     * login.microsoftonline.com (when using SSO with Entra ID)
+     * authenticator.pingone.com (when using SSO with PingIdentity)
+   - Lifetime: Used primarily during initial authentication and token exchange
+   - Contains: Cookies and session state from OAuth2/SAML authentication flows
+
+2. WorkspaceSession (Workspace Session) 
+   - Created during: Workspace connection (Step 7 via Connect-HPEGLWorkspace)
+   - Purpose: Handles all workspace API operations and service interactions
+   - Endpoints: common.cloud.hpe.com (HPE GreenLake UI Doorway)
+   - Lifetime: 14-day maximum, 30-minute idle timeout (server-enforced)
+   - Contains: CCS session cookie (ccs-sid) for workspace operations
+   - Usage: Passed to cmdlets for Get-HPEGLWorkspace, workspace management, and session operations
+
+This separation ensures secure token management while maintaining persistent workspace access. When you call 
+Disconnect-HPEGL:
+   • WorkspaceSession is explicitly terminated via API call (Step 2 of disconnect)
+   • OAuth2 tokens are revoked via revocation endpoint (Step 3 of disconnect)
+   • Both session objects (AuthSession and WorkspaceSession) are cleared from memory
+   • AuthSession itself is not explicitly logged out (tokens are revoked, making it unusable)
+
+SESSION PROPERTIES
         
      ====================================================================================================================
      | Name                      | Type               | Value                                                           |
      --------------------------------------------------------------------------------------------------------------------
-     | AuthSession               | WebRequestSession  | Web session object used for Okta/HPE GreenLake authentication   |
+     | AuthSession               | WebRequestSession  | Web session for OAuth2/OIDC authentication (Steps 1-6)          |
      --------------------------------------------------------------------------------------------------------------------
-     | WorkspaceSession          | WebRequestSession  | Web session object for the selected workspace (API operations)  |
+     | WorkspaceSession          | WebRequestSession  | Web session for workspace operations (Step 7+)                  |
      --------------------------------------------------------------------------------------------------------------------
      | oauth2AccessToken         | String             | OAuth2 access token                                             | 
      --------------------------------------------------------------------------------------------------------------------
@@ -3143,7 +3389,7 @@ For SAML SSO configuration instructions, see https://support.hpe.com/hpesc/publi
                 }
 
                 # Convert to JSON string
-                $jsonString = $InputObject | ConvertTo-Json -Depth 50 -Compress
+                $jsonString = $InputObject | ConvertTo-Json -Depth 50
 
                 # Redact stateHandle if found
                 if ($hasStateHandle) {
@@ -4592,7 +4838,7 @@ For setup prerequisites, see: $script:HelpUrl
                 }
 
                 $userLookupUrl = "$authBaseUrl/$EnvironmentId/flows/$flowId"
-                $payload = @{ username = $usernameOnly } | ConvertTo-Json -Depth 10 -Compress
+                $payload = @{ username = $usernameOnly } | ConvertTo-Json -Depth 10
                 
                 # Construct apps origin/referer by replacing auth. with apps.
                 $appsBaseUrl = $authBaseUrl -replace '^https://auth\.', 'https://apps.'
@@ -4611,7 +4857,7 @@ For setup prerequisites, see: $script:HelpUrl
                     
                     # Check if PingOne is requesting password instead of passwordless MFA
                     # This indicates misconfiguration - passwordless policy not properly set up
-                    $responseJson = $userLookupResponse | ConvertTo-Json -Depth 10 -Compress
+                    $responseJson = $userLookupResponse | ConvertTo-Json -Depth 10
                     "[{0}] Response structure: {1}" -f $functionName, $responseJson | Write-Verbose
                     
                     # Check for password authentication request patterns
@@ -4808,7 +5054,7 @@ For complete PingIdentity setup prerequisites, see: $script:HelpUrl
                                 
                     # Enhanced diagnostics
                     "[{0}] ERROR: Could not extract required parameters from response" -f $functionName | Write-Verbose
-                    "[{0}]   Response format: {1}" -f $functionName, ($userLookupResponse | ConvertTo-Json -Depth 2 -Compress) | Write-Verbose
+                    "[{0}]   Response format: {1}" -f $functionName, ($userLookupResponse | ConvertTo-Json -Depth 2) | Write-Verbose
                     "[{0}]   idpAccountId found: {1}" -f $functionName, ($null -ne $idpAccountId) | Write-Verbose
                     "[{0}]   ppmRequest found: {1}" -f $functionName, ($null -ne $ppmRequest) | Write-Verbose
 
@@ -4948,7 +5194,7 @@ For complete PingIdentity setup prerequisites, see: $script:HelpUrl
                         $quickStatusCheck = Invoke-RestMethod -Uri "$statusUrl`?_=$timestamp" -Method GET -ErrorAction Stop `
                             -Headers @{"Accept" = "*/*" } -WebSession $Session
                         
-                        "[{0}] Quick status response: {1}" -f $functionName, ($quickStatusCheck | ConvertTo-Json -Compress) | Write-Verbose
+                        "[{0}] Quick status response: {1}" -f $functionName, ($quickStatusCheck | ConvertTo-Json) | Write-Verbose
                         
                         if ($quickStatusCheck.status -eq "POLICY_OTP") {
                             $otpOnlyByPolicy = $true
@@ -5113,7 +5359,7 @@ For complete PingIdentity setup prerequisites, see: $script:HelpUrl
                             $statusResponse = Invoke-RestMethod -Uri $statusCheckUrl -Method GET -ErrorAction Stop `
                                 -Headers $headers -WebSession $Session
 
-                            "[{0}] Status poll response: {1}" -f $functionName, ($statusResponse | ConvertTo-Json -Compress) | Write-Verbose
+                            "[{0}] Status poll response: {1}" -f $functionName, ($statusResponse | ConvertTo-Json) | Write-Verbose
 
                             # Check if authentication is complete
                             if ($statusResponse.status -eq "OK" -or $statusResponse.status -eq "SUCCESS") {
@@ -5959,7 +6205,7 @@ Raw SAMLRequest: $SAMLRequestValue
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
                 "[{0}] Failed to submit SAML request to {1}: {2}" -f $functionName, $SAMLActionValue, $_.Exception.Message | Write-Verbose
-                throw "[{0}] Failed to submit SAML request to {1}: {2}" -f $functionName, $SAMLActionValue, $_
+                $PSCmdlet.ThrowTerminatingError($_)
             }
 
             $completedSteps++
@@ -6112,14 +6358,34 @@ Error: $($_.Exception.Message)
                     "[{0}] Found flowId from URL: {1}" -f $functionName, $flowId | Write-Verbose
                 }
 
-                # Try to extract stateToken (Okta)
+                # Try to extract stateToken (Okta) - try multiple patterns
                 if ($currentResponse.Content -match "var\s+stateToken\s*=\s*'([^']+)'") {
                     $rawToken = $Matches[1]
-                    "[{0}] Found raw state token (pattern 1)" -f $functionName | Write-Verbose
+                    "[{0}] Found raw state token (pattern 1 - JavaScript var with single quotes)" -f $functionName | Write-Verbose
+                }
+                elseif ($currentResponse.Content -match 'var\s+stateToken\s*=\s*"([^"]+)"') {
+                    $rawToken = $Matches[1]
+                    "[{0}] Found raw state token (pattern 2 - JavaScript var with double quotes)" -f $functionName | Write-Verbose
                 }
                 elseif ($currentResponse.Content -match '"stateToken"\s*:\s*"([^"]+)"') {
                     $rawToken = $Matches[1]
-                    "[{0}] Found raw state token (pattern 2 - JSON)" -f $functionName | Write-Verbose
+                    "[{0}] Found raw state token (pattern 3 - JSON format)" -f $functionName | Write-Verbose
+                }
+                elseif ($currentResponse.Content -match 'stateToken[''"]?\s*:\s*[''"]([^''"]+)[''"]') {
+                    $rawToken = $Matches[1]
+                    "[{0}] Found raw state token (pattern 4 - flexible JSON/JS object)" -f $functionName | Write-Verbose
+                }
+                elseif ($currentResponse.Content -match 'data-se="stateToken"\s+value="([^"]+)"') {
+                    $rawToken = $Matches[1]
+                    "[{0}] Found raw state token (pattern 5 - data attribute)" -f $functionName | Write-Verbose
+                }
+                elseif ($currentResponse.Content -match '<input[^>]*name=["'']stateToken["''][^>]*value=["'']([^"'']+)["'']') {
+                    $rawToken = $Matches[1]
+                    "[{0}] Found raw state token (pattern 6 - hidden input)" -f $functionName | Write-Verbose
+                }
+                elseif ($currentResponse.Content -match 'stateToken[=:]\s*[''"]([^''"]{50,})[''"]') {
+                    $rawToken = $Matches[1]
+                    "[{0}] Found raw state token (pattern 7 - generic key-value with min length)" -f $functionName | Write-Verbose
                 }
 
                 if ($rawToken) {
@@ -6136,6 +6402,9 @@ Error: $($_.Exception.Message)
                 }
                 elseif (-not $flowId) {
                     "[{0}] Neither state token nor flowId found in response" -f $functionName | Write-Verbose
+                    "[{0}] Response content length: {1} bytes" -f $functionName, $currentResponse.Content.Length | Write-Verbose
+                    "[{0}] Response contains 'okta-sign-in': {1}" -f $functionName, ($currentResponse.Content -match 'okta-sign-in') | Write-Verbose
+                    "[{0}] Response contains 'stateToken': {1}" -f $functionName, ($currentResponse.Content -match 'stateToken') | Write-Verbose
                 }
                 # Check if we already have a SAML Response (authentication complete)
                 if ($currentResponse.Content -match '<input[^>]*name=["'']SAMLResponse["'']') {
@@ -6322,42 +6591,274 @@ For setup prerequisites, see: https://github.com/jullienl/HPE-COM-PowerShell-Lib
                     # Route to appropriate MFA handler based on detected IdP
                     switch ($idpType) {
                         'Okta' {
-                            "[{0}] Using Okta Verify MFA (push or TOTP)" -f $functionName | Write-Verbose
-                            
-                            # Extract Okta domain from current URL, resolved action, or original SAML action
-                            # Use flexible pattern - extract any okta-related domain
-                            $oktaDomain = $null
-                            
-                            if ($currentUrl -match 'https?://([^/]+okta[^/]*)') {
-                                $oktaDomain = $Matches[1]
-                                "[{0}] Extracted Okta domain from current URL: {1}" -f $functionName, $oktaDomain | Write-Verbose
+                            # Check for missing stateToken - may indicate Sign-In Widget is being used
+                            if (-not $stateToken) {
+                                "[{0}] No state token found - checking if Okta Sign-In Widget is present" -f $functionName | Write-Verbose
+                                
+                                # Check if this is the Okta Sign-In Widget (modern JavaScript-based authentication)
+                                if ($currentResponse.Content -match 'okta-sign-in\.min\.js' -or $currentResponse.Content -match 'var\s+stateToken\s*=\s*[''"]?[''"]?;') {
+                                    "[{0}] Detected Okta Sign-In Widget (v7.x) - attempting API-based authentication" -f $functionName | Write-Verbose
+                                    
+                                    # The Okta Sign-In Widget v7.x uses a different authentication flow
+                                    # where the stateToken is initialized as empty and managed by the JavaScript widget.
+                                    # Instead of requiring JavaScript interaction, we'll use the Okta Authentication API
+                                    # to obtain a sessionToken and complete the SAML flow.
+                                    
+                                    # Extract fromURI (relay state) from the hidden form or JavaScript
+                                    $fromURI = $null
+                                    
+                                    # Try extracting from hidden input field
+                                    if ($currentResponse.Content -match '<input[^>]*name=["'']fromURI["''][^>]*value=["'']([^"'']*)["'']') {
+                                        $fromURI = [System.Web.HttpUtility]::HtmlDecode($Matches[1])
+                                        "[{0}] Extracted fromURI from form field: {1}" -f $functionName, $fromURI | Write-Verbose
+                                    }
+                                    # Try extracting from JavaScript variable modelDataBag
+                                    elseif ($currentResponse.Content -match 'var\s+modelDataBag\s*=\s*[''"]([^''"]+)[''"]') {
+                                        $encodedJson = $Matches[1]
+                                        try {
+                                            # Decode hex-encoded JSON (format: \x22 for quotes, etc.)
+                                            $decodedJson = [System.Text.RegularExpressions.Regex]::Replace($encodedJson, '\\x([0-9A-Fa-f]{2})', {
+                                                param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16)
+                                            })
+                                            $modelData = $decodedJson | ConvertFrom-Json
+                                            $fromURI = $modelData.fromURI
+                                            "[{0}] Extracted fromURI from modelDataBag: {1}" -f $functionName, $fromURI | Write-Verbose
+                                        }
+                                        catch {
+                                            "[{0}] Failed to parse modelDataBag: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                                        }
+                                    }
+                                    
+                                    if (-not $fromURI) {
+                                        "[{0}] WARNING: Could not extract fromURI (SAML request URL)" -f $functionName | Write-Verbose
+                                        
+                                        # Save debug file if enabled
+                                        if ($env:HPEGL_DEBUG) {
+                                            $debugPath = Join-Path $env:TEMP "okta-siw-debug.html"
+                                            $currentResponse.Content | Out-File -FilePath $debugPath -Encoding UTF8
+                                            "[{0}] Response content saved to: {1}" -f $functionName, $debugPath | Write-Verbose
+                                        }
+                                    }
+                                    
+                                    # Use Okta IDX API to get stateToken for MFA
+                                    "[{0}] Attempting authentication via Okta IDX API" -f $functionName | Write-Verbose
+                                    
+                                    try {
+                                        # Extract Okta domain from current URL
+                                        $oktaDomain = ([uri]$currentUrl).Host
+                                        
+                                        # Make fromURI absolute if it's relative
+                                        if ($fromURI -and $fromURI -notmatch '^https?://') {
+                                            $fromURI = "https://$oktaDomain$fromURI"
+                                            "[{0}] Converted fromURI to absolute URL: {1}" -f $functionName, $fromURI | Write-Verbose
+                                        }
+                                        
+                                        # Try using Okta IDX introspect API to get a stateToken
+                                        $idxIntrospectUrl = "https://$oktaDomain/idp/idx/introspect"
+                                        
+                                        # First, try to get the interaction handle from the SAML request
+                                        # by following the fromURI
+                                        if ($fromURI) {
+                                            "[{0}] Accessing SAML endpoint to establish session: {1}" -f $functionName, $fromURI | Write-Verbose
+                                            
+                                            $samlResponse = Invoke-WebRequest -Uri $fromURI -Method GET `
+                                                -WebSession $session -MaximumRedirection 0 -ErrorAction SilentlyContinue
+                                            
+                                            "[{0}] SAML response status: {1}" -f $functionName, $samlResponse.StatusCode | Write-Verbose
+                                            
+                                            # Check if we got redirected to IDX or if we can extract stateToken now
+                                            if ($samlResponse.Content -match 'var\s+stateToken\s*=\s*[''"]([^''"]+)[''"];') {
+                                                $stateToken = $Matches[1]
+                                                "[{0}] Extracted stateToken from SAML response: {1}" -f $functionName, ($stateToken.Substring(0, [Math]::Min(20, $stateToken.Length)) + "...") | Write-Verbose
+                                            }
+                                            elseif ($samlResponse.Content -match 'interactionHandle[''"]?\s*:\s*[''"]([^''"]+)[''"]') {
+                                                $interactionHandle = $Matches[1]
+                                                "[{0}] Extracted interactionHandle: {1}" -f $functionName, ($interactionHandle.Substring(0, [Math]::Min(20, $interactionHandle.Length)) + "...") | Write-Verbose
+                                                
+                                                # Use IDX introspect with interaction handle
+                                                $idxPayload = @{
+                                                    interactionHandle = $interactionHandle
+                                                } | ConvertTo-Json -Depth 10
+                                                
+                                                $idxHeaders = @{
+                                                    "Content-Type" = "application/json"
+                                                    "Accept"       = "application/ion+json; okta-version=1.0.0"
+                                                }
+                                                
+                                                "[{0}] Calling IDX introspect API" -f $functionName | Write-Verbose
+                                                $idxResponse = Invoke-RestMethod -Uri $idxIntrospectUrl -Method POST `
+                                                    -Headers $idxHeaders -Body $idxPayload -WebSession $session -ErrorAction Stop
+                                                
+                                                "[{0}] IDX response received, checking for stateHandle" -f $functionName | Write-Verbose
+                                                
+                                                if ($idxResponse.stateHandle) {
+                                                    # We got a stateHandle (IDX) - convert it to work with our MFA handler
+                                                    $stateToken = $idxResponse.stateHandle
+                                                    "[{0}] Using IDX stateHandle as stateToken" -f $functionName | Write-Verbose
+                                                }
+                                            }
+                                        }
+                                        
+                                        # If we got a stateToken, we can proceed with MFA
+                                        if ($stateToken) {
+                                            "[{0}] Successfully obtained stateToken - proceeding with MFA authentication" -f $functionName | Write-Verbose
+                                            # Continue to existing MFA handler below (stateToken is set)
+                                        }
+                                        else {
+                                            throw "Could not obtain stateToken or interactionHandle from Okta IDX API"
+                                        }
+                                    }
+                                    catch {
+                                        "[{0}] Authentication API failed: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                                        
+                                        # Save response content for debugging
+                                        $debugPath = $null
+                                        $debugInfo = "Set `$env:HPEGL_DEBUG = 1 and retry to save HTML response for analysis"
+                                        
+                                        if ($env:HPEGL_DEBUG) {
+                                            $debugPath = Join-Path $env:TEMP "okta-siw-debug.html"
+                                            $currentResponse.Content | Out-File -FilePath $debugPath -Encoding UTF8
+                                            "[{0}] Response content saved to: {1}" -f $functionName, $debugPath | Write-Verbose
+                                            $debugInfo = "Saved to: $debugPath"
+                                        }
+                                        
+                                        $errorMessage = @"
+Okta Classic Engine is not supported by this library.
+
+WHAT HAPPENED:
+Your Okta environment is using Okta Classic Engine, which does not support the passwordless 
+authentication methods required by this module.
+
+REQUIREMENT:
+This module requires Okta Identity Engine (OIE) for SSO authentication.
+
+SOLUTION:
+Upgrade your Okta organization to Okta Identity Engine (OIE):
+  1. Log into Okta Admin Console: https://{1}/admin
+  2. Navigate to: Settings → Features or Settings → Account
+  3. Look for "Okta Identity Engine" or "OIE Upgrade" option
+  4. Follow the upgrade wizard to migrate to Identity Engine
+
+After upgrading to OIE, this module will support passwordless MFA with:
+  • Okta Verify push notifications (with or without number challenge)
+  • Okta Verify TOTP codes (6-digit time-based codes)
+
+ALTERNATIVE:
+If you cannot upgrade to OIE, consider using a different authentication method:
+  • Microsoft Entra ID (Azure AD) - Supported
+  • PingIdentity - Supported
+  • Standard HPE Account authentication (username/password with MFA)
+
+DIAGNOSTIC INFORMATION:
+  Okta Domain: {1}
+  Sign-In Widget Version: {2}
+  Debug File: {3}
+  
+For more information about Okta Identity Engine:
+  https://help.okta.com/okta_help.htm?type=oie
+
+To report issues or request Classic Engine support:
+  https://github.com/jullienl/HPE-COM-PowerShell-Library/issues
+"@ -f $_.Exception.Message, ([uri]$currentUrl).Host, ($currentResponse.Content -match 'okta-signin-widget/([0-9.]+)/' ? $Matches[1] : "Unknown"), $debugInfo
+                                        
+                                        Write-Error ("[{0}] {1}" -f $functionName, $errorMessage) -ErrorAction Stop
+                                    }
+                                }
+                                else {
+                                    # Not a Sign-In Widget page - throw original error
+                                    "[{0}] ERROR: No state token found for Okta authentication" -f $functionName | Write-Verbose
+                                    "[{0}] Form action detected: {1}" -f $functionName, $autoPostAction | Write-Verbose
+                                    "[{0}] Current URL: {1}" -f $functionName, $currentUrl | Write-Verbose
+                                    
+                                    # Save response content for debugging
+                                    $debugPath = $null
+                                    $debugFileInfo = "Not saved (set `$env:HPEGL_DEBUG = 1 to enable)"
+                                    
+                                    if ($env:HPEGL_DEBUG) {
+                                        $debugPath = Join-Path $env:TEMP "okta-response-debug.html"
+                                        $currentResponse.Content | Out-File -FilePath $debugPath -Encoding UTF8
+                                        "[{0}] Response content saved to: {1}" -f $functionName, $debugPath | Write-Verbose
+                                        $debugFileInfo = $debugPath
+                                    }
+                                    
+                                    $errorMessage = @"
+Okta Classic Engine is not supported by this library.
+
+WHAT HAPPENED:
+Your Okta environment appears to be using Okta Classic Engine, which does not support 
+the passwordless authentication methods required by this module.
+
+REQUIREMENT:
+This module requires Okta Identity Engine (OIE) for SSO authentication.
+
+SOLUTION:
+Upgrade your Okta organization to Okta Identity Engine (OIE):
+  1. Log into Okta Admin Console: https://{0}/admin
+  2. Navigate to: Settings → Features or Settings → Account
+  3. Look for "Okta Identity Engine" or "OIE Upgrade" option
+  4. Follow the upgrade wizard to migrate to Identity Engine
+
+ALTERNATIVE:
+If you cannot upgrade to OIE, consider using a different authentication method:
+  • Microsoft Entra ID (Azure AD) - Supported
+  • PingIdentity - Supported
+  • Standard HPE Account authentication (username/password with MFA)
+
+DIAGNOSTIC INFORMATION:
+  Okta Domain: {0}
+  Form Action: {1}
+  Current URL: {2}
+  Debug File: {3}
+  
+For more information about Okta Identity Engine:
+  https://help.okta.com/okta_help.htm?type=oie
+
+To report issues or request Classic Engine support:
+  https://github.com/jullienl/HPE-COM-PowerShell-Library/issues
+"@ -f ([uri]$currentUrl).Host, $autoPostAction, $currentUrl, $debugFileInfo
+                                    Write-Error ("[{0}] {1}" -f $functionName, $errorMessage) -ErrorAction Stop
+                                }
                             }
-                            elseif ($resolvedAction -and $resolvedAction -match 'https?://([^/]+okta[^/]*)') {
-                                $oktaDomain = ([System.Uri]$resolvedAction).Host
-                                "[{0}] Extracted Okta domain from resolved action: {1}" -f $functionName, $oktaDomain | Write-Verbose
-                            }
-                            elseif ($SAMLActionValue -match 'https?://([^/]+okta[^/]*)') {
-                                $oktaDomain = ([System.Uri]$SAMLActionValue).Host
-                                "[{0}] Extracted Okta domain from original SAML action: {1}" -f $functionName, $oktaDomain | Write-Verbose
-                            }
                             
-                            if (-not $oktaDomain) {
-                                throw "[{0}] Could not extract Okta domain from authentication flow" -f $functionName
+                            # If we have a stateToken (either from page or from API MFA), proceed with traditional MFA flow
+                            if ($stateToken) {
+                                "[{0}] Using Okta Verify MFA (push or TOTP)" -f $functionName | Write-Verbose
+                                
+                                # Extract Okta domain from current URL, resolved action, or original SAML action
+                                # Use flexible pattern - extract any okta-related domain
+                                $oktaDomain = $null
+                                
+                                if ($currentUrl -match 'https?://([^/]+okta[^/]*)') {
+                                    $oktaDomain = $Matches[1]
+                                    "[{0}] Extracted Okta domain from current URL: {1}" -f $functionName, $oktaDomain | Write-Verbose
+                                }
+                                elseif ($resolvedAction -and $resolvedAction -match 'https?://([^/]+okta[^/]*)') {
+                                    $oktaDomain = ([System.Uri]$resolvedAction).Host
+                                    "[{0}] Extracted Okta domain from resolved action: {1}" -f $functionName, $oktaDomain | Write-Verbose
+                                }
+                                elseif ($SAMLActionValue -match 'https?://([^/]+okta[^/]*)') {
+                                    $oktaDomain = ([System.Uri]$SAMLActionValue).Host
+                                    "[{0}] Extracted Okta domain from original SAML action: {1}" -f $functionName, $oktaDomain | Write-Verbose
+                                }
+                                
+                                if (-not $oktaDomain) {
+                                    throw "[{0}] Could not extract Okta domain from authentication flow" -f $functionName
+                                }
+                                
+                                # Create refs for progress tracking
+                                $completedStepsRef = [ref]$completedSteps
+                                $currentStepRef = [ref]$step
+                                
+                                $responseStep12 = Invoke-OktaMFAAuthentication `
+                                    -StateToken $stateToken `
+                                    -Username $Username `
+                                    -Session $session `
+                                    -OktaDomain $oktaDomain `
+                                    -NoProgress:$NoProgress `
+                                    -CompletedSteps $completedStepsRef `
+                                    -TotalSteps $totalSteps `
+                                    -CurrentStep $currentStepRef
                             }
-                            
-                            # Create refs for progress tracking
-                            $completedStepsRef = [ref]$completedSteps
-                            $currentStepRef = [ref]$step
-                            
-                            $responseStep12 = Invoke-OktaMFAAuthentication `
-                                -StateToken $stateToken `
-                                -Username $Username `
-                                -Session $session `
-                                -OktaDomain $oktaDomain `
-                                -NoProgress:$NoProgress `
-                                -CompletedSteps $completedStepsRef `
-                                -TotalSteps $totalSteps `
-                                -CurrentStep $currentStepRef
                         }
                         
                         'EntraID' {
@@ -6532,7 +7033,8 @@ For setup prerequisites, see: https://github.com/jullienl/HPE-COM-PowerShell-Lib
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
                 "[{0}] Failed at IdP authentication: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                throw "[{0}] IdP authentication failed: {1}" -f $functionName, $_
+                # Re-throw the original error without wrapping it again
+                $PSCmdlet.ThrowTerminatingError($_)
             }
 
             $completedSteps++
@@ -6602,7 +7104,7 @@ Error: $($_.Exception.Message)
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
                 "[{0}] Failed to POST SAML Response: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                throw "[{0}] Failed to POST SAML Response to HPE: {1}" -f $functionName, $_
+                $PSCmdlet.ThrowTerminatingError($_)
             }
 
             "[{0}] Checking for OAuth redirect in SAML response..." -f $functionName | Write-Verbose
@@ -6669,7 +7171,7 @@ Error: $($_.Exception.Message)
                 $introspectUrl = "https://auth.hpe.com/idp/idx/introspect"
                 $introspectBody = @{
                     stateToken = $stateToken
-                } | ConvertTo-Json -Compress
+                } | ConvertTo-Json
                 
                 $introspectResponse = Invoke-WebRequest -Uri $introspectUrl -Method POST -Body $introspectBody -ContentType "application/ion+json; okta-version=1.0.0" -WebSession $session -ErrorAction Stop
                 
@@ -6851,7 +7353,7 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
                 "[{0}] Failed to complete token redirect: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                throw "[{0}] Failed to complete token redirect flow: {1}" -f $functionName, $_
+                $PSCmdlet.ThrowTerminatingError($_)
             }
 
             $completedSteps++
@@ -6894,7 +7396,7 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
                 "[{0}] Failed to extract OAuth code: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                throw "[{0}] Failed to extract OAuth authorization code: {1}" -f $functionName, $_
+                $PSCmdlet.ThrowTerminatingError($_)
             }
 
             $completedSteps++
@@ -7029,7 +7531,7 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "[{0}] Authentication failed: Error during introspect: {1}" -f $functionName, $_
+                        $PSCmdlet.ThrowTerminatingError($_)
                     }
                 }
                 if ($retry -and $i -eq 0) {
@@ -7059,7 +7561,7 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "[{0}] Authentication failed: Failed to obtain new stateToken in retry: {1}" -f $functionName, $_
+                        $PSCmdlet.ThrowTerminatingError($_)
                     }
                 }
             }
@@ -7072,7 +7574,7 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "[{0}] Authentication failed: Could not extract stateHandle from introspect response." -f $functionName
+                throw "[{0}] Authentication failed: Unable to extract stateHandle from introspect response. Please retry your request or verify your credentials." -f $functionName
             }
             # Validate stateHandle format (allow ~ in addition to alphanumeric, ., _, and -)
             if ($stateHandle -notmatch "^[a-zA-Z0-9._~-]+$") {
@@ -7708,8 +8210,12 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                 $deviceChallengePoll = $responseStep53.remediation.value | Where-Object { $_.name -eq 'device-challenge-poll' }
                 
                 if ($deviceChallengePoll) {
+                    "[{0}] ============================================" -f $functionName | Write-Verbose
                     "[{0}] Detected device-challenge-poll remediation (Okta FastPass/device-bound authentication)" -f $functionName | Write-Verbose
-                    "[{0}] Attempting to cancel device-challenge-poll to fall back to traditional authentication..." -f $functionName | Write-Verbose
+                    "[{0}] FastPass requires the Okta Verify desktop app for automatic authentication" -f $functionName | Write-Verbose
+                    "[{0}] PowerShell cannot access the desktop app's loopback interface directly" -f $functionName | Write-Verbose
+                    "[{0}] Attempting to cancel device-challenge-poll to fall back to traditional authentication (push/TOTP)..." -f $functionName | Write-Verbose
+                    "[{0}] ============================================" -f $functionName | Write-Verbose
                     
                     # Extract the poll cancel URL
                     $pollCancelUrl = $deviceChallengePoll.href -replace '/poll$', '/poll/cancel'
@@ -7732,30 +8238,111 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                         
                         "[{0}] Device-challenge-poll cancelled successfully" -f $functionName | Write-Verbose
                         
+                        # Log all available remediation options in cancel response
+                        $allRemediations = $cancelResponse.remediation.value | Select-Object -ExpandProperty name
+                        "[{0}] Available remediations after cancel: {1}" -f $functionName, ($allRemediations -join ", ") | Write-Verbose
+                        
                         # Check if we got select-authenticator-authenticate after cancel
                         $newRemediation = $cancelResponse.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }
                         if ($newRemediation) {
-                            "[{0}] New remediation type after cancel: select-authenticator-authenticate" -f $functionName | Write-Verbose
+                            "[{0}] ✓ SUCCESS: Cancel returned select-authenticator-authenticate" -f $functionName | Write-Verbose
+                            "[{0}] ✓ Switching to traditional authentication (Okta Verify push/TOTP)" -f $functionName | Write-Verbose
                             # Update response to use the cancel response which should have select-authenticator-authenticate
                             $responseStep53 = $cancelResponse
                             $stateHandle = $cancelResponse.stateHandle
-                            "[{0}] Successfully fell back to traditional authentication flow (select-authenticator-authenticate)" -f $functionName | Write-Verbose
+                            "[{0}] ✓ Successfully fell back to traditional authentication flow" -f $functionName | Write-Verbose
                         }
                         else {
-                            "[{0}] Cancel succeeded but did not return select-authenticator-authenticate" -f $functionName | Write-Verbose
-                            "[{0}] New remediation type: {1}" -f $functionName, ($cancelResponse.remediation.value[0].name) | Write-Verbose
+                            # Check if cancel returned device-challenge-poll again (Okta requires device authentication)
+                            $stillDeviceChallenge = $cancelResponse.remediation.value | Where-Object { $_.name -eq 'device-challenge-poll' }
+                            if ($stillDeviceChallenge) {
+                                "[{0}] ⚠ WARNING: Cancel returned device-challenge-poll again" -f $functionName | Write-Verbose
+                                "[{0}] ⚠ This means Okta is ENFORCING device-bound authentication (FastPass)" -f $functionName | Write-Verbose
+                                "[{0}] ⚠ Traditional authentication (push/TOTP) is not available" -f $functionName | Write-Verbose
+                                
+                                # Check for any alternative remediation options (like skip)
+                                $skipOption = $cancelResponse.remediation.value | Where-Object { $_.name -eq 'skip' }
+                                if ($skipOption) {
+                                    "[{0}] ℹ Found 'skip' remediation option - attempting to skip device challenge" -f $functionName | Write-Verbose
+                                    
+                                    $skipPayload = @{
+                                        stateHandle = $cancelResponse.stateHandle
+                                    } | ConvertTo-Json -Depth 10
+                                    
+                                    try {
+                                        $skipResponse = Invoke-RestMethod -Uri $skipOption.href -Method POST -Headers $cancelHeaders -Body $skipPayload -WebSession $Session -ErrorAction Stop
+                                        "[{0}] Skip succeeded" -f $functionName | Write-Verbose
+                                        
+                                        # Check if skip gave us select-authenticator-authenticate
+                                        $skipRemediation = $skipResponse.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }
+                                        if ($skipRemediation) {
+                                            "[{0}] ✓ SUCCESS: Skip returned select-authenticator-authenticate" -f $functionName | Write-Verbose
+                                            "[{0}] ✓ Can now use traditional authentication (Okta Verify push/TOTP)" -f $functionName | Write-Verbose
+                                            $responseStep53 = $skipResponse
+                                            $stateHandle = $skipResponse.stateHandle
+                                        }
+                                        else {
+                                            "[{0}] ✗ Skip did not return select-authenticator-authenticate" -f $functionName | Write-Verbose
+                                            "[{0}] ➜ Must proceed with device polling" -f $functionName | Write-Verbose
+                                            throw "No alternative authentication available - proceeding with device polling"
+                                        }
+                                    }
+                                    catch {
+                                        "[{0}] ✗ Skip failed: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                                        "[{0}] ➜ Must proceed with device polling" -f $functionName | Write-Verbose
+                                        throw "Device authentication required - proceeding with polling"
+                                    }
+                                }
+                                else {
+                                    "[{0}] ✗ No 'skip' option available in remediation" -f $functionName | Write-Verbose
+                                    "[{0}] ➜ Must proceed with device polling (user approval required)" -f $functionName | Write-Verbose
+                                    throw "Device authentication required - proceeding with polling"
+                                }
+                            }
+                            else {
+                                "[{0}] Unexpected remediation after cancel: {1}" -f $functionName, ($allRemediations -join ", ") | Write-Verbose
+                            }
                         }
                     }
                     catch {
+                        "[{0}] ============================================" -f $functionName | Write-Verbose
+                        "[{0}] ℹ DEVICE AUTHENTICATION REQUIRED (FastPass)" -f $functionName | Write-Verbose
+                        "[{0}] ============================================" -f $functionName | Write-Verbose
                         "[{0}] Failed to cancel device-challenge-poll: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                        "[{0}] Falling back to device-challenge-poll polling (Mac compatibility mode)" -f $functionName | Write-Verbose
+                        "[{0}] Okta is enforcing device-bound authentication (FastPass)" -f $functionName | Write-Verbose
+                        "[{0}] " -f $functionName | Write-Verbose
+                        "[{0}] ⚠ IMPORTANT: FastPass (device-challenge-poll) is NOT compatible with PowerShell" -f $functionName | Write-Verbose
+                        "[{0}] " -f $functionName | Write-Verbose
+                        "[{0}] FastPass requires:" -f $functionName | Write-Verbose
+                        "[{0}]   • Okta Verify desktop app running on this machine" -f $functionName | Write-Verbose
+                        "[{0}]   • Browser-based authentication flow (uses localhost/loopback)" -f $functionName | Write-Verbose
+                        "[{0}]   • Automatic approval by the desktop app (no user interaction)" -f $functionName | Write-Verbose
+                        "[{0}] " -f $functionName | Write-Verbose
+                        "[{0}] PowerShell CANNOT:" -f $functionName | Write-Verbose
+                        "[{0}]   ✗ Access the loopback interface required by FastPass" -f $functionName | Write-Verbose
+                        "[{0}]   ✗ Trigger push notifications from device-challenge-poll" -f $functionName | Write-Verbose
+                        "[{0}]   ✗ Communicate directly with the Okta Verify desktop app" -f $functionName | Write-Verbose
+                        "[{0}] " -f $functionName | Write-Verbose
+                        "[{0}] ═══════════════════════════════════════════" -f $functionName | Write-Verbose
+                        "[{0}] RECOMMENDED SOLUTION:" -f $functionName | Write-Verbose
+                        "[{0}] ═══════════════════════════════════════════" -f $functionName | Write-Verbose
+                        "[{0}] " -f $functionName | Write-Verbose
+                        "[{0}] Contact your HPE IT administrator" -f $functionName | Write-Verbose
+                        "[{0}]   → Request to enable 'Okta Verify Push' or 'Okta Verify TOTP' as fallback methods" -f $functionName | Write-Verbose
+                        "[{0}]   → These methods work with PowerShell and are fully supported" -f $functionName | Write-Verbose
+                        "[{0}]   → Current policy enforces FastPass-only authentication" -f $functionName | Write-Verbose
+                        "[{0}] " -f $functionName | Write-Verbose
+                        "[{0}] ============================================" -f $functionName | Write-Verbose
                         
-                        # If cancel fails, proceed with device-challenge-poll polling (Mac/desktop app scenario)
+                        # If cancel fails, proceed with device-challenge-poll polling (experimental - may not work)
                         $pollUrl = $deviceChallengePoll.href
                         $pollInterval = if ($deviceChallengePoll.refresh) { $deviceChallengePoll.refresh / 1000 } else { 5 }
-                        $maxAttempts = 60  # 5 minutes timeout
+                        $maxAttempts = 12  # Only 1 minute timeout since this rarely works
                         
-                        "[{0}] Starting device-challenge-poll polling (interval: {1}s, max attempts: {2})" -f $functionName, $pollInterval, $maxAttempts | Write-Verbose
+                        "[{0}] Poll URL: {1}" -f $functionName, $pollUrl | Write-Verbose
+                        "[{0}] Poll interval: {1} seconds" -f $functionName, $pollInterval | Write-Verbose
+                        "[{0}] Max attempts: {1} (timeout after {2} seconds)" -f $functionName, $maxAttempts, ($maxAttempts * $pollInterval) | Write-Verbose
+                        "[{0}] Starting experimental device-challenge-poll polling..." -f $functionName | Write-Verbose
                         
                         $pollPayload = @{
                             stateHandle = $stateHandle
@@ -7770,6 +8357,7 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                         
                         while ($attempt -lt $maxAttempts -and -not $authSuccess) {
                             $attempt++
+                            "[{0}] Poll attempt {1}/{2} - Waiting for user approval on Okta Verify app..." -f $functionName, $attempt, $maxAttempts | Write-Verbose
                             Start-Sleep -Seconds $pollInterval
                             
                             try {
@@ -7777,7 +8365,9 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                                 
                                 # Check if authentication succeeded (successWithInteractionCode)
                                 if ($pollResponse.successWithInteractionCode) {
-                                    "[{0}] Device authentication succeeded via polling!" -f $functionName | Write-Verbose
+                                    "[{0}] ============================================" -f $functionName | Write-Verbose
+                                    "[{0}] ✓✓✓ SUCCESS! Device authentication approved! ✓✓✓" -f $functionName | Write-Verbose
+                                    "[{0}] ============================================" -f $functionName | Write-Verbose
                                     $authSuccess = $true
                                     
                                     # Extract SAML response from successWithInteractionCode.href
@@ -7809,16 +8399,71 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                             }
                             catch {
                                 "[{0}] Poll attempt {1}/{2} failed: {3}" -f $functionName, $attempt, $maxAttempts, $_.Exception.Message | Write-Verbose
+                                
+                                # If we get 400 Bad Request errors, it means FastPass is enforced and polling won't work
+                                if ($_.Exception.Message -like "*400*Bad Request*") {
+                                    "[{0}] Repeated 400 errors indicate FastPass enforcement - breaking early" -f $functionName | Write-Verbose
+                                    break
+                                }
                             }
                         }
                         
                         if (-not $authSuccess) {
-                            "[{0}] Device-challenge-poll polling timed out after {1} attempts" -f $functionName, $maxAttempts | Write-Verbose
+                            "[{0}] ============================================" -f $functionName | Write-Verbose
+                            "[{0}] ✗✗✗ EXPECTED: Device authentication polling failed ✗✗✗" -f $functionName | Write-Verbose
+                            "[{0}] ============================================" -f $functionName | Write-Verbose
+                            "[{0}] Polling timed out after {1} attempts ({2} seconds)" -f $functionName, $maxAttempts, ($maxAttempts * $pollInterval) | Write-Verbose
+                            "[{0}] " -f $functionName | Write-Verbose
+                            "[{0}] This is EXPECTED because:" -f $functionName | Write-Verbose
+                            "[{0}]   → device-challenge-poll (FastPass) does NOT send push notifications" -f $functionName | Write-Verbose
+                            "[{0}]   → It expects automatic approval via Okta Verify desktop app + browser loopback" -f $functionName | Write-Verbose
+                            "[{0}]   → PowerShell cannot access the required loopback interface" -f $functionName | Write-Verbose
+                            "[{0}] " -f $functionName | Write-Verbose
+                            "[{0}] ═══════════════════════════════════════════" -f $functionName | Write-Verbose
+                            "[{0}] SOLUTION (Required):" -f $functionName | Write-Verbose
+                            "[{0}] ═══════════════════════════════════════════" -f $functionName | Write-Verbose
+                            "[{0}] " -f $functionName | Write-Verbose
+                            "[{0}] Contact your HPE IT administrator to enable fallback methods:" -f $functionName | Write-Verbose
+                            "[{0}]    → Request to enable 'Okta Verify Push Notification' or 'Okta Verify TOTP'" -f $functionName | Write-Verbose
+                            "[{0}]    → as fallback authentication methods for API/PowerShell access" -f $functionName | Write-Verbose
+                            "[{0}]    → This allows both FastPass (browsers) and Push/TOTP (PowerShell)" -f $functionName | Write-Verbose
+                            "[{0}]    → Explain that FastPass is not compatible with PowerShell automation" -f $functionName | Write-Verbose
+                            "[{0}] " -f $functionName | Write-Verbose
+                            "[{0}] IMPORTANT:" -f $functionName | Write-Verbose
+                            "[{0}]    → Once enrolled in FastPass, it is enforced account-wide" -f $functionName | Write-Verbose
+                            "[{0}]    → Using a different device will not bypass this limitation" -f $functionName | Write-Verbose
+                            "[{0}]    → Only IT administrators can enable alternative authentication methods" -f $functionName | Write-Verbose
+                            "[{0}] " -f $functionName | Write-Verbose
+                            "[{0}] ============================================" -f $functionName | Write-Verbose
                             if (-not $NoProgress) {
                                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                             }
-                            throw "[{0}] Authentication failed: Device authentication timed out. Please approve the authentication on your Okta Verify desktop app." -f $functionName
+                            
+                            # Create a well-formatted error message without the function name prefix
+                            Write-Host ""
+                            Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Red
+                            Write-Host "  Authentication Failed: FastPass Not Compatible with PowerShell" -ForegroundColor Red
+                            Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Red
+                            Write-Host ""
+                            Write-Host "REASON:" -ForegroundColor Yellow
+                            Write-Host "  FastPass requires browser-based loopback authentication with the Okta Verify" -ForegroundColor White
+                            Write-Host "  desktop app. PowerShell cannot access this loopback interface." -ForegroundColor White
+                            Write-Host ""
+                            Write-Host "SOLUTION:" -ForegroundColor Yellow
+                            Write-Host "  Contact your HPE IT administrator and request to enable fallback methods:" -ForegroundColor White
+                            Write-Host "    • Okta Verify Push Notification (recommended for PowerShell)" -ForegroundColor Cyan
+                            Write-Host "    • Okta Verify TOTP (time-based one-time password)" -ForegroundColor Cyan
+                            Write-Host ""
+                            Write-Host "  This allows both FastPass (for browsers) and Push/TOTP (for PowerShell)." -ForegroundColor White
+                            Write-Host ""
+                            Write-Host "  Once enrolled in FastPass, it is enforced for your account across all devices." -ForegroundColor DarkGray
+                            Write-Host "  Only your IT administrator can enable alternative authentication methods." -ForegroundColor DarkGray
+                            Write-Host ""
+                            Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Red
+                            Write-Host ""
+                            
+                            throw "Authentication failed: FastPass (device-challenge-poll) is not compatible with PowerShell. Contact your HPE IT administrator to enable Okta Verify Push or TOTP as fallback authentication methods."
                         }
                     }
                 }
@@ -7828,22 +8473,61 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                     $challengeHref = $responseStep53.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' } | Select-Object -ExpandProperty href
                     "[{0}] Extracted challengeHref: '{1}'" -f $functionName, $challengeHref | Write-Verbose
 
-                    $OktaVerify = ($responseStep53.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }).value | Where-Object { $_.name -eq 'authenticator' } | Select-Object -ExpandProperty options | Where-Object { $_.label -eq 'Okta Verify' }
-                                    
-                    if (-not $OktaVerify) {
-                        "[{0}] ERROR: Okta Verify authenticator not found" -f $functionName | Write-Verbose
+                    # Get all available authenticators
+                    $selectAuthRemediation = $responseStep53.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }
+                    $availableAuthenticators = ($selectAuthRemediation.value | Where-Object { $_.name -eq 'authenticator' }).options
+                    
+                    if ($availableAuthenticators) {
+                        "[{0}] Available authenticators: {1}" -f $functionName, (($availableAuthenticators | Select-Object -ExpandProperty label) -join ", ") | Write-Verbose
+                    }
+                    
+                    # HPE has implemented 3 authentication methods (in order of preference):
+                    # 1. FastPass (device-challenge-poll) - handled above
+                    # 2. Okta Verify with push notification
+                    # 3. Okta Verify with TOTP
+                    # We must use Okta Verify when available
+                    $selectedAuthenticator = $availableAuthenticators | Where-Object { $_.label -like '*Okta*Verify*' } | Select-Object -First 1
+                    
+                    if (-not $selectedAuthenticator) {
+                        # Fallback: try other authenticators if Okta Verify not available
+                        "[{0}] WARNING: Okta Verify not found, trying alternative authenticators" -f $functionName | Write-Verbose
+                        $authenticatorPreference = @('Email', 'Phone', 'SMS', 'Google Authenticator')
+                        
+                        foreach ($preference in $authenticatorPreference) {
+                            $selectedAuthenticator = $availableAuthenticators | Where-Object { $_.label -like "*$preference*" } | Select-Object -First 1
+                            if ($selectedAuthenticator) {
+                                "[{0}] Selected authenticator: {1}" -f $functionName, $selectedAuthenticator.label | Write-Verbose
+                                break
+                            }
+                        }
+                    }
+                    else {
+                        "[{0}] Selected Okta Verify authenticator (HPE standard)" -f $functionName | Write-Verbose
+                    }
+                    
+                    # If no authenticator found, try any available
+                    if (-not $selectedAuthenticator -and $availableAuthenticators) {
+                        $selectedAuthenticator = $availableAuthenticators | Select-Object -First 1
+                        "[{0}] No preferred authenticator found, using first available: {1}" -f $functionName, $selectedAuthenticator.label | Write-Verbose
+                    }
+
+                    if (-not $selectedAuthenticator) {
+                        "[{0}] ERROR: No authenticators found" -f $functionName | Write-Verbose
                         if (-not $NoProgress) {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "[{0}] Authentication failed: Okta Verify authenticator not found in response" -f $functionName
+                        throw "[{0}] Authentication failed: No authenticators available in response" -f $functionName
                     }
-                    "[{0}] Found Okta Verify authenticator" -f $functionName | Write-Verbose
 
-                    # Get authenticatorId for Okta Verify 
+                    # For backward compatibility, keep $OktaVerify variable
+                    $OktaVerify = $selectedAuthenticator
+                    "[{0}] Using authenticator: {1}" -f $functionName, $OktaVerify.label | Write-Verbose
+
+                    # Get authenticatorId for selected authenticator
                     $authenticatorId = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "id" }).value
                     if (-not $authenticatorId) {
-                        "[{0}] ERROR: authenticatorId not found for Okta Verify" -f $functionName | Write-Verbose
+                        "[{0}] ERROR: authenticatorId not found for {1}" -f $functionName, $OktaVerify.label | Write-Verbose
                         if (-not $NoProgress) {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
@@ -7852,38 +8536,40 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                     }
                     "[{0}] Extracted authenticatorId: {1}" -f $functionName, $authenticatorId | Write-Verbose
 
-                    # Get available methodType options
+                    # Get available methodType options for Okta Verify
                     $methodOptions = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "methodType" }).options
                     if (-not $methodOptions) {
-                        "[{0}] ERROR: No methodType options found for Okta Verify" -f $functionName | Write-Verbose
+                        "[{0}] ERROR: No methodType options found for {1}" -f $functionName, $OktaVerify.label | Write-Verbose
                         if (-not $NoProgress) {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "[{0}] Authentication failed: No methodType options found for Okta Verify" -f $functionName
+                        throw "[{0}] Authentication failed: No methodType options found for {1}" -f $functionName, $OktaVerify.label
                     }
                     "[{0}] Available methodTypes: {1}" -f $functionName, ($methodOptions.value -join ", ") | Write-Verbose
 
-                    # Select method: prefer push, fallback to totp
+                    # HPE supports push notification and TOTP for Okta Verify
+                    # Select method: prefer push (faster), fallback to totp
                     $methodType = $null
                     $pushOption = $methodOptions | Where-Object { $_.value -eq "push" }
                     $totpOption = $methodOptions | Where-Object { $_.value -eq "totp" }
 
                     if ($pushOption) {
                         $methodType = "push"
-                        "[{0}] Selected methodType: push" -f $functionName | Write-Verbose
+                        "[{0}] Selected methodType: push (Okta Verify push notification)" -f $functionName | Write-Verbose
                     }
                     elseif ($totpOption) {
                         $methodType = "totp"
-                        "[{0}] Push not available, selected methodType: totp" -f $functionName | Write-Verbose
+                        "[{0}] Push not available, selected methodType: totp (Okta Verify TOTP)" -f $functionName | Write-Verbose
                     }
                     else {
                         "[{0}] ERROR: Neither push nor totp available for Okta Verify" -f $functionName | Write-Verbose
+                        "[{0}] Available methods were: {1}" -f $functionName, ($methodOptions.value -join ", ") | Write-Verbose
                         if (-not $NoProgress) {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "[{0}] Authentication failed: Neither push nor totp available for Okta Verify" -f $functionName
+                        throw "[{0}] Authentication failed: Okta Verify does not have push or totp methods available" -f $functionName
                     }
                 
                     $CompletedSteps++
@@ -7948,7 +8634,13 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
-                        throw "[{0}] Authentication failed: Could not extract stateHandle from introspect response." -f $functionName
+                        Write-Error @"
+Authentication failed: Unable to extract stateHandle from introspect response.
+
+This may indicate an expired session, invalid credentials, or a change in the authentication flow.
+
+Please retry your request or verify your credentials. If the issue persists, contact your administrator.
+"@ -ErrorAction Stop
                     }
 
                     # Validate stateHandle format (allow ~ in addition to alphanumeric, ., _, and -)
@@ -8837,6 +9529,42 @@ Response: $($response.Content)
                     }
                     "[{0}] About to execute GET request to: '{1}'" -f $functionName, $hrefLog | Write-Verbose
                 }
+                # Password change required (password has expired)
+                elseif ($challengeResp.remediation.value | Where-Object { $_.name -eq 'reenroll-authenticator' -and $_.relatesTo -contains '$.currentAuthenticator' }) {
+                    $passwordSettings = $challengeResp.currentAuthenticator.value.settings
+                    "[{0}] Password change required - password has expired or must be reset." -f $functionName | Write-Verbose
+            
+                    if (-not $NoProgress) {
+                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                    }
+                    
+                    $passwordRequirements = ""
+                    if ($passwordSettings.complexity) {
+                        $complexity = $passwordSettings.complexity
+                        $passwordRequirements = @"
+
+Password Requirements:
+- Minimum length: $($complexity.minLength) characters
+- At least $($complexity.minLowerCase) lowercase letter(s)
+- At least $($complexity.minUpperCase) uppercase letter(s)
+- At least $($complexity.minNumber) number(s)
+- At least $($complexity.minSymbol) special character(s)
+- Cannot contain username
+- Cannot reuse last $($passwordSettings.age.historyCount) passwords
+"@
+                    }
+                    
+                    Write-Error @"
+Connection error! Password change required.
+
+Your password has expired or must be reset before you can authenticate.
+
+ACTION REQUIRED:
+Please log in to the HPE GreenLake web interface (https://common.cloud.hpe.com) to change your password, then try connecting again.
+$passwordRequirements
+"@ -ErrorAction Stop
+                }
                 # Enrollment required (user has not finalized MFA enrollment)
                 elseif ($challengeResp.remediation.value | Where-Object { $_.name -like '*enroll*' }) {
                     "[{0}] MFA enrollment has been detected. User must log in to the HPE GreenLake GUI and complete the MFA setup using one of the available methods before proceeding with this library" -f $functionName | Write-Verbose
@@ -9339,15 +10067,52 @@ Please verify your authenticator app and try again.
 Function Disconnect-HPEGL { 
     <#
 .SYNOPSIS
-Log off from the HPE GreenLake platform.
+Terminates the current HPE GreenLake session by logging out and cleaning up all session data.
 
 .DESCRIPTION
-This cmdlet terminates the current HPE GreenLake session by logging out the user and purging all variables and temporary API credentials established through 'Connect-HPEGL'.
+This cmdlet performs a complete session termination by executing four distinct steps:
+
+Step 1 - Remove Temporary API Credentials
+• Deletes module-generated API credentials from the workspace
+• Frees up API credential slots for future use
+
+Step 2 - Terminate Workspace Session
+• Calls server endpoint to end the active workspace session
+• Terminates the WorkspaceSession (ccs-sid cookie) server-side
+
+Step 3 - Revoke OAuth2 Tokens
+• Revokes OAuth2 access token from the authentication server
+• Ensures complete session invalidation at the authentication layer
+
+Step 4 - Clean Up Session-Specific Variables
+• Removes $HPEGreenLakeSession (all session tokens and authentication data)
+• Removes $HPEGLworkspaces (workspace list for current session)
+• Removes $HPECOMInvokeReturnData (last API response, may contain sensitive data)
+• Removes $HPEGLAPIClientCredentialName (credential name from disconnected session)
+• Removes $HPEGLGMTTimeDifferenceInHour (session-specific time offset)
+
+Note: Static metadata variables (like $HPECOMjobtemplatesUris, $HPECOMRegions, $HPEGLSchemaMetadata, etc.) 
+are intentionally preserved for performance optimization during reconnection.
+
+IS IT MANDATORY?
+No - Sessions expire automatically after inactivity, but manual disconnection is recommended for:
+• Shared or public computers (security best practice)
+• Freeing up API credential slots immediately (7 credential maximum per user)
+• Security compliance requirements
+• Less critical on personal workstations with automatic lock screens
+
+.PARAMETER NoProgress
+Suppresses the progress bar display during disconnection.
 
 .EXAMPLE
 Disconnect-HPEGL
 
-Terminates the current HPE GreenLake session. 
+Terminates the current HPE GreenLake session with progress bar display.
+
+.EXAMPLE
+Disconnect-HPEGL -NoProgress
+
+Terminates the current HPE GreenLake session without displaying progress information.
 
 .INPUTS
 None. You cannot pipe objects to this cmdlet.
@@ -9355,6 +10120,11 @@ None. You cannot pipe objects to this cmdlet.
 .OUTPUTS
 System.String
     Returns "<email address> session disconnected from <workspace name> workspace!"
+    or "<email address> session disconnected!" if no workspace was connected.
+
+.NOTES
+If the session has already expired, the cmdlet will skip server-side cleanup (Steps 1-3) 
+and proceed directly to cleaning up local variables (Step 4).
 
 #>
 
@@ -9574,15 +10344,24 @@ System.String
 
                     $_username = $Global:HPEGreenLakeSession.username
                     
-                    # Remove HPEGLworkspaces global variable if it exists
-                    if (Get-Variable -Scope global -Name HPEGLworkspaces -ErrorAction SilentlyContinue) {
-                        Remove-Variable -Name HPEGLworkspaces -Scope Global -Force
-                        "[{0}] Global variable `$Global:HPEGLworkspaces has been removed" -f $functionName | Write-Verbose
-                    }
-                    # Remove HPEGreenLakeSession global variable if it exists
-                    if (Get-Variable -Scope global -Name HPEGreenLakeSession -ErrorAction SilentlyContinue) {
-                        Remove-Variable -Name HPEGreenLakeSession -Scope Global -Force
-                        "[{0}] Global variable `$Global:HPEGreenLakeSession has been removed" -f $functionName | Write-Verbose
+                    # Remove session-specific global variables
+                    # Note: We only remove session-specific variables, not all HPE* variables.
+                    # Static metadata variables (like $HPECOMjobtemplatesUris, $HPECOMRegions, $HPEGLSchemaMetadata, etc.)
+                    # are intentionally preserved for performance optimization. Connect-HPEGL checks if these variables
+                    # exist before fetching them again, avoiding unnecessary API calls and improving reconnection speed.
+                    $sessionVariablesToRemove = @(
+                        'HPEGLworkspaces',              # Workspace list for current session
+                        'HPEGreenLakeSession',          # All session tokens and authentication data
+                        'HPECOMInvokeReturnData',       # Last API response (may contain sensitive data)
+                        'HPEGLAPIClientCredentialName', # Credential name from disconnected session
+                        'HPEGLGMTTimeDifferenceInHour'  # Session-specific time offset
+                    )
+                    
+                    foreach ($varName in $sessionVariablesToRemove) {
+                        if (Get-Variable -Scope global -Name $varName -ErrorAction SilentlyContinue) {
+                            Remove-Variable -Name $varName -Scope Global -Force
+                            "[{0}] Global variable `$Global:{1} has been removed" -f $functionName, $varName | Write-Verbose
+                        }
                     }
                 }
                 
@@ -9650,15 +10429,24 @@ System.String
 
                 "[{0}] The session has expired! Disconnection is not needed!" -f $functionName | Write-Verbose   
                 
-                # Remove HPEGLworkspaces global variable if it exists
-                if (Get-Variable -Scope global -Name HPEGLworkspaces -ErrorAction SilentlyContinue) {
-                    Remove-Variable -Name HPEGLworkspaces -Scope Global -Force
-                    "[{0}] Global variable `$Global:HPEGLworkspaces has been removed" -f $functionName | Write-Verbose
-                }
-                # Remove HPEGreenLakeSession global variable if it exists
-                if (Get-Variable -Scope global -Name HPEGreenLakeSession -ErrorAction SilentlyContinue) {
-                    Remove-Variable -Name HPEGreenLakeSession -Scope Global -Force
-                    "[{0}] Global variable `$Global:HPEGreenLakeSession has been removed" -f $functionName | Write-Verbose
+                # Remove session-specific global variables
+                # Note: We only remove session-specific variables, not all HPE* variables.
+                # Static metadata variables (like $HPECOMjobtemplatesUris, $HPECOMRegions, $HPEGLSchemaMetadata, etc.)
+                # are intentionally preserved for performance optimization. Connect-HPEGL checks if these variables
+                # exist before fetching them again, avoiding unnecessary API calls and improving reconnection speed.
+                $sessionVariablesToRemove = @(
+                    'HPEGLworkspaces',              # Workspace list for current session
+                    'HPEGreenLakeSession',          # All session tokens and authentication data
+                    'HPECOMInvokeReturnData',       # Last API response (may contain sensitive data)
+                    'HPEGLAPIClientCredentialName', # Credential name from disconnected session
+                    'HPEGLGMTTimeDifferenceInHour'  # Session-specific time offset
+                )
+                
+                foreach ($varName in $sessionVariablesToRemove) {
+                    if (Get-Variable -Scope global -Name $varName -ErrorAction SilentlyContinue) {
+                        Remove-Variable -Name $varName -Scope Global -Force
+                        "[{0}] Global variable `$Global:{1} has been removed" -f $functionName, $varName | Write-Verbose
+                    }
                 }
                     
                 if (-not $NoProgress) {
@@ -9741,7 +10529,11 @@ Function Connect-HPEGLWorkspace {
         [Parameter(ParameterSetName = "Name")]
         [Switch]$RemoveExistingCredentials,
 
-        [Switch]$NoProgress
+        [Switch]$NoProgress,
+        
+        # Internal parameter to prevent infinite recursion
+        [Parameter(DontShow)]
+        [int]$RetryAttempt = 0
     )
 
     Begin {
@@ -9767,12 +10559,27 @@ Function Connect-HPEGLWorkspace {
 
         if (-not $Global:HPEGreenLakeSession) {
             "[{0}] No session found! 'Connect-HPEGL' must be executed first!" -f $functionName | Write-Verbose
-            Write-Warning "No session found! Please run Connect-HPEGL first."
             if (-not $NoProgress) {
                 Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
             }
-            return
+            Write-Error @"
+No active HPE GreenLake session found.
+
+CAUSE:
+You have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish an authenticated session before connecting to a workspace.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Credential (Get-Credential)
+    Connect-HPEGL -Workspace "MyWorkspace"
+
+Note: Connect-HPEGLWorkspace is typically used internally by the module or for advanced workspace switching.
+For normal usage, use Connect-HPEGL which handles both authentication and workspace connection.
+"@ -ErrorAction Stop
         }
 
         $Oauth2AccessToken = $Global:HPEGreenLakeSession.oauth2AccessToken
@@ -9786,24 +10593,69 @@ Function Connect-HPEGLWorkspace {
         #Region : Validate and prepare parameters
         "[{0}] Bound PS Parameters: {1}" -f $functionName, ($PSBoundParameters | Out-String) | Write-Verbose
 
-        # Check access token expiration
+        # Check OAuth2 access token expiration (120 minutes)
         $AccessTokenExpirationDate = $Global:HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
         $BeforeExpirationinMinutes = [math]::Round(($AccessTokenExpirationDate - (Get-Date)).TotalMinutes, 2)
-        if ($BeforeExpirationinMinutes -le 0) {
-            "[{0}] Session expired! 'Connect-HPEGL' must be executed again!" -f $functionName | Write-Verbose
-            Write-Warning "The session has expired! Please run Connect-HPEGL again."
+        $OAuth2TokenExpired = $BeforeExpirationinMinutes -le 0
+        
+        # Check GLP API token expiration (15 minutes for v1.2 or based on expires_in)
+        $GLPApiTokenExpired = $false
+        if ($Global:HPEGreenLakeSession.glpApiAccessTokenv1_2) {
+            $GLPApiExpirationDate = $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2.creation_time.AddSeconds($Global:HPEGreenLakeSession.glpApiAccessTokenv1_2.expires_in)
+            $GLPApiTokenExpired = (Get-Date) -gt $GLPApiExpirationDate
+        }
+        elseif ($Global:HPEGreenLakeSession.glpApiAccessToken) {
+            $GLPApiExpirationDate = $Global:HPEGreenLakeSession.glpApiAccessToken.creation_time.AddSeconds($Global:HPEGreenLakeSession.glpApiAccessToken.expires_in)
+            $GLPApiTokenExpired = (Get-Date) -gt $GLPApiExpirationDate
+        }
+        
+        $SessionExpired = $OAuth2TokenExpired -or $GLPApiTokenExpired
+        
+        if ($OAuth2TokenExpired) {
+            "[{0}] OAuth2 session expired! 'Connect-HPEGL' must be executed again!" -f $functionName | Write-Verbose
             if (-not $NoProgress) {
                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
                 Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
             }
-            return
+            
+            # Calculate session age
+            $SessionAge = (Get-Date) - $Global:HPEGreenLakeSession.oauth2TokenCreation
+            $SessionAgeMinutes = [math]::Round($SessionAge.TotalMinutes, 0)
+            $MinutesOverdue = [math]::Round([math]::Abs($BeforeExpirationinMinutes), 0)
+            
+            Write-Error @"
+OAuth2 authentication session has expired.
+
+SESSION DETAILS:
+- Session created: $($Global:HPEGreenLakeSession.oauth2TokenCreation.ToString('yyyy-MM-dd HH:mm:ss'))
+- Session age: ${SessionAgeMinutes} minutes
+- OAuth2 token lifetime: 120 minutes
+- Token expired: ${MinutesOverdue} minutes ago
+
+CAUSE:
+The OAuth2 authentication token has exceeded its maximum lifetime of 120 minutes.
+This is a security measure that requires periodic re-authentication.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Credential (Get-Credential) -Workspace "<WorkspaceName>" -RemoveExistingCredentials
+"@ -ErrorAction Stop
+        }
+        
+        if ($GLPApiTokenExpired -and -not $Force) {
+            "[{0}] GLP API token expired! Treating as Force reconnection to refresh token..." -f $functionName | Write-Verbose
+            Write-Verbose "GLP API token has expired. Forcing reconnection to workspace to refresh credentials..."
+            # Treat expired GLP API token as if -Force was specified
+            $Force = $true
         }
 
-        # Check for existing connection to the same workspace
+        # Check for existing connection to the same workspace (only if tokens are not expired and Force not specified)
         if ($Global:HPEGreenLakeSession.workspace -eq $Name -and -not $Force) {
             "[{0}] Already connected to workspace {1}!" -f $functionName, $Name | Write-Verbose
-            Write-Warning "You are already connected to workspace $Name!"
             if (-not $NoProgress) {
                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Completed" -Id 1
                 Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Completed" -Completed
@@ -9973,7 +10825,19 @@ To view available workspaces: Get-HPEGLWorkspace
                     Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Completed" -Completed
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Completed" -Completed
                 }
-                throw "No workspace session found in the current session. Please use Connect-HPEGLWorkspace -Name <workspace name> to select one."
+                Write-Error @"
+No workspace session found.
+
+CAUSE:
+You have an OAuth2 token but no workspace has been selected.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' and specify a workspace.
+
+Example:
+    Connect-HPEGL -Workspace "MyWorkspace"
+    Get-HPEGLWorkspace
+"@ -ErrorAction Stop
             }
             #EndRegion
 
@@ -10039,8 +10903,151 @@ To view available workspaces: Get-HPEGLWorkspace
                     $statusCode = $_.Exception.Response.StatusCode
                 }
                 catch {}
-                if ($statusCode -eq 401 -or $statusCode -eq "Unauthorized") {
-                    throw "GLP session refresh failed due to prolonged inactivity or expired credentials. Please reconnect using Connect-HPEGL."
+                
+                "[{0}] Workspace reload failed. Status code: {1}, Type: {2}" -f $functionName, $statusCode, $statusCode.GetType().FullName | Write-Verbose
+                
+                if ($statusCode -eq 401 -or $statusCode -eq "Unauthorized" -or $statusCode.value__ -eq 401) {
+                    # Check if OAuth2 token is close to expiration (within 10 minutes)
+                    $OAuth2ExpirationDate = $Global:HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
+                    $MinutesUntilOAuth2Expiration = [math]::Round(($OAuth2ExpirationDate - (Get-Date)).TotalMinutes, 0)
+                    
+                    if ($MinutesUntilOAuth2Expiration -le 10) {
+                        # OAuth2 token is expired or about to expire - need full reconnection
+                        Write-Error @"
+OAuth2 session has expired or is about to expire (${MinutesUntilOAuth2Expiration} minutes remaining).
+
+The OAuth2 access token (valid for 120 minutes) can no longer refresh the workspace session.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a new authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Credential (Get-Credential) -Workspace "<WorkspaceName>" -RemoveExistingCredentials
+    
+After reconnecting, you will be able to access your workspace again.
+"@ -ErrorAction Stop
+                    } else {
+                        # OAuth2 token is still valid but workspace session cookie is stale
+                        # Try to reconnect to the same workspace from scratch (with retry limit)
+                        
+                        if ($RetryAttempt -ge 3) {
+                            # Maximum retry attempts reached - determine cause and provide appropriate message
+                            "[{0}] Maximum retry attempts (3) reached. Cannot reconnect to workspace." -f $functionName | Write-Verbose
+                            
+                            # Calculate session age to determine if this is an idle timeout issue
+                            $SessionAge = (Get-Date) - $Global:HPEGreenLakeSession.oauth2TokenCreation
+                            $SessionAgeMinutes = [math]::Round($SessionAge.TotalMinutes, 0)
+                            
+                            # If session has been idle for a long time (>30 minutes), it's likely an idle timeout
+                            if ($SessionAgeMinutes -gt 30) {
+                                Write-Error @"
+Workspace session refresh failed after extended idle period.
+
+SESSION DETAILS:
+- Session created: $($Global:HPEGreenLakeSession.oauth2TokenCreation.ToString('yyyy-MM-dd HH:mm:ss'))
+- Session age: ${SessionAgeMinutes} minutes
+- OAuth2 token status: Still valid (${MinutesUntilOAuth2Expiration} minutes remaining)
+
+CAUSE:
+The workspace session cookie has expired due to inactivity. While the OAuth2 token is still valid, 
+the workspace session cannot be refreshed after a long idle period.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Workspace '$currentWorkspace' 
+"@ -ErrorAction Stop
+                            } else {
+                                # Session is recent but still failing - likely platform or network issue
+                                Write-Error @"
+Workspace session refresh failed after 3 attempts.
+
+SESSION DETAILS:
+- Session age: ${SessionAgeMinutes} minutes
+- OAuth2 token status: Still valid (${MinutesUntilOAuth2Expiration} minutes remaining)
+
+POSSIBLE CAUSES:
+- HPE GreenLake platform service interruption
+- Network connectivity issues
+- Workspace configuration changes
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Workspace '$currentWorkspace' 
+
+If the problem persists, check HPE GreenLake service status or contact support.
+"@ -ErrorAction Stop
+                            }
+                        }
+                        
+                        "[{0}] Workspace session cookie is stale. Attempting fresh workspace connection (attempt $($RetryAttempt + 1)/3)..." -f $functionName | Write-Verbose
+                        try {
+                            # Save current workspace name
+                            $currentWorkspace = $Global:HPEGreenLakeSession.workspace
+                            # Call Connect-HPEGLWorkspace with retry counter incremented
+                            Connect-HPEGLWorkspace -Name $currentWorkspace -NoProgress:$NoProgress -RetryAttempt ($RetryAttempt + 1) -ErrorAction Stop | Out-Null
+                            "[{0}] Successfully reconnected to workspace with fresh session." -f $functionName | Write-Verbose
+                            return
+                        }
+                        catch {
+                            # If reconnection fails, provide context-aware error message based on session age
+                            $SessionAge = (Get-Date) - $Global:HPEGreenLakeSession.oauth2TokenCreation
+                            $SessionAgeMinutes = [math]::Round($SessionAge.TotalMinutes, 0)
+                            
+                            if ($SessionAgeMinutes -gt 30) {
+                                # Idle timeout scenario
+                                Write-Error @"
+Workspace session refresh failed after extended idle period.
+
+SESSION DETAILS:
+- Session created: $($Global:HPEGreenLakeSession.oauth2TokenCreation.ToString('yyyy-MM-dd HH:mm:ss'))
+- Session age: ${SessionAgeMinutes} minutes
+- OAuth2 token status: Still valid (${MinutesUntilOAuth2Expiration} minutes remaining)
+
+CAUSE:
+The workspace session cookie has expired due to inactivity. While the OAuth2 token is still valid, 
+the workspace session cannot be refreshed after a long idle period.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Workspace '$currentWorkspace' 
+
+"@ -ErrorAction Stop
+                            } else {
+                                # Recent session but still failing - platform or network issue
+                                Write-Error @"
+Workspace session refresh failed after $($RetryAttempt + 1) attempt(s).
+
+SESSION DETAILS:
+- Session age: ${SessionAgeMinutes} minutes
+- OAuth2 token status: Still valid (${MinutesUntilOAuth2Expiration} minutes remaining)
+
+POSSIBLE CAUSES:
+- HPE GreenLake platform service interruption
+- Network connectivity issues
+- Workspace configuration changes
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Workspace '$currentWorkspace'
+
+If the problem persists, check HPE GreenLake service status or contact support.
+"@ -ErrorAction Stop
+                            }
+                        }
+                    }
                 }
                 $PSCmdlet.ThrowTerminatingError($_)
             }
@@ -10086,6 +11093,37 @@ To view available workspaces: Get-HPEGLWorkspace
 
             $GLPTemporaryCredentials = $Global:HPEGreenLakeSession.apiCredentials | Where-Object { $_.name -match "GLP-$global:HPEGLAPIClientCredentialName" }
             
+            # If credentials are missing, trigger fallback to recreate them
+            if (-not $GLPTemporaryCredentials) {
+                "[{0}] No GLP API credentials found in session. Recreating credentials..." -f $functionName | Write-Verbose
+                
+                # Temporarily clear workspace name to force workspace switching path
+                # (otherwise "already connected" check will prevent credential recreation)
+                $currentWorkspace = $Global:HPEGreenLakeSession.workspace
+                $Global:HPEGreenLakeSession.workspace = $null
+                
+                # Also clear GLP API tokens
+                "[{0}] Clearing session state to force credential recreation" -f $functionName | Write-Verbose
+                $Global:HPEGreenLakeSession.glpApiAccessToken = $null
+                $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = $null
+                
+                # Call Connect-HPEGLWorkspace with workspace name to recreate credentials
+                try {
+                    "[{0}] Reconnecting to workspace '{1}' to create fresh API credentials..." -f $functionName, $currentWorkspace | Write-Verbose
+                    Connect-HPEGLWorkspace -Name $currentWorkspace -NoProgress:$NoProgress -ErrorAction Stop | Out-Null
+                    "[{0}] Successfully reconnected with fresh API credentials." -f $functionName | Write-Verbose
+                    return
+                }
+                catch {
+                    if (-not $NoProgress) {
+                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                        Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                    }
+                    throw "Unable to create GLP API credentials. Please run 'Connect-HPEGL' to establish a new session."
+                }
+            }
+            
             if ($GLPTemporaryCredentials) {
                 try {
                     $SecureClientSecret = $GLPTemporaryCredentials.secure_client_secret | ConvertTo-SecureString
@@ -10096,7 +11134,9 @@ To view available workspaces: Get-HPEGLWorkspace
                         'client_secret' = $ClientSecret
                         'grant_type'    = 'client_credentials'
                     }
-                    $response = Invoke-RestMethod -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded'
+                    "[{0}] Requesting GLP API v1.1 token from {1}" -f $functionName, $HPEGLtokenEndpoint | Write-Verbose
+                    $response = Invoke-RestMethod -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded' -ErrorAction Stop
+                    "[{0}] GLP API v1.1 token obtained successfully (expires in {1} seconds)" -f $functionName, $response.expires_in | Write-Verbose
                     $Global:HPEGreenLakeSession.glpApiAccessToken = [PSCustomObject]@{
                         name          = $GLPTemporaryCredentials.name
                         access_token  = $response.access_token
@@ -10105,9 +11145,11 @@ To view available workspaces: Get-HPEGLWorkspace
                     }
 
                     $tokenIssuerv2uri = (Get-HPEGLAPIbaseURL) + "/authorization/v2/oauth2/" + $Global:HPEGreenLakeSession.workspaceId + "/token"
-                    $response2 = Invoke-RestMethod -Method Post -Uri $tokenIssuerv2uri -Body $Payload -ContentType 'application/x-www-form-urlencoded'
+                    "[{0}] Requesting GLP API v1.2 token from {1}" -f $functionName, $tokenIssuerv2uri | Write-Verbose
+                    $response2 = Invoke-RestMethod -Method Post -Uri $tokenIssuerv2uri -Body $Payload -ContentType 'application/x-www-form-urlencoded' -ErrorAction Stop
                     $token = Get-HPEGLJWTDetails $response2.access_token
                     $tokenVersion = if ($token.PSObject.Properties.Match("hpe_token_type")) { $token.hpe_token_type } else { "api-v1.1" }
+                    "[{0}] GLP API token version detected: {1}" -f $functionName, $tokenVersion | Write-Verbose
                     if ($tokenVersion -eq "api-v1.2") {
                         $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = [PSCustomObject]@{
                             name          = $GLPTemporaryCredentials.name
@@ -10115,12 +11157,53 @@ To view available workspaces: Get-HPEGLWorkspace
                             expires_in    = $response2.expires_in
                             creation_time = Get-Date
                         }
+                        "[{0}] GLP API v1.2 token stored successfully (expires in {1} seconds)" -f $functionName, $response2.expires_in | Write-Verbose
                     }
                     else {
                         $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = $null
+                        "[{0}] WARNING: Token version is not v1.2, clearing v1.2 token" -f $functionName | Write-Verbose
                     }
                 }
                 catch {
+                    $errorMessage = $_.Exception.Message
+                    "[{0}] Failed to refresh GLP API token: {1}" -f $functionName, $errorMessage | Write-Verbose
+                    
+                    # Check if error is "Invalid client or client credentials" (401)
+                    if ($errorMessage -match "invalid_client" -or $errorMessage -match "Invalid client" -or $_.Exception.Response.StatusCode.value__ -eq 401) {
+                        "[{0}] API credentials are invalid or expired. Removing stale credentials and recreating..." -f $functionName | Write-Verbose
+                        
+                        # Manually remove the invalid credentials from the session variable
+                        # We can't use Remove-HPEGLAPICredential because we don't have a valid token!
+                        $credentialToRemove = $Global:HPEGreenLakeSession.apiCredentials | Where-Object { $_.name -match "GLP-$global:HPEGLAPIClientCredentialName" }
+                        if ($credentialToRemove) {
+                            "[{0}] Removing invalid credential '{1}' from session variable" -f $functionName, $credentialToRemove.name | Write-Verbose
+                            [void]$Global:HPEGreenLakeSession.apiCredentials.Remove($credentialToRemove)
+                        }
+                        
+                        # Clear the GLP API tokens so workspace switching path will create new credentials
+                        # (otherwise it will detect expired token and force the Force path again)
+                        "[{0}] Clearing expired GLP API tokens to force credential recreation" -f $functionName | Write-Verbose
+                        $Global:HPEGreenLakeSession.glpApiAccessToken = $null
+                        $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = $null
+                        
+                        # Now call Connect-HPEGLWorkspace with workspace name to recreate credentials
+                        try {
+                            $currentWorkspace = $Global:HPEGreenLakeSession.workspace
+                            "[{0}] Reconnecting to workspace '{1}' to create fresh API credentials..." -f $functionName, $currentWorkspace | Write-Verbose
+                            Connect-HPEGLWorkspace -Name $currentWorkspace -NoProgress:$NoProgress -ErrorAction Stop | Out-Null
+                            "[{0}] Successfully reconnected with fresh API credentials." -f $functionName | Write-Verbose
+                            return
+                        }
+                        catch {
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                                Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            throw "Unable to refresh expired GLP API credentials. Please run 'Connect-HPEGL' to establish a new session."
+                        }
+                    }
+                    
                     if (-not $NoProgress) {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
                         Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
@@ -10148,9 +11231,14 @@ To view available workspaces: Get-HPEGLWorkspace
 
             #Region Step 1: Remove existing GLP API credential
             try {
+                # Set flag to bypass auto-reconnect check during workspace lookup
+                # This prevents circular dependency when GLP API token is expired
+                $Global:HPEGLBypassAutoReconnect = $true
                 $Workspace = Get-HPEGLWorkspace -Name $Name -Verbose:$VerbosePreference
+                $Global:HPEGLBypassAutoReconnect = $false
             }
             catch {
+                $Global:HPEGLBypassAutoReconnect = $false
                 if (-not $NoProgress) {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
                     Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
@@ -10164,20 +11252,23 @@ To view available workspaces: Get-HPEGLWorkspace
                     Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                $errorMessage = @"
-Workspace '$Name' not found or not accessible for user '$($Global:HPEGreenLakeSession.username)'.
-
-This error can occur for multiple reasons:
-
-1. Workspace does not exist in HPE GreenLake
-2. Workspace name is misspelled
-3. User does not have access permissions to this workspace
-   - Contact your HPE GreenLake workspace administrator
-   - Verify you have been assigned the appropriate role (Observer, Operator, or Administrator)
-
-To view available workspaces: Get-HPEGLWorkspace
-"@
-                throw $errorMessage
+                
+                Write-Host ""
+                Write-Host "Workspace '$Name' not found or not accessible for user '$($Global:HPEGreenLakeSession.username)'." -ForegroundColor Red
+                Write-Host ""
+                Write-Host "This error can occur for multiple reasons:" -ForegroundColor Yellow
+                Write-Host ""
+                Write-Host "1. Workspace does not exist in HPE GreenLake"
+                Write-Host "2. Workspace name is misspelled"
+                Write-Host "3. User does not have access permissions to this workspace"
+                Write-Host "   - Contact your HPE GreenLake workspace administrator"
+                Write-Host "   - Verify you have been assigned the appropriate role (Observer, Operator, or Administrator)"
+                Write-Host ""
+                Write-Host "To view available workspaces: " -NoNewline
+                Write-Host "Get-HPEGLWorkspace" -ForegroundColor Cyan
+                Write-Host ""
+                
+                throw "Workspace '$Name' not found or not accessible."
             }
             $WorkspaceId = $Workspace.platform_customer_id
             $MyWorkspaceName = $Workspace.company_name
@@ -10208,8 +11299,13 @@ To view available workspaces: Get-HPEGLWorkspace
             $step++
 
             try {
-                $LoadAccountUri = Get-LoadAccountUri
-                $url = $LoadAccountUri + $WorkspaceId
+                $SessionLoadAccountUri = Get-SessionLoadAccountUri
+                $url = $SessionLoadAccountUri + $WorkspaceId
+                $headers = @{
+                    "Accept"        = "application/json"
+                    "Content-Type"  = "application/json"
+                    "Authorization" = "Bearer $Oauth2AccessToken"
+                }
                 $useraccount = Invoke-WebRequest -Method Get -Uri $url -Headers $headers -WebSession $Global:HPEGreenLakeSession.WorkspaceSession
                 $cookies = $Global:HPEGreenLakeSession.WorkspaceSession.Cookies.GetCookies($url)
                 $ccsSessionValue = ($cookies | Where-Object { $_.Name -eq 'ccs-session' }).Value
@@ -10409,30 +11505,74 @@ Manually remove old credentials via the HPE GreenLake web portal (Manage Workspa
                         'client_secret' = $ClientSecret
                         'grant_type'    = 'client_credentials'
                     }
+                    
+                    # Get v1 token with retry logic
                     "[{0}] Getting token from URI: {1}" -f $functionName, $HPEGLtokenEndpoint | Write-Verbose
-                    $response = Invoke-RestMethod -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded'
-                    $Global:HPEGreenLakeSession.glpApiAccessToken = [PSCustomObject]@{
-                        name          = $GLPTemporaryCredentials.name
-                        access_token  = $response.access_token
-                        expires_in    = $response.expires_in
-                        creation_time = Get-Date
-                    }
-
-                    $tokenIssuerv2uri = (Get-HPEGLAPIbaseURL) + "/authorization/v2/oauth2/" + $Global:HPEGreenLakeSession.workspaceId + "/token"
-                    "[{0}] Getting v2 token from URI: {1}" -f $functionName, $tokenIssuerv2uri | Write-Verbose
-                    $response2 = Invoke-RestMethod -Method Post -Uri $tokenIssuerv2uri -Body $Payload -ContentType 'application/x-www-form-urlencoded'
-                    $token = Get-HPEGLJWTDetails $response2.access_token
-                    $tokenVersion = if ($token.PSObject.Properties.Match("hpe_token_type")) { $token.hpe_token_type } else { "api-v1.1" }
-                    if ($tokenVersion -eq "api-v1.2") {
-                        $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = [PSCustomObject]@{
-                            name          = $GLPTemporaryCredentials.name
-                            access_token  = $response2.access_token
-                            expires_in    = $response2.expires_in
-                            creation_time = Get-Date
+                    $maxRetries = 3
+                    $retryCount = 0
+                    $v1TokenSuccess = $false
+                    
+                    while (-not $v1TokenSuccess -and $retryCount -lt $maxRetries) {
+                        try {
+                            $response = Invoke-RestMethod -Method Post -Uri $HPEGLtokenEndpoint -Body $Payload -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 30
+                            $v1TokenSuccess = $true
+                            $Global:HPEGreenLakeSession.glpApiAccessToken = [PSCustomObject]@{
+                                name          = $GLPTemporaryCredentials.name
+                                access_token  = $response.access_token
+                                expires_in    = $response.expires_in
+                                creation_time = Get-Date
+                            }
+                        }
+                        catch {
+                            $retryCount++
+                            if ($retryCount -lt $maxRetries) {
+                                $waitTime = [Math]::Pow(2, $retryCount)
+                                "[{0}] Token request failed (attempt {1}/{2}). Retrying in {3} seconds... Error: {4}" -f $functionName, $retryCount, $maxRetries, $waitTime, $_.Exception.Message | Write-Verbose
+                                Start-Sleep -Seconds $waitTime
+                            }
+                            else {
+                                "[{0}] Token request failed after {1} attempts. Error: {2}" -f $functionName, $maxRetries, $_.Exception.Message | Write-Verbose
+                                throw
+                            }
                         }
                     }
-                    else {
-                        $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = $null
+
+                    # Get v2 token with retry logic
+                    $tokenIssuerv2uri = (Get-HPEGLAPIbaseURL) + "/authorization/v2/oauth2/" + $Global:HPEGreenLakeSession.workspaceId + "/token"
+                    "[{0}] Getting v2 token from URI: {1}" -f $functionName, $tokenIssuerv2uri | Write-Verbose
+                    $retryCount = 0
+                    $v2TokenSuccess = $false
+                    
+                    while (-not $v2TokenSuccess -and $retryCount -lt $maxRetries) {
+                        try {
+                            $response2 = Invoke-RestMethod -Method Post -Uri $tokenIssuerv2uri -Body $Payload -ContentType 'application/x-www-form-urlencoded' -TimeoutSec 30
+                            $v2TokenSuccess = $true
+                            $token = Get-HPEGLJWTDetails $response2.access_token
+                            $tokenVersion = if ($token.PSObject.Properties.Match("hpe_token_type")) { $token.hpe_token_type } else { "api-v1.1" }
+                            if ($tokenVersion -eq "api-v1.2") {
+                                $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = [PSCustomObject]@{
+                                    name          = $GLPTemporaryCredentials.name
+                                    access_token  = $response2.access_token
+                                    expires_in    = $response2.expires_in
+                                    creation_time = Get-Date
+                                }
+                            }
+                            else {
+                                $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2 = $null
+                            }
+                        }
+                        catch {
+                            $retryCount++
+                            if ($retryCount -lt $maxRetries) {
+                                $waitTime = [Math]::Pow(2, $retryCount)
+                                "[{0}] v2 token request failed (attempt {1}/{2}). Retrying in {3} seconds... Error: {4}" -f $functionName, $retryCount, $maxRetries, $waitTime, $_.Exception.Message | Write-Verbose
+                                Start-Sleep -Seconds $waitTime
+                            }
+                            else {
+                                "[{0}] v2 token request failed after {1} attempts. Error: {2}" -f $functionName, $maxRetries, $_.Exception.Message | Write-Verbose
+                                throw
+                            }
+                        }
                     }
                 }
                 catch {
@@ -10530,6 +11670,10 @@ Manually remove old credentials via the HPE GreenLake web portal (Manage Workspa
             $step++
 
             try {
+                # Clear organization info from previous workspace connection before checking current workspace
+                $Global:HPEGreenLakeSession.organization = $null
+                $Global:HPEGreenLakeSession.organizationId = $null
+                
                 $OrganizationGovernance = Get-HPEGLOrganization -ShowCurrent
                 if ($OrganizationGovernance -and $OrganizationGovernance.name -and $OrganizationGovernance.id) {
                     $Global:HPEGreenLakeSession.organization = $OrganizationGovernance.name
@@ -10606,6 +11750,12 @@ Function Invoke-HPEGLAutoReconnect {
     Process {
 
         try {
+            # Check if bypass flag is set (during workspace reconnection)
+            if ($Global:HPEGLBypassAutoReconnect) {
+                "[{0}] Bypass flag is set. Skipping auto-reconnect check." -f $functionName | Write-Verbose
+                return
+            }
+
             # Check if the session is still valid
             if ($Global:HPEGreenLakeSession.glpApiAccessTokenv1_2) {
                 $glpToken = $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2[0]
@@ -10624,10 +11774,7 @@ Function Invoke-HPEGLAutoReconnect {
             
             $minutesToGlpExpiration = [math]::Round(($glpExpiration - $currentTime).TotalMinutes, 2)       
 
-            if ($minutesToGlpExpiration -le 0) {
-                Throw "HPE GreenLake session has expired! Please reconnect using Connect-HPEGL."
-            }
-            elseif ($Force -or $minutesToGlpExpiration -le $Timeout) {
+            if ($Force -or $minutesToGlpExpiration -le $Timeout) {
                 "[{0}] GLP API Access Token is expiring in {1} minute(s) or Force refresh requested. Refreshing token..." -f $functionName, $minutesToGlpExpiration | Write-Verbose
                 try {
                     Connect-HPEGLWorkspace -Force -ErrorAction Stop | Out-Null
@@ -10635,7 +11782,43 @@ Function Invoke-HPEGLAutoReconnect {
                 }
                 catch {
                     "[{0}] Failed to refresh GLP API Access Token: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                    throw $_
+                    
+                    # Check if OAuth2 token is still valid to provide better error message
+                    $OAuth2ExpirationDate = $Global:HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
+                    $MinutesUntilOAuth2Expiration = [math]::Round(($OAuth2ExpirationDate - $currentTime).TotalMinutes, 2)
+                    
+                    if ($MinutesUntilOAuth2Expiration -le 0) {
+                        # OAuth2 token also expired - need full reconnection
+                        # Calculate session age
+                        $SessionAge = (Get-Date) - $Global:HPEGreenLakeSession.oauth2TokenCreation
+                        $SessionAgeMinutes = [math]::Round($SessionAge.TotalMinutes, 0)
+                        $MinutesOverdue = [math]::Round([math]::Abs($MinutesUntilOAuth2Expiration), 0)
+                        
+                        Write-Error @"
+OAuth2 authentication session has expired.
+
+SESSION DETAILS:
+- Session created: $($Global:HPEGreenLakeSession.oauth2TokenCreation.ToString('yyyy-MM-dd HH:mm:ss'))
+- Session age: ${SessionAgeMinutes} minutes
+- OAuth2 token lifetime: 120 minutes
+- Token expired: ${MinutesOverdue} minutes ago
+
+CAUSE:
+The OAuth2 authentication token has exceeded its maximum lifetime of 120 minutes.
+This is a security measure that requires periodic re-authentication.
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Workspace '$($Global:HPEGreenLakeSession.workspace)'
+
+"@ -ErrorAction Stop
+                    } else {
+                        # OAuth2 token still valid but reconnection failed - pass through the original error
+                        throw $_
+                    }
                 }
             }
             else {
@@ -10953,8 +12136,37 @@ function Set-HPECOMJobTemplatesVariable {
             # "[{0}] Response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($JobTemplates | Out-String ) | Write-Verbose
 
         }   
-        catch {    
-            $PSCmdlet.ThrowTerminatingError($_)
+        catch {
+            # Check if this is a 403 Forbidden error from compute-ops-mgmt service (permission denied)
+            # The response body is in ErrorDetails.Message when using Invoke-RestMethod
+            $errorDetails = $_.ErrorDetails.Message
+            $statusCode = $_.Exception.Response.StatusCode
+            
+            # Debug: Log what we're getting
+            "[{0}] Error Details: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorDetails | Write-Verbose
+            "[{0}] Status Code: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $statusCode | Write-Verbose
+            
+            # Check for COM role permission error (403 from compute-ops-mgmt)
+            if ($statusCode -eq 403 -and $errorDetails -match 'compute-ops-mgmt|Operation is forbidden') {
+                $errorRecord = New-Object System.Management.Automation.ErrorRecord(
+                    (New-Object System.UnauthorizedAccessException(
+                        "ACCESS DENIED - Compute Ops Management (COM) Role Required`n`n" +
+                        "Your user account does not have the required Compute Ops Management (COM) role to connect to this workspace.`n`n" +
+                        "SOLUTION:`n" +
+                        "  1. Contact your workspace administrator`n" +
+                        "  2. Request at least an 'Viewer' role for Compute Ops Management (COM)`n" +
+                        "  3. Once the role is assigned, retry the connection"
+                    )),
+                    "COMRoleRequired",
+                    "InvalidOperation",
+                    $null
+                )
+                throw $errorRecord
+            }
+            else {
+                # Re-throw the original error if it's not a COM role issue
+                throw $_
+            }
 
         }
 
@@ -11413,10 +12625,10 @@ function Invoke-RepackageObjectWithType {
 Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest', 'Connect-HPEOnepass', 'Connect-HPEGL', 'Disconnect-HPEGL', 'Connect-HPEGLWorkspace', 'Invoke-HPEGLAutoReconnect', 'Get-HPEGLJWTDetails' -Alias *
 
 # SIG # Begin signature block
-# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAgz3IcSK1/RxzO
-# Zs1eorBYVyy0TpF092mzJIW13Bi696CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAenTJY1QS7ssGP
+# 6MU8czrrz0rzWpmuY+MC2ztSxJV5NqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -11512,147 +12724,154 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg4K9xm8Uv9Mu9nRz+CaUt46UuQfdTzbDlUaWPOVPt9o0wDQYJKoZIhvcNAQEB
-# BQAEggIAeeYuwopqXHQdinAbCv7wxXRtdzs1gffQje7uj4oOpYoTtc4nMvMMNRFq
-# qaGrsUWcllnFyi5ZRqyOAynZNG4JKG5GM21/SlpL4biNXrkTDTLexWrAWRWjJ458
-# fS8iXuwqKwPV6g+JIV3G9QpeVH25oScgkRAWT7M4FC4+wjg4ckUVCGG7ZGo5le5s
-# 9UQxRSazr+PmRltMpsckVhPrLkC4MRujUHeyDPUdF3P734rh9NE1fgvuiNPIy0Uk
-# 5h6DTSGn/P4avkQVjdsx8h5RsTiJO6YH3zJMD6NWebc/XFqKNcTGFkg4AaE2f9ZN
-# JRZl3c0G6FjdmICiBF79kIQc2HtrYp/e5lzWDzTiPQO/IcY0y3f4Yv9s1C1OUWjk
-# mhhSZQ2Wix6Y097dnZ+tG4apCP+jls0HcxdjpTu5bweAo23SgZiRBL8rwMW3QM+i
-# 30EAtEnVd687HWulO7oRizwxMKG0FuWqXnJ6o/tFG3DIPrVbYHQC/HGAV+ZX1HRG
-# 6XQHGkyT5dspFo18BKFbYzvldiVy/hQnw67e6gzMQPIEyFuhywWCBz8V3bUQXMHE
-# McLx+0TDqiEApjeaeLnHo/TpG5Wn2gng6fDTs0JqUiIR+BnKYgVp4enSy7fEgr5b
-# gkh9IcYUW0KUVtKiqGYyppyUpBdxF54S58Xi9sO72phQQqlIQ1mhgheXMIIXkwYK
-# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMLjCqQsEzMxCmn3PRCkV2PPd+bX9aAZO8dIouUSDeNEa
-# 6Mkt1JPHnH2xbXm3LUOXfAIQNqVYKr8vkm4o1h3aF/g5aBgPMjAyNTExMjUxNTM0
-# NTNaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
-# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
-# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
-# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
-# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
-# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
-# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
-# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
-# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
-# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
-# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
-# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
-# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
-# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
-# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
-# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
-# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
-# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
-# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
-# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
-# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
-# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
-# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
-# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
-# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
-# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
-# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
-# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
-# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
-# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
-# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
-# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
-# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
-# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
-# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
-# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
-# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
-# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
-# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
-# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
-# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
-# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
-# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
-# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
-# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
-# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
-# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
-# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
-# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
-# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
-# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
-# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
-# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
-# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
-# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
-# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
-# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
-# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
-# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
-# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
-# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
-# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
-# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
-# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
-# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
-# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
-# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
-# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
-# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
-# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
-# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
-# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
-# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
-# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
-# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
-# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
-# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
-# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
-# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
-# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
-# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
-# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
-# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
-# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
-# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
-# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
-# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
-# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
-# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
-# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
-# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
-# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
-# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
-# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
-# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
-# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjUxMTI1
-# MTUzNDUzWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
-# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwKl7/O66xI4szCoNbXlHFBJqg
-# ItkGpir6O50YhaBUWVqpGpgJZl/WnaT1ZkD+HexHMA0GCSqGSIb3DQEBAQUABIIC
-# AGk2d0eGA+Ds0tmz2xaLsWO/KzaycRoRiF7w1BfQNVzMt1peAEXg5n01E842ioD1
-# LZXwjpXEGcbH3mjQQ1cNo8FMgVGdI55xLAmcDgV5xocLvWKNvDXGnA7k0IhUOD4D
-# ck2dYX0Q1EPfDRBeCrRh5o5OBGFMr0fgccugjqHTlvNfLjOKiJGDcFPIR85oo4Um
-# 39w1L165lCgb8mkBY0GmNOwDIVhwlc7clxwZY942KB5z2rQMTskA6PVGl2fahKrk
-# O+ZIfUcMcBCocipMd6fYPTo/QjK+liNqdZVWT4tYaNQ8UfD59vcxcI4IrPZ1v7w4
-# lrixUHQsA0f3vmMq87g7SFI0cNItoVzMxwGNxFlkUW4GpQvfHvbztiXDx4nxzMLT
-# UJyJxaeTYfFMb7OWntXIKcDH28LoyMT9ImtR4aLYZ72JLB9Yn7WaYf/1ZqMW5Lgt
-# 0p4tvsEde22YzACQeCpHuOW5amxfiDnJaVQjBkMhBgJanPn0dZAurrGWrOcazLlD
-# Qb/w9zG/87O/Z+zjdoRk+e+T4wxSy60SvMNlDm8FyX9YeViXfNAnrB9dFU+RDAks
-# pACRZyzUD8j0T8i7OYHMgiD3f8k2Wv0GLMH7Rt/iOJBvLyfP+Ng9Vj/aMIHk2kFb
-# wmL3AsBOUr2WDcDvaVxnrcjCuXKphD8q0fVcBshj4xNt
+# IgQg2M9iMxH6e19gKR87HhbSPXcxUQYhK4QiNpaHphdizA0wDQYJKoZIhvcNAQEB
+# BQAEggIAVXXM28ozC4ZWsPphXqJcw96y0xeaMRyDBLCBNVTOzD9DJtOUsiTDrQnn
+# oqfQ4VNjKjF/ujfhUNLvzWsDvKspjnV4sIbFlQ87fr9720SMTt2h6NIXjEBM+tq7
+# rdQUCEXzXjHftv3KPmaSAoiQXbTzUuraM/1THiJZtOeVxWUETqqtrJkU6vxsbzKK
+# L7Vuqc+x2ST4bxOWIwOcwIWcRUzfcID2pXcstNSdoGCY3i3401q2srZLMrCZa4i+
+# 8scMsyovkZINWm3NCch0Xkb6Lh1Dea4fdfr7fu3L+CGosY6DRoGjG2sA4V8idkH+
+# EB1Fr7MkJPeItxYyw0nb+YSEIiAeLRycAsWpBpy6pYJvW66ev1T9YSx/CVGNv23N
+# 3CbtcN7H+6Wp89MWXMQyjpbAhUapEGVHJ3DTdSl6bb/gSuNuttGsYnvtT8iZikv0
+# HrUV2YtXks7RSji2mRmLI6J82XMbnvh+/SfCtY1+lW5gCYsPDKYRZvaDbH/dP7aa
+# +neL2KEfsAbXoWRGm/HCbxdO/kXoLfEkL1rOcNM1xTqRUDOMKLalqcXcE9cMnJ/d
+# mTbnh5ZY9jb20TEZw5zyVxATGxxMJgZGFHHTjBCGa2Sg3lwDweqAqBM9kcf8i61h
+# ddxxmfG88JVe5EJa+0AAs6gDFMRm8Ui3PHiYgoA10jMg6NVlnGyhghjpMIIY5QYK
+# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwgsjOawp0xKME6DFih1yg47dbXDyb1CmwQEYX
+# kxs9kbD8yvMw784iO/5aWvtHV2ShAhUA+1zWjfKrvZ7h1N/cu0Az90EgO38YDzIw
+# MjYwMTE5MTgyNjU0WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
+# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
+# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
+# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
+# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
+# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
+# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
+# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
+# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
+# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
+# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
+# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
+# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
+# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
+# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
+# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
+# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
+# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
+# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
+# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
+# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
+# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
+# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
+# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
+# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
+# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
+# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
+# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
+# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
+# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
+# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
+# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
+# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
+# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
+# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
+# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
+# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
+# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
+# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
+# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
+# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
+# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
+# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
+# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
+# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
+# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
+# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
+# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
+# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
+# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
+# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
+# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
+# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
+# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
+# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
+# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
+# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
+# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
+# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
+# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
+# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
+# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
+# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
+# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
+# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
+# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
+# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
+# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
+# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
+# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
+# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
+# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
+# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
+# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
+# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
+# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
+# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
+# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
+# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
+# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
+# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
+# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
+# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
+# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
+# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
+# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
+# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
+# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
+# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
+# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
+# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
+# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
+# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
+# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
+# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
+# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
+# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
+# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
+# MQ8XDTI2MDExOTE4MjY1NFowPwYJKoZIhvcNAQkEMTIEMEtEswy6ydSODIqxHh1+
+# CSiyCvA1vvwXtlz6YuVBDjvdaUNhmyhvBQUtIZhsV2NNlDCCAXoGCyqGSIb3DQEJ
+# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
+# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
+# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
+# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
+# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
+# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
+# ggIAyGn8sB+ngIeuACCYFeSHKjtw+/Iqtin30ZajzxU/SdCByJgFKDdcv+0dsgzV
+# 92NWsAq15nZVYs3VjdHekcHnSF+4NpE/dqx4qtB9LeAVARS4WeY+iipIfloGFApI
+# v7fMC4IxNbhjRRlm46FYr6zVdjpKzJJE/0gNIj4otSVaPJIYmv5rG02cuGyLDbAP
+# 1t4C6K3BGMKhPxkFUl6AWWDXWxKBid9CiQZKzkhVJXUfkaVP7ZkBi/HOmpIP+B0+
+# +SV6wIvqYYKOxCnteaU6W4EQQG2Dg/v/l+UKICRm2js9p+nxGSJaTHsb7x1yl6Ts
+# cKn1ZVod1JfENMlsdFwvquFrPOmNaMTpSHcFayfuEzBnPXIPO4bbuAP0BJskpSac
+# neYdaS4FO6a7fhXewaD+V1gpC/ZJOrUQyHpJ9BNoKOtJC3Srvi4jBGlQK81QtuCU
+# P00jsnL5xsJVVubdvr7NdTErw4r4XtU1pfXxQI8sjgU4G6Sxg5K9xdlMZ+Dq6w+8
+# XS+T2ylYvwtGmzJcFTinjGiz3zIltiht6hZaiGBWaUq19+L9QORIiSkiO+fGUwyA
+# NG1Urx+NaLSQYsDpjE+CQQ/4XaPKao3JQ8UpyThG5tomZL9M7VRFFX6/TQTmN2Nv
+# ZmF6ypUzKYeD3MRjvuc3p+e9hB3U+StvzEbBuKGoRhWs7bo=
 # SIG # End signature block
