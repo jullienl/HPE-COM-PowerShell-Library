@@ -84,6 +84,11 @@ Function Set-HPECOMOneViewServerLocation {
     Param( 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -400,6 +405,11 @@ Function Remove-HPECOMOneViewServerLocation {
     Param( 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -692,8 +702,8 @@ Export-ModuleMember -Function 'Set-HPECOMOneViewServerLocation', 'Remove-HPECOMO
 # SIG # Begin signature block
 # MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBmyt7mHWRz53ne
-# dSW+ibcCNuuIqUZGgJitB0f2xZIVwKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAvUelmHKB3a+YS
+# ViU9PR/Xtx9rmECbn+gM91xcpFhiBKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -794,23 +804,23 @@ Export-ModuleMember -Function 'Set-HPECOMOneViewServerLocation', 'Remove-HPECOMO
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgZguhJficmYXJwwzxOZTRZRWdi6yId7VVDwX66TaPNFIwDQYJKoZIhvcNAQEB
-# BQAEggIAefqXPTKX8LeHrKIz7o2+xWZqo3OlLB5Q3JEpgCc8zWaOdGIjn5hBGsn0
-# xwV8UmAqN7fHt1EPBA2Nglo7YHfpaO/B1+hs6aHGRY5ru78i02RfG7niEg+K2zIf
-# L9Iuh0OS+5Rq53o1Isqk9gAopnFTF2cPCfP/bPsFagGN0Be0IrOV97uf6viOReRB
-# vOb1n+kPCbVFWVi3PnD0bn3mxo1cfUA9p2NK3areInEiX+Uj5wcTMBh9cFqNtNoo
-# aswDn7DPjAtjnhLndJvo2fTT9nRBMKiEtfGUzBxWbTlhgSoqIFM30tv36m/cbfxZ
-# ZYjIYZ51i6+HyF5sJJOVDUbjXiZewW6WA9PJ8/YJkbgQUPulwE2NoT2xSUQZqBBt
-# Fwr/Hn/uoPtElx+xoZZbEoAQ4HKdz21QJ3nW3BcbBFii0tI3MOzzWqESi16oEoLe
-# YEoujp1bVjtyBhbVvASC566qbPgiCdkjn1iqwYI1TAQTw7leuFJNU9LL/uCdhSGA
-# btm3w9Y/8fire7IqaIZNSwGLcCCgrRpc1cqtPy+fltI4/ZRE+5vB0WhhUdGMW/pT
-# iCiVkg5Lq8DrtJl9D3b6Dvs5LjWATZnw1jlw+xgzGVoCHmu795ktKk1aDuev9pZK
-# Un0Q1QDQti3X8+XLDCd5FydOv9zXoNB/40kXCMkLbYQIxW9F8PuhghjpMIIY5QYK
+# IgQgZ7oGXeZi+MC03n/bzidc2UpWvIR/XqzdNPZFbs0WLtEwDQYJKoZIhvcNAQEB
+# BQAEggIAYvHUoD/+cPuaAtugYOMJl68vHyRsYN/7vNhWwDGKS80ZHj6zt8mjlYMg
+# rBz5wm1wIeQQUAvOnu6C7+fZchKCLn/jkYqm6N9Zus3/q4RHQ77mxsla+J6dgtoM
+# hVzNcQVZmiKixBbtJKdDlnV7/nFGEfGzV5i8eV/TyOw5XASG7uinpl5LXuBybmLg
+# TGGL6A3C3eWTezJuG8s7SHr0Li6SXEnepJZrqpNQOhKoHzprOPWZVc+XEXZImSPR
+# xEPQQ7MWsKKrkKV4TXlTUzYBOTAGbW8UfcywMSgzaz89G6uhp9ws3d9f7AgyY2GC
+# moL/pkDhzdzszdJrQvtYskx0fHkjSdmgzAqnTrhA7obXBQz4/aHB3vAZRRY3CuNC
+# qR+we2DSxX+fEPbJ7vnOBA6uTS5TDQ0xGG97tCu23fvy8bxDcgEEV9K8O6rDIqoa
+# VAnNV+rNnD6y1iSApXDj1o4ggiv6yFRliiV43Xd2dNP2sxxj5qxo+EtSFC5jrao9
+# iv/rmu70yXNC7CRRzvE8N1/RKVy6Tcpz8h74RPxIUPpFD0KwFDE/vyUCzjl4qV1U
+# 27vVA4Z1VD98K+sFP4koShJTWGSABKNdg7Wj83zcasJiTmaz5/Lana3tg9s30ALJ
+# grJMP+8LsRXAIIpmy7Irq8OvLh66VOq6V+/vgPkUIp4TXUUXjPyhghjpMIIY5QYK
 # KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwGNgl0xSCRdRdIGbtUKsWk0Wxvsp0KHifTkdz
-# Bo99f0r7cQFjtM0n2BlqtX7ZtXOaAhUAiQDhkEPcoZa4SsVSigEiWpMoOVYYDzIw
-# MjUxMDAyMTU0ODI1WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# AQEwQTANBglghkgBZQMEAgIFAAQwFeYVmr7emgxYcDQvzkk6j9V5fUASCDmGewiw
+# BtJJhmkzLA/UHX3dLb0YWwmV4T+tAhUA1SN2c9YUuEHsqUbatAdsrwOpSFIYDzIw
+# MjYwMTE5MTgyMDI2WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
 # WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
 # Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
 # yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
@@ -918,8 +928,8 @@ Export-ModuleMember -Function 'Set-HPECOMOneViewServerLocation', 'Remove-HPECOMO
 # BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
 # ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
 # AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI1MTAwMjE1NDgyNVowPwYJKoZIhvcNAQkEMTIEMJTqcm6cRS8KWw19t59b
-# QtcltAkoND5T4Qfl7TiUQf75I4aMicx47nFxbsVW6oxtTDCCAXoGCyqGSIb3DQEJ
+# MQ8XDTI2MDExOTE4MjAyNlowPwYJKoZIhvcNAQkEMTIEMGDrI3f8TeHruaF02BxS
+# YFiMHsXI5yGOG74drcK1xrO4foQHnOOV2+do98zbfxhQUTCCAXoGCyqGSIb3DQEJ
 # EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
 # eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
 # U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
@@ -928,15 +938,15 @@ Export-ModuleMember -Function 'Set-HPECOMOneViewServerLocation', 'Remove-HPECOMO
 # dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
 # UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
 # dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAlRe5iXmKTqFQ9rntUZqc5Ydtvfz5AtLdfQMhnkxHY/j8t91OUyYTdbsg321R
-# z1myuWgzGLyP5s0CsGexqgN/tw/oplJjd+xzCeBIp6Wykrz1PeZ/QL4NlgFgiujg
-# pkbzIS7LWPZGSlq9iOTPrWIDcUcZkoKVI6pFXwOWS9Lj4YhXFQSNEK+CQvg/13CL
-# z0dAra+MwVoXk8fmG/rQAV37dRBCdB08llqAmBGr0H3ORH2jfzQjkcJoFV8SYa23
-# EZeFY5txGfYPJiwgIZWw8QNb2o0pplTYBVjUOFWbNnFsc5bXqXT15sH4nq4K99CS
-# pOu+KCqGf9wLvnaPUFdfHE9Y8gTIz929JDvdbdR5HpXk5yuxVY0FIycXFnpqCPoz
-# GgAwjyXiR18E1MbrseIvWj1NV1ZVQD59gn4DKoBmovp/hqYzPk3sM3VmgBcG1aib
-# gsi/tv7FnP7YScCHfQMC+LdleD3n+c5utzEStfXt+ke9xsq9PpTxEqWPSkCJuYu7
-# 3CpuRhPOQLcHLEaZxZPwazT1TGtGnS5l1RQi6MbN4vELBG8z0yjzWltWKVur+vLt
-# 2X+dYPREn78k22w/Oj4aYutf1da8B8FkppGNUtwRYofmI7TcgX1CmJbi6uIlffUc
-# mM0tJrtOSyxeE7SdxZAu7UOK3BifgKicJ3UT0HyYxS+FhwU=
+# ggIAyRTOcYlld8zGjG31K6gBwvQL8BKJlijq5lBmCiDBhfst5/wD4OXk+LRghRZw
+# yU3GPd1cWMftmJqqMhkCfbZakp3UnJ8YB+ElJd5fV+RxZH7rM7sh/+3/QEZ3+UKC
+# UoNAOCGxVf6PYAqwoN5Sh2UXrpdypaIQhRGAVb3umVcEXCY0cNlBs4R1sb7pAHhf
+# gUnSNUtmq9a5mYikMmJmXhqURwrjkj3ZWEYa/oqUeX6wTQaZ6yUlzuNx271cwicj
+# 6N0i/gVY8Cvpb/Vsz/cPh7RzO0sKYQwnejwg0m29UyL2eJwr1GrSKKffIdq53DCq
+# fVAl//b0HUVjsCzIk6f7ZmCAzySdQBGUssD5DaAyDekH3t1FYcirLvyTDjcOzvuZ
+# CLNoiLTb846hmuD7nmuEkD/u6SxZE+e1GJ+0U6l0DuiPkZd6SCMgM7lymNEn3XZd
+# nBUwcIffSkJFOnEtp8B/vd1ACP4jKeFLdGke0WnnBPmP5UrgV+k/4SozJTTA6RGd
+# uzObp6qEddKIpg9UzR5iNGqnQ1GMABgEjpC8OIbnpIcaZ3YTKJzEsWktMmx88Stx
+# TnX1YDDRst716LepgshzVC4+Du5rBTfmIqQy+i+12SykEcgUY04EnhKhQeTKPkXl
+# Y96zyQj1Dfl21OT+AyMe0R+zYhdfX6kdScLRR6YixcLR5Lw=
 # SIG # End signature block

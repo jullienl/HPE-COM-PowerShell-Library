@@ -130,7 +130,6 @@ Function Get-HPEGLSubscription {
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
         $Uri = Get-SubscriptionsUri
-        # $Uri = Get-LicenseDevicesProductTypeDeviceUri
         
     }
 
@@ -277,6 +276,9 @@ Function New-HPEGLSubscription {
     .PARAMETER SubscriptionKey 
     The subscription key to add to the GreenLake workspace.
 
+    .PARAMETER DryRun
+    Performs a pre-claim validation check without actually adding the subscription. Returns detailed information including whether the subscription key is valid, already claimed in another workspace (with workspace name), expired, or has other issues. This is useful for troubleshooting subscription problems before making actual changes.
+
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
 
@@ -284,6 +286,11 @@ Function New-HPEGLSubscription {
     New-HPEGLSubscription -SubscriptionKey 'Kxxxxxxxxxx' 
 
     Adds the subscription key 'Kxxxxxxxxxx'.
+        
+    .EXAMPLE
+    New-HPEGLSubscription -SubscriptionKey 'Kxxxxxxxxxx' -DryRun
+
+    Validates if the subscription key 'Kxxxxxxxxxx' can be added without actually adding it. Returns detailed information about the subscription including validation status, whether it's already claimed in another workspace with workspace details, expiration status, and other validation errors.
         
     .EXAMPLE
     "Kxxxxxxxxxx","Kxxxxxxxxxx","Kxxxxxxxxxx" | New-HPEGLSubscription
@@ -327,6 +334,8 @@ Function New-HPEGLSubscription {
         [Alias('key')]
         [String]$SubscriptionKey,
         
+        [Switch]$DryRun,
+        
         [Switch]$WhatIf
        
     ) 
@@ -366,6 +375,73 @@ Function New-HPEGLSubscription {
     }
     end {
 
+        # Handle DryRun mode first before any other processing
+        if ($DryRun) {
+            "[{0}] Dry-run mode enabled - performing preclaim validation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            
+            $preclaimResults = @()
+            
+            foreach ($Object in $ObjectStatusList) {
+                $subscriptionKey = $Object.SubscriptionKey
+                
+                try {
+                    $Uri = "{0}/{1}/preclaim" -f (Get-PreclaimLicenseUri), $subscriptionKey
+                    
+                    "[{0}] Checking preclaim status for key: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $subscriptionKey | Write-Verbose
+                    
+                    $response = Invoke-HPEGLWebRequest -Uri $Uri -method 'GET' -Verbose:$VerbosePreference
+                    
+                    # Add subscription key to response for clarity
+                    $response | Add-Member -NotePropertyName 'subscriptionKey' -NotePropertyValue $subscriptionKey -Force
+                    $response | Add-Member -NotePropertyName 'canBeClaimed' -NotePropertyValue $true -Force
+                    
+                    $preclaimResults += $response
+                    
+                }
+                catch {
+                    # Extract detailed error information from the API response
+                    "[{0}] Preclaim validation error for key {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $subscriptionKey | Write-Verbose
+                    
+                    # Try to get structured error data from Global variable set by Invoke-HPEGLWebRequest
+                    $errorData = $Global:HPECOMInvokeReturnData
+                    
+                    # Try to extract workspace information from rawError if available
+                    $errorMessage = $_.Exception.Message
+                    $workspaceId = $null
+                    $workspaceName = $null
+                    $fullMessage = $null
+                    
+                    # Check if rawError contains the full error JSON
+                    if ($errorData.rawError -and $errorData.rawError -match '"workspaceId":\s*"([^"]+)"') {
+                        $workspaceId = $Matches[1]
+                    }
+                    if ($errorData.rawError -and $errorData.rawError -match '"workspaceName":\s*"([^"]+)"') {
+                        $workspaceName = $Matches[1]
+                    }
+                    if ($errorData.rawError -and $errorData.rawError -match '"message":\s*"([^"]+)"') {
+                        $fullMessage = $Matches[1]
+                    }
+                    
+                    # Build structured error result
+                    $errorResult = [PSCustomObject]@{
+                        subscriptionKey = $subscriptionKey
+                        canBeClaimed = $false
+                        errorCode = if ($errorData.errorCode) { $errorData.errorCode } else { 'UNKNOWN' }
+                        message = if ($fullMessage) { $fullMessage } else { $errorMessage }
+                        httpStatusCode = if ($errorData.httpStatusCode) { $errorData.httpStatusCode } else { '400' }
+                        workspaceId = $workspaceId
+                        workspaceName = $workspaceName
+                    }
+                    
+                    $preclaimResults += $errorResult
+                }
+            }
+            
+            # Add TypeName for custom formatting and return results
+            $preclaimResults = Invoke-RepackageObjectWithType -RawObject $preclaimResults -ObjectName "License.Preclaim"
+            return $preclaimResults
+        }
+
         try {
             $SubscriptionKeys = Get-HPEGLSubscription 
         }
@@ -396,36 +472,98 @@ Function New-HPEGLSubscription {
 
                     # Must return a message if subscription already present
 
-                    "[{0}] Subscription '{1}' already exists in the workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                    "[{0}] Subscription '{1}' already exists in the workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Object.SubscriptionKey | Write-Verbose
 
                     if ($WhatIf) {
-                        $ErrorMessage = "Subscription '{0}': Resource already exists in the workspace! No action needed." -f $Name
+                        $ErrorMessage = "Subscription '{0}': Resource already exists in the workspace! No action needed." -f $Object.SubscriptionKey
                         Write-warning $ErrorMessage
                         return
                     }
                     else {
-                        $objStatus.Status = "Warning"
-                        $objStatus.Details = "Subscription already exists in the workspace! No action needed."
+                        $Object.Status = "Warning"
+                        $Object.Details = "Subscription already exists in the workspace! No action needed."
                     }
                    
                 }
                 else {
-
-                    $Uri = Get-SubscriptionsUri
-
-                    # Build Key object for paylaod
-                    $Key = [PSCustomObject]@{
-                        key = $Object.SubscriptionKey
-                        
-                    }
+                    # Perform preclaim validation before adding
+                    "[{0}] Performing preclaim validation for key: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Object.SubscriptionKey | Write-Verbose
                     
-                    # Building the list of keys object for payload
-                    [void]$SubscriptionKeysList.Add($Key)
+                    try {
+                        $preclaimUri = "{0}/{1}/preclaim" -f (Get-PreclaimLicenseUri), $Object.SubscriptionKey
+                        $preclaimResponse = Invoke-HPEGLWebRequest -Uri $preclaimUri -method 'GET' -Verbose:$VerbosePreference
+                        
+                        "[{0}] Preclaim validation passed for key: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Object.SubscriptionKey | Write-Verbose
+                        
+                        if ($WhatIf) {
+                            # For WhatIf, show what would be added with validation details
+                            $whatIfMessage = "What if: Performing the operation `"Add Subscription`" on target `"{0}`"" -f $Object.SubscriptionKey
+                            if ($preclaimResponse.claim_status) {
+                                $whatIfMessage += "`n  Claim Status: {0}" -f $preclaimResponse.claim_status
+                            }
+                            if ($preclaimResponse.tier) {
+                                $whatIfMessage += "`n  Tier: {0}" -f $preclaimResponse.tier
+                            }
+                            Write-Host $whatIfMessage
+                        }
+                        else {
+                            # Add to list for actual addition
+                            $Uri = Get-SubscriptionsUri
+
+                            # Build Key object for payload
+                            $Key = [PSCustomObject]@{
+                                key = $Object.SubscriptionKey
+                            }
+                            
+                            # Building the list of keys object for payload
+                            [void]$SubscriptionKeysList.Add($Key)
+                        }
+                    }
+                    catch {
+                        # Preclaim validation failed - extract error details
+                        "[{0}] Preclaim validation failed for key: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Object.SubscriptionKey | Write-Verbose
+                        
+                        $errorData = $Global:HPECOMInvokeReturnData
+                        $workspaceId = $null
+                        $workspaceName = $null
+                        $fullMessage = $null
+                        
+                        # Extract workspace ID, name and message from error
+                        if ($errorData.rawError -and $errorData.rawError -match '"workspaceId":\s*"([^"]+)"') {
+                            $workspaceId = $Matches[1]
+                        }
+                        if ($errorData.rawError -and $errorData.rawError -match '"workspaceName":\s*"([^"]+)"') {
+                            $workspaceName = $Matches[1]
+                        }
+                        if ($errorData.rawError -and $errorData.rawError -match '"message":\s*"([^"]+)"') {
+                            $fullMessage = $Matches[1]
+                        }
+                        
+                        # Replace workspace ID with workspace name in message if available
+                        if ($fullMessage -and $workspaceId -and $workspaceName) {
+                            $fullMessage = $fullMessage -replace $workspaceId, "'$workspaceName'"
+                        }
+                        
+                        if ($WhatIf) {
+                            $ErrorMessage = "Subscription '{0}': Preclaim validation failed. {1}" -f $Object.SubscriptionKey, ($fullMessage -replace '\\s+', ' ')
+                            Write-Warning $ErrorMessage
+                        }
+                        else {
+                            $Object.Status = "Failed"
+                            if ($workspaceName) {
+                                $Object.Details = "Subscription cannot be added - already claimed in workspace '{0}'" -f $workspaceName
+                            }
+                            else {
+                                $Object.Details = if ($fullMessage) { $fullMessage } else { "Subscription validation failed" }
+                            }
+                            $Object.Exception = $_.Exception.Message
+                        }
+                    }
                 }
             }
 
 
-            if ($SubscriptionKeysList) {
+            if ($SubscriptionKeysList -and -not $WhatIf) {
                 
                 # Build payload
                 $payload = ConvertTo-Json -Depth 10 @{
@@ -435,33 +573,27 @@ Function New-HPEGLSubscription {
                 # Add subscription keys
                 try {
                 
-                    Invoke-HPEGLWebRequest -Uri $Uri -method 'POST' -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    | out-Null
-                
-                    if (-not $WhatIf) {
+                    $response = Invoke-HPEGLWebRequest -Uri $Uri -method 'POST' -body $payload -ContentType "application/json" -Verbose:$VerbosePreference    
 
-                        foreach ($Object in $ObjectStatusList) {
+                    foreach ($Object in $ObjectStatusList) {
 
-                            if ($Object.Status -ne "Warning") {
-                                
-                                $Object.Status = "Complete"
-                                $Object.Details = "Service subscription successfully added to the HPE GreenLake platform"
-                                $Object.Exception = $_.Exception.message 
-                            }
+                        if ($Object.Status -ne "Warning" -and $Object.Status -ne "Failed") {
+                            
+                            $Object.Status = "Complete"
+                            $Object.Details = "Service subscription successfully added to the HPE GreenLake platform"
+                            $Object.Exception = $_.Exception.message 
                         }
-                    
                     }
                     
                 }
                 catch {
-                    
-                    if (-not $WhatIf) {
 
-                        foreach ($Object in $ObjectStatusList) {
-                                
+                    foreach ($Object in $ObjectStatusList) {
+                            
+                        if ($Object.Status -ne "Warning" -and $Object.Status -ne "Failed") {
                             $Object.Status = "Failed"
                             $Object.Details = "Service subscription was not added to the HPE GreenLake platform"
                             $Object.Exception = $_.Exception.message 
-    
                         }
                     }
                 }   
@@ -662,6 +794,9 @@ Function Get-HPEGLDeviceAutoSubscription {
 
     Automatic subscription assignment allows HPE GreenLake to automatically assign an valid license to devices.
     
+    Note: If no auto-subscription settings have been configured yet, this cmdlet returns no output. 
+    Use Set-HPEGLDeviceAutoSubscription to configure automatic subscription settings for device types.
+    
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
 
@@ -669,6 +804,7 @@ Function Get-HPEGLDeviceAutoSubscription {
     Get-HPEGLDeviceAutoSubscription
 
     Returns the automatic subscription status of device(s) in the HPE GreenLake workspace.
+    If no settings have been configured, no output is returned.
     
    #>
 
@@ -683,7 +819,7 @@ Function Get-HPEGLDeviceAutoSubscription {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $Uri = Get-AutoLicenseDevicesUri
+        $Uri = Get-AutoSubscriptionSettingsUri
         
     }
 
@@ -693,23 +829,75 @@ Function Get-HPEGLDeviceAutoSubscription {
 
         $ReturnData = @()
         
+        # Step 1: Get all auto-subscription settings to retrieve the settings ID
         try {
-            [array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+            $Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf -SkipPaginationLimit -ReturnFullObject -Verbose:$VerbosePreference
         }
         catch {
             $PSCmdlet.ThrowTerminatingError($_)
         }
   
         
-        if ($Null -ne $Collection.autolicenses) {
+        if ($Null -ne $Collection.items) {
 
-            $CollectionList = $Collection.autolicenses #| Where-Object { $_.enabled -eq $True }
+            # Get the settings ID from the collection
+            $settingsId = $null
+            if ($Collection.items -is [array] -and $Collection.items.Count -gt 0) {
+                $settingsId = $Collection.items[0].id
+            }
+            elseif ($Collection.items.id) {
+                # items is a single object
+                $settingsId = $Collection.items.id
+            }
 
-            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "License.AutoSubscribe"    
+            if ($settingsId) {
+                "[{0}] Found settings record with ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $settingsId | Write-Verbose
 
-            $ReturnData = $ReturnData | Sort-Object { $_device_type }
-    
-            return $ReturnData 
+                # Step 2: Get the detailed settings using the ID
+                try {
+                    $DetailedUri = "$Uri/$settingsId"
+                    "[{0}] Retrieving detailed settings from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DetailedUri | Write-Verbose
+                    $DetailedSettings = Invoke-HPEGLWebRequest -Method GET -Uri $DetailedUri -WhatIfBoolean $WhatIf -SkipPaginationLimit -ReturnFullObject -Verbose:$VerbosePreference
+                    
+                    if ($DetailedSettings.autoSubscriptionSettings) {
+                        # Handle both array and single object responses
+                        $settingsArray = @()
+                        if ($DetailedSettings.autoSubscriptionSettings -is [array]) {
+                            $settingsArray = $DetailedSettings.autoSubscriptionSettings
+                        }
+                        else {
+                            # Single object - wrap in array
+                            $settingsArray = @($DetailedSettings.autoSubscriptionSettings)
+                        }
+                        
+                        # Transform new API properties to old format for compatibility
+                        $transformedSettings = @()
+                        foreach ($setting in $settingsArray) {
+                            $transformedSetting = [PSCustomObject]@{
+                                device_type = $setting.deviceType
+                                enabled = $true  # If settings exist, they're enabled
+                                auto_license_subscription_tier_description = $setting.tier
+                            }
+                            $transformedSettings += $transformedSetting
+                        }
+                        
+                        $ReturnData = Invoke-RepackageObjectWithType -RawObject $transformedSettings -ObjectName "License.AutoSubscribe"    
+                        $ReturnData = $ReturnData | Sort-Object { $_.device_type }
+                        return $ReturnData
+                    }
+                    else {
+                        "[{0}] No auto-subscription settings configured for this workspace. Use Set-HPEGLDeviceAutoSubscription to configure automatic subscription settings." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        return
+                    }
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+            }
+            else {
+                "[{0}] No settings ID found in response" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                return
+            }
         }
         else {
 
@@ -806,7 +994,6 @@ function Set-HPEGLDeviceAutoSubscription {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $Uri = Get-AutoLicenseDevicesUri
         $AutoSubscriptionStatus = [System.Collections.ArrayList]::new()
 
     }
@@ -815,55 +1002,73 @@ function Set-HPEGLDeviceAutoSubscription {
 
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
 
+        # Get existing settings first to retrieve the ID
+        try {
+            $BaseUri = Get-AutoSubscriptionSettingsUri
+            
+            $settingsResponse = Invoke-HPEGLWebRequest -Method GET -Uri $BaseUri -WhatIfBoolean $false -SkipPaginationLimit -ReturnFullObject -Verbose:$VerbosePreference
+            
+            if ($settingsResponse.items -and $settingsResponse.items.Count -gt 0) {
+                $settingsId = $settingsResponse.items[0].id
+                $Uri = "$BaseUri/$settingsId"
+                "[{0}] Found existing settings with ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $settingsId | Write-Verbose
+            }
+            else {
+                throw "No auto-subscription settings found for this workspace. Settings record may not exist yet."
+            }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
       
         if ($AccessPointSubscriptionTier -eq 'FOUNDATION' ) {
-            $AutoLicenseSubscriptionTierGroup = "FOUNDATION_AP"
+            $Tier = "FOUNDATION_AP"
             $DeviceType = "AP"
         }
         elseif ($AccessPointSubscriptionTier -eq 'ADVANCED' ) {
-            $AutoLicenseSubscriptionTierGroup = "ADVANCED_AP"
+            $Tier = "ADVANCED_AP"
             $DeviceType = "AP"
         }
 
 
         if ($GatewaySubscriptionTier -eq 'FOUNDATION' ) {
-            $AutoLicenseSubscriptionTierGroup = "FOUNDATION_GW"
+            $Tier = "FOUNDATION_GW"
             $DeviceType = "GATEWAY"
 
         }
         elseif ($GatewaySubscriptionTier -eq 'ADVANCED' ) {
-            $AutoLicenseSubscriptionTierGroup = "ADVANCED_GW"
+            $Tier = "ADVANCED_GW"
             $DeviceType = "GATEWAY"
 
         }
 
 
         if ($ComputeSubscriptionTier -eq 'STANDARD' ) {
-            $AutoLicenseSubscriptionTierGroup = "STANDARD_COMPUTE"
+            $Tier = "STANDARD_COMPUTE"
             $DeviceType = "COMPUTE"
 
         }
         elseif ($ComputeSubscriptionTier -eq 'ENHANCED' ) {
-            $AutoLicenseSubscriptionTierGroup = "ENHANCED_COMPUTE"
+            $Tier = "ENHANCED_COMPUTE"
             $DeviceType = "COMPUTE"
 
         }
 
 
         if ($SwitchSubscriptionTier -eq 'FOUNDATION' ) {
-            $AutoLicenseSubscriptionTierGroup = "FOUNDATION_SWITCH"
+            $Tier = "FOUNDATION_SWITCH"
             $DeviceType = "SWITCH"
 
         }
         elseif ($SwitchSubscriptionTier -eq 'ADVANCED' ) {
-            $AutoLicenseSubscriptionTierGroup = "ADVANCED_SWITCH"
+            $Tier = "ADVANCED_SWITCH"
             $DeviceType = "SWITCH"
 
         }
 
 
         if ($SensorSubscriptionTier -eq 'FOUNDATION' ) {
-            $AutoLicenseSubscriptionTierGroup = "FOUNDATION_SENSOR"
+            $Tier = "FOUNDATION_SENSOR"
             $DeviceType = "SENSOR"
 
         }
@@ -880,19 +1085,19 @@ function Set-HPEGLDeviceAutoSubscription {
         }
 
 
-        # Build payload
-        $payload = ConvertTo-Json @(
-            @{
-                device_type                          = $DeviceType
-                enabled                              = $True 
-                auto_license_subscription_tier_group = $AutoLicenseSubscriptionTierGroup
-                    
-            }
-        ) 
+        # Build payload for PATCH request with new API format
+        $payload = ConvertTo-Json @{
+            autoSubscriptionSettings = @(
+                @{
+                    deviceType = $DeviceType
+                    tier       = $Tier
+                }
+            )
+        } -Depth 5
   
 
         try {
-            Invoke-HPEGLWebRequest -Uri $Uri -method 'POST' -body $payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    | Out-Null
+            Invoke-HPEGLWebRequest -Uri $Uri -method 'PATCH' -body $payload -ContentType 'application/merge-patch+json' -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    | Out-Null
                
             if (-not $WhatIf) {
 
@@ -1111,7 +1316,9 @@ Function Get-HPEGLDeviceAutoReassignSubscription {
     .DESCRIPTION
     This Cmdlet returns the device types enabled for automatic subscription reassignment.
 
-    Automatic subscription reassignment is a feature to switche the device when a subscription expires to another subscription of the same type preventing disruptions.
+    Automatic subscription reassignment is a feature to switch the device when a subscription expires to another subscription of the same type preventing disruptions.
+    
+    If no settings have been configured yet, this cmdlet returns no output. Use Set-HPEGLDeviceAutoReassignSubscription to configure settings.
 
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
@@ -1120,6 +1327,7 @@ Function Get-HPEGLDeviceAutoReassignSubscription {
     Get-HPEGLDeviceAutoReassignSubscription
 
     Returns the automatic subscription reassignment status of device(s) in the HPE GreenLake workspace.
+    If no settings have been configured, no output is returned.
     
    #>
 
@@ -1134,7 +1342,7 @@ Function Get-HPEGLDeviceAutoReassignSubscription {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $Uri = Get-AutoRenewalDevicesUri
+        $Uri = Get-AutoReassignmentSettingsUri
 
     }
 
@@ -1145,22 +1353,41 @@ Function Get-HPEGLDeviceAutoReassignSubscription {
         $ReturnData = @()
         
         try {
-            [array]$Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+            $Collection = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
         }
         catch {
             $PSCmdlet.ThrowTerminatingError($_)
         }
   
         
-        if ($Null -ne $Collection.renewalSettingsList) {
-
-            $CollectionList = $Collection.renewalSettingsList #| Where-Object { $_.enabled -eq $True }
-
-            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "License.AutoReassign"    
-
-            $ReturnData = $ReturnData | Sort-Object { $_device_type }
-    
-            return $ReturnData 
+        if ($Collection.renewalSettingsList) {
+            
+            # Transform to add friendly device names
+            $transformedSettings = @()
+            foreach ($setting in $Collection.renewalSettingsList) {
+                $deviceName = switch ($setting.deviceType) {
+                    'AP' { "Access Points" }
+                    'SWITCH' { "Switches" }
+                    'GATEWAY' { "Gateways" }
+                    'COMPUTE' { "Compute" }
+                    'SD_WAN_GW' { "SD-WAN Gateways" }
+                    'SENSOR' { "Sensors" }
+                    'BRIDGE' { "Bridge" }
+                    'EC_V' { "Edge Compute Virtual" }
+                    default { $setting.deviceType }
+                }
+                
+                $transformedSetting = [PSCustomObject]@{
+                    deviceType = $setting.deviceType
+                    deviceName = $deviceName
+                    enabled = $setting.enabled
+                }
+                $transformedSettings += $transformedSetting
+            }
+            
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $transformedSettings -ObjectName "License.AutoReassign"    
+            $ReturnData = $ReturnData | Sort-Object { $_.deviceType }
+            return $ReturnData
         }
         else {
 
@@ -1177,7 +1404,10 @@ function Set-HPEGLDeviceAutoReassignSubscription {
 
     .DESCRIPTION
     This Cmdlet enables the automatic reassignment of subscriptions to devices. 
-    Automatic subscription reassignment is a feature to switche the device when a subscription expires to another subscription of the same type preventing disruptions.
+    
+    Automatic subscription reassignment is a feature that switches a device to another subscription of the same type when the current subscription expires, preventing service disruptions.
+    
+    Note: Auto-reassignment is enabled by default for all device types in HPE GreenLake. This cmdlet is used to re-enable auto-reassignment if it has been previously disabled using Remove-HPEGLDeviceAutoReassignSubscription.
 
     .PARAMETER AccessPoints
     Defines the automatic subscription reassignment for "Access Points".
@@ -1261,7 +1491,6 @@ function Set-HPEGLDeviceAutoReassignSubscription {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $Uri = Get-AutoRenewalDevicesUri
         $AutoReassignmentStatus = [System.Collections.ArrayList]::new()
 
     }
@@ -1270,10 +1499,10 @@ function Set-HPEGLDeviceAutoReassignSubscription {
 
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
 
-        try {
+        $Uri = Get-AutoReassignmentSettingsUri
 
+        try {
             $ExistingSettings = Get-HPEGLDeviceAutoReassignSubscription
-            
         }
         catch {
             $PSCmdlet.ThrowTerminatingError($_)
@@ -1281,43 +1510,42 @@ function Set-HPEGLDeviceAutoReassignSubscription {
 
         switch ($true) {
             $AccessPoints { 
-            ($ExistingSettings | Where-Object deviceType -eq "AP").enabled = $true
-            $DeviceType = "AccessPoints"
+                ($ExistingSettings | Where-Object deviceType -eq "AP").enabled = $true
+                $DeviceType = "AccessPoints"
             }
             $Gateways { 
-            ($ExistingSettings | Where-Object deviceType -eq "GATEWAY").enabled = $true
-            $DeviceType = "Gateways"
+                ($ExistingSettings | Where-Object deviceType -eq "GATEWAY").enabled = $true
+                $DeviceType = "Gateways"
             }
             $Computes { 
-            ($ExistingSettings | Where-Object deviceType -eq "COMPUTE").enabled = $true
-            $DeviceType = "Computes"
+                ($ExistingSettings | Where-Object deviceType -eq "COMPUTE").enabled = $true
+                $DeviceType = "Computes"
             }
             $Sensors { 
-            ($ExistingSettings | Where-Object deviceType -eq "SENSOR").enabled = $true
-            $DeviceType = "Sensors"
+                ($ExistingSettings | Where-Object deviceType -eq "SENSOR").enabled = $true
+                $DeviceType = "Sensors"
             }
             $Switches { 
-            ($ExistingSettings | Where-Object deviceType -eq "SWITCH").enabled = $true
-            $DeviceType = "Switches"
+                ($ExistingSettings | Where-Object deviceType -eq "SWITCH").enabled = $true
+                $DeviceType = "Switches"
             }
             $Bridges { 
-            ($ExistingSettings | Where-Object deviceType -eq "BRIDGE").enabled = $true
-            $DeviceType = "Bridges"
+                ($ExistingSettings | Where-Object deviceType -eq "BRIDGE").enabled = $true
+                $DeviceType = "Bridges"
             }
             $SDWANGateway { 
-            ($ExistingSettings | Where-Object deviceType -eq "SD_WAN_GW").enabled = $true
-            $DeviceType = "SD_WAN_GW"
+                ($ExistingSettings | Where-Object deviceType -eq "SD_WAN_GW").enabled = $true
+                $DeviceType = "SD_WAN_GW"
             }   
             $EdgeComputeVirtual { 
-            ($ExistingSettings | Where-Object deviceType -eq "EC_V").enabled = $true
-            $DeviceType = "EC_V"
+                ($ExistingSettings | Where-Object deviceType -eq "EC_V").enabled = $true
+                $DeviceType = "EC_V"
             }
         }
 
         if ($PSBoundParameters.Count -gt 1) {
             $DeviceType = "Multiple Types"
         }
-
 
         # Build object for the output
         $objStatus = [pscustomobject]@{
@@ -1329,20 +1557,17 @@ function Set-HPEGLDeviceAutoReassignSubscription {
                  
         }
 
-       
-        # Remove PSObject.TypeNames property
-        $CleanedSettings = $ExistingSettings | Select-Object -Property * -ExcludeProperty PSObject.TypeNames 
+        # Remove PSObject.TypeNames and deviceName properties
+        $CleanedSettings = $ExistingSettings | Select-Object -Property deviceType, enabled
 
         # Build payload
         $payload = ConvertTo-Json @{ 
-            
             renewalSettingsList = $CleanedSettings
-        
-        }
+        } -Depth 5
               
 
         try {
-            Invoke-HPEGLWebRequest -Uri $Uri -method PATCH -body $payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    | Out-Null
+            Invoke-HPEGLWebRequest -Uri $Uri -Method PATCH -Body $payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference | Out-Null
                
             if (-not $WhatIf) {
 
@@ -1665,8 +1890,6 @@ Function Add-HPEGLSubscriptionToDevice {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $Uri = Get-LicenseDevicesUri
-
         $ObjectStatusList = [System.Collections.ArrayList]::new()
         $DevicesList = [System.Collections.ArrayList]::new()
         $DeviceIDsList = [System.Collections.ArrayList]::new()
@@ -1966,8 +2189,6 @@ Function Remove-HPEGLSubscriptionFromDevice {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $Uri = Get-LicenseDevicesUri
-
         $ObjectStatusList = [System.Collections.ArrayList]::new()
         $DevicesList = [System.Collections.ArrayList]::new()
         $DeviceIDsList = [System.Collections.ArrayList]::new()
@@ -2226,10 +2447,10 @@ Export-ModuleMember -Function `
 
 
 # SIG # Begin signature block
-# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCD+tFHrv05WM0E1
-# SmbIEhhq44ckBUfTQN9Kvw+vGDfzKaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB+g6hh7FTGbnZt
+# z5KgLtuMtMk6YRy/XvkZ8V0HWi0GcqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -2325,154 +2546,154 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgfGoHrdpcP1z7Z61LIP/0boRyIOfrjTCZ4Q3LWSHjNNgwDQYJKoZIhvcNAQEB
-# BQAEggIAU8MwDWwidxwpC+BCbgJQcAyM66WqwLU9NnONEBsakVnPxSvbpgkKoC7I
-# MM5O6o0Wnb7UONjoC5Ik/Sp2wbWRY0zNVPY2JpCp8scljimrZPKbKdpZmqbw1Cyt
-# YMkvNRcK+Q3ke6fwLaX+FjvY3mmLkvHdIpHH2Uq2pA18q7yE96NJ/5fIaklhTOFc
-# 1duAGB+Ly4DsXrWS9OWeF4pyrZaZSdG1tnPsPd4xcoz1wSmckiNdOEIg9CtxLNyT
-# Q+TPy0g3LatQbsPMnn6j6f0fA7l/sMyXECzc7ULKwzJRiJlOM6XBSWlhYeKRGF7W
-# waosvra+NIaXXhcb1OSOmyrGp7fU1LGwXkM2WUCNcUM8R7GChpYI8Twx+TXbjm0/
-# qxkb3vZXNje/vAuZOxil01R3ObXly0dF8zq2dWN1t4s3AlEqVLSttR+uTK9pfrfJ
-# WeHU7K2b16Ad9JzXru+ctk05Kq0pC9whVjfWXnVC8s9k8//YFIfuQgI4mZ+bTvK9
-# LSuxHjAZBA8qFWmAmpmXLge+2lGqObBOMQEgQXUpx395aGga/qiuNQcX1dvqmEyh
-# dD2J69ptdSqjIoAoSOKqF9BGypY9SIkWOGmL+3BIaaq5uX+gjmOeZyrbuxtdHHIX
-# 1qPBSu8gj1gc/GdbEp2ERDjKLSCDnuteAJr2p5LMB9BF86ccoGehghjoMIIY5AYK
-# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwjaiDAsfpCvN17j4eKvzApih1dNOr54bYI5i+
-# sxBL02rYmotorCeF79e8E9B/J1EeAhQqq51mtK7hLmRjE2TtLMHpd5703RgPMjAy
-# NTEwMDIxNTUzNDFaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
-# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
-# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
-# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
-# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
-# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
-# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
-# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
-# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
-# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
-# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
-# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
-# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
-# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
-# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
-# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
-# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
-# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
-# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
-# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
-# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
-# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
-# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
-# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
-# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
-# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
-# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
-# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
-# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
-# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
-# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
-# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
-# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
-# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
-# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
-# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
-# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
-# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
-# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
-# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
-# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
-# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
-# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
-# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
-# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
-# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
-# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
-# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
-# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
-# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
-# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
-# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
-# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
-# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
-# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
-# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
-# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
-# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
-# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
-# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
-# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
-# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
-# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
-# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
-# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
-# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
-# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
-# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
-# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
-# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
-# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
-# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
-# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
-# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
-# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
-# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
-# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
-# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
-# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
-# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
-# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
-# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
-# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
-# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
-# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
-# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
-# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
-# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
-# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
-# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
-# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
-# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
-# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
-# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
-# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
-# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
-# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
-# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
-# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
-# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
-# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
-# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
-# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
-# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjUxMDAyMTU1MzQxWjA/BgkqhkiG9w0BCQQxMgQw3D/H+kJLbqliXMCrks5z
-# rkWZ5O7b6YONudIlNjLfa/RmRmmXqG5aQTzYE7A2r0wxMIIBegYLKoZIhvcNAQkQ
-# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
-# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
-# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
-# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
-# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
-# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgBew8OIukBUymyX4w280RET2bJ4Gad5/gXZgUw1OF/wReI2ggDuRQTDdRX/ov7s
-# 4BejwQNxWfP8bi8+4R/yNsJyEDMEA+A8js5u0UcLHgr9VAXwA3bcwPdin0IuVvV3
-# 7Q+jh18RT7REg9vpuOyqu7LruKzzBjBQFG3To3M4/nUHP1kW1CjwtjnbMhtd9Vri
-# yDR34vbm0beBx41gPCOSS+6qs6BNAMDP6m6OUrxz7MDinQn7rF1d2X+CujND266S
-# OZ+h7O3qJUTM5kyofQ8Yjk1GW39U3MMcudllW8rdzZiDK8Ktxaly0OUHuIs4PvUu
-# F55NJ+jiK5jgfjSN7650y+nO3weYlUeeh8/NCl1vpXdRimbo1ktPPqFpdK1ZC8dJ
-# 6gg3S2vfjSW7/YfGKSgrQHFLw0V3qrG+5PTBIY0BHp+CA87h5rk2HzWzVXpQKBAd
-# JwZtOcYMYLzGFFQkNkzbG0aYBOd5fUnsi0YYLJaB3r8E2tWKWsfHZTMrwXWrlkDA
-# SWeH2ZTS1erxBvMXJf2f/WL4JMuw+f/8e5mq53xpOaFxC+81zqC0a0laWZGCjWNk
-# KQph8/9aK1rUgk379+ODMDM8Ohk8T/RoufRfq6qBUlkPceff+ghx9zY+qyF0iuzs
-# OBChlypIlg2NjdvcKJdOv3m5yg5TsvjjvYlUbote+eFtTw==
+# IgQg8SKPxxRAcpFqKJoO5UVL46RXVpn6Z0/wExY1NzugGP0wDQYJKoZIhvcNAQEB
+# BQAEggIALGZWWme3J7ezm/70vofTXxrjB8QbxY8wcaXdgqaEUD5M1nzxwkR+ZxTB
+# IacjdtTmzoLUchN9B61bQBj2C5+QEp3LtG4GOJ6jbWh+VvUtYZtaKqMbIeevSYip
+# 1TVd8ynjXndJ2CQcuuk7VyaGWMCS6GSJOprXJO1pMSbY/Ypa0UKOFXK2hXcyBHss
+# X29cH+ijdEKqAZp4gOP5ud6XUJ1+Kmg77BEPgfo/rVr9PPtXFw71IVJM61PAev8J
+# cNDbJnhOdo/ueUoBNamWN2mXYTq9ZBQu/HncBseph1nfekFgdTuyOHmTArHeBGro
+# 5Yv5z9YuRXQQv95Qbl1r+GbnjDJf3te37rS/1NpCY8axf2bfPI4sPrH2zj8VMOag
+# xqbECkgdOickaSUK8iEVe+Po0SCCztwGpypt6FH8qNABDEkj1SH1Zh4hA8aDe6QB
+# 9cL+nGr41DtUXmwQA6zc1Pf0VLjZMDSV1nwHbXLxJm5Fw2wYH7PBfYuPun4i1qL5
+# aZ8HvogKdmoR06A2xajIfx0EGLpS3M2qIsh+obhUGc/UnPwyRp4T5KOi1uMa66/+
+# P9hyyMmFmx8sUQ8au1u/yj8E13mGCKeGWo0OsaFJw20chjbu9Vi+1NvKyNfvz0hJ
+# IapedfKJprcst5zQGqR097HrR7A/ag9jAaQEDyNEE1MlfIv4fVahghjpMIIY5QYK
+# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwyNTNMKD//OW9a/lnighAW9wshHOKzrIzueIy
+# njAtzne4bxgDqYjobuIpkZUM1zUlAhUAkan5r6FfySinnwKmBOngpLzCPCYYDzIw
+# MjYwMTE5MTgyNDQ1WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
+# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
+# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
+# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
+# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
+# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
+# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
+# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
+# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
+# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
+# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
+# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
+# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
+# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
+# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
+# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
+# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
+# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
+# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
+# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
+# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
+# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
+# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
+# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
+# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
+# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
+# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
+# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
+# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
+# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
+# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
+# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
+# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
+# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
+# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
+# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
+# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
+# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
+# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
+# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
+# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
+# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
+# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
+# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
+# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
+# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
+# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
+# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
+# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
+# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
+# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
+# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
+# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
+# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
+# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
+# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
+# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
+# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
+# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
+# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
+# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
+# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
+# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
+# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
+# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
+# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
+# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
+# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
+# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
+# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
+# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
+# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
+# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
+# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
+# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
+# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
+# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
+# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
+# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
+# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
+# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
+# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
+# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
+# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
+# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
+# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
+# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
+# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
+# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
+# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
+# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
+# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
+# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
+# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
+# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
+# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
+# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
+# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
+# MQ8XDTI2MDExOTE4MjQ0NVowPwYJKoZIhvcNAQkEMTIEMDcN1JeOv/BPT6fX4Tps
+# 8yD6Gy7jrXkq38zdZOpKPg+GikePsKHy+Il39znUyNmT4zCCAXoGCyqGSIb3DQEJ
+# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
+# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
+# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
+# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
+# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
+# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
+# ggIAe83vnSQLn3MUyvsalBqgGFx3U0W1yhMPBNJwHjhphmKZnIweOQnk5s1JCtio
+# nZstR8/KE3pVRp4mv6CG/MYTHjdAG4g1QYXXIebC+WSAFBID0gTWM9PBS7LbJp7r
+# SfZ2U96ZcfKP5qOMPiCiwvYMnCaNCiZZJppoZ2S00rBwJRsNnFbzrypDdC7IPw8q
+# qs79w5CiBs6Hw0FCc8L4Br5KZ5DlkfjodhcdD9hCxCOyogp1aiPSGNJvr11MYaV/
+# 7hNuqlxUTc6jX5kfUCFSqwxHqp8RJHaNcaIBmV3UkhM9DKxIwo9t80vng4+Dr149
+# 8BgRnEQsDh5VUrfQRUoTpkAazWs32z47ZFgU+3k+9kD5i3asP+KZvZlcllQdjnfX
+# TEsRqqpZK/ANO3IwIJEukLlKUDw4H1c4y6gL97/xlUr8MdOtLAztxygtOXGFWlov
+# O37LN0AainIO8ALaUhNVXK9iUBymHU9sl8OJ3YahuYn49IdQBci1/rzQ82YdDbYc
+# NpdnrMfY7G6jF0XgDA4TY6wd9bAB+C9Jki5VGx0noyMnBk7mgYfWlmEO6hurBDnh
+# RjjfE2751n6tVM2poFDm6SPERNJvlVngMIBNY491ghQZCJj7LMQp0b2fgJRjP53L
+# Vl0AVjL+Y/nWWJlPI77PPOX1u6Rrcnhow+PX88Hjx7aAqco=
 # SIG # End signature block

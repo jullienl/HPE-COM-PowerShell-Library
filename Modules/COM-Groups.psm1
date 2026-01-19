@@ -21,7 +21,29 @@ Function Get-HPECOMGroup {
     Optional parameter that can be used to specify the name of a group to display.
 
     .PARAMETER ShowCompliance
-    Optional switch parameter that can be used to get a specific device compliance detail of a group.
+    Optional switch parameter that can be used to get comprehensive compliance details for all compliance types (firmware, iLO settings, and external storage) of a group using the UI-Doorway endpoint.
+
+    .PARAMETER ShowFirmwareCompliance
+    Optional switch parameter that can be used to get firmware compliance details of servers in a group.
+    
+    Returns the following properties for each server:
+    - Server: Server name
+    - SerialNumber: Server serial number
+    - Group: Group name the server belongs to
+    - State: Compliance state (Compliant, Not Compliant, Unknown, etc.)
+    - Score: Compliance score percentage (e.g., 25% indicates 25% compliant)
+    - ErrorReason: Reason for compliance failure if applicable
+    - Criticality: Severity level of the firmware update (Recommended, Critical, Optional)
+    - Deviations: Number of firmware components that deviate from the group's baseline
+    - WillItRebootTheServer: Indicates if applying the update will reboot the server (Yes/No)
+    - GracefullShutdownAttempt: Indicates if a graceful shutdown will be attempted before reboot (Yes/No)
+    - TotalDownloadSize: Total size of firmware updates to download (e.g., 40 MB)
+
+    .PARAMETER ShowiLOSettingsCompliance
+    Optional switch parameter that can be used to get iLO settings compliance details of servers in a group.
+
+    .PARAMETER ShowExternalStorageCompliance
+    Optional switch parameter that can be used to get external storage compliance details of servers in a group.
 
     .PARAMETER ShowMembers
     Optional parameter that can be used to obtain a list of servers that are members of the designated group. 
@@ -48,7 +70,22 @@ Function Get-HPECOMGroup {
     .EXAMPLE
     Get-HPECOMGroup -Region us-west -Name DLV24-ESX8-Mgmt-Cluster -ShowCompliance
 
-    Return the device compliance details of the group resource named 'DLV24-ESX8-Mgmt-Cluster'. 
+    Return comprehensive compliance details (firmware, iLO settings, and external storage) for the group resource named 'DLV24-ESX8-Mgmt-Cluster'.
+
+    .EXAMPLE
+    Get-HPECOMGroup -Region us-west -Name DLV24-ESX8-Mgmt-Cluster -ShowFirmwareCompliance
+
+    Return firmware compliance details for servers in the group 'DLV24-ESX8-Mgmt-Cluster'.
+
+    .EXAMPLE
+    Get-HPECOMGroup -Region us-west -Name DLV24-ESX8-Mgmt-Cluster -ShowiLOSettingsCompliance
+
+    Return iLO settings compliance details for servers in the group 'DLV24-ESX8-Mgmt-Cluster'.
+
+    .EXAMPLE
+    Get-HPECOMGroup -Region us-west -Name DLV24-ESX8-Mgmt-Cluster -ShowExternalStorageCompliance
+
+    Return external storage compliance details for servers in the group 'DLV24-ESX8-Mgmt-Cluster'. 
 
     .EXAMPLE
     Get-HPECOMGroup -Region us-west -Name Hypervisors -ShowMembers
@@ -74,6 +111,11 @@ Function Get-HPECOMGroup {
     
         [Parameter (Mandatory)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -93,12 +135,24 @@ Function Get-HPECOMGroup {
         [Parameter (ParameterSetName = 'Name')]
         [Parameter (Mandatory, ParameterSetName = 'ShowMembers')]
         [Parameter (Mandatory, ParameterSetName = 'Compliance')]
+        [Parameter (Mandatory, ParameterSetName = 'FirmwareCompliance')]
+        [Parameter (Mandatory, ParameterSetName = 'iLOSettingsCompliance')]
+        [Parameter (Mandatory, ParameterSetName = 'ExternalStorageCompliance')]
         [Parameter (Mandatory, ParameterSetName = 'ShowSettings')]
         [Parameter (Mandatory, ParameterSetName = 'ShowPolicies')]
         [String]$Name,
 
         [Parameter (ParameterSetName = 'Compliance')]
         [Switch]$ShowCompliance,
+
+        [Parameter (ParameterSetName = 'FirmwareCompliance')]
+        [Switch]$ShowFirmwareCompliance,
+
+        [Parameter (ParameterSetName = 'iLOSettingsCompliance')]
+        [Switch]$ShowiLOSettingsCompliance,
+
+        [Parameter (ParameterSetName = 'ExternalStorageCompliance')]
+        [Switch]$ShowExternalStorageCompliance,
 
         [Parameter (ParameterSetName = 'ShowMembers')]
         [Switch]$ShowMembers,
@@ -132,7 +186,7 @@ Function Get-HPECOMGroup {
             $Uri = (Get-COMGroupsUri) + "/properties"
             
         }
-        elseif ($ShowMembers -or $ShowCompliance) {
+        elseif ($ShowMembers -or $ShowCompliance -or $ShowFirmwareCompliance -or $ShowiLOSettingsCompliance -or $ShowExternalStorageCompliance) {
 
             $Uri = (Get-COMGroupsUri) + "?filter=name eq '$name'"
 
@@ -147,7 +201,19 @@ Function Get-HPECOMGroup {
                 }
 
                 if ($ShowCompliance) {
+                    $Uri = (Get-COMGroupsUIDoorwayUri) + "/" + $GroupID
+                }
+
+                if ($ShowFirmwareCompliance) {
                     $Uri = (Get-COMGroupsUri) + "/" + $GroupID + "/compliance"
+                }
+
+                if ($ShowiLOSettingsCompliance) {
+                    $Uri = (Get-COMGroupsUIDoorwayUri) + "/" + $GroupID
+                }
+
+                if ($ShowExternalStorageCompliance) {
+                    $Uri = (Get-COMGroupsUri) + "/" + $GroupID + "/external-storage-compliance"
                 }
 
                 if ($ShowMembers) {
@@ -173,6 +239,11 @@ Function Get-HPECOMGroup {
     
         }
         catch {
+            # For ShowExternalStorageCompliance, 404 means no external storage data available
+            if ($ShowExternalStorageCompliance -and $_.Exception.Message -match '404') {
+                "[{0}] No external storage compliance data available for group '{1}' (404 - may indicate no external storage configured)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                return
+            }
             $PSCmdlet.ThrowTerminatingError($_)
                    
         }           
@@ -186,6 +257,43 @@ Function Get-HPECOMGroup {
             $CollectionList | Add-Member -type NoteProperty -name region -value $Region
                        
             if ($ShowCompliance) {
+                
+                # Extract only compliance-relevant fields from UI-Doorway comprehensive response
+                # Convert PSCustomObjects to formatted strings for display
+                $firmwareDevices = if ($CollectionList.'deviceCounts_'.'firmwareCompliance' -and $CollectionList.'deviceCounts_'.'firmwareCompliance'.PSObject.Properties.Count -gt 0) {
+                    ($CollectionList.'deviceCounts_'.'firmwareCompliance'.PSObject.Properties | ForEach-Object { "$($_.Name):$($_.Value)" }) -join ', '
+                } else { 'None' }
+                
+                $iloDevices = if ($CollectionList.'deviceCounts_'.'iloSettingCompliance' -and $CollectionList.'deviceCounts_'.'iloSettingCompliance'.PSObject.Properties.Count -gt 0) {
+                    ($CollectionList.'deviceCounts_'.'iloSettingCompliance'.PSObject.Properties | ForEach-Object { "$($_.Name):$($_.Value)" }) -join ', '
+                } else { 'None' }
+                
+                $externalStorageDevices = if ($CollectionList.'deviceCounts_'.'externalStorageCompliance' -and $CollectionList.'deviceCounts_'.'externalStorageCompliance'.PSObject.Properties.Count -gt 0) {
+                    ($CollectionList.'deviceCounts_'.'externalStorageCompliance'.PSObject.Properties | ForEach-Object { "$($_.Name):$($_.Value)" }) -join ', '
+                } else { 'None' }
+                
+                $ComplianceData = [PSCustomObject]@{
+                    groupName = $Name
+                    groupComplianceStatus = $CollectionList.groupComplianceStatus
+                    firmwareComplianceStatus = $CollectionList.firmwareComplianceStatus_
+                    groupIloSettingsComplianceStatus = $CollectionList.groupIloSettingsComplianceStatus
+                    groupExternalStorageComplianceStatus = $CollectionList.groupExternalStorageComplianceStatus
+                    groupSummaryComplianceStatus = $CollectionList.groupSummaryComplianceStatus
+                    firmwareDevices = $firmwareDevices
+                    iloDevices = $iloDevices
+                    externalStorageDevices = $externalStorageDevices
+                    groupComplianceUpdatedAt = $CollectionList.groupComplianceUpdatedAt
+                    groupIloSettingsComplianceUpdatedAt = $CollectionList.groupIloSettingsComplianceUpdatedAt
+                    groupExternalStorageComplianceUpdatedAt = $CollectionList.groupExternalStorageComplianceUpdatedAt
+                    groupSummaryComplianceUpdatedAt = $CollectionList.groupSummaryComplianceUpdatedAt
+                    complianceCheckedAt = $CollectionList.complianceCheckedAt_
+                    region = $Region
+                }
+                
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $ComplianceData -ObjectName "COM.Groups.All.Compliance"    
+
+            }
+            elseif ($ShowFirmwareCompliance) {
                 
                 # Add groupName, servername and serialNumber (only serial is provided)
                 # groupName is used in Invoke-HPECOMGroupInternalStorageConfiguration, Update-HPECOMGroupFirmware, etc. 
@@ -206,6 +314,45 @@ Function Get-HPECOMGroup {
 
                 $CollectionList = $CollectionList | Sort-Object serverName
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Groups.Firmware.Compliance"    
+
+            }
+            elseif ($ShowiLOSettingsCompliance) {
+                
+                # Extract iLO settings compliance from UI-Doorway data and format device counts
+                $iloDevices = if ($CollectionList.'deviceCounts_'.'iloSettingCompliance' -and $CollectionList.'deviceCounts_'.'iloSettingCompliance'.PSObject.Properties.Count -gt 0) {
+                    ($CollectionList.'deviceCounts_'.'iloSettingCompliance'.PSObject.Properties | ForEach-Object { "$($_.Name):$($_.Value)" }) -join ', '
+                } else { 'None' }
+                
+                $iLOComplianceData = [PSCustomObject]@{
+                    groupName = $Name
+                    groupIloSettingsComplianceStatus = $CollectionList.groupIloSettingsComplianceStatus
+                    deviceCounts = $iloDevices
+                }
+                
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $iLOComplianceData -ObjectName "COM.Groups.iLO.Settings.Compliance"    
+
+            }
+            elseif ($ShowExternalStorageCompliance) {
+                
+                # Add groupName, servername and serialNumber (only serial is provided)
+                # groupName is used for consistency with other compliance commands
+                Foreach ($Item in $CollectionList) {
+
+                    try {
+                        $ServerName = Get-HPECOMServer -Region $Region -Name $Item.serial                        
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                    }
+
+                    $Item | Add-Member -type NoteProperty -name groupName -value $Name
+                    $Item | Add-Member -type NoteProperty -name serialNumber -value $Item.serial
+                    $item | Add-Member -Type NoteProperty -Name serverName -Value $ServerName.name
+                    
+                }
+
+                $CollectionList = $CollectionList | Sort-Object serverName
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Groups.External.Storage.Compliance"    
 
             }
             elseif ($ShowMembers) {
@@ -668,6 +815,11 @@ Function New-HPECOMGroup {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -1200,8 +1352,8 @@ Function Remove-HPECOMGroup {
     
     Note: If you want to delete a group without modifying the server configuration, you must first remove the servers from the group using 'Remove-HPECOMServerfromGroup' before deleting the group.
 
-    Note: If the group you want to delete is part of a resource restriction policy (RRP) saved filter, this filter will not be updated and should be manually reviewed. Check the user accounts associated with the RRP in HPE GreenLake using 'Get-HPEGLUserRole' or 'Get-HPEGLResourceRestrictionPolicy'.
-    If necessary, adjust the user account RRP settings using 'Add-HPEGLRoleToUser' to ensure that the intended resource restrictions are preserved.
+    Note: If the group you want to delete is part of a scope filter in HPE GreenLake, this filter will not be updated and should be manually reviewed. Check the user accounts associated with scope groups in HPE GreenLake using 'Get-HPEGLUserRole' or 'Get-HPEGLScopeGroup'.
+    If necessary, adjust the user account scope group assignments using 'Add-HPEGLRoleToUser' to ensure that the intended scope-based access control is preserved.
 
     .PARAMETER Name 
     The name of the group to remove. 
@@ -1258,6 +1410,11 @@ Function Remove-HPECOMGroup {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -1559,6 +1716,11 @@ Function Set-HPECOMGroup {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2396,6 +2558,11 @@ Function Add-HPECOMServerToGroup {
     Param( 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2700,6 +2867,11 @@ Function Remove-HPECOMServerFromGroup {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2786,7 +2958,18 @@ Function Remove-HPECOMServerFromGroup {
 
             $ErrorMessage = "Group '{0}': Resource cannot be found in the '{1}' region!" -f $GroupName, $Region
 
-            throw $ErrorMessage
+            if ($WhatIf) {
+                Write-Warning $ErrorMessage
+                return
+            }
+
+            foreach ($Object in $ObjectStatusList) {
+                $Object.Status = "Failed"
+                $Object.Details = $ErrorMessage
+            }
+
+            $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "COM.Groups.SGSDE"
+            return $ObjectStatusList
 
         }
 
@@ -2813,28 +2996,28 @@ Function Remove-HPECOMServerFromGroup {
 
                 if ( -not $Server) {
 
-                    # Must return a message if device not found
-                    $Object.Status = "Failed"
-                    $Object.Details = "Server cannot be found in the region!"
-
                     if ($WhatIf) {
                         $ErrorMessage = "Server '{0}': Resource cannot be found in the '{1}' region!" -f $Object.SerialNumber, $Region
                         Write-warning $ErrorMessage
                         continue
                     }
+
+                    # Must return a message if device not found
+                    $Object.Status = "Failed"
+                    $Object.Details = "Server cannot be found in the region!"
                     
                 } 
                 elseif (-not ( $GroupMembers | Where-Object serial -eq $Object.SerialNumber)) { 
 
-                    # Must return a message if server already member of the group
-                    $Object.Status = "Warning"
-                    $Object.Details = "Server is not a member of the group!"
-                    
                     if ($WhatIf) {
                         $ErrorMessage = "Server '{0}': Resource is not a member of the '{1}' group!" -f $Object.SerialNumber, $GroupName
                         Write-warning $ErrorMessage
                         continue
                     }
+
+                    # Must return a message if server not member of the group
+                    $Object.Status = "Warning"
+                    $Object.Details = "Server is not a member of the group!"
                     
                 }
                 else {    
@@ -2866,14 +3049,15 @@ Function Remove-HPECOMServerFromGroup {
 
             "[{0}] Tracking object: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList | out-string) | Write-Verbose
 
-            # Must return a message if no servers are member of the group when all is used
-            $ObjectStatusList[0].SerialNumber = "[All]"
-            $ObjectStatusList[0].Status = "Warning"
-            $ObjectStatusList[0].Details = "No servers are member of the group!"
-            
             if ($WhatIf) {
                 $ErrorMessage = "Group '{0}': No servers are member of the group!" -f $GroupName
                 Write-warning $ErrorMessage
+            }
+            else {
+                # Must return a message if no servers are member of the group when all is used
+                $ObjectStatusList[0].SerialNumber = "[All]"
+                $ObjectStatusList[0].Status = "Warning"
+                $ObjectStatusList[0].Details = "No servers are member of the group!"
             }
         }
 
@@ -3175,10 +3359,10 @@ function Invoke-RepackageObjectWithType {
 Export-ModuleMember -Function 'Get-HPECOMGroup', 'New-HPECOMGroup', 'Remove-HPECOMGroup', 'Set-HPECOMGroup', 'Add-HPECOMServerToGroup', 'Remove-HPECOMServerFromGroup' -Alias *
 
 # SIG # Begin signature block
-# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDXi+k40whfwbP6
-# WCDsuTDM8CuoJmysAxbpjJZ7V5RpJ6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBGzASqcqfFryox
+# IWMsxzs68ksq2QkIyQilwVk9LsGvTKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -3274,154 +3458,147 @@ Export-ModuleMember -Function 'Get-HPECOMGroup', 'New-HPECOMGroup', 'Remove-HPEC
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgnEm5abkTpc9MZkbc+klia2/0X1rhR+FBQyAvwNnU8kAwDQYJKoZIhvcNAQEB
-# BQAEggIALnwoI/cCMrnYD+cQuwTefx+kJVtVvBwxX3Vi6dUT7uMYfGnaCXoDrP/Y
-# Sg6T6UbKVJt757ZgUeoiATBOS86jHERccbliHnnpmF7UYy8CZUtPnQWS7ZRIse+4
-# APl3LA6SITiCdxhCdgOEKdQDXayRHCnJpt0EdbKJcyxMsgLbgXDJbD/FzpZ0lphr
-# UPymgaCUYtaBbKv89wgAd3xEZfyTb5puYYIOyOBm7WfDXbtWL3RswZyeO75bTgnD
-# ULTID7Fq/2ju3tEq05okKb8jK3GaMJriFqw5fGVZAK/JsWiRo7IIZykHcC0+WZIF
-# SqvHYfMRHty4y0LdpGv0bSmh6/0DTlFpW8R1DC6HaPuG9q06OUs5XG/NnfNqDakj
-# NHmZenzHw7l1dbcITRnfWuIn+d6rFrucRG3H9yLD8kzccnL4jaZ7PLNFLjLiWd9D
-# Yc/BFLYHOxxKbCD5DHSDvuDTbjjZcpqZFUVEgwF1LYQFeH8axvV9keBcSrB7DQJY
-# qIIKjjWu7+hojcb118/OnEnE1D8giYIB5jw5IKAOQeG/vdDvQokDN2F/jta/SaD9
-# /kxyXVWP4EIJwbZUqQBKsoPYtFE/1XNBhMWvptQWQ5gRtNhVfZnIZA+8mi5thH1p
-# e0oS4RSpoR9HoO0k3KvWgDiWzvV78D6GwNa3Um61HGGaVe5wFSihghjoMIIY5AYK
-# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQw+0i2qQIsR9jpn347Rz0xFQYiuUbss9fFJ8mE
-# brsTyRYRAvFmdyRPmst5yoirNf7qAhQ2Mb/KuQxs81KG+q/QaHWsK8eG4hgPMjAy
-# NTEwMDMxMDA3NDlaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
-# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
-# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
-# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
-# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
-# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
-# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
-# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
-# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
-# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
-# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
-# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
-# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
-# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
-# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
-# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
-# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
-# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
-# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
-# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
-# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
-# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
-# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
-# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
-# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
-# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
-# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
-# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
-# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
-# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
-# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
-# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
-# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
-# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
-# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
-# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
-# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
-# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
-# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
-# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
-# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
-# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
-# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
-# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
-# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
-# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
-# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
-# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
-# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
-# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
-# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
-# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
-# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
-# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
-# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
-# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
-# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
-# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
-# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
-# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
-# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
-# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
-# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
-# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
-# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
-# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
-# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
-# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
-# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
-# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
-# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
-# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
-# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
-# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
-# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
-# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
-# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
-# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
-# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
-# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
-# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
-# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
-# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
-# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
-# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
-# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
-# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
-# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
-# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
-# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
-# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
-# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
-# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
-# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
-# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
-# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
-# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
-# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
-# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
-# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
-# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
-# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
-# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
-# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjUxMDAzMTAwNzQ5WjA/BgkqhkiG9w0BCQQxMgQwifaIOsHMSViKyXgBIPdW
-# xf8vFAm49C2eN7tY8/2WRvkme/JakTzNB2onHhKP7j9QMIIBegYLKoZIhvcNAQkQ
-# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
-# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
-# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
-# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
-# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
-# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgAFK9n77ROl7T3mkouaBRhBATerodUGFvzYI10Ue4+/FUNAr2ija/vLEfQJi3oe
-# lBaR0p8GJUp86/8QzDfBHuhAKJF1scBQBsHVasS6iOy3d7olSxFQffGgxkvpYy0E
-# V6QAbV1kxzH57kBv/VxkrGyTbCcilyZ2GLArh/eLSqymimLOOOX6x5aUH26nNvZo
-# YSP+zaJr1A2mkjwbjMd6MK/RaiYhqg3zPjnbX4URXCRqcc+uPAUuivK6mvDFdgiG
-# LP4rqlNMu9+JYY0kD/k22eD1QN1aO29ADGm9n4ntX0SBQhaAwRHhoofIct+DDehj
-# PWYH4TOiIakKBWIv+bV5AQNLI7+pwaEPfqmKDk1eHaSvLRY9vYmkrNW8Vh6KVAko
-# m64wndmjrKTj0y+91du7iQqP31c6UnILRRwfUXCoqiwlg8TunnDQht61nMYFKkqZ
-# +PvdEWdsGIuO5dgvIacxNVpGw/OYcu5PA8n3OPr0+5xT9Ce881x2b71Iqc4ArYyg
-# LDrccRrehp9rZ2fEvP38WAkvmzK8IietykxRnhFMnAep+K43vU1knRjxY5TZM+Bc
-# lZzsZ8Dcky0egxUi+WpYji3Hr8ZGrf+YDQpyUB72PC53rYfJ5BGUz6OQ6nw62YTv
-# Np56h/u02Z3IVyqSY8T2dsZJlXVY/XOSI/XBj/NbLXhmLg==
+# IgQgavLBdUkUwklU3XnscxuB8XcAJXx8SsJ1hsL9W8XLe+UwDQYJKoZIhvcNAQEB
+# BQAEggIAYnlFSj/bEkyPE3PV2GLYSDtwFsQYzQna13u82k0WtOUhwal7dhpvPQAf
+# /4+fjQy1zp/FAAs059bAUtyGehCqj6qxNegdor4v0tDsCd8n3bOUl34s/UlsqRTH
+# tKiZDM6UAxQr9QcTkmXxZt2Y5Yt/N2zfdenGeS64MjZ4GxG+OYkCBlqQBjofuCPX
+# 9j4ijyJCZXrAmYgRR5btqlgp+VeVaMgfeE/cDbVf0kh3SthhGWBMUVXkndJPi0WP
+# elvolshQBwdPQNHEp5raKc6D0hkgH5Xi/Jk4tv00wEK58LBYo03EcavVqm4BBFZs
+# mxd82OMWav6eBPFZcY+Kf9G3pmnagXB5aQ3sVqYgPt29dvXVdYH4DoX9JMCbzMvM
+# HEhKnkk7FN5TgfK3Kr+mksp2Sir/Lq47TLkClE6J8ZZFm/GT2A/n3vS+s+QTh7+X
+# fZE10/fq68kQcjmCUE4APerwOdpS/SJTiXnjq6UYB8IXqLDUTExcX4iSJn6I+QKc
+# ob1FsK/EB5BC+IXUu1LNmhOXqz0oEcveKle+thuNDVS+QfUFudrq3agYZ5PpW+Yj
+# NrtszlKal7yMq23qlr42FWH3dHzlUO9mRmkWy4QKFfi/3o//gApRHYl5JVsLopZk
+# 0HNHUsnSZX4Y9uwsdOoyPeQNQzwKKStOI4LOWrCEjXm1dedC1sahgheYMIIXlAYK
+# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMC2v5Zto9LWfRsvbUKyTwgeoCbf/ddUObeobeEW5xXU8
+# 8yvTpEiqDLaHrxwSzOSUAgIRAI2KQ4Dw6qmJ3W5BMaBNEmMYDzIwMjYwMTE5MTgx
+# ODA5WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
+# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
+# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
+# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
+# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
+# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
+# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
+# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
+# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
+# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
+# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
+# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
+# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
+# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
+# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
+# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
+# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
+# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
+# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
+# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
+# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
+# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
+# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
+# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
+# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
+# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
+# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
+# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
+# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
+# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
+# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
+# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
+# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
+# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
+# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
+# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
+# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
+# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
+# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
+# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
+# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
+# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
+# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
+# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
+# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
+# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
+# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
+# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
+# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
+# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
+# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
+# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
+# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
+# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
+# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
+# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
+# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
+# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
+# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
+# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
+# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
+# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
+# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
+# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
+# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
+# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
+# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
+# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
+# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
+# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
+# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
+# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
+# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
+# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
+# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
+# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
+# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
+# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
+# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
+# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
+# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
+# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
+# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
+# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
+# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
+# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
+# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
+# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
+# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
+# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
+# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
+# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
+# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
+# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
+# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
+# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
+# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
+# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
+# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
+# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
+# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDEx
+# OTE4MTgwOVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMOkhro1T6niga3/oMtPyekgm
+# 2Cgnxfkt/tKhITSQQrs3iMMP0HGrdd+viv9+1tKeqzANBgkqhkiG9w0BAQEFAASC
+# AgAgjPb4P7cDqd2PDHEKP0v41huXsUiP8Z7cuLlVmcE4SJVf63LPWNxt0lp+j0it
+# oWYzhKpKWCIXWnpEaMp/tjoKkMgRzjx6KTRMryM/IeNESku9PAHs1H9HiJKXbJSG
+# m/eI+ELXo4hO2Njxfcl9SUCYpxwNj4KhYJKIKQsGdZZGV8e8f8s3qtMeUqg+dDaM
+# zLAdDuZ/+qNSFxXGhaHGbQjyLqSlK1kxvaD1EJp/CQZK0PKY/iPaAxi9yzxPTTrw
+# kl31ZgGMTZXTcx0md1+CAwM3+R7MnAqm3UXlOuchIrsFasOR6gVLvlWub4LwyeB5
+# YcGBsxrI6OES4qkLBIjR5KRJxqeppUojnCi8EDPUfJZFNAB+7+fOpU7e8aMZjIgL
+# 8a6RUTri/uedaz2PVuHABDu2i1yAQRkQ4P9dl8H2NjMt5EkvaS86E5GcdiRI+mXU
+# C5cMpwHwP4SlD5MtkjejZlAY/P4XFwYlt3jH6VLwduZncgwi/aXw+MXryBUlBG3V
+# YmkimprD4R9I9RAGkllkNwjJn3UXxn4ycZ9NZbOpyDgPgd+yMjiz7XKpY+zuXfr4
+# SqU9JylyARSVhkcgztFgBXMiJh8kYvUuayb7AGYF2AEV80X6VirBibFOZ8ovLckt
+# BGhq8aQztfcup1Z48IWrRx3mOp/9jGxzbb21q7rf8GlGyQ==
 # SIG # End signature block

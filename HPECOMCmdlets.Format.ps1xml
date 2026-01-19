@@ -97,6 +97,58 @@
         <View>
             <Name>ObjStatus</Name>
             <ViewSelectedBy>
+                <TypeName>HPEGreenLake.ObjStatus.NSDDE</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                                                                                                                                          
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>DNSTxtRecord</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Details</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Exception</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>    
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                            </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.status</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.DNSTxtRecord</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.details</ScriptBlock>
+                            </TableColumnItem>                            
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.exception</ScriptBlock>
+                            </TableColumnItem>         
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>ObjStatus</Name>
+            <ViewSelectedBy>
                 <TypeName>HPEGreenLake.ObjStatus.NRSDE</TypeName>
             </ViewSelectedBy>
             <TableControl>
@@ -175,6 +227,58 @@
                         <TableColumnItems>
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.email</ScriptBlock>
+                            </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.status</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.details</ScriptBlock>
+                            </TableColumnItem>                            
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.exception</ScriptBlock>
+                            </TableColumnItem>         
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View>
+
+        <View>
+            <Name>UserRemovalStatus</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.UserRemoval.Status</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Email</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>RemovalType</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                                                                                                                                          
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Details</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Exception</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>    
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.email</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.RemovalType</ScriptBlock>
                             </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.status</ScriptBlock>
@@ -493,6 +597,65 @@
         </View> 
 
         <View>
+            <Name>PreclaimValidation</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.License.Preclaim</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>SubscriptionKey</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>CanBeClaimed</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Message</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>WorkspaceName</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ErrorCode</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>subscriptionKey</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.canBeClaimed) {
+                                        "Yes"
+                                    } else {
+                                        "No"
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.message -and $_.message.Length -gt 60) {
+                                        $_.message.Substring(0, 57) + "..."
+                                    } else {
+                                        $_.message
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>workspaceName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>errorCode</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
             <Name>License</Name>
             <ViewSelectedBy>
                 <TypeName>HPEGreenLake.License.Service</TypeName>
@@ -578,10 +741,6 @@
                         <Label>LicenseDescription</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>SeatsLeft</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
                 </TableHeaders>
                 <TableRowEntries>
                     <TableRowEntry>
@@ -594,9 +753,6 @@
                             </TableColumnItem>
                             <TableColumnItem>
                                 <PropertyName>auto_license_subscription_tier_description</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>open_seats</PropertyName>
                             </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
@@ -657,7 +813,7 @@
             <TableControl>
                 <TableHeaders>
                     <TableColumnHeader>
-                        <Label>DeviceType</Label>
+                        <Label>DeviceName</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
@@ -669,30 +825,7 @@
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                               <ScriptBlock>
-                                    $_.deviceType
-                                    <!-- if ($_.deviceType -eq 'AP') {
-                                        "Access Points"
-                                    }
-                                    elseif ($_.deviceType -eq 'SWITCH') {
-                                        "Switches"
-                                    }
-                                    elseif ($_.deviceType -eq 'GATEWAY') {
-                                        "Gateways"
-                                    }
-                                    elseif ($_.deviceType -eq 'COMPUTE') {
-                                        "Compute"
-                                    }
-                                    elseif ($_.deviceType -eq 'SD_WAN_GW') {
-                                        "DS-WAN Gateways"
-                                    }
-                                    elseif ($_.deviceType -eq 'SENSOR') {
-                                        "Sensors"
-                                    }
-                                    elseif ($_.deviceType -eq 'BRIDGE') {
-                                        "Bridges"
-                                    }         -->
-                                </ScriptBlock>
+                               <PropertyName>deviceName</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
                                <PropertyName>enabled</PropertyName>
@@ -813,6 +946,71 @@
                             <TableColumnItem>
                                 <ScriptBlock>$_.tags -replace '^@{', '' -replace '}$', ''</ScriptBlock>
                             </TableColumnItem>                                                                                                                                      
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Device Tags</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Device.Tags</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Model</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>PartNumber</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Service</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Region</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Tags</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Location</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                               <PropertyName>Name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <PropertyName>SerialNumber</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Model</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>PartNumber</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Service</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Region</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Tags</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Location</PropertyName>
+                            </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
                 </TableRowEntries>
@@ -1194,6 +1392,104 @@
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
+                        <Label>PrimaryContactEmail</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>City</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>     
+                    <TableColumnHeader>
+                        <Label>Country</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Latitude</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Longitude</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ValidationStatus</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ExpirationDate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0} " -f $_.name</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>validatedByName</PropertyName>
+                            </TableColumnItem>   
+                            <TableColumnItem>
+                                <PropertyName>validatedByEmail</PropertyName>
+                            </TableColumnItem>     
+                            <TableColumnItem>
+                                <PropertyName>city</PropertyName>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <PropertyName>country</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>lat</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>lng</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    If ($_.validated -eq $true) {
+                                        "Valid"
+                                    }
+                                    else {
+                                        "Not Valid"
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    If ($_.validated -eq $true -and $_.validatedAt -and $_.validationCycle) {
+                                        $expirationDate = ([DateTime]$_.validatedAt).AddMonths($_.validationCycle)
+                                        $expirationDate.ToString('MM/dd/yyyy')
+                                    }
+                                    elseif ($_.expiredAt) {
+                                        ([DateTime]$_.expiredAt).ToString('MM/dd/yyyy')
+                                    }
+                                    else {
+                                        "N/A"
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>  
+
+        <View>
+            <Name>Detailed Locations</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Location.Details</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>PrimaryContact</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
                         <Label>PrimaryContactPhoneNumber</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
@@ -1205,14 +1501,6 @@
                         <Label>Country</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Shipping/ReceivingContact</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader> 
-                    <TableColumnHeader>
-                        <Label>Shipping/ReceivingAddress</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>                 
                 </TableHeaders>
                 <TableRowEntries>
                     <TableRowEntry>
@@ -1224,24 +1512,14 @@
                                 <ScriptBlock>"{0}" -f (($_.contacts | ? type -eq Primary).name)</ScriptBlock>
                             </TableColumnItem>     
                             <TableColumnItem>
-                                <ScriptBlock>"{0}" -f (($_.contacts | ? type -eq Primary).phone_number)</ScriptBlock>
+                                <ScriptBlock>"{0}" -f (($_.contacts | ? type -eq Primary).phoneNumber)</ScriptBlock>
                             </TableColumnItem>     
                             <TableColumnItem>
-                                <ScriptBlock>"{0} {1} {2} {3} {4}" -f (($_.addresses | ? type -eq street).street_address),(($_.addresses | ? type -eq street).street_address2), (($_.addresses | ? type -eq street).postal_code),(($_.addresses | ? type -eq street).city),(($_.addresses | ? type -eq street).state)</ScriptBlock>
+                                <ScriptBlock>"{0} {1} {2} {3} {4}" -f (($_.addresses | ? type -eq street).streetAddress),(($_.addresses | ? type -eq street).streetAddress2), (($_.addresses | ? type -eq street).postalCode),(($_.addresses | ? type -eq street).city),(($_.addresses | ? type -eq street).state)</ScriptBlock>
                             </TableColumnItem> 
                             <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.addresses.country</ScriptBlock>
                             </TableColumnItem>
-                            <TableColumnItem>
-                                <ScriptBlock>"{0}" -f (($_.contacts | ? type -eq shipping_receiving).name)</ScriptBlock>
-                            </TableColumnItem>                                                         
-                            <TableColumnItem>
-                                <ScriptBlock>
-                                    if(($_.addresses | ? type -eq shipping_receiving)){
-                                        "{0} {1} {2} {3} {4} {5}" -f (($_.addresses | ? type -eq shipping_receiving).street_address),(($_.addresses | ? type -eq shipping_receiving).street_address2),(($_.addresses | ? type -eq shipping_receiving).postal_code),(($_.addresses | ? type -eq shipping_receiving).city),(($_.addresses | ? type -eq shipping_receiving).country),(($_.addresses | ? type -eq street).state)
-                                    }
-                                </ScriptBlock>
-                            </TableColumnItem>                                                                                                                     
                         </TableColumnItems>
                     </TableRowEntry>
                 </TableRowEntries>
@@ -1493,6 +1771,53 @@
             </TableControl>
         </View> 
 
+        <View>
+            <Name>Service Scope Filter</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Service.ScopeFilter</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Service</Label>
+                    </TableColumnHeader>    
+                    <TableColumnHeader>
+                        <Label>Region</Label>
+                    </TableColumnHeader>              
+                    <TableColumnHeader>
+                        <Label>Filter</Label>
+                    </TableColumnHeader>              
+                    <TableColumnHeader>
+                        <Label>Id</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>Name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Service</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Region</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Filter</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Id</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
         
         <View>
             <Name>ObjStatus</Name>
@@ -1621,12 +1946,12 @@
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>Status</Label>
+                        <Label>Verified</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
                         <!-- <Width>15</Width> -->
-                        <Label>Role</Label>
+                        <Label>AuthorizationSource</Label>
                         <!-- <Alignment>right</Alignment> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
@@ -1638,25 +1963,149 @@
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                               <ScriptBlock>"{0} {1}" -f $_.contact.first_name, $_.contact.last_name</ScriptBlock>
+                                <PropertyName>displayName</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.contact.email</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.email</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                              <ScriptBlock>"{0}" -f $_.user_status</ScriptBlock>
+                              <ScriptBlock>"{0}" -f $_.'urn:ietf:params:scim:schemas:extensions:hpe-greenlake:2.0:User'.primaryEmailVerified</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                              <ScriptBlock>"{0}" -f ($_.user_role | ? application_id -eq "00000000-0000-0000-0000-000000000000" | % role_name)</ScriptBlock>
+                              <ScriptBlock>if ($_.authz_source) { $_.authz_source } else { $_.'urn:ietf:params:scim:schemas:extensions:hpe-greenlake:2.0:User'.source }</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                              <ScriptBlock>"{0}" -f  ([datetime]$_.last_login)</ScriptBlock>
+                              <ScriptBlock>"{0}" -f  ([datetime]$_.meta.lastModified)</ScriptBlock>
                             </TableColumnItem>                                                                                                                                
                         </TableColumnItems>
                     </TableRowEntry>
                 </TableRowEntries>
             </TableControl>
         </View>     
+
+        <View>
+            <Name>Scope Groups</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.ScopeGroup</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>CreatedAt</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>description</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f ([datetime]$_.createdAt)</ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Scope Group Filters</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.ScopeGroup.Filter</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <Width>25</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Type</Label>
+                        <Width>15</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Resource Provider</Label>
+                        <Width>25</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>GRN</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>resourceTypeDisplayName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>resourceProviderName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>grn</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Scope Group Role Assignments</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.ScopeGroup.RoleAssignment</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Role</Label>
+                        <Width>40</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Service</Label>
+                        <Width>25</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Subject</Label>
+                        <Width>25</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Type</Label>
+                        <Width>15</Width>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>roleName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>serviceName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>subjectName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>subjectType</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
 
         <View>
             <Name>Users Roles</Name>
@@ -1666,7 +2115,7 @@
             <TableControl>
                 <TableHeaders>
                     <TableColumnHeader>
-                        <Label>Email</Label>
+                        <Label>Role</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
@@ -1674,14 +2123,77 @@
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>Role</Label>
+                        <Label>Scope</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                      <TableColumnHeader>
-                        <Label>RestrictionPolicy</Label>
+                        <Label>Source of assignment</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
-                     <TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>role_name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>service_name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.scopes.scopeType -eq "MSP_SCOPE_GROUP" -or ($_.scopes -is [array] -and $_.scopes[0].scopeType -eq "MSP_SCOPE_GROUP")) {
+                                        # Scope group assignment - show the scope group name(s)
+                                        if ($_.scopes -is [array]) {
+                                            # Multiple scope groups
+                                            ($_.scopes | ForEach-Object { $_.scopeName }) -join ', '
+                                        } elseif ($_.scopes.scopeName) {
+                                            # Single scope group
+                                            $_.scopes.scopeName
+                                        } else {
+                                            "Scope Group"
+                                        }
+                                    }
+                                    elseif ($_.scopes.scopeType -contains "MSP_WORKSPACE" -or $_.scopes.scopeType -contains "WORKSPACE") { 
+                                        "Entire Workspace" 
+                                    }
+                                    elseif ($_.scopes) {
+                                        if ($_.scopes -is [array] -and $_.scopes.Count -gt 0) {
+                                            if ($_.scopes[0].scopeName) {
+                                                ($_.scopes | ForEach-Object { $_.scopeName }) -join ', '
+                                            } else {
+                                                $_.scopes -join ', '
+                                            }
+                                        } else {
+                                            $_.scopes.ToString()
+                                        }
+                                    }
+                                    else { 
+                                        "Entire Workspace" 
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>source</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Users Roles</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.User.TenantWorkspaceMembership</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>WorkspaceName</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
                         <Label>Description</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
@@ -1690,21 +2202,10 @@
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                                <PropertyName>email</PropertyName>
+                                <PropertyName>workspaceName</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <PropertyName>application_name</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>role</PropertyName>
-                            </TableColumnItem>
-                                <TableColumnItem>
-                                <ScriptBlock>
-                                     "{0}" -f  $_.resource_restriction_policy
-                                </ScriptBlock>
-                            </TableColumnItem>
-                                <TableColumnItem>
-                                <PropertyName>resource_restriction_policy_description</PropertyName>
+                                <PropertyName>Description</PropertyName>
                             </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
@@ -1712,6 +2213,497 @@
             </TableControl>
         </View> 
 
+        <View>
+            <Name>User Groups</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.UserGroup</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Source</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                    
+                    <TableColumnHeader>
+                        <Label>Created</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Modified</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>displayName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupDescription</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>source</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    (Get-Date $_.meta.created).ToString("MMMM d, yyyy")
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    (Get-Date $_.meta.lastModified).ToString("MMMM d, yyyy")
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View> 
+
+        <View>
+            <Name>User Groups With Counts</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.UserGroup.WithCounts</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Source</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Members</Label>
+                        <Alignment>Right</Alignment>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Roles</Label>
+                        <Alignment>Right</Alignment>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Created</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Modified</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>displayName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupDescription</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>source</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>MemberCount</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>RoleCount</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    (Get-Date $_.meta.created).ToString("MMMM d, yyyy")
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    (Get-Date $_.meta.lastModified).ToString("MMMM d, yyyy")
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View> 
+
+        <View>
+            <Name>UserGroup Members</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.UserGroup.Members</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Email</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Verified</Label>
+                        <Alignment>Center</Alignment>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>displayName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>userName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.'urn:ietf:params:scim:schemas:extensions:hpe-greenlake:2.0:User'.primaryEmailVerified -eq $true) { 'Yes' } else { 'No' }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View> 
+
+        <View>
+            <Name>UserGroup Roles</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.UserGroup.Roles</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Role</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Service</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Scope</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>role_name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>service_name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.scopes) {
+                                        if ($_.scopes -is [array] -and $_.scopes.Count -gt 0) {
+                                            if ($_.scopes[0].scopeName) {
+                                                ($_.scopes | ForEach-Object { $_.scopeName }) -join ', '
+                                            } else {
+                                                $_.scopes -join ', '
+                                            }
+                                        } else {
+                                            $_.scopes.ToString()
+                                        }
+                                    } else {
+                                        'All resources'
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View> 
+        
+        <View>
+            <Name>User Role Assignment Status</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.RoleAssignment.User</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Email</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>RoleName</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Scope</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Details</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Exception</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>Email</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>RoleName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.Scope -is [array]) {
+                                        $_.Scope -join ', '
+                                    } else {
+                                        $_.Scope
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Status</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Details</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Exception</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View> 
+        
+        <View>
+            <Name>User Role Modification Status</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.RoleModification.User</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Email</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>RoleName</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>OldScope</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>NewScope</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Details</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Exception</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>Email</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>RoleName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.OldScope -is [array]) {
+                                        $_.OldScope -join ', '
+                                    } else {
+                                        $_.OldScope
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.NewScope -is [array]) {
+                                        $_.NewScope -join ', '
+                                    } else {
+                                        $_.NewScope
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Status</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Details</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Exception</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View> 
+        
+        <View>
+            <Name>Role Assignment Status</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.RoleAssignment.Status</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>GroupName</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>RoleName</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Scope</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Details</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Exception</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>GroupName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>RoleName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Scope</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Status</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Details</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Exception</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View> 
+
+        <View>
+            <Name>User Group Member Addition Status</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.UserGroup.MemberAddition.Status</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>GroupName</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Users</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Details</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Exception</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>GroupName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Users</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Status</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Details</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Exception</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View> 
+
+        <View>
+            <Name>User Group Member Removal Status</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.UserGroup.MemberRemoval.Status</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>GroupName</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Users</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Details</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Exception</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>GroupName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Users</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Status</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Details</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Exception</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View> 
         
         <View>
             <Name>ObjStatus</Name>
@@ -1780,52 +2772,6 @@
         </View>     
 
         <View>
-            <Name>Users Stats</Name>
-            <ViewSelectedBy>
-                <TypeName>HPEGreenLake.User.Stat</TypeName>
-            </ViewSelectedBy>
-            <TableControl>
-                <TableHeaders>
-                    <TableColumnHeader>
-                        <Label>TotalUsers</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>ActiveUsers</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>InactiveUsers</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <!-- <Width>15</Width> -->
-                        <Label>UnverifiedUsers</Label>
-                        <!-- <Alignment>right</Alignment> -->
-                    </TableColumnHeader>
-                </TableHeaders>
-                <TableRowEntries>
-                    <TableRowEntry>
-                        <TableColumnItems>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0} " -f $_.total_users</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.active_users</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                              <ScriptBlock>"{0}" -f $_.inactive_users</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                              <ScriptBlock>"{0}" -f $_.unverified_users</ScriptBlock>
-                            </TableColumnItem>                                                                                                                              
-                        </TableColumnItems>
-                    </TableRowEntry>
-                </TableRowEntries>
-            </TableControl>
-        </View>  
-
-        <View>
             <Name>Users Preferences</Name>
             <ViewSelectedBy>
                 <TypeName>HPEGreenLake.User.Preference</TypeName>
@@ -1834,57 +2780,71 @@
                 <TableHeaders>
                     <TableColumnHeader>
                         <Label>User</Label>
-                        <!-- <Width>10</Width> -->
+                        <!-- <Width>30</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
                         <Label>Language</Label>
-                        <!-- <Width>10</Width> -->
+                        <Width>10</Width>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>MaintenanceNotifications</Label>
-                        <!-- <Width>10</Width> -->
+                        <Label>Theme</Label>
+                        <Width>16</Width>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>UpdateNotifications</Label>
-                        <!-- <Width>10</Width> -->
+                        <Label>Temperature</Label>
+                        <Width>12</Width>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>MultiFactorEnabled</Label>
-                        <!-- <Width>10</Width> -->
+                        <Label>Measure</Label>
+                        <Width>8</Width>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>MultiFactorEnforced</Label>
-                        <!-- <Width>10</Width> -->
+                        <Label>SessionTimeout(min)</Label>
+                        <Width>20</Width>
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>SessionTimeout(minutes)</Label>
-                        <!-- <Width>10</Width> -->
+                        <Label>GettingStarted</Label>
+                        <Width>15</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>WhatsNew</Label>
+                        <Width>10</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Widgets</Label>
+                        <Width>8</Width>
                     </TableColumnHeader>
                 </TableHeaders>
                 <TableRowEntries>
                     <TableRowEntry>
                         <TableColumnItems>
                             <TableColumnItem>
-                               <ScriptBlock>"{0} " -f $HPEGreenLakesession.username</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $HPEGreenLakesession.username</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0} " -f $_.language</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.language</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0} " -f $_.maintenance_notifications</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.theme</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0} " -f $_.update_notifications</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.temperature</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0} " -f $_.multi_fa_enabled</ScriptBlock>
+                               <ScriptBlock>"{0}" -f $_.measure</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0} " -f $_.mfa_enforced</ScriptBlock>
+                               <ScriptBlock>"{0}" -f [int]($_.idle_timeout / 60)</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f ($_.idle_timeout / 60)</ScriptBlock>
-                            </TableColumnItem>                                                                                                                          
+                               <ScriptBlock>"{0}" -f $_.showGettingStarted</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.showWhatsNew</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.showWidgets</ScriptBlock>
+                            </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
                 </TableRowEntries>
@@ -1959,10 +2919,6 @@
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>LifecycleState</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
                         <Label>AssociatedManagementWorkspace</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
@@ -1984,14 +2940,11 @@
                         <TableColumnItems>
                             <TableColumnItem>
                                 <ScriptBlock>
-                                    if($_.associatedWorkspace.id -eq $HPEGreenLakeSession.workspaceId){"X"}
+                                    if($_.current -eq $true){"X"}
                                 </ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
                                 <PropertyName>name</PropertyName>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                                <PropertyName>lifecycleState</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
                                 <ScriptBlock>
@@ -2218,6 +3171,158 @@
         <View>
             <Name>Workspace</Name>
             <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Workspace.Tenant</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>IsParent</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ID</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                if ($_.isParent) {"X"} else {""}
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>workspaceName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>description</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>id</PropertyName>
+                            </TableColumnItem>         
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Workspace</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Current</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>WorkspaceType</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Address</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>City</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                      <TableColumnHeader>
+                        <Label>Zip</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>State</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Country</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader> 
+                    <TableColumnHeader>
+                        <Label>PhoneNumber</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                       
+                    <TableColumnHeader>
+                        <Label>Email</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>      
+                    <!-- <TableColumnHeader> -->
+                        <!-- <Label>Version</Label> -->
+                        <!-- <Width>10</Width> -->
+                    <!-- </TableColumnHeader>                  -->
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if($_.company_name -eq $HPEGreenLakeSession.workspace){"X"}
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>company_name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>account_type</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if($_.address.street_address_2){
+                                        "{0} - {1}" -f $_.address.street_address, $_.address.street_address_2
+
+                                    }
+                                    else {
+
+                                        "{0}" -f $_.address.street_address
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.address.city</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.address.zip</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.address.state_or_region</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.address.country_code</ScriptBlock>
+                            </TableColumnItem>     
+                            <TableColumnItem>
+                                <PropertyName>phone_number</PropertyName>
+                            </TableColumnItem>                                                         
+                            <TableColumnItem>
+                                <PropertyName>created_by</PropertyName>
+                            </TableColumnItem>         
+                            <!-- <TableColumnItem> -->
+                                <!-- <PropertyName>version</PropertyName> -->
+                            <!-- </TableColumnItem>                        -->
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
                 <TypeName>HPEGreenLake.Workspace.SAML.Domain</TypeName>
             </ViewSelectedBy>
             <TableControl>
@@ -2305,7 +3410,7 @@
             </TableControl>
         </View>
 
-                <View>
+        <View>
             <Name>Workspace</Name>
             <ViewSelectedBy>
                 <TypeName>HPEGreenLake.Workspace.SAML.Domain.Details</TypeName>
@@ -2455,31 +3560,214 @@
         </View>
 
         <View>
-            <Name>Roles</Name>
+            <Name>Workspace</Name>
             <ViewSelectedBy>
-                <TypeName>HPEGreenLake.Role</TypeName>
+                <TypeName>HPEGreenLake.Workspace.Domain</TypeName>
             </ViewSelectedBy>
             <TableControl>
                 <TableHeaders>
                     <TableColumnHeader>
                         <Label>Name</Label>
-                        <Width>45</Width>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Claim</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                      <TableColumnHeader>
+                        <Label>LastVerified</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                      <TableColumnHeader>
+                        <Label>DnsTxtRecord</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>lifeCycleState</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.lastVerified) { (Get-Date $_.lastVerified).ToString("MM/dd/yyyy") } else { "" }
+                                </ScriptBlock>
+                            </TableColumnItem>         
+                            <TableColumnItem>
+                                <PropertyName>dnsTxtRecord</PropertyName>
+                            </TableColumnItem>         
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Workspace.SSOConnection</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Protocol</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Type</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                    <TableColumnHeader>
+                        <Label>AuthenticationPolicy</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                    <TableColumnHeader>
+                        <Label>IdleSessionTimeoutinMinutes</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.oidcIdpConfig) { "OpenID Connect" } elseif ($_.samlIdpConfig) { "SAML" }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    "SSO Connection"
+                                </ScriptBlock>
+                            </TableColumnItem>         
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    $_.AuthenticationPolicy
+                                </ScriptBlock>
+                            </TableColumnItem>   
+                            <TableColumnItem>
+                                <PropertyName>idleSessionTimeout</PropertyName>
+                            </TableColumnItem>      
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>
+
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Workspace.AuthenticationPolicy</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>State</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Domain</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                    <TableColumnHeader>
+                        <Label>AuthenticationSource</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                    <TableColumnHeader>
+                        <Label>Mode</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                    <TableColumnHeader>
+                        <Label>Created</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                    <TableColumnHeader>
+                        <Label>LastUpdated</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                  
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    $_.name 
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    $_.state.Substring(0,1).ToUpper() + $_.state.Substring(1).ToLower()
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    If ($_.policyType -eq "USER_RECOVERY") { "Recovery Users" } else { $_.condition.domain }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.ssoConnection) {
+                                        $_.ssoConnection
+                                    } else { 
+                                        If ($_.policyType -eq "DOMAIN_EXTERNAL") { "External SSO" } 
+                                     }
+                                </ScriptBlock>
+                            </TableColumnItem>         
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    If ($_.targets -eq "USER_RECOVERY") { "Local role assignments" } else {
+                                        If ($_.targets.authenticationOnlyMode) { "Authentication Only" } else { "Authentication and Authorization" }
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>         
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.createdAt) { ([datetime]$_.createdAt).ToString("MM/dd/yyyy") } else { "" }
+                                </ScriptBlock>
+                            </TableColumnItem>         
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.updatedAt) { ([datetime]$_.updatedAt).ToString("MM/dd/yyyy") } else { "" }
+                                </ScriptBlock>
+                            </TableColumnItem>         
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>   
+        
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Workspace.SSOConnection.AttributeMapping</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
                         <Label>Description</Label>
-                        <Width>80</Width>
+                        <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>AssignedUsers</Label>
-                        <Width>13</Width>
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Service</Label>
-                        <Width>25</Width>
-                    </TableColumnHeader>                 
-                    <TableColumnHeader>
-                        <Label>Role</Label>
-                        <Width>8</Width>
+                        <Label>AttributeMapping</Label>
+                        <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                 </TableHeaders>
                 <TableRowEntries>
@@ -2492,14 +3780,324 @@
                                 <PropertyName>description</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <PropertyName>total_users</PropertyName>
+                                <PropertyName>expression</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>     
+       
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Workspace.SSOConnection.SAMLSpConfig</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>EntityID</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ACSURL</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>DefaultRelayState</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>entityId</PropertyName>
                             </TableColumnItem>
                             <TableColumnItem>
-                                <PropertyName>application_name</PropertyName>
+                                <PropertyName>acsUrl</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>defaultRelayState</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>     
+
+        <View>
+            <Name>Workspace</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Workspace.SSOConnection.SAMLIdpConfig</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>EntityID</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LoginURL</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LogoutURL</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Certificate</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>entityId</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>loginUrl</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>logoutUrl</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>certificate</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>     
+
+        <View>
+            <Name>Roles</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Role</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>45</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Service</Label>
+                        <!-- <Width>25</Width> -->
+                    </TableColumnHeader>                 
+                    <TableColumnHeader>
+                        <Label>Type</Label>
+                        <!-- <Width>8</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                        <!-- <Width>80</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>role_display_name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>service_name</PropertyName>
                             </TableColumnItem>     
                             <TableColumnItem>
                                 <ScriptBlock>
-                                if($_.predefined -eq $True){"Built-in"}                                
+                                    if($_.type -eq "PREDEFINED"){"Built-in"}                                
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>role_description</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>   
+
+        <View>
+            <Name>Roles with Scope Support</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Role.WithScopeSupport</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Service</Label>
+                    </TableColumnHeader>                 
+                    <TableColumnHeader>
+                        <Label>Type</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ScopeGroups</Label>
+                        <Width>15</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>role_display_name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>service_name</PropertyName>
+                            </TableColumnItem>     
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if($_.type -eq "PREDEFINED"){"Built-in"}                                
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if($_.supports_scope_groups -eq $true){"Supported"}
+                                    elseif($_.supports_scope_groups -eq $false){"Not Supported"}
+                                    else{"Unknown"}
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>role_description</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>   
+
+        <View>
+            <Name>Role Assigned Principals</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Role.Assigned.Principals</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>25</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Type</Label>
+                        <!-- <Width>8</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Email</Label>
+                        <!-- <Width>35</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Role</Label>
+                        <!-- <Width>35</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Service</Label>
+                        <!-- <Width>25</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Scoping</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>type</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>email</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>role_name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>service_name</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.scopes) {
+                                        if ($_.scopes -is [array] -and $_.scopes.Count -gt 0) {
+                                            if ($_.scopes[0].scopeName) {
+                                                ($_.scopes | ForEach-Object { $_.scopeName }) -join ', '
+                                            } else {
+                                                $_.scopes -join ', '
+                                            }
+                                        } else {
+                                            'Entire workspace'
+                                        }
+                                    } else {
+                                        'Entire workspace'
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>
+        </View>   
+
+        <View>
+            <Name>Role Permissions</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.Role.Permissions</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Permission</Label>
+                        <!-- <Width>50</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Description</Label>
+                        <!-- <Width>60</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Provider</Label>
+                        <Width>25</Width>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Scoping</Label>
+                        <Width>30</Width>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>Permission</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Description</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>Provider</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.FixedScope -eq $true) {
+                                        'Applies to entire workspace'
+                                    } elseif ($_.Scopes) {
+                                        if ($_.Scopes -is [array] -and $_.Scopes.Count -gt 0) {
+                                            if ($_.Scopes[0].scopeName) {
+                                                ($_.Scopes | ForEach-Object { $_.scopeName }) -join ', '
+                                            } else {
+                                                $_.Scopes -join ', '
+                                            }
+                                        } else {
+                                            $_.Scopes.ToString()
+                                        }
+                                    } else {
+                                        'N/A'
+                                    }
                                 </ScriptBlock>
                             </TableColumnItem>
                         </TableColumnItems>
@@ -2680,52 +4278,6 @@
         </View> 
 
         <View>
-            <Name>User Roles Assigned Users</Name>
-            <ViewSelectedBy>
-                <TypeName>HPEGreenLake.User.Role.Assigned.Users</TypeName>
-            </ViewSelectedBy>
-            <TableControl>
-                <TableHeaders>
-                    <TableColumnHeader>
-                        <Label>Email</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Firstname</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <Label>Lastname</Label>
-                        <!-- <Width>10</Width> -->
-                    </TableColumnHeader>
-                    <TableColumnHeader>
-                        <!-- <Width>15</Width> -->
-                        <Label>UserStatus</Label>
-                        <!-- <Alignment>right</Alignment> -->
-                    </TableColumnHeader>
-                </TableHeaders>
-                <TableRowEntries>
-                    <TableRowEntry>
-                        <TableColumnItems>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.user_id</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.first_name</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                              <ScriptBlock>"{0}" -f $_.last_name</ScriptBlock>
-                            </TableColumnItem>
-                            <TableColumnItem>
-                              <ScriptBlock>"{0}" -f $_.status</ScriptBlock>
-                            </TableColumnItem>                                                                                                                          
-                        </TableColumnItems>
-                    </TableRowEntry>
-                </TableRowEntries>
-            </TableControl>
-        </View>      
-
-        <View>
             <Name>Local Gateway</Name>
             <ViewSelectedBy>
                 <TypeName>HPEGreenLake.Local.Gateway</TypeName>
@@ -2854,6 +4406,58 @@
                             </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.status</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.details</ScriptBlock>
+                            </TableColumnItem>                            
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.exception</ScriptBlock>
+                            </TableColumnItem>         
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>ObjStatus</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.ObjStatus.NRSDE</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>                                                                                                                                                          
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>RecoveryUserEmail</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Details</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Exception</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>    
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                            </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                              
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.status</ScriptBlock>
+                            </TableColumnItem> 
+                            <TableColumnItem>
+                                <ScriptBlock>"{0}" -f $_.RecoveryUserEmail</ScriptBlock>
                             </TableColumnItem> 
                             <TableColumnItem>
                                 <ScriptBlock>"{0}" -f $_.details</ScriptBlock>
@@ -3164,7 +4768,7 @@
                         <!-- <Width>50</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
-                        <Label>EnabledForRRP</Label>
+                        <Label>EnabledForScopeAccess</Label>
                         <!-- <Width>20</Width> -->
                     </TableColumnHeader>
                 </TableHeaders>
@@ -3259,9 +4863,9 @@
         </View>  
 
         <View>
-            <Name>FirmwareBundles</Name>
+            <Name>FirmwareBaselines</Name>
             <ViewSelectedBy>
-                <TypeName>HPEGreenLake.COM.FirmwareBundles</TypeName>
+                <TypeName>HPEGreenLake.COM.FirmwareBaselines</TypeName>
             </ViewSelectedBy>
             <TableControl>
                 <TableHeaders>
@@ -3699,6 +5303,173 @@
                             </TableColumnItem>
                             <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.currentValue</ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Groups All Compliance</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Groups.All.Compliance</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>GroupName</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>OverallStatus</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>FirmwareStatus</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>iLOSettingsStatus</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ExternalStorageStatus</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>FirmwareDevices</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>iLODevices</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ExternalStorageDevices</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LastChecked</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>groupName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupComplianceStatus</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>firmwareComplianceStatus</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupIloSettingsComplianceStatus</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupExternalStorageComplianceStatus</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>firmwareDevices</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>iloDevices</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>externalStorageDevices</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.complianceCheckedAt) {
+                                        ([DateTime]$_.complianceCheckedAt).ToString('yyyy-MM-dd HH:mm')
+                                    } else { 'N/A' }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Groups iLO Settings Compliance</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Groups.iLO.Settings.Compliance</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>GroupName</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ComplianceStatus</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>DeviceCounts</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>groupName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupIloSettingsComplianceStatus</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>deviceCounts</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Groups External Storage Compliance</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Groups.External.Storage.Compliance</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Server</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Group</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>State</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ErrorReason</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Deviations</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>serverName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>serialNumber</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>state</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>errorReason</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.deviations) {
+                                        $_.deviations.Count
+                                    } else { '0' }
+                                </ScriptBlock>
                             </TableColumnItem>
                         </TableColumnItems>
                     </TableRowEntry>
@@ -6093,15 +7864,15 @@
                         <Width>10</Width>
                     </TableColumnHeader>  
                     <TableColumnHeader>
-                        <Label>GEN10FirmwareBundle</Label>
+                        <Label>GEN10FirmwareBaseline</Label>
                         <Width>10</Width>
                     </TableColumnHeader>                                                                                                                                                                                                         
                     <TableColumnHeader>
-                        <Label>GEN11FirmwareBundle</Label>
+                        <Label>GEN11FirmwareBaseline</Label>
                         <Width>10</Width>
                     </TableColumnHeader>                                                                                                                                                                                                         
                     <TableColumnHeader>
-                        <Label>GEN12FirmwareBundle</Label>
+                        <Label>GEN12FirmwareBaseline</Label>
                         <Width>10</Width>
                     </TableColumnHeader>                                                                                                                                                                                                         
                     <TableColumnHeader>
@@ -6119,13 +7890,13 @@
                                 <ScriptBlock>$_.category</ScriptBlock>
                             </TableColumnItem> 
                             <TableColumnItem>
-                                <ScriptBlock>$_.GEN10FirmwareBundle</ScriptBlock>
+                                <ScriptBlock>$_.GEN10FirmwareBaseline</ScriptBlock>
                             </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                                                                                                              
                             <TableColumnItem>
-                                <ScriptBlock>$_.GEN11FirmwareBundle</ScriptBlock>
+                                <ScriptBlock>$_.GEN11FirmwareBaseline</ScriptBlock>
                             </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                                                                                                              
                             <TableColumnItem>
-                                <ScriptBlock>$_.GEN12FirmwareBundle</ScriptBlock>
+                                <ScriptBlock>$_.GEN12FirmwareBaseline</ScriptBlock>
                             </TableColumnItem>                                                                                                                                                                                                                                                                                                                                                                                                                                                              
                             <TableColumnItem>
                                 <ScriptBlock>$_.description</ScriptBlock>
@@ -6275,6 +8046,10 @@
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
+                        <Label>HealthSummary</Label>
+                        <!-- <Width>10</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
                         <Label>Model</Label>
                         <!-- <Width>10</Width> -->
                     </TableColumnHeader>
@@ -6325,6 +8100,15 @@
                                <ScriptBlock>"{0}" -f $_.serialnumber</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
+                               <ScriptBlock>
+                                    if ($_.hardware.health.summary) {
+                                        "{0}" -f $_.hardware.health.summary
+                                    } else {
+                                        "UNKNOWN"
+                                    }
+                               </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.hardware.model</ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
@@ -6343,10 +8127,22 @@
                                <ScriptBlock>"{0}" -f $_.state.connected</ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.host.osname</ScriptBlock>
+                               <ScriptBlock>
+                                    if ($_.host.osname) {
+                                        "{0}" -f $_.host.osname
+                                    } else {
+                                        "UNKNOWN"
+                                    }
+                               </ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
-                               <ScriptBlock>"{0}" -f $_.host.osversion</ScriptBlock>
+                               <ScriptBlock>
+                                    if ($_.host.osversion) {
+                                        "{0}" -f $_.host.osversion
+                                    } else {
+                                        "UNKNOWN"
+                                    }
+                               </ScriptBlock>
                             </TableColumnItem>    
                             <TableColumnItem>
                                <ScriptBlock>"{0}" -f $_.hardware.bmc.ip</ScriptBlock>
@@ -7796,6 +9592,101 @@
         <View>
             <Name>Servers</Name>
             <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Servers.Health</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Name</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Model</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>HealthSummary</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>HealthLED</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Fans</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Memory</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Network</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>PowerSupplies</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Processor</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Storage</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Temperature</Label>
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>BIOS</Label>
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.name</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.serialNumber</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.model</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.healthSummary</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.healthLED</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.fans</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.memory</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.network</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.powerSupplies</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.processor</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.storage</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.temperature</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>"{0}" -f $_.bios</ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Servers</Name>
+            <ViewSelectedBy>
                 <TypeName>HPEGreenLake.COM.Servers.AdapterToSwitchPortMappings</TypeName>
             </ViewSelectedBy>
             <TableControl>
@@ -8088,6 +9979,219 @@
         <View>
             <Name>Servers</Name>
             <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Servers.GroupCompliance</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>ServerName</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>GroupName</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>FirmwareStatus</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>iLOSettingsStatus</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ExternalStorageStatus</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>FirmwareDevices</Label>
+                        <!-- <Width>15</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>iLODevices</Label>
+                        <!-- <Width>15</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ExternalStorageDevices</Label>
+                        <!-- <Width>15</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>LastChecked</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>serverName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>serialNumber</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupFirmwareComplianceStatus</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupIloSettingsComplianceStatus</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupExternalStorageComplianceStatus</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>firmwareDevices</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>iloDevices</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>externalStorageDevices</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.complianceCheckedAt) {
+                                        $timestamp = [datetime]::Parse($_.complianceCheckedAt)
+                                        $timestamp.ToString("yyyy-MM-dd HH:mm")
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Servers</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Servers.GroupiLOSettingsCompliance</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>ServerName</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>GroupName</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Status</Label>
+                        <!-- <Width>20</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>DeviceCounts</Label>
+                        <!-- <Width>40</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>serverName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>serialNumber</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupIloSettingsComplianceStatus</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>deviceCounts</PropertyName>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Servers</Name>
+            <ViewSelectedBy>
+                <TypeName>HPEGreenLake.COM.Servers.GroupExternalStorageCompliance</TypeName>
+            </ViewSelectedBy>
+            <TableControl>
+                <TableHeaders>
+                    <TableColumnHeader>
+                        <Label>Server</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>SerialNumber</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Group</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>State</Label>
+                        <!-- <Width>15</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>ErrorReason</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
+                        <Label>Deviations</Label>
+                        <!-- <Width>15</Width> -->
+                    </TableColumnHeader>
+                </TableHeaders>
+                <TableRowEntries>
+                    <TableRowEntry>
+                        <TableColumnItems>
+                            <TableColumnItem>
+                                <PropertyName>serverName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>serialNumber</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>groupName</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.state -eq 'COMPLIANT') { 'Compliant' }
+                                    elseif ($_.state -eq 'NON_COMPLIANT') { 'Non-Compliant' }
+                                    else { $_.state }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <PropertyName>errorReason</PropertyName>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                                <ScriptBlock>
+                                    if ($_.deviations) {
+                                        $_.deviations.Count
+                                    } else {
+                                        0
+                                    }
+                                </ScriptBlock>
+                            </TableColumnItem>
+                        </TableColumnItems>
+                    </TableRowEntry>
+                </TableRowEntries>
+            </TableControl>       
+        </View> 
+
+        <View>
+            <Name>Servers</Name>
+            <ViewSelectedBy>
                 <TypeName>HPEGreenLake.COM.Servers.ActivationKeys</TypeName>
             </ViewSelectedBy>
             <TableControl>
@@ -8311,6 +10415,10 @@
                         <!-- <Width>30</Width> -->
                     </TableColumnHeader>
                     <TableColumnHeader>
+                        <Label>Available</Label>
+                        <!-- <Width>30</Width> -->
+                    </TableColumnHeader>
+                    <TableColumnHeader>
                         <Label>SubscriptionExpiresAt</Label>
                         <!-- <Width>30</Width> -->
                     </TableColumnHeader>
@@ -8338,6 +10446,9 @@
                             </TableColumnItem>
                             <TableColumnItem>
                                <ScriptBlock>$_.subscriptionTier</ScriptBlock>
+                            </TableColumnItem>
+                            <TableColumnItem>
+                               <ScriptBlock>$_.subscriptionAvailable</ScriptBlock>
                             </TableColumnItem>
                             <TableColumnItem>
                                <ScriptBlock>
@@ -8749,10 +10860,10 @@
 
 
 <!-- SIG # Begin signature block -->
-<!-- MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor -->
+<!-- MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor -->
 <!-- BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG -->
-<!-- KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBHJzourOTFOiW4 -->
-<!-- yyQ/1DypEMdS87Z06wqICCgdIgcpVKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU -->
+<!-- KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAXGC8aoz8t83PC -->
+<!-- vs/GTia4RjB8ff955nIK9pyYPExMbaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU -->
 <!-- jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI -->
 <!-- DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM -->
 <!-- EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy -->
@@ -8848,154 +10959,154 @@
 <!-- CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE -->
 <!-- v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya -->
 <!-- VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj -->
-<!-- nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW -->
+<!-- nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW -->
 <!-- BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg -->
 <!-- Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD -->
 <!-- BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC -->
 <!-- NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx -->
-<!-- IgQgkuK6VX7XEQHfxSQTFgnN4HvMh/rJn6XbZkvjWzL5CaMwDQYJKoZIhvcNAQEB -->
-<!-- BQAEggIAHSjLWeXNFWPnaWxRWEHe87m8i3P3OP1WD7rNX1RnXNohC4mDmcapD9Vd -->
-<!-- f8OSCjz4xy2wo1c1e5nXtumCj4eg9n2m0BYlQptvSJ4KREdVLHvB/t1HI5mTn59P -->
-<!-- x5JRtzqxsrZ+3nFkQKEUQxbyw6nG97Rb+OuQqZR63lMhjZFnYooEZFDayVeMGk4N -->
-<!-- H7TxscnjbXC71yrX+61pz6vSsOH3fn20kbqL9+QZe9mrvrR2t7xix7LgDQsR2T/U -->
-<!-- lkbEaWu7pniGDpbMW7Q3njt2AwDzFtoTCcyLad52i2XogzphFAQTn8OC1a5BsgxD -->
-<!-- UZQddFeODHh8UBvAsCnrl/VRoflgwR+04NSZeEiRACj1BbBeILchD8msfByF/HKO -->
-<!-- VsXQn7eCIyY0gbuXLm08yZwqoakYUcfdxJykJ49FTTSz9Mp52Kit15cHGxte7+ve -->
-<!-- ZgZ5RtG7LWXisBjbayDWqv3EIt7MCQoxbZWMKIxUZFAj8WZxfMK8Iw9hdx5MLnHM -->
-<!-- ITWhBJ4FDDwkSQobs+g4UNHZ6J7VHP4GUUsY03IqNEMhjySDgExXI//pCgsjiRO1 -->
-<!-- Pfxit8D++nMBglFPwoVZVBn6qUi6w90cWy0u8gBlwnV3IsAo7oUUCvU2mX4p5+L2 -->
-<!-- IcDtA16odVjRQA9Y0eSxRvvpzgtlCUF+qOiEyoDq7GzrZPn+0cKhghjpMIIY5QYK -->
-<!-- KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG -->
-<!-- SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC -->
-<!-- AQEwQTANBglghkgBZQMEAgIFAAQw8eE39lRmGKh6s457ZzECr5ADSg2f2eQbeBqs -->
-<!-- kZ1d3Xi748usWoGeONPXUKCkNhFKAhUAiXSLTa+VUfUWRxusEBN8lCd6FuwYDzIw -->
-<!-- MjUxMDAyMTQ1MjU2WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg -->
-<!-- WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl -->
-<!-- Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE -->
-<!-- yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD -->
-<!-- VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0 -->
-<!-- aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa -->
-<!-- Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv -->
-<!-- cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0 -->
-<!-- aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3 -->
-<!-- DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg -->
-<!-- Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S -->
-<!-- ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp -->
-<!-- PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc -->
-<!-- Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG -->
-<!-- o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8 -->
-<!-- PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04 -->
-<!-- FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C -->
-<!-- GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4 -->
-<!-- zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj -->
-<!-- cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE -->
-<!-- dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi -->
-<!-- MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG -->
-<!-- wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD -->
-<!-- MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln -->
-<!-- by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js -->
-<!-- LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww -->
-<!-- egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u -->
-<!-- Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH -->
-<!-- MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC -->
-<!-- gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc -->
-<!-- mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU -->
-<!-- sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W -->
-<!-- JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC -->
-<!-- Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw -->
-<!-- dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg -->
-<!-- 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl -->
-<!-- Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow -->
-<!-- ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx -->
-<!-- CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT -->
-<!-- JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy -->
-<!-- MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP -->
-<!-- U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0 -->
-<!-- YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y -->
-<!-- 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY -->
-<!-- XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx -->
-<!-- pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY -->
-<!-- 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+ -->
-<!-- va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW -->
-<!-- lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+ -->
-<!-- Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO -->
-<!-- LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID -->
-<!-- AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD -->
-<!-- VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV -->
-<!-- HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw -->
-<!-- BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t -->
-<!-- L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB -->
-<!-- AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln -->
-<!-- b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw -->
-<!-- Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM -->
-<!-- noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI -->
-<!-- yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk -->
-<!-- Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK -->
-<!-- r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6 -->
-<!-- ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY -->
-<!-- 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A -->
-<!-- QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH -->
-<!-- e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ -->
-<!-- aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR -->
-<!-- ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe -->
-<!-- YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz -->
-<!-- 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK -->
-<!-- TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV -->
-<!-- U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp -->
-<!-- Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla -->
-<!-- MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV -->
-<!-- BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G -->
-<!-- CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM -->
-<!-- WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q -->
-<!-- mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr -->
-<!-- uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k -->
-<!-- i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1 -->
-<!-- JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm -->
-<!-- XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j -->
-<!-- nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K -->
-<!-- mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa -->
-<!-- nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI -->
-<!-- xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57 -->
-<!-- ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY -->
-<!-- m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB -->
-<!-- /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG -->
-<!-- A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz -->
-<!-- ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j -->
-<!-- cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy -->
-<!-- dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM -->
-<!-- 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf -->
-<!-- ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH -->
-<!-- bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z -->
-<!-- IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T -->
-<!-- W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6 -->
-<!-- CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8 -->
-<!-- 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930 -->
-<!-- 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ -->
-<!-- D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+ -->
-<!-- CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA -->
-<!-- nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV -->
-<!-- BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt -->
-<!-- ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC -->
-<!-- AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF -->
-<!-- MQ8XDTI1MTAwMjE0NTI1NlowPwYJKoZIhvcNAQkEMTIEML15OxonorgNjLPpaoSA -->
-<!-- So99WcuWj9G4RbKOODUFxcVm/AELF4LR0Mtz/m5oXxBl7TCCAXoGCyqGSIb3DQEJ -->
-<!-- EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk -->
-<!-- eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP -->
-<!-- U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0 -->
-<!-- YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ -->
-<!-- kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l -->
-<!-- dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF -->
-<!-- UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh -->
-<!-- dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE -->
-<!-- ggIAUDBD0uXZKkDRuGEBxibW3e/irsCYIXM/sWchbFGsHa5nuHQsiFUf6tOdNSVi -->
-<!-- iXcjniZ1jT6a/pBXVV0yAxaMcB7SdxFfZa9bfeWr6uhxS0lRoRmSPktOdAnX5i/K -->
-<!-- VIaPJ1ovZsKGuaxsAq9HNy1lKyf86l/X4szv+IRHbMwhy0u3hhrigyfOFGEOJjat -->
-<!-- QE15xDnGYhZVCyagirVHdQ5e57PlpQb1Uzo7uou0KLv/8yFrOOe3ZS6MuMjiMAeo -->
-<!-- cooHN8JkflsabGhkRx4W1HpMYkXRaLA7HN4On5ynetMjNc2DhFh0B+padSocvCwj -->
-<!-- 7IOJrOmhS2RIxw8bT06oF32yEaG4qO4obUeVRb5d7aL8F4mmXYZrKL7tyDIFdtFe -->
-<!-- LtKLmrjS4Gd8uU1r8RsilMvmH+FTUvyLGMQHo5/Xqb3sH/HAKLat6IVuDzS98FzE -->
-<!-- 8shYO8ag+xFRzcb2xYd7Ev6FrsuEZTy5q4P0KwYunhAz7ZBM9SUCxmLDbXvR4HN+ -->
-<!-- Mrzkc6ZTMGQpAguLGlnalKM9Ft6G//jUu9d5BRwbni7xBvhef6VKrVIHGTQLBK8G -->
-<!-- Y5cug10oJmX3h4ydpp6NHdg02IFlKak55p8t60twLKQBr9qd8sbkhGhvpFrjJSOp -->
-<!-- 5zF3dIe4KTAm31fUtvowXhbVshe6uBjyLBofflZifJeWJVY= -->
+<!-- IgQgxeaVPkbPOUmbNTfj8vdAO8LJwYMBwhNmKFZjmWIO43AwDQYJKoZIhvcNAQEB -->
+<!-- BQAEggIATSqtxchxs3YbAR8VOKyhkKebp4xaLbBhX8ELbh+czw5+X6KEIDYhGn8/ -->
+<!-- 0m2TRBpHSbZy/i/Pqg7Dgr3orsj9fM1b6Qau55tCKKRHILbpFoEbXXsupv8a9tmV -->
+<!-- RFPfRHJYUZRPWjn85zaTPlx/eVDY5Q6HY6heTR2NqaSNvBakPCmzp+9tqJ3BWybM -->
+<!-- +mKKGl0Sq8MNf6IdAWlsft/N0X48RjW6YKNYTG/Abn16RLSPPBEroL6vhl2o9k0v -->
+<!-- 0t8TDg1HtdArJSvrhLCgQobchh7FMafle63r92SEnh7woEKXTMu+jA2yfZmnx8pB -->
+<!-- iyOG0Lpkcm1tgQoxeSY3wnVNUwyCLYrwOU4oxJr/JoS92tvzmgLXDmTXUEpwNs8I -->
+<!-- NYAxPw2zBvOo7ZxWiVXGBCM2RGrEjVylb0VL7Uj3ygN6iIUgN/i+h8dW+gtjKKsw -->
+<!-- jDoo6/sEkGwKU1+Ve/IRb+oGWxqk4s6qq0oeWIKAGOne48YpmzmTvsPW/3gqUEyD -->
+<!-- Ds02yA7bGdQ3pXPyeeXv61eHv36zEK7cZEnLU5if6x6HWF7se0vHh7iSBVsMS0gL -->
+<!-- OMvHocQE5VNLIPaAikqHpuKrO+rPWbsArELeMY6ZYDnXtRcKdq9eF/RqntconYFH -->
+<!-- goQMOa1Mq54qprcAUFPou8O6sRBA+7qkEDw46oVc5nXsJVyRcl+hghjoMIIY5AYK -->
+<!-- KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG -->
+<!-- SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC -->
+<!-- AQEwQTANBglghkgBZQMEAgIFAAQwoOXEfSM2QendfRxVSPIBsJgj8mzmZuvoFGkb -->
+<!-- ASRqSMG9L2rWsjTqr5EDCdKyZFwqAhR9a2ilsCkVDjAo2XEC16X+Miv16xgPMjAy -->
+<!-- NjAxMTkxODE0MjVaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ -->
+<!-- b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj -->
+<!-- dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK -->
+<!-- oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV -->
+<!-- BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp -->
+<!-- Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX -->
+<!-- DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y -->
+<!-- a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp -->
+<!-- Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN -->
+<!-- AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF -->
+<!-- 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+ -->
+<!-- 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/ -->
+<!-- BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ -->
+<!-- ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj -->
+<!-- gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+ -->
+<!-- F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU -->
+<!-- fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY -->
+<!-- gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO -->
+<!-- PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw -->
+<!-- AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2 -->
+<!-- oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy -->
+<!-- mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA -->
+<!-- MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw -->
+<!-- QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv -->
+<!-- LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu -->
+<!-- c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6 -->
+<!-- BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j -->
+<!-- b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw -->
+<!-- AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB -->
+<!-- PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya -->
+<!-- 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw -->
+<!-- nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl -->
+<!-- cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj -->
+<!-- JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3 -->
+<!-- A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd -->
+<!-- A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq -->
+<!-- TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC -->
+<!-- BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL -->
+<!-- MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl -->
+<!-- U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw -->
+<!-- MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T -->
+<!-- ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh -->
+<!-- bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY -->
+<!-- Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc -->
+<!-- iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl -->
+<!-- 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX -->
+<!-- VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69 -->
+<!-- rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX -->
+<!-- AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b -->
+<!-- Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s -->
+<!-- hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB -->
+<!-- AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV -->
+<!-- HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud -->
+<!-- EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG -->
+<!-- BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v -->
+<!-- U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB -->
+<!-- BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv -->
+<!-- UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6 -->
+<!-- Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye -->
+<!-- gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI -->
+<!-- cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK -->
+<!-- K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv -->
+<!-- 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq -->
+<!-- NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb -->
+<!-- vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA -->
+<!-- 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7 -->
+<!-- SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo -->
+<!-- vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi -->
+<!-- 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h -->
+<!-- GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd -->
+<!-- NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO -->
+<!-- ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT -->
+<!-- RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj -->
+<!-- YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow -->
+<!-- VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE -->
+<!-- AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ -->
+<!-- KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa -->
+<!-- FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ -->
+<!-- zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4 -->
+<!-- f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL -->
+<!-- 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm -->
+<!-- dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd -->
+<!-- wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc -->
+<!-- NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY -->
+<!-- ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc -->
+<!-- RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG -->
+<!-- wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk -->
+<!-- 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib -->
+<!-- wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/ -->
+<!-- BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD -->
+<!-- VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl -->
+<!-- cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy -->
+<!-- bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0 -->
+<!-- cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr -->
+<!-- ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K -->
+<!-- bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt -->
+<!-- FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg -->
+<!-- TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb -->
+<!-- sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ -->
+<!-- GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx -->
+<!-- ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx -->
+<!-- mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP -->
+<!-- 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J -->
+<!-- A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc -->
+<!-- 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE -->
+<!-- ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l -->
+<!-- IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC -->
+<!-- BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx -->
+<!-- DxcNMjYwMTE5MTgxNDI1WjA/BgkqhkiG9w0BCQQxMgQw1OCw6aYVDY04A2+Ny4IW -->
+<!-- u89C5eEjBIAYkoygv9QGB3WE2DGd8x4axoTEhZcXyOMAMIIBegYLKoZIhvcNAQkQ -->
+<!-- AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4 -->
+<!-- hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T -->
+<!-- ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh -->
+<!-- bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ -->
+<!-- NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3 -->
+<!-- IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS -->
+<!-- VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0 -->
+<!-- aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC -->
+<!-- AgB7P2UNDKwBbSFqy5mGSYAG7Kb59fbU1hzid24SJS0WsxRFter5YFCjniJF86fx -->
+<!-- CQuM9SVFeD7sDng5asGSKPUnLggij9h8mwE8XPvVab+iQCePzwyVR5PVTH8wTZCG -->
+<!-- N4HCVqM8Hjf/s6FcW6RSYuu9YsH6GhScxE/RuXc1f+l8OJrBnvkEWQ/rhgP6vVV0 -->
+<!-- O9qvfxenT8FIqS8RChJmqWD1eTl9HKXc+3/BdcncikQeTeXEVxw4Ayhi6uC+iBwC -->
+<!-- 8EI6yyEGFor/bdPwIRIamymCh/n7thaQGLuCwVAJNejDNm0vUcCLSHSg3GaU8hM2 -->
+<!-- fDAKb1vjZTMLJj1xGjk9W3U12ty+PCcbylIoaREcsogJ5cAayh0E2GqAxAs3y7uI -->
+<!-- 0rjjHsqGXRVCxfDg/NSkyNVFyyoUmUQ23GezU54jn46dtvdej2n0vZMsKDzF5V3s -->
+<!-- 7h1sdrP+XWTedZ9iZNq/DMfab6uqpmNEyPnRNfOT5uYwbvaZuS5tQYTQcRVOWwhp -->
+<!-- Z63iGfbPbv7NHPlH3DCBxwsswfz+OfU2opt11dwizFIDfka80JIZVSg3wVKQg2gD -->
+<!-- ALlAMzQ55yih06mYPaNWXI1InJVKpoA/3diQXh+A3x5bVmWC7MyhALT8wagle31K -->
+<!-- VQphXWu/tvSuHd5lA+is3hcapMr++DnNgesM2OBNLnSQNw== -->
 <!-- SIG # End signature block -->

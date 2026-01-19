@@ -400,8 +400,8 @@ Get-HPEGLDeviceAutoReassignSubscription
 ##################### Create a new server setting for firmware #####################################################################################
 
   $FirmwareSettingName = "Firmware-bundle-2024.04.00.01"
-  $Gen10_Firmware_Bundle = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion -Generation 10 | Select-Object -ExpandProperty releaseVersion
-  $Gen11_Firmware_Bundle = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion -Generation 11 | Select-Object -ExpandProperty releaseVersion
+  $Gen10_Firmware_Bundle = Get-HPECOMFirmwareBaseline -Region $Region -LatestVersion -Generation 10 | Select-Object -ExpandProperty releaseVersion
+  $Gen11_Firmware_Bundle = Get-HPECOMFirmwareBaseline -Region $Region -LatestVersion -Generation 11 | Select-Object -ExpandProperty releaseVersion
   New-HPECOMSettingServerFirmware -Region $Region -Name $FirmwareSettingName -Description "FW bundle for AI servers" -Gen10FirmwareBundleReleaseVersion $Gen10_Firmware_Bundle -Gen11FirmwareBundleReleaseVersion $Gen11_Firmware_Bundle 
 
   # Get the firmware setting
@@ -493,7 +493,7 @@ Get-HPEGLDeviceAutoReassignSubscription
 ######################################### Update server firmware  ##################################################################################
 
   # Get the latest firmware bundle for Gen10
-  $FW_Bundle_Release_Version = Get-HPECOMFirmwareBundle -Region $Region -LatestVersion  -Generation 10 | Select-Object -ExpandProperty releaseVersion
+  $FW_Bundle_Release_Version = Get-HPECOMFirmwareBaseline -Region $Region -LatestVersion  -Generation 10 | Select-Object -ExpandProperty releaseVersion
 
   # Run a firmware update on all Gen10 servers (without a schedule)
   Get-HPECOMServer -Region $Region | Where-Object serverGeneration -match "10" | Update-HPECOMServerFirmware -FirmwareBundleReleaseVersion $FW_Bundle_Release_Version -InstallHPEDriversAndSoftware -AllowFirmwareDowngrade -Async

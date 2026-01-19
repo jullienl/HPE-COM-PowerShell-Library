@@ -74,6 +74,11 @@ Function Get-HPECOMReport {
         [Parameter (Mandatory, ParameterSetName = 'EnergyConsumptionTotal')]
         [Parameter (Mandatory, ParameterSetName = 'EnergyCostTotal')]
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -404,6 +409,11 @@ function New-HPECOMServerInventory {
     (
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -921,6 +931,11 @@ Function Get-HPECOMServerInventory {
     
         [Parameter(Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -1559,120 +1574,171 @@ Function Get-HPECOMServerInventory {
 Function Get-HPECOMSustainabilityInsights {
     <#
     .SYNOPSIS
-    Retrieve the sustainability insights.
+    Retrieves sustainability insights for servers managed by HPE Compute Ops Management.
 
     .DESCRIPTION
-    This cmdlet retrieves sustainability insights for servers managed by COM in the specified region.
-    It provides information on energy consumption, CO2 emissions, and cost savings. These insights help organizations monitor and manage the environmental impact of their server infrastructure.
-    By default, the cmdlet returns total estimated values for energy consumption, CO2 emissions, and energy cost for all managed servers in the specified region over the past 90 days, along with projections for the next 180 days.
-    Users can filter the results to view data for individual servers by specifying a server's serial number or by piping server objects from the `Get-HPECOMServer` cmdlet.
-    Additionally, users can customize the time range and granularity of the data by using the `LookbackDays` and `ProjectionDays` parameters.
+    This cmdlet retrieves sustainability insights for servers managed by Compute Ops Management (COM) in the specified region.
+    It provides detailed information on energy consumption, CO2 emissions, and associated costs, helping organizations monitor 
+    and manage the environmental impact of their server infrastructure.
 
-    Note: 
-    Metrics data collection must be enabled (it is enabled by default) to retrieve sustainability insights.
-    To enable metrics data collection, use `Enable-HPECOMMetricsConfiguration`.
-    To verify the current metrics data collection status, use `Get-HPECOMMetricsConfiguration`.
+    By default, the cmdlet returns aggregated estimated values (total energy consumption, CO2 emissions, and energy cost) 
+    for all managed servers in the specified region. Historical data covers the past 90 days, with projections extending 
+    180 days into the future.
+
+    Users can:
+    - Filter results to view data for individual servers by specifying a server's serial number or by piping server objects 
+      from the `Get-HPECOMServer` cmdlet
+    - Customize the time range using the `LookbackDays` and `ProjectionDays` parameters
+    - View granular metrics per server using switches like `-Co2Emissions`, `-EnergyConsumption`, or `-EnergyCost`
+    - View aggregated totals using switches like `-Co2EmissionsTotal`, `-EnergyConsumptionTotal`, or `-EnergyCostTotal`
+
+    IMPORTANT: Metrics data collection must be enabled in your COM instance to retrieve sustainability insights. 
+    Metrics collection is enabled by default. Use `Get-HPECOMMetricsConfiguration` to verify the current status 
+    and `Enable-HPECOMMetricsConfiguration` to enable it if needed.
 
     .PARAMETER Region     
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) from which to retrieve the sustainability insights.
-    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+    Specifies the region code of a Compute Ops Management instance provisioned in your workspace (e.g., 'us-west', 'eu-central').
+    This mandatory parameter can be retrieved using:
+    - 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned'
+    - 'Get-HPEGLRegion -ShowProvisioned'
 
-    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+    Tab completion is supported for this parameter, displaying a list of provisioned region codes in your workspace.
     
     .PARAMETER SerialNumber
-    Optional parameter that can be used to get the report data of a specific server.
+    Optional parameter to filter insights for a specific server by its serial number.
+    This parameter accepts values from the pipeline and can be used with piped server objects from `Get-HPECOMServer`.
     
     .PARAMETER Co2Emissions
-    Optional switch parameter that can be used to display the carbon emissions data.    
+    Switch parameter that displays detailed carbon emissions data for each server, including collected values, 
+    projected values, and totals. Results include metadata such as server model, generation, processor, and location.
     
     .PARAMETER Co2EmissionsTotal
-    Optional switch parameter that can be used to display the total carbon emissions data.    
+    Switch parameter that displays aggregated carbon emissions data for all servers in the region, 
+    including total collected, projected, and estimated emissions.
 
     .PARAMETER EnergyConsumption
-    Optional switch parameter that can be used to display the energy consumption data.   
+    Switch parameter that displays detailed energy consumption data (in kWh) for each server, including collected values, 
+    projected values, and totals. Results include metadata such as server model, generation, processor, and location.
     
     .PARAMETER EnergyConsumptionTotal
-    Optional switch parameter that can be used to display the total energy consumption data.  
+    Switch parameter that displays aggregated energy consumption data (in kWh) for all servers in the region, 
+    including total collected, projected, and estimated consumption.
         
     .PARAMETER EnergyCost
-    Optional switch parameter that can be used to display the energy cost data.    
+    Switch parameter that displays detailed energy cost data for each server, including collected costs, 
+    projected costs, and totals. Results include metadata such as server model, generation, processor, and location.
 
     .PARAMETER EnergyCostTotal
-    Optional switch parameter that can be used to display the total energy cost data.     
+    Switch parameter that displays aggregated energy cost data for all servers in the region, 
+    including total collected, projected, and estimated costs.
 
     .PARAMETER LookbackDays
-    Optional parameter that specifies the number of days to look back for data. The default value is 90 days (3 months). 
-    The maximum value is 180 days (6 months).
+    Specifies the number of historical days to include in the insights. 
+    - Default: 90 days (3 months)
+    - Valid range: 1 to 180 days
+    - Use this parameter to analyze historical trends over a custom time period
 
     .PARAMETER ProjectionDays
-    Optional parameter that specifies the number of days to project energy consumption, CO2 emissions and costs into the future. The default value is 180 days (6 months). 
-    The maximum value is 180 days (6 months).
+    Specifies the number of future days to project energy consumption, CO2 emissions, and costs.
+    - Default: 180 days (6 months)
+    - Valid range: 1 to 180 days
+    - Use this parameter to forecast future sustainability metrics based on historical data
 
     .PARAMETER WhatIf 
-    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+    Shows the raw REST API call that would be made to COM instead of sending the request. 
+    This option is useful for understanding the underlying REST API operations and for troubleshooting.
 
     .EXAMPLE
     Get-HPECOMSustainabilityInsights -Region us-west 
 
-    Returns the total estimated sustainability insights for the us-west region, including energy consumption, CO2 emissions, and energy cost. Data covers the past 90 days and projects the next 180 days.
+    Returns the total estimated sustainability insights for all servers in the 'us-west' region, 
+    including aggregated energy consumption, CO2 emissions, and energy cost. 
+    Data covers the past 90 days with projections for the next 180 days.
 
     .EXAMPLE
     Get-HPECOMSustainabilityInsights -Region eu-central -EnergyConsumptionTotal 
 
-    Returns the total estimated energy consumption data available in the eu-central region, including data from the past 90 days and projections for the next 180 days.
+    Returns the total estimated energy consumption (in kWh) for all servers in the 'eu-central' region, 
+    including collected data from the past 90 days and projected consumption for the next 180 days.
     
     .EXAMPLE
     Get-HPECOMSustainabilityInsights -Region eu-central -EnergyConsumptionTotal -LookbackDays 7 -ProjectionDays 100
 
-    Returns the total estimated energy consumption data available in the eu-central region, including data from the past 7 days and projections for the next 100 days.
+    Returns the total estimated energy consumption for all servers in the 'eu-central' region, 
+    with data from the past 7 days and projections for the next 100 days.
 
     .EXAMPLE
     Get-HPECOMSustainabilityInsights -Region eu-central -EnergyCostTotal
 
-    Returns the total estimated energy cost data available in the eu-central region, including data from the past 90 days and projections for the next 180 days.
+    Returns the total estimated energy cost for all servers in the 'eu-central' region, 
+    including data from the past 90 days and cost projections for the next 180 days.
 
     .EXAMPLE
     Get-HPECOMSustainabilityInsights -Region eu-central -Co2EmissionsTotal
 
-    Returns the total estimated CO2 emissions data available in the eu-central region, including data from the past 90 days and projections for the next 180 days.
+    Returns the total estimated CO2 emissions for all servers in the 'eu-central' region, 
+    including data from the past 90 days and emission projections for the next 180 days.
 
     .EXAMPLE
     Get-HPECOMSustainabilityInsights -Region eu-central -Co2Emissions -LookbackDays 7 -ProjectionDays 100
 
-    Returns the estimated CO2 emissions data for each server in the eu-central region, including values from the past 7 days and projections for the next 100 days.
+    Returns detailed CO2 emissions data for each server in the 'eu-central' region, 
+    including values from the past 7 days and projections for the next 100 days.
+    Results include server metadata (model, generation, processor, location).
   
     .EXAMPLE
     Get-HPECOMSustainabilityInsights -Region eu-central -EnergyCost
 
-    Returns the estimated energy cost data for each server in the eu-central region, including values from the past 90 days and projections for the next 180 days.
+    Returns detailed energy cost data for each server in the 'eu-central' region, 
+    including collected costs from the past 90 days and projected costs for the next 180 days.
+    Results include server metadata (model, generation, processor, location).
 
     .EXAMPLE
     Get-HPECOMSustainabilityInsights -Region eu-central -SerialNumber 123456789 -EnergyCost
 
-    Returns the estimated energy cost data for the server with serial number '123456789' in the eu-central region, including data from the past 90 days and projections for the next 180 days.
+    Returns the estimated energy cost data for the server with serial number '123456789' in the 'eu-central' region, 
+    including data from the past 90 days and cost projections for the next 180 days.
 
     .EXAMPLE
     Get-HPECOMSustainabilityInsights -Region eu-central -SerialNumber 123456789 -Co2Emissions -LookbackDays 7 -ProjectionDays 100
 
-    Returns the estimated CO2 emissions data for the server with serial number '123456789' in the eu-central region, including data from the past 7 days and projections for the next 100 days.
+    Returns the estimated CO2 emissions data for the server with serial number '123456789' in the 'eu-central' region, 
+    including emissions from the past 7 days and projections for the next 100 days.
 
     .EXAMPLE
-    Get-HPECOMServer -Region us-west -ConnectionType Direct -PowerState ON | select -first 2 | Get-HPECOMSustainabilityInsights -Co2Emissions 
+    Get-HPECOMServer -Region us-west -ConnectionType Direct -PowerState ON | Select-Object -First 2 | Get-HPECOMSustainabilityInsights -Co2Emissions 
 
-    This command pipes the first two servers that are directly managed and powered on in the 'us-west' region to `Get-HPECOMSustainabilityInsights`, returning the CO2 emissions insights for each server.
+    Retrieves the first two directly managed, powered-on servers from the 'us-west' region and displays 
+    their CO2 emissions insights, including collected and projected values.
 
     .EXAMPLE
     '123456789', '987654321' | Get-HPECOMSustainabilityInsights -Region us-west -EnergyCost
 
-    This command returns the estimated energy cost data for the servers with serial numbers '123456789' and '987654321' in the 'us-west' region, including data from the past 90 days and projections for the next 180 days.
+    Returns the estimated energy cost data for servers with serial numbers '123456789' and '987654321' 
+    in the 'us-west' region, including data from the past 90 days and cost projections for the next 180 days.
 
     .INPUTS
     System.String, System.String[]
-        A single string object or a list of string objects representing the server's serial numbers.
+        A single string or an array of strings representing server serial numbers.
     
     System.Collections.ArrayList
-        List of servers retrieved using 'Get-HPECOMServer'.
+        A collection of server objects retrieved using 'Get-HPECOMServer'.
 
+    .OUTPUTS
+    HPEGreenLake.COM.Reports.SustainabilityData
+        Returns detailed or aggregated sustainability insights based on the specified parameters.
+        Output includes energy consumption, CO2 emissions, costs, and server metadata.
+
+    .NOTES
+    - At least one day of metrics data collection is required to generate sustainability insights
+    - Historical and projection periods can be customized using `-LookbackDays` and `-ProjectionDays`
+
+    .LINK
+    Get-HPECOMServer
+    Get-HPECOMMetricsConfiguration
+    Enable-HPECOMMetricsConfiguration
+    Get-HPEGLService
+    Get-HPEGLRegion
    #>
     [CmdletBinding(DefaultParameterSetName = "Region")]
     Param( 
@@ -1685,6 +1751,11 @@ Function Get-HPECOMSustainabilityInsights {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'EnergyConsumptionTotal')]
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'EnergyCostTotal')]
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2044,6 +2115,11 @@ Function Get-HPECOMServerUtilizationInsights {
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
                 }
@@ -2479,10 +2555,10 @@ Export-ModuleMember -Function 'Get-HPECOMReport', 'New-HPECOMServerInventory', '
 
 
 # SIG # Begin signature block
-# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCbT19ixEPa7pYG
-# EbLEaW3Cq+Q+UgxGQ0rLJulujcnVC6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB/8sszTNRm9bdI
+# z8LHxiEkuKpqwhsNjeWj9YR9kjhpSqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -2578,147 +2654,154 @@ Export-ModuleMember -Function 'Get-HPECOMReport', 'New-HPECOMServerInventory', '
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgW/df7XqHCk1xQGEeMeNkh7ard07yqV11TRdMhXuHAAkwDQYJKoZIhvcNAQEB
-# BQAEggIAn5pJ+xOfylQEFrUDvJRHTIqlZWVri1vj987X6mfwqo2HJXLv37fjLt8b
-# /CyYKNsuw7aylHzgFCJXtO4CafFfGS42nXGqMTQ6gxGMi8qR5qcGMExWpbtk6J0C
-# 9XCAim78UiH+GF6J4C6wHofbQvfeL0QYfs64BxLAkO1b0m3zn4JKFmxLRqS9Aaox
-# Cx3L39Qg4D7NM2a85CYFGwrDoe9d4U1MKxZx3iPQtuJURzAO21ZKAz6XxYXyE7I/
-# 6kE2nATzWfMD1KbNOpv22GMRVHpGjtY+u78DI08YPc0EsGEnCrD9HL7DkEojF79V
-# KN1YTfD3alKricsIT3Y/CHyXQke/HLj6sURd1s/MO23Bofc1QlFuavnWxvgWvBxL
-# AIKaQywxcH67lkL46Xvb8IODsD8MFLH9wXRDMBp2BwJ9Q8k2QHngLMldcSVIzGIM
-# JLkkiTPpaCctoq5OPk7fkDRWt1dt9ftbKZTz28mwfeCEVtBQ3xDQxx7J7yRpYLdN
-# uDhzYmAkOPyP74QJ+8i6wbe+oSFTT1lF83eKp31fUdWS3KXtpNjGgwWnjXBhMgSI
-# yQmeXQZ0gHfrWQqXQbhBrV6tQoxHda4mQAQNSrSCEJF6pCZvUKP7qBC8IdtMOl9I
-# DTm6ioThl/tfqShp63EcIb4i85rRFWmeWA3881OIv3+qx4uXZp2hgheYMIIXlAYK
-# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMLzr6fAldgcRqy0S7IvpDzoN63OBL/7mO9aXrmXtdn0s
-# +1UIwzaN2uv43VIWcD8yZgIRAIFZMixndFc7Pnli4rx7L6wYDzIwMjUxMDAyMTU0
-# MzIzWqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
-# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
-# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
-# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
-# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
-# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
-# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
-# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
-# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
-# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
-# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
-# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
-# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
-# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
-# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
-# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
-# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
-# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
-# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
-# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
-# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
-# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
-# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
-# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
-# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
-# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
-# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
-# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
-# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
-# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
-# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
-# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
-# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
-# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
-# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
-# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
-# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
-# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
-# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
-# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
-# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
-# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
-# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
-# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
-# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
-# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
-# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
-# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
-# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
-# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
-# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
-# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
-# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
-# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
-# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
-# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
-# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
-# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
-# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
-# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
-# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
-# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
-# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
-# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
-# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
-# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
-# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
-# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
-# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
-# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
-# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
-# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
-# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
-# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
-# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
-# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
-# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
-# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
-# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
-# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
-# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
-# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
-# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
-# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
-# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
-# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
-# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
-# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
-# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
-# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
-# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
-# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
-# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
-# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
-# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
-# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
-# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
-# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
-# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
-# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
-# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI1MTAw
-# MjE1NDMyM1owKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
-# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMBaPjcDeCuSt0IeALT59YpnU
-# EstCoJ4tCamZzQ8Xy1CjynaT/0N5LarYQR3mwIzYoTANBgkqhkiG9w0BAQEFAASC
-# AgAyi4OQom2jlN1dGcTEFcZ51jAFGjIoG1Ef4lTmZ11SEmvMwcG7/sjNRDIK2x/j
-# Z0a8ozUQo7lj0U5781VJ98mssmZPrQsfxqMj06DozOscbFbb9sghb1hvXudj/Tuz
-# 2qNoFB4XCkBd8OTY7dreCVVjkM/KATYysON+yuUv8AnFKA1Cy3Mk8SA/HWxOHRJt
-# o5vQ5BkjaElVro6vG7wW+ZvAVFygjwJretp3N+cVzzx3ykBH7ET0G8SjFUHoLcr6
-# 9jUFBKT9Znlxat3i5K8BFjfLEzFL793cegFK3EtPGNv/lNjyGT73DFH+QOQKti7U
-# 1/NMSrnKnTDS8GO0zbRX+IHrZF7EZvuckwqH0ZicGzFiZIPQIiUCrgBB7ENy6MTA
-# jdaHOovH3qdGtVuhmuyKFL/peGUw20PNFLZ0M8VMo6VXOk9AaEh7MxvnYH4Ek1oN
-# NpCLr9eYG/N+sxxBOQqdlOEVSSpNAqhBKEBkU9NU3SP0YZ4uImGYkG5AoX+Zixnv
-# r2OJMUFtQEKnR9kC5dh97I6ru+FCCUkFhSDhhim6zOa4vJYHbQP3IjmG8V+tybB7
-# ORqGsUAzXxOqjz8OUXz3b7GQb1b/d09nu+UZ1WbLBkRS8LfVY/8cHtBJOuEZsbyL
-# NsM14MRXgwDgYJ9ydt7X3S7+KmJ/3RC8CnSM5wwiFBK5Ww==
+# IgQgLWpfRjftyzuMUZjYuoNQ7/CE4OvBu16KCtJ2r1IeQNEwDQYJKoZIhvcNAQEB
+# BQAEggIANkT+SYhYg3FpDi7JcBK0Zv6cuc4ie6E+xkL1wLRHDWtba0Ib3Nev5DQH
+# Q7eqRbHDse1FAM77NLqBjpRuB4l/kvG2IRdfznD4Xga4BPR9le4S+159ShJ3tMyJ
+# Ob6wV4e2aRRDZNgUBhW+2SRKOWC3Vmk0L5ZXjgP0RFDQBlNyZ4kfmtIwvHxW922V
+# CXEpAp8ZOe7iOiHBqc7Ubk6DpFnDuKSg0Eq4VGW0u657hhDIpIocvVUgVVFoLyHP
+# JOT7Sdrb8gD20MEaJLys7B6zztYMtcDP/2zc534PTuIuoQkTlOFrAeKYA1P5LGt6
+# fyeyvM4gb0RvpFC6jELphEmxboD9uUt0//9XhtCIf2Hvxb0djbqY3LvXKzsbbIma
+# roQrPhzDv+3eZNd+qJx1lkgMw+lRAsFktJalEAADzft2+MVJMikLqATnVUnv8N/v
+# U44ieUuYSHQfHQPEWPyV6I6BjZoyphtqFCL349ycU3lkF5BMI3fWgVgfs9AOAyCh
+# GoFGhf8GHk8tgUB5lzbAa+bnLwISB/ywGgOwwAZv/3A1qd91h48B4I/eNjvV0o15
+# eJq0rITJEnsXnMcfKMZYhYRZ8Pz5dEHP0VjZqmSzD9Oerun5KTXt832a38cfHsN4
+# OHC4uPEYlUsSpDto7+z/nz2X6iGS+A07HW8eQtxEsFAheg65RB6hghjpMIIY5QYK
+# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwNKHf3R9iI8GK5JXx/ZQ7GzSkYvf2WTEllaVG
+# 9G11CKUYa7XfZEtNuwChTgXa8tSRAhUAmm2YcO/QvGNDYxKT61pZpKvX438YDzIw
+# MjYwMTE5MTgxNTIxWqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
+# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
+# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
+# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
+# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
+# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
+# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
+# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
+# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
+# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
+# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
+# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
+# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
+# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
+# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
+# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
+# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
+# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
+# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
+# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
+# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
+# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
+# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
+# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
+# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
+# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
+# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
+# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
+# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
+# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
+# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
+# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
+# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
+# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
+# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
+# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
+# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
+# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
+# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
+# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
+# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
+# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
+# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
+# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
+# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
+# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
+# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
+# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
+# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
+# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
+# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
+# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
+# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
+# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
+# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
+# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
+# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
+# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
+# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
+# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
+# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
+# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
+# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
+# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
+# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
+# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
+# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
+# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
+# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
+# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
+# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
+# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
+# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
+# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
+# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
+# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
+# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
+# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
+# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
+# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
+# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
+# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
+# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
+# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
+# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
+# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
+# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
+# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
+# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
+# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
+# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
+# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
+# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
+# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
+# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
+# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
+# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
+# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
+# MQ8XDTI2MDExOTE4MTUyMVowPwYJKoZIhvcNAQkEMTIEMDhTh7lYcU/s9e3352pa
+# lZ7SlnLZarmO+w+hZnJ+MCKs8CTcaaSYnJ67AuC/cluqZjCCAXoGCyqGSIb3DQEJ
+# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
+# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
+# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
+# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
+# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
+# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
+# ggIASyH5hIaXYNHPJtyNHZibPy4H7dJZlqDS9ZcIUohkgA3CIdX4vspVud4ogJcu
+# P9XEPVNj6S+Qj4biX2ozwNWRgHx7iFPoLbj84TKQGpQ0D4S6HZtN0AriScLW/hEl
+# /Bok5cmywBpbG5qUFPocwxV7KxljSWXfT1oCIULzHImrd2PUOXXW584lLZxwzAAJ
+# /wvQHBAX6sYeLrZop+mmvr602VJ57xOscw88W5u98+1ElkwEf6a4w9s6K1PUaG8n
+# X7J3u7Y2N0mDWZbjYsOFwWgGidZHBBPCxFjMAMRnDG04QYXBgjZp9C8/J3dN5VAO
+# Su0TU1sLDYW6VJrzlDPtFDC2hQrsf/8oCAiUlKKZSK5L+oxyP/wegWeU1d57CWIS
+# 9t13x3pLPw4uwRFzmPaCePFk61dlTV268VpgDU9sgDbkNDk1yhkOromI/U6rCL8U
+# sWfz+U6yjVhZDpti5F53seXIc9k1kLhNhMH0PLpkwPWfCz5sIoh+jDYj6JZ739NI
+# LPq4Z1GryDTHhEfW8sMMRA2Na2fXWw+9TdabUEdHP4vdFPs+14jMtUG6lPcSkGza
+# nReyeRhyZu5zVV9WOFH+8b+qz3oZ9TZ+cyGI1FCKnnSo6KKEVHrF+hu+gR5ihu40
+# qxxOKRZIO6OhECq5mZm1C5zTRWl4ijABzw0azQUCmRBZlhc=
 # SIG # End signature block
