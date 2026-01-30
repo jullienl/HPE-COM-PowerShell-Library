@@ -1,135 +1,104 @@
-#------------------- FUNCTIONS FOR COMPUTE OPS MANAGEMENT ACTIVITIES -----------------------------------------------------------------------------------------------------------------------------------------------
-
+#------------------- FUNCTIONS FOR COMPUTE OPS MANAGEMENT ALERTS -----------------------------------------------------------------------------------------------------------------------------------------------
 
 using module .\Constants.psm1
 
 # Public functions
-Function Get-HPECOMActivity {
+Function Get-HPECOMAlert {
     <#
     .SYNOPSIS
-    Retrieve the list of activities.
+    Retrieve the list of server alerts.
 
     .DESCRIPTION
-    This Cmdlet returns a collection of the last seven days activities that are available in the specified region.
+    This Cmdlet returns a collection of server alert resources that are available in the specified region.
+    Alerts provide security information and issues related to servers.
+    By default, all alerts are returned since they persist until cleared.
     
     .PARAMETER Region
     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
     This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
-
-    .PARAMETER ResourceUri
-    Optional parameter that can be used to specify the Uri of a resource to display.
-
+    
     .PARAMETER SourceName
-    Optional parameter that can be used to display the activities of a specific source name. 
-    Source name can be a server name, group name, appliance name, or external service name.
+    Optional parameter that can be used to display alerts for a specific server by name or serial number.
     
-    .PARAMETER Category 
-    Optional parameter that can be used to display the activities of a specific category. Auto-completion (Tab key) is supported for this parameter, providing a list of categories.
-    
+    .PARAMETER ShowLastWeek
+    This switch parameter can be used to display alerts from the last week (7 days).
+
     .PARAMETER ShowLastMonth
-    This switch parameter can be used to display the activities of the last month.
+    This switch parameter can be used to display the alerts from the last month.
 
     .PARAMETER ShowLastThreeMonths
-    This switch parameter can be used to display the activities of the last three months.
-    
-    .PARAMETER ShowAll
-    This switch parameter can be used to display the total number of activities. Be aware, however, that this may take some time, depending on your history.
+    This switch parameter can be used to display the alerts from the last three months.
 
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central
+    Get-HPECOMAlert -Region eu-central
 
-    Return the last seven days activities resources located in the central european region. 
-
-    .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -ShowLastMonth
-
-    Return the last month activities resources located in the central european region.
+    Return all server alerts in the central European region.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -SourceName CZJ11105MV 
+    Get-HPECOMAlert -Region eu-central -ShowLastWeek
 
-    Retrieve the last seven days activities resources for a server specified by its serial number.
-
-    .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -SourceName CZJ11105MV -ShowLastMonth
-
-    Retrieve the last month activities resources for a server specified by its serial number.
+    Return server alerts from the last week (7 days) in the central European region.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -SourceName CZJ11105MV -ShowLastThreeMonths
+    Get-HPECOMAlert -Region eu-central -ShowLastMonth
 
-    Retrieve the last three months activities resources for a server specified by its serial number.
-
-    .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -SourceName "ESXi_group" -ShowAll
-
-    Retrieve all activities data for a group specified by its name.
+    Return server alerts from the last month in the central European region.
 
     .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -Category Server
+    Get-HPECOMAlert -Region eu-central -ShowLastThreeMonths
 
-    Retrieve the last seven days activities data for a specific category.
-
-    .EXAMPLE
-    Get-HPECOMActivity -Region eu-central -SourceName "ESXi_group" -Category Job
-
-    Retrieve the last seven days activities data for a specific category and a specific server group.
+    Return server alerts from the last three months in the central European region.
 
     .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Name ESX-1 | Get-HPECOMActivity 
+    Get-HPECOMAlert -Region eu-central -SourceName CZJ11105MV 
 
-    Retrieve last seven days activities data for a server named 'ESX-1' in the "eu-central" region.
-
-    .EXAMPLE
-    Get-HPECOMServer -Region eu-central -Name CZJ11105MV | Get-HPECOMActivity -ShowLastMonth
-
-    Retrieve last last month activities data for a server with the serial number 'CZJ11105MV' in the "eu-central" region.
+    Retrieve alerts for a server specified by its serial number.
 
     .EXAMPLE
-    Get-HPECOMServer -Region us-west -Model 'ProLiant DL385 Gen10 Plus' -ConnectedState True -PowerState ON | Get-HPECOMActivity | Select-Object -First 1
+    Get-HPECOMAlert -Region eu-central -SourceName "ESX-1"
 
-    Retrieve the most recent activity data for all "ProLiant DL385 Gen10 Plus" servers in the "us-west" region that are currently powered on and connected.
+    Retrieve alerts for a server specified by its name.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -Name ESX-1 | Get-HPECOMAlert 
+
+    Retrieve alerts for a server named 'ESX-1' in the "eu-central" region using pipeline input.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region us-west -PowerState ON | Get-HPECOMAlert
+
+    Retrieve alerts for all powered on servers in the "us-west" region.
        
-    .EXAMPLE
-    Get-HPECOMGroup -Region eu-central -Name "MyGroup" | Get-HPECOMActivity -ShowLastMonth
-
-    Retrieve last last month activities data for a specific group in the "eu-central" region.
-
-    .EXAMPLE
-    Get-HPECOMGroup -Region eu-central | Get-HPECOMActivity -ShowLastMonth
-
-    Retrieve last last month activities data for all groups in the "eu-central" region.
-    
-    .EXAMPLE
-    $job = Update-HPECOMServeriLOFirmware -Region eu-central -ServerSerialNumber CZJ1233444 -Async
-    $job | Get-HPECOMJob 
-    $job | Get-HPECOMActivity 
-    $job | Wait-HPECOMJobComplete
-
-    This example retrieves the job resource created by the 'Update-HPECOMServeriLOFirmware' cmdlet in the central EU region.
-    Then it retrieves the activity resource associated with the job.
-    Then it waits for the job to complete.
-
-
     .INPUTS
     System.String, System.String[]
-        A single string object or a list of string objects representing the server's names.
+        A single string object or a list of string objects representing the server names or serial numbers.
     System.Collections.ArrayList
-        List of server, group or setting resources retrieved using 'Get-HPECOMServer' or 'Get-HPECOMGroup' or 'Get-HPECOMSetting'.
-    System.Collections.ArrayList
-        A job from one of the cmdlets creating a job or a list of jobs retrieved using 'Get-HPECOMJob'.
+        List of server resources retrieved using 'Get-HPECOMServer'.
 
+    .OUTPUTS
+    HPEGreenLake.COM.Servers.Alert [System.Management.Automation.PSCustomObject]
+
+        Alert objects with the following key properties:
+        - serverName: The name of the server
+        - serialNumber: The serial number of the server
+        - serverId: The internal server ID
+        - createdAt: The date/time when the alert was created (DateTime object)
+        - description: The alert description/message
+        - severity: The severity level of the alert (possible values: OK, WARNING, CRITICAL, UNKNOWN, NOT_PRESENT, REDUNDANT, NON_REDUNDANT)
+        - category: The category of the alert
+        - region: The region code where the alert was generated
     
    #>
     [CmdletBinding(DefaultParameterSetName = 'Default')]
     Param( 
     
-        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'Default')] 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'SourceName')]
         [ValidateScript({
                 # First check if there's an active session with COM regions
                 if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
@@ -152,55 +121,25 @@ Function Get-HPECOMActivity {
             })]
         [String]$Region,  
 
-        [Parameter (ParameterSetName = 'Default')]
         [Parameter (ParameterSetName = 'SourceName')]
-        # [Alias('associatedResource')]
+        [Alias('Name', 'SerialNumber')]
         [String]$SourceName,
 
         [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'Default')]
         [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'SourceName')]
-        [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'ResourceUri')]
-        [Alias('JobUri', 'JobResourceUri')]
         [string]$ResourceUri,
 
         [Parameter (ParameterSetName = 'Default')]
         [Parameter (ParameterSetName = 'SourceName')]
-        [Parameter (ParameterSetName = 'ResourceUri')]
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $environments = @('Appliance', '"External service"', 'Filter', 'Firmware', 'Group', 'Job', 'Report', 'Schedule', 'Server', 'Setting', 'Subscription', '"User Preferences"', 'Webhook')
-                $filteredEnvironments = $environments | Where-Object { $_ -like "$wordToComplete*" }
-                return $filteredEnvironments | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-        [ValidateScript({
-            $validOptions = @('Appliance', 'External service', 'Filter', 'Firmware', 'Group', 'Job', 'Report', 'Schedule', 'Server', 'Setting', 'Subscription', 'User Preferences', 'Webhook')
-            # case insensitive comparison
-            if ($validOptions -contains $_) {
-                $True
-            }
-            else {
-                throw "'$_' is not a valid option."
-            }
-            
-            })]
-        [String]$Category,
-        
+        [Switch]$ShowLastWeek,
+
         [Parameter (ParameterSetName = 'Default')]
         [Parameter (ParameterSetName = 'SourceName')]
-        [Parameter (ParameterSetName = 'ResourceUri')]
         [Switch]$ShowLastMonth,
 
         [Parameter (ParameterSetName = 'Default')]
         [Parameter (ParameterSetName = 'SourceName')]
-        [Parameter (ParameterSetName = 'ResourceUri')]
-        [Switch]$ShowLastThreeMonths,        
-
-        [Parameter (ParameterSetName = 'Default')]
-        [Parameter (ParameterSetName = 'SourceName')]
-        [Parameter (ParameterSetName = 'ResourceUri')]
-        [switch]$ShowAll,
+        [Switch]$ShowLastThreeMonths,
 
         [Switch]$WhatIf
        
@@ -213,14 +152,12 @@ Function Get-HPECOMActivity {
         
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $todayMinusSevenDays = (Get-Date).AddDays(-7).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") 
-        $todayMinusOneMonth = (Get-Date).AddMonths(-1).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-        $todayMinusThreeMonths = (Get-Date).AddMonths(-3).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+        $AlertCollection = [System.Collections.ArrayList]::new()
 
-        # Construct the filter query
-        $filterSevenDays = "createdAt gt $todayMinusSevenDays"
-        $filterOneMonth = "createdAt gt $todayMinusOneMonth"
-        $filterThreeMonths = "createdAt gt $todayMinusThreeMonths"
+        # Calculate time filters
+        $todayMinusSevenDays = (Get-Date).AddDays(-7).ToUniversalTime()
+        $todayMinusOneMonth = (Get-Date).AddMonths(-1).ToUniversalTime()
+        $todayMinusThreeMonths = (Get-Date).AddMonths(-3).ToUniversalTime()
       
     }
       
@@ -229,167 +166,245 @@ Function Get-HPECOMActivity {
       
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
        
-        $Uri = Get-COMActivitiesUri
-
-        # Helper function to add a filter to the URI
-        function Add-FilterToUri {
-            param (
-                [string]$Uri,
-                [string]$Filter
-            )
-            if ($Uri -match "\?") {
-                if ($Uri -match "filter") {
-                    $Uri + " and $Filter"
-                }
-                else {
-                    $Uri + "&filter=$Filter"
-                }
-            }
-            else {
-                $Uri + "?filter=$Filter"
-            }
-        }
-
-        # Add filters based on parameters
         if ($ResourceUri) {
-            # Encode the resourceId as it may contain special characters like + signs
-            $ResourceId = [System.Web.HttpUtility]::UrlEncode($ResourceUri.Split("/")[-1])
+            # Extract server ID from resourceUri and use it directly
+            $ServerID = $ResourceUri.Split("/")[-1]
+            "[{0}] Extracted server ID '{1}' from resourceUri" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerID | Write-Verbose
             
-            $Uri = Add-FilterToUri -Uri $Uri -Filter "contains(source/resourceUri, '$ResourceId')"
-        }
-        elseif ($SourceName) {
-            # Retrieve associated source name ID by trying different resource types
+            # Build URI directly with the extracted server ID
+            $Uri = (Get-COMServersUri) + "/" + $ServerID + "/alerts"
+            
+            # Make API call
             try {
-                $SourceResource = $null
-                $cmdletsToTry = @(
-                    'Get-HPECOMServer',
-                    'Get-HPECOMGroup', 
-                    'Get-HPECOMAppliance',
-                    'Get-HPECOMExternalService'
-                )
-                
-                foreach ($cmdlet in $cmdletsToTry) {
-                    $SourceResource = & $cmdlet -Region $Region -Name $SourceName -Verbose:$VerbosePreference -ErrorAction SilentlyContinue | 
-                        Select-Object -First 1
-                    
-                    if ($SourceResource) {
-                        $SourceNameID = $SourceResource.id
-                        break
-                    }
-                }
-                
-                if (-not $SourceNameID) {
-                    Return
-                }
-
-                # For appliances, prepend the appliance type prefix to match activity source ID format
-                if ($SourceResource.applianceType) {
-                    switch ($SourceResource.applianceType) {
-                        "GATEWAY" { $SourceNameID = "gateway+$SourceNameID" }
-                        "SYNERGY" { $SourceNameID = "oneview+$SourceNameID" }
-                        "VM" { $SourceNameID = "oneview+$SourceNameID" }
-                    }
-                }
+                "[{0}] Retrieving alerts for server ID '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerID | Write-Verbose
+                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
             }
 
-            # Encode the $SourceNameID as it may contain special characters like + signs
-            $EncodedSourceNameID = [uri]::EscapeDataString($SourceNameID)
-
-            $Uri = Add-FilterToUri -Uri $Uri -Filter "source/id eq '$EncodedSourceNameID'"
-            # $Uri = Add-FilterToUri -Uri $Uri -Filter "id eq '$SourceNameID'" # not returning any result
-        } 
-       
-        if ($Category) {
-
-            if ($Category -eq "Appliance") {
-                $Category = "appliance"
-            }
-
-            $Uri = Add-FilterToUri -Uri $Uri -Filter "contains(source/type, '$Category')"
-        }
-        
-
-        # Filter 7 days except for the other cases
-        if (-not $ShowAll -and -not $ShowLastMonth -and -not $ShowLastThreeMonths) {
-            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterSevenDays
-        }
-        # Filter 1 month
-        elseif ($ShowLastMonth) {
-            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterOneMonth
-        } 
-        # Filter 3 months
-        elseif ($ShowLastThreeMonths) {
-            $Uri = Add-FilterToUri -Uri $Uri -Filter $filterThreeMonths
-        }
-        elseif ($ShowAll) {
-            # No filter
-        }
-
-        try {
-            [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
-
-        }
-        catch {
-            $PSCmdlet.ThrowTerminatingError($_)
-               
-        }
-
-       
-        if ($Null -ne $CollectionList) {     
-
-            # Add formattedmessage to object
-            foreach ($Item in $CollectionList) {
-
-                if ($Item.message) {
-
-                    # Decode the Unicode escape sequences in the message as there is usually Unicode Escape Sequence (e.g. \u003c) in the message
-                    $_ActivityMessage = [System.Text.RegularExpressions.Regex]::Unescape($Item.message)
-                    
-                    # Format the message (split the message into an array, filter out the blank lines, and then use the -join operator to join the lines with " - ")
-                    $FormattedActivityMessage = ($_ActivityMessage -split "`r?`n" | Where-Object { $_ -ne "" }) 
-
-                    if ($FormattedActivityMessage.Count -gt 1) {
-                        $FormattedActivityMessage = $FormattedActivityMessage -join " - "
+            if ($Null -ne $CollectionList -and $CollectionList.Count -gt 0 -and -not $WhatIf) {
+                
+                "[{0}] Received {1} alert(s) from server ID '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count, $ServerID | Write-Verbose
+                
+                # Add serial number and region to object (serverName not available without lookup)
+                $CollectionList | ForEach-Object { 
+                    if ($_.serverId) {
+                        $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] -Force 
                     }
                 }
-                else {
-                    $FormattedActivityMessage = $null
+                $CollectionList | Add-Member -type NoteProperty -name region -value $Region -Force
+                
+                # Convert createdAt string to DateTime object in-place
+                $CollectionList | ForEach-Object { 
+                    if ($_.createdAt) {
+                        $_.createdAt = [DateTime]$_.createdAt
+                    }
                 }
-
-                $Item | Add-Member -type NoteProperty -name formattedmessage -value $FormattedActivityMessage
-                    
+                
+                "[{0}] Before filtering: {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                
+                # Apply time filters if specified
+                if ($ShowLastWeek) {
+                    $CollectionList = @($CollectionList | Where-Object { $_.createdAt -and ($_.createdAt -gt $todayMinusSevenDays) })
+                    "[{0}] After ShowLastWeek filter: {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                }
+                elseif ($ShowLastMonth) {
+                    $CollectionList = @($CollectionList | Where-Object { $_.createdAt -and ($_.createdAt -gt $todayMinusOneMonth) })
+                    "[{0}] After ShowLastMonth filter: {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                }
+                elseif ($ShowLastThreeMonths) {
+                    $CollectionList = @($CollectionList | Where-Object { $_.createdAt -and ($_.createdAt -gt $todayMinusThreeMonths) })
+                    "[{0}] After ShowLastThreeMonths filter: {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                }
+                
+                if ($CollectionList.Count -gt 0) {
+                    "[{0}] Adding {1} alert(s) to collection" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                    [void]$AlertCollection.AddRange($CollectionList)
+                }
+                else {
+                    "[{0}] No alerts remaining after filtering" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                }
+            }
+        }
+        elseif ($SourceName) {
+            # Get alerts for a specific server
+            
+            # Step 1: Pre-validation - Get server resource
+            try {
+                "[{0}] Retrieving server resource for '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SourceName | Write-Verbose
+                $Server = Get-HPECOMServer -Region $Region -Name $SourceName -Verbose:$false | Select-Object -First 1
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
             }
 
-            # Add region to object
-            $CollectionList | Add-Member -type NoteProperty -name region -value $Region
-            # Add job uri to object
-            $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name sourceResourceUri -value $_.source.resourceUri }
-            # Add category to object
-            $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name Category -value $_.source.type }
-
-            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Activities"    
-    
-            # $ReturnData = $ReturnData | Sort-Object activity, {$_.source.displayname}  # Not required as sorted by date by default
-        
-            return $ReturnData 
+            # Step 2: Validation check BEFORE API call
+            if (-not $Server) {
+                "[{0}] Server '{1}' not found in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SourceName, $Region | Write-Verbose
                 
+                if ($WhatIf) {
+                    $ErrorMessage = "Server '{0}' not found in region '{1}'. Cannot display API request." -f $SourceName, $Region
+                    Write-Warning $ErrorMessage
+                    return
+                }
+                else {
+                    # Get-* cmdlet: return nothing silently for "not found"
+                    return
+                }
+            }
+
+            # Step 3: Build URI AFTER validation passes
+            $ServerID = $Server.id
+            $Uri = (Get-COMServersUri) + "/" + $ServerID + "/alerts"
+            
+            # Step 4: Make API call
+            try {
+                "[{0}] Retrieving alerts for server '{1}' (ID: {2})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SourceName, $ServerID | Write-Verbose
+                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if ($Null -ne $CollectionList -and $CollectionList.Count -gt 0 -and -not $WhatIf) {
+                
+                "[{0}] Received {1} alert(s) from server '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count, $Server.name | Write-Verbose
+                
+                # Add serial number, servername, and region to object
+                $CollectionList | Add-Member -type NoteProperty -name serverName -value $Server.name -Force
+                $CollectionList | ForEach-Object { 
+                    if ($_.serverId) {
+                        $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] -Force 
+                    }
+                }
+                $CollectionList | Add-Member -type NoteProperty -name region -value $Region -Force
+                
+                # Convert createdAt string to DateTime object in-place
+                $CollectionList | ForEach-Object { 
+                    if ($_.createdAt) {
+                        $_.createdAt = [DateTime]$_.createdAt
+                    }
+                }
+                
+                "[{0}] Before filtering: {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                
+                # Apply time filters if specified
+                if ($ShowLastWeek) {
+                    $CollectionList = @($CollectionList | Where-Object { $_.createdAt -and ($_.createdAt -gt $todayMinusSevenDays) })
+                    "[{0}] After ShowLastWeek filter: {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                }
+                elseif ($ShowLastMonth) {
+                    $CollectionList = @($CollectionList | Where-Object { $_.createdAt -and ($_.createdAt -gt $todayMinusOneMonth) })
+                    "[{0}] After ShowLastMonth filter: {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                }
+                elseif ($ShowLastThreeMonths) {
+                    $CollectionList = @($CollectionList | Where-Object { $_.createdAt -and ($_.createdAt -gt $todayMinusThreeMonths) })
+                    "[{0}] After ShowLastThreeMonths filter: {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                }
+                # Default: no filtering - show all alerts (they persist until cleared)
+                
+                if ($CollectionList.Count -gt 0) {
+                    "[{0}] Adding {1} alert(s) to collection" -f $MyInvocation.InvocationName.ToString().ToUpper(), $CollectionList.Count | Write-Verbose
+                    [void]$AlertCollection.AddRange($CollectionList)
+                }
+                else {
+                    "[{0}] No alerts remaining after filtering" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                }
+            }
         }
         else {
-            # No activities found - provide helpful message 
-            if (-not $WhatIf -and -not $ShowAll) {
-                Write-Warning "No activities found in the last 7 days. Try using -ShowLastMonth, -ShowLastThreeMonths, or -ShowAll to see historical activities."
+            # Get alerts for all servers in the region
+            
+            "[{0}] Retrieving all servers in region '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+            
+            # Step 1: Get all servers
+            try {
+                $Servers = Get-HPECOMServer -Region $Region -Verbose:$false
             }
-            return
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if (-not $Servers) {
+                "[{0}] No servers found in region '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                return
+            }
+
+            # Step 2: Get alerts for each server
+            foreach ($Server in $Servers) {
                 
-        }         
+                $ServerID = $Server.id
+                $Uri = (Get-COMServersUri) + "/" + $ServerID + "/alerts"
+                
+                try {
+                    "[{0}] Retrieving alerts for server '{1}' (ID: {2})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Server.name, $ServerID | Write-Verbose
+                    [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+                }
+                catch {
+                    # Continue to next server if one fails
+                    "[{0}] Failed to retrieve alerts for server '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Server.name, $_.Exception.Message | Write-Verbose
+                    continue
+                }
+
+                if ($Null -ne $CollectionList -and $CollectionList.Count -gt 0 -and -not $WhatIf) {
+                    
+                    # Add serial number, servername, and region to object
+                    $CollectionList | Add-Member -type NoteProperty -name serverName -value $Server.name -Force
+                    $CollectionList | ForEach-Object { 
+                        if ($_.serverId) {
+                            $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] -Force 
+                        }
+                    }
+                    $CollectionList | Add-Member -type NoteProperty -name region -value $Region -Force
+                    
+                    # Convert createdAt string to DateTime object in-place
+                    $CollectionList | ForEach-Object { 
+                        if ($_.createdAt) {
+                            $_.createdAt = [DateTime]$_.createdAt
+                        }
+                    }
+                    
+                    # Apply time filters if specified
+                    if ($ShowLastWeek) {
+                        $CollectionList = @($CollectionList | Where-Object { $_.createdAt -and ($_.createdAt -gt $todayMinusSevenDays) })
+                    }
+                    elseif ($ShowLastMonth) {
+                        $CollectionList = @($CollectionList | Where-Object { $_.createdAt -and ($_.createdAt -gt $todayMinusOneMonth) })
+                    }
+                    elseif ($ShowLastThreeMonths) {
+                        $CollectionList = @($CollectionList | Where-Object { $_.createdAt -and ($_.createdAt -gt $todayMinusThreeMonths) })
+                    }
+                    # Default: no filtering - show all alerts (they persist until cleared)
+                    
+                    if ($CollectionList.Count -gt 0) {
+                        [void]$AlertCollection.AddRange($CollectionList)
+                    }
+                }
+            }
+        }
+
+    }
+
+    End {
+
+        "[{0}] Total alerts collected: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $AlertCollection.Count | Write-Verbose
+
+        if ($AlertCollection.Count -gt 0) {
+            "[{0}] Repackaging {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $AlertCollection.Count | Write-Verbose
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $AlertCollection -ObjectName "COM.Servers.Alert"    
+            "[{0}] Returning {1} alert(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ReturnData.Count | Write-Verbose
+            return $ReturnData | Sort-Object -Property createdAt -Descending
+        }
+        else {
+            "[{0}] No alerts found" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            return
+        }
     }
 }
 
 # Private functions (not exported)
- function Invoke-RepackageObjectWithType {   
+function Invoke-RepackageObjectWithType {   
     Param   (   
         $RawObject,
         $ObjectName,
@@ -403,24 +418,15 @@ Function Get-HPECOMActivity {
             }
             foreach ( $RawElementObject in $RawObject ) {
 
-                # "[{0}] Element: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($RawElementObject | out-string) | write-verbose
-
                 $DataSetType = "HPEGreenLake.$ObjectName"
                 $RawElementObject.PSTypeNames.Insert(0, $DataSetType)
-                # "[{0}] Element PSTypeName set: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($RawElementObject.PSTypeNames[0] | out-string)| write-verbose
-                # "[{0}] Element PSObject TypeNames set: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($RawElementObject.PSObject.TypeNames[0] | out-string)| write-verbose
                 
                 $RawElementObject.PSObject.TypeNames.Insert(0, $DataSetType)
-                # "[{0}] Element PSObject TypeNames set: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($RawElementObject.PSObject.TypeNames[0] | out-string)| write-verbose
 
                 $OutputObject += $RawElementObject
             }
 
-            # "[{0}] Object typenames : `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($OutputObject.PSObject.TypeNames | Out-String) | write-verbose
-
             if ($OutputObject.PSObject.TypeNames -notcontains $DataSetType) {
-
-                # "[{0}] Object typenames added using Add-Member as the object is read only" -f $MyInvocation.InvocationName.ToString().ToUpper() | write-verbose
 
                 foreach ($item in $OutputObject) {
                     [void]($item | Add-Member -MemberType NoteProperty -Name PSObject.TypeNames -Value @( $DataSetType) -Force)
@@ -430,9 +436,6 @@ Function Get-HPECOMActivity {
             return $OutputObject
         }
         else {
- 
-            # "[{0}] Null value sent to create object type." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            
             return
         }
     }   
@@ -440,14 +443,13 @@ Function Get-HPECOMActivity {
 
 
 # Export only public functions and aliases
-Export-ModuleMember -Function 'Get-HPECOMActivity' -Alias *
-
+Export-ModuleMember -Function 'Get-HPECOMAlert' -Alias *
 
 # SIG # Begin signature block
 # MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDcOWd7gvJkfI9q
-# O6Bwk2fjXC02qveyob4Yqc66K5QQNKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCC4WQCMUY+twoAy
+# R/8UoP0LvH8mfxqmw/DzaEzWD2sVgaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -548,23 +550,23 @@ Export-ModuleMember -Function 'Get-HPECOMActivity' -Alias *
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgf+CMKVemkiUV1tKJCEpJxRSLTGgIgMIKq56hQUs2ypUwDQYJKoZIhvcNAQEB
-# BQAEggIAYxy/ZCr8LCEyZehRQL5IbgSzzxhl80ShmwvCtKiVFLGZkZIsfKaVu0n+
-# mDCUNw1wMHy0lIBey+ZdiOq5S+/TltalW7FWUxINJuFLJp3pAn93tmINM9BR5wQE
-# krc1FKGhdN1YsqLbNGg/LeeqqaK5zgcKFT8olvY1JQPgGw98VZtUh3zvIMF0YoiX
-# ChC5DIg2XCvCD3mA0KgGUysueBHr2wqEFLwZH2i6npG2V8QnlR/GsrtXmex5uAIs
-# c8wC5OpATOgL3EW0er87uTR51J6ykxIFY1juI7wyQx3U439KRNGWVCMekInq5tq3
-# dLF/TkglQDEDLlv039VvVAqEJ/Mpp2DDTrS/Gq5WL+b1b3q2xhzk6FeaLS4nij3j
-# cRVx4EqmuFYh2SAy5E6EO8jxGGbvzE+R3yoWUumssuMsFTUyCBIuDqgSV8Lx1S6X
-# i1ghw9ds1CNibsar8JxMcFBh9cV0Da7jb3eK6pxB9cybVCOvWyG3USAUvQpLL6WZ
-# blny0y/RnG+0XKJZpkLDWYG8GBJsjZfb5Cr9gEeSnGS2TnHX81cyXThfkdmKBxVi
-# WezJ4tHQT2meY5ogmYDeiaCgIvyCy9N68rPpjzzbYgmrjvjDnbzgxq6kxaU6pxBt
-# tunydIymk1G6jv8sg3ZGnRnFXO0qu8kXjliEa8iZE2Aey2rX822hgheYMIIXlAYK
+# IgQgV4H8BeJSOrsjTD94u08/VsdEb7JvSXy6QRMwJExRwk4wDQYJKoZIhvcNAQEB
+# BQAEggIACCm+r4se0io7BpoC6TEIDFLIbqK1BrbyqSEhHGBY/Zzz6aOj0oVjLvxf
+# sP9ZmFcyJIGogo/+IuMNaIeHogYHqLUORgR4SKq+BNG1O+ouFZjYT0ZlYcuDzVO6
+# Yf9VZ3Vbhj4arWZVoGRnnVTFsVMw9OFrvQc9Lch9PM3n/VAmAbZGKLFYaKHTAbMc
+# IHRUY7QMD+XNzWp8ucsonzss4nSM6LG+xPeh78fEjbcu9CIila+v3hfvIR2I4/yH
+# 7ztcieTq97BiSQxHDMf8DXABRP5vRjW5bqyQ935ruPzurYPxIELbjx9+5o+j8moV
+# dLlW376SrvgbWJELstTLew+foLFdgzM+at46dCEOYGFnzAAbhLWl5QaGYI+h6QgX
+# 1K642EVUSGEdxeq3eTvp+GtafQaJSNlvXi8YyhMeJboz7KlLkOb+P3WZ7FYLvjfZ
+# OtU2O3SQrlSNBO1DnqAorYoaaT6pTZvPXbOjBoq1jBUKDR2kHkE+VYDIE8QqxDEk
+# TdX2AHYFIZrfPRP3V8CDGu+i5+z5u2A6gOvsuQWJh+FNBBYIqJZGkJnnnkoOBcqq
+# 0cn4t4rAQW7HlDjBcLg3QM38IgHrqgyFPz9JZVhzaU8XFO2QsgVW1u9HsqSWByDf
+# z7fDdcNsZfyf+uYL2iereoiurV9g7nPY2DYxGs/g97vP9Irg89ahgheYMIIXlAYK
 # KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMMG9I7YWPUZZzWuvvH7kGBj+cDE11a7MHGvFBwuruTRE
-# /sfVkJbq57SCc/Iuu2fGUwIRAKcdFvERwA6+4Dtt3NBWPPkYDzIwMjYwMTMwMTA0
-# MzI0WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQYJYIZIAWUDBAICBQAEMEe3uH3m4Jr1RQ8KzOrdYH0eUSOZNFcxFhFPy5hf17rd
+# GfPj3IbZZuOdOd1KIjIgCgIRAM0yr5U5daM5GobrYECRjK8YDzIwMjYwMTMwMTA0
+# NDQzWqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
 # DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
 # MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
 # NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
@@ -671,19 +673,19 @@ Export-ModuleMember -Function 'Get-HPECOMActivity' -Alias *
 # EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
 # NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
 # BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDEz
-# MDEwNDMyNFowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# MDEwNDQ0M1owKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
 # llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMCyJCPy1bKaC1GJZHg+PnJ/B
-# hC0UG8yV1fkHVaxv8INZ11NhSyqBpNqKQeUaquLDCTANBgkqhkiG9w0BAQEFAASC
-# AgCGwgSZN89CW0BI3Evzl9pcbJUqdL7Alkmwc5S4UavUcKM4xirwnusqRbRd2nLW
-# kQF38AN3VwqafLYCkA40CfQXuMvW5gk0alqfReuTXIoMRPGYXz1CfRYxt8C5gt8/
-# x9kOQtpnBktox/KNTid5Y6qr2lOmmqYYWL4Xq9OK7elS3WP7O1s2fdlKPlxzkON5
-# Pdnno6SUdb8Mu+3+ORBcoK0zAUKF9LqAjT7s+wwMP7EwyCP6t5DSUo9HGV06bxp6
-# DRQCoYu0TKzAUytNjn5uCJiD2DmQRKKTGNFVgs8XI0VFDJb26mler9wYvnppy2Po
-# EFzO2GEuBxU2hYaom1xxpUzifns3lPvVTQWDCNGA5tdVJdkW8IM7yhQt8OPnc2ly
-# IMuQ+I262EM4oDHwq61C3xmnwjeePJJoLZ9NiPBTdJAgmA2YWFSWvT3E0nVrKAke
-# pHuiRM3HWnyQKUfhXfGbm5BDZZjQzpZ4giHU+if9FZpTPp/w70eczmaIqs41vFjD
-# wUhuKH7uFRlg01EMsPRD3qMMUIAcBGTuRWyq/Vk1SH4Ijzi3ixjaUX5Ae4Qve8rC
-# gt43YQf/BveRIK2kfpZris1lfkrvR0MQ4zLeTz+ByQuo4Z+tLKqcuQleMvviQt7Y
-# a2thfx8ieWZsrIzXLJlhGnuCRhdboDOaApBkmcfNjhKk5g==
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMDZEV8OIIJcfom2P+pHFuH4J
+# q/haBajvFasTiMhN7fzr6PtnIILEfHwWXPPcjp/02TANBgkqhkiG9w0BAQEFAASC
+# AgBRFs+zixLs3jP6urd9jZtXIIKiT9XzwIW6ZtRiWFoux9R8cZ78EfOW+2oEnuWH
+# ijLfUbtki1i9Tyrsd8V4N8FhmuMhlAy/U49aATjBRVwIFhnVC+u4RsVRbzr+u2u8
+# WAArApdpNP8HnG3/f4PyPWzQHeuF8N7GoJt0/HSnitPzLDnC+ukEBs53lb/fhXVs
+# TCO83z0LwRCN2ChMSDIy+1RzZE0tBSkKV21EA6PJ4MB5szdlyGr9KgQtaEvhWDT4
+# s6xhsipSfYRQ98yToQHZ16hvCIicojqao7wf4fDweJZRwocvr91/aT+mNusW9Jeo
+# NNfdYx8eLjtsxIis+hGfrXvFY/Cyhc+wSeqhfJ4wZzb52KJkAI+eI6WY9RQSG+wT
+# TgdrynOA1vWeOX0G7Df6kKAcOcyMr0jNJLPPzyLtcM6bPQIxXMZ4j765FCiK+z1e
+# wf/TuWPW/6I/F1+nPXUlnRJEYAUCkWizEQXs6gv6dYBu+DdCEoEQURaSegS3vmc1
+# 1Se/GXdbn+85bg9YzsxEP2t4p/3EjVdpLMdlewNWLtwIPqwICJ5dO3AMr68YtSw0
+# +VbAwtqwgbfuZrLMMoDMfFGtdNpuFnC2Dkh1gZokTd0MeZO5h9tVpqQsX3z1E1YD
+# 6ZwKueTyf5rGfukNitxNlH8rVwN0kZ/Nlypixl2Ax7jU/w==
 # SIG # End signature block

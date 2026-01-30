@@ -4,6 +4,7 @@
 
 
 *.zip
+.copilot
 .vscode
 .publish
 .vs/

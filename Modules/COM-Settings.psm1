@@ -318,29 +318,36 @@ Function Get-HPECOMSetting {
 Function New-HPECOMSettingServerBios {
     <#
     .SYNOPSIS
-    Configure a bios server setting.
+    Creates a BIOS server setting resource in a specified region.
 
     .DESCRIPTION
     This Cmdlet is used to create a new bios server setting set either with a workload profile or a customized one with provided parameters.
     Bios settings enable you to apply a consistent bios configuration to servers in a group.
 
-    For a detailed description of all iLO BIOS attributes parameters:
-    - For iLO7, see https://servermanagementportal.ext.hpe.com/docs/redfishservices/ilos/ilo7/ilo7_113/ilo7_bios_resourcedefns113/
-    - For iLO6, see https://servermanagementportal.ext.hpe.com/docs/redfishservices/ilos/ilo6/ilo6_159/ilo6_bios_resourcedefns159/
-    - For iLO5, see https://servermanagementportal.ext.hpe.com/docs/redfishservices/ilos/ilo5/ilo5_304/ilo5_bios_resourcedefns304/
+    For a detailed description of all iLO BIOS attribute parameters:
+        - For iLO7, see https://servermanagementportal.ext.hpe.com/docs/redfishservices/ilos/ilo7/ilo7_113/ilo7_bios_resourcedefns113/
+        - For iLO6, see: https://servermanagementportal.ext.hpe.com/docs/redfishservices/ilos/ilo6/ilo6_159/ilo6_bios_resourcedefns159/
+        - For iLO5, see: https://servermanagementportal.ext.hpe.com/docs/redfishservices/ilos/ilo5/ilo5_304/ilo5_bios_resourcedefns304/
+
+    Note: This cmdlet supports over 300 BIOS configuration parameters covering processor, memory, storage, network, PCI, power, thermal, security, and boot settings. 
+    Due to the extensive number of parameters, this help documentation provides descriptions for the most commonly used ones. For complete parameter descriptions, 
+    valid values, and platform-specific availability, please refer to the HPE iLO BIOS documentation links above. Parameter availability varies by server generation 
+    and model. Use Get-Help New-HPECOMSettingServerBios -Parameter <ParameterName> to view individual parameter details, or use tab completion to discover available parameters.
 
     Note: If a parameter is incompatible with your iLO generation or server platform, 'Invoke-HPECOMGroupBiosConfiguration' will return an error message stating "Apply BIOS settings failed…".
-          To get more detailed information about the parameters that caused these errors, access the iLO Redfish API using a GET request to /redfish/v1/Systems/1/Bios/ and inspect the @Redfish.Settings.Messages property.
-    
-    Note: If one or several unsupported parameters are selected, the other BIOS settings will still be applied successfully. Unsupported parameters will be ignored without affecting the application of the other settings.
-    
+    To get more detailed information about the parameters that caused these errors, access the iLO Redfish API using a GET request to /redfish/v1/Systems/1/Bios/ and inspect the @Redfish.Settings.Messages property.
+
+    Note: If one or more unsupported parameters are selected, the other BIOS settings will still be applied successfully. Unsupported parameters will be ignored without affecting the application of the other settings.
+
+    Warning: This cmdlet uses documented BIOS API attributes from the HPE developer portal. Some attributes may not be supported on certain server models or firmware versions. Always test your configuration to ensure compatibility with your specific hardware. 
+
     .PARAMETER Region
     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central').
     This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Name
-    Specifies the name of the BIOS server setting to set.
+    Specifies the name of the BIOS server setting to create.
 
     .PARAMETER Description
     Specifies a description for the BIOS server setting.
@@ -365,470 +372,6 @@ Function New-HPECOMSettingServerBios {
 
     For details on which profiles affect which BIOS options and guidance on custom tuning, refer to the 'UEFI Workload-based Performance Tuning Guide'.
 
-    .PARAMETER AccessControlService
-    Enables or disables the Access Control Service.
-
-    .PARAMETER AcpiHpet
-    Enables or disables the ACPI HPET (High Precision Event Timer).
-
-    .PARAMETER AcpiRootBridgePxm
-    Enables or disables ACPI Root Bridge PXM.
-
-    .PARAMETER AcpiSlit
-    Enables or disables ACPI SLIT (System Locality Information Table).
-
-    .PARAMETER AdjSecPrefetch
-    Enables or disables Adjacent Sector Prefetch.
-
-    .PARAMETER AdminEmail
-    Specifies the email address of the server administrator.
-
-    .PARAMETER AdminName
-    Specifies the name of the server administrator.
-
-    .PARAMETER AdminOtherInfo
-    Specifies other information about the server administrator.
-
-    .PARAMETER AdminPhone
-    Specifies the phone number of the server administrator.
-
-    .PARAMETER AdvCrashDumpMode
-    Enables or disables Advanced Crash Dump Mode.
-
-    .PARAMETER AdvancedMemProtection
-    Specifies the advanced memory protection mode.
-
-    .PARAMETER AllowLoginWithIlo
-    Enables or disables login with iLO.
-
-    .PARAMETER Amd5LevelPage
-    Enables or disables AMD 5-Level Paging.
-
-    .PARAMETER AmdCdma
-    Enables or disables AMD CDMA.
-
-    .PARAMETER AmdCstC2Latency
-    Specifies the AMD C-state C2 latency setting.
-
-    .PARAMETER AmdDmaRemapping
-    Enables or disables AMD DMA Remapping.
-
-    .PARAMETER AmdL1Prefetcher
-    Enables or disables AMD L1 Prefetcher.
-
-    .PARAMETER AmdL2Prefetcher
-    Enables or disables AMD L2 Prefetcher.
-
-    .PARAMETER AmdMemPStates
-    Specifies the AMD Memory P-States setting.
-
-    .PARAMETER AmdMemoryBurstRefresh
-    Enables or disables AMD Memory Burst Refresh.
-
-    .PARAMETER AmdPeriodicDirectoryRinse
-    Enables or disables AMD Periodic Directory Rinse.
-
-    .PARAMETER AmdSecureMemoryEncryption
-    Enables or disables AMD Secure Memory Encryption.
-
-    .PARAMETER AmdSecureNestedPaging
-    Enables or disables AMD Secure Nested Paging.
-
-    .PARAMETER AmdVirtualDrtmDevice
-    Enables or disables AMD Virtual DRTM Device.
-
-    .PARAMETER AmdXGMILinkSpeed
-    Specifies the AMD XGMI Link Speed.
-
-    .PARAMETER ApplicationPowerBoost
-    Enables or disables Application Power Boost.
-
-    .PARAMETER AsrStatus
-    Enables or disables Automatic Server Recovery (ASR).
-
-    .PARAMETER AsrTimeoutMinutes
-    Specifies the ASR timeout in minutes.
-
-    .PARAMETER AssetTagProtection
-    Specifies the asset tag protection mode.
-
-    .PARAMETER AutoPowerOn
-    Specifies the auto power-on behavior after power loss.
-
-    .PARAMETER BootOrderPolicy
-    Specifies the boot order policy.
-
-    .PARAMETER ChannelInterleaving
-    Enables or disables channel interleaving.
-
-    .PARAMETER CollabPowerControl
-    Enables or disables collaborative power control.
-
-    .PARAMETER ConsistentDevNaming
-    Specifies the consistent device naming policy.
-
-    .PARAMETER CoreBoosting
-    Enables or disables core boosting.
-
-    .PARAMETER CustomPostMessage
-    Specifies a custom message to display on the POST screen during system startup.
-
-    .PARAMETER CustomPstate0
-    Specifies the value for CustomPstate0.
-
-    .PARAMETER DataFabricCStateEnable
-    Specifies the value for DataFabricCStateEnable.
-
-    .PARAMETER DaylightSavingsTime
-    Specifies the value for DaylightSavingsTime.
-
-    .PARAMETER DeterminismControl
-    Specifies the value for DeterminismControl.
-
-    .PARAMETER DcuIpPrefetcher
-    Specifies the value for DcuIpPrefetcher.
-
-    .PARAMETER DcuStreamPrefetcher
-    Specifies the value for DcuStreamPrefetcher.
-
-    .PARAMETER Dhcpv4
-    Specifies the value for Dhcpv4.
-
-    .PARAMETER DirectToUpi
-    Specifies the value for DirectToUpi.
-
-    .PARAMETER DramControllerPowerDown
-    Specifies the value for DramControllerPowerDown.
-
-    .PARAMETER DynamicPowerCapping
-    Specifies the value for DynamicPowerCapping.
-
-    .PARAMETER EmbNicAspm
-    Specifies the value for EmbNicAspm.
-
-    .PARAMETER EmbNicEnable
-    Specifies the value for EmbNicEnable.
-
-    .PARAMETER EmbNicLinkSpeed
-    Specifies the value for EmbNicLinkSpeed.
-
-    .PARAMETER EmbNicPCIeOptionROM
-    Specifies the value for EmbNicPCIeOptionROM.
-
-    .PARAMETER EmbSas1Aspm
-    Specifies the value for EmbSas1Aspm.
-
-    .PARAMETER EmbSas1Boot
-    Specifies the value for EmbSas1Boot.
-
-    .PARAMETER EmbSas1Enable
-    Specifies the value for EmbSas1Enable.
-
-    .PARAMETER EmbSas1LinkSpeed
-    Specifies the value for EmbSas1LinkSpeed.
-
-    .PARAMETER EmbSas1PcieOptionROM
-    Specifies the value for EmbSas1PcieOptionROM.
-
-    .PARAMETER EmbSata1Aspm
-    Specifies the value for EmbSata1Aspm.
-
-    .PARAMETER EmbSata1Enable
-    Specifies the value for EmbSata1Enable.
-
-    .PARAMETER EmbSata1PCIeOptionROM
-    Specifies the value for EmbSata1PCIeOptionROM.
-
-    .PARAMETER EmbSata2Aspm
-    Specifies the value for EmbSata2Aspm.
-
-    .PARAMETER EmbSata2Enable
-    Specifies the value for EmbSata2Enable.
-
-    .PARAMETER EmbSata2PCIeOptionROM
-    Specifies the value for EmbSata2PCIeOptionROM.
-
-    .PARAMETER EmbSata3Aspm
-    Specifies the value for EmbSata3Aspm.
-
-    .PARAMETER EmbSata3Enable
-    Specifies the value for EmbSata3Enable.
-
-    .PARAMETER EmbSata3PCIeOptionROM
-    Specifies the value for EmbSata3PCIeOptionROM.
-
-    .PARAMETER EmbSata4Aspm
-    Specifies the value for EmbSata4Aspm.
-
-    .PARAMETER EmbSata4Enable
-    Specifies the value for EmbSata4Enable.
-
-    .PARAMETER EmbSata4PCIeOptionROM
-    Specifies the value for EmbSata4PCIeOptionROM.
-
-    .PARAMETER EmbVideoConnection
-    Specifies the value for EmbVideoConnection.
-
-    .PARAMETER EmbeddedDiagnostics
-    Specifies the value for EmbeddedDiagnostics.
-
-    .PARAMETER EmbeddedIpxe
-    Specifies the value for EmbeddedIpxe.
-
-    .PARAMETER EmbeddedSata
-    Specifies the value for EmbeddedSata.
-
-    .PARAMETER EmbeddedSerialPort
-    Specifies the value for EmbeddedSerialPort.
-
-    .PARAMETER EmbeddedUefiShell
-    Specifies the value for EmbeddedUefiShell.
-
-    .PARAMETER EmsConsole
-    Specifies the value for EmsConsole.
-
-    .PARAMETER EnabledCoresPerProcIlo6_7
-    Specifies the value for EnabledCoresPerProcIlo for iLO 6 and 7.
-
-    .PARAMETER EnabledCoresPerProcIlo5
-    Specifies the value for EnabledCoresPerProc for iLO 5.
-
-    .PARAMETER EnergyEfficientTurbo
-    Specifies the value for EnergyEfficientTurbo.
-
-    .PARAMETER EnergyPerfBias
-    Specifies the value for EnergyPerfBias.
-
-    .PARAMETER EnhancedProcPerf
-    Specifies the value for EnhancedProcPerf.
-
-    .PARAMETER ExtendedAmbientTemp
-    Specifies the value for ExtendedAmbientTemp.
-
-    .PARAMETER ExtendedMemTest
-    Specifies the value for ExtendedMemTest.
-
-    .PARAMETER F11BootMenu
-    Specifies the value for F11BootMenu.
-
-    .PARAMETER FCScanPolicy
-    Specifies the value for FCScanPolicy.
-
-    .PARAMETER FanFailPolicy
-    Specifies the value for FanFailPolicy.
-
-    .PARAMETER FanInstallReq
-    Specifies the value for FanInstallReq.
-
-    .PARAMETER FlexLom1Aspm
-    Specifies the value for FlexLom1Aspm.
-
-    .PARAMETER FlexLom1Enable
-    Specifies the value for FlexLom1Enable.
-
-    .PARAMETER FlexLom1LinkSpeed
-    Specifies the value for FlexLom1LinkSpeed.
-
-    .PARAMETER FlexLom1PCIeOptionROM
-    Specifies the value for FlexLom1PCIeOptionROM.
-
-    .PARAMETER HourFormat
-    Specifies the value for HourFormat.
-
-    .PARAMETER HttpSupport
-    Specifies the value for HttpSupport.
-
-    .PARAMETER HwPrefetcher
-    Specifies the value for HwPrefetcher.
-
-    .PARAMETER InfinityFabricPstate
-    Specifies the value for InfinityFabricPstate.
-
-    .PARAMETER IntelDmiLinkFreq
-    Specifies the value for IntelDmiLinkFreq.
-
-    .PARAMETER IntelNicDmaChannels
-    Specifies the value for IntelNicDmaChannels.
-
-    .PARAMETER IntelPerfMonitoring
-    Specifies the value for IntelPerfMonitoring.
-
-    .PARAMETER IntelProcVtd
-    Specifies the value for IntelProcVtd.
-
-    .PARAMETER IntelSpeedSelect
-    Specifies the value for IntelSpeedSelect.
-
-    .PARAMETER IntelTxt
-    Specifies the value for IntelTxt.
-
-    .PARAMETER IntelUpiFreq
-    Specifies the value for IntelUpiFreq.
-
-    .PARAMETER IntelUpiLinkEn
-    Specifies the value for IntelUpiLinkEn.
-
-    .PARAMETER IntelUpiPowerManagement
-    Specifies the value for IntelUpiPowerManagement.
-
-    .PARAMETER IntelVmdDirectAssign
-    Specifies the value for IntelVmdDirectAssign.
-
-    .PARAMETER IntelVmdSupport
-    Specifies the value for IntelVmdSupport.
-
-    .PARAMETER IntelVrocSupport
-    Specifies the value for IntelVrocSupport.
-
-    .PARAMETER IntelligentProvisioning
-    Specifies the value for IntelligentProvisioning.
-
-    .PARAMETER InternalSDCardSlot
-    Specifies the value for InternalSDCardSlot.
-
-    .PARAMETER IpmiWatchdogTimerAction
-    Specifies the value for IpmiWatchdogTimerAction.
-
-    .PARAMETER IpmiWatchdogTimerStatus
-    Specifies the value for IpmiWatchdogTimerStatus.
-
-    .PARAMETER IpmiWatchdogTimerTimeout
-    Specifies the value for IpmiWatchdogTimerTimeout.
-
-    .PARAMETER Ipv4Address
-    Specifies the value for Ipv4Address.
-
-    .PARAMETER Ipv4Gateway
-    Specifies the value for Ipv4Gateway.
-
-    .PARAMETER Ipv4PrimaryDNS
-    Specifies the value for Ipv4PrimaryDNS.
-
-    .PARAMETER Ipv4SubnetMask
-    Specifies the value for Ipv4SubnetMask.
-
-    .PARAMETER Ipv6Address
-    Specifies the value for Ipv6Address.
-
-    .PARAMETER Ipv6ConfigPolicy
-    Specifies the value for Ipv6ConfigPolicy.
-
-    .PARAMETER Ipv6Duid
-    Specifies the value for Ipv6Duid.
-
-    .PARAMETER Ipv6Gateway
-    Specifies the value for Ipv6Gateway.
-
-    .PARAMETER Ipv6PrimaryDNS
-    Specifies the value for Ipv6PrimaryDNS.
-
-    .PARAMETER Ipv6SecondaryDNS
-    Specifies the value for Ipv6SecondaryDNS.
-
-    .PARAMETER IpxeAutoStartScriptLocation
-    Specifies the value for IpxeAutoStartScriptLocation.
-
-    .PARAMETER IpxeBootOrder
-    Specifies the value for IpxeBootOrder.
-
-    .PARAMETER IpxeScriptAutoStart
-    Specifies the value for IpxeScriptAutoStart.
-
-    .PARAMETER IpxeScriptVerification
-    Specifies the value for IpxeScriptVerification.
-
-    .PARAMETER IpxeStartupUrl
-    Specifies the value for IpxeStartupUrl.
-
-    .PARAMETER LastLevelCacheAsNUMANode
-    Specifies the value for LastLevelCacheAsNUMANode.
-
-    .PARAMETER LLCDeadLineAllocation
-    Specifies the value for LLCDeadLineAllocation.
-
-    .PARAMETER LlcPrefetch
-    Specifies the value for LlcPrefetch.
-
-    .PARAMETER LocalRemoteThreshold
-    Specifies the value for LocalRemoteThreshold.
-
-    .PARAMETER MaxMemBusFreqMHz
-    Specifies the value for MaxMemBusFreqMHz.
-
-    .PARAMETER MaxPcieSpeed
-    Specifies the value for MaxPcieSpeed.
-
-    .PARAMETER MemClearWarmReset
-    Specifies the value for MemClearWarmReset.
-
-    .PARAMETER MemFastTraining
-    Specifies the value for MemFastTraining.
-
-    .PARAMETER MemMirrorMode
-    Specifies the value for MemMirrorMode.
-
-    .PARAMETER MemPatrolScrubbing
-    Specifies the value for MemPatrolScrubbing.
-
-    .PARAMETER MemRefreshRate
-    Specifies the value for MemRefreshRate.
-
-    .PARAMETER MemoryControllerInterleaving
-    Specifies the value for MemoryControllerInterleaving.
-
-    .PARAMETER MemoryRemap
-    Specifies the value for MemoryRemap.
-
-    .PARAMETER MicrosoftSecuredCoreSupport
-    Specifies the value for MicrosoftSecuredCoreSupport.
-
-    .PARAMETER MinProcIdlePkgState
-    Specifies the value for MinProcIdlePkgState.
-
-    .PARAMETER MinProcIdlePower
-    Specifies the value for MinProcIdlePower.
-
-    .PARAMETER MinimumSevAsid
-    Specifies the value for MinimumSevAsid.
-
-    .PARAMETER MixedPowerSupplyReporting
-    Specifies the value for MixedPowerSupplyReporting.
-
-    .PARAMETER NetworkBootRetry
-    Specifies the value for NetworkBootRetry.
-
-    .PARAMETER NetworkBootRetryCount
-    Specifies the value for NetworkBootRetryCount.
-
-    .PARAMETER NicBoot1
-    Specifies the value for NicBoot1.
-
-    .PARAMETER NicBoot2
-    Specifies the value for NicBoot2.
-
-    .PARAMETER NicBoot3
-    Specifies the value for NicBoot3.
-
-    .PARAMETER NicBoot4
-    Specifies the value for NicBoot4.
-
-    .PARAMETER NicBoot5
-    Specifies the value for NicBoot5.
-
-    .PARAMETER NicBoot6
-    Specifies the value for NicBoot6.
-
-    .PARAMETER NicBoot7
-    Specifies the value for NicBoot7.
-
-    .PARAMETER NicBoot8
-    Specifies the value for NicBoot8.
-
-    .PARAMETER NicBoot9
-    Specifies the value for NicBoot9.
-
-    .PARAMETER NicBoot10
-    Specifies the value for NicBoot10.
 
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -839,10 +382,10 @@ Function New-HPECOMSettingServerBios {
     This example shows how to create a new BIOS setting named "Custom-Bios-For-ESX" in the eu-central region. It sets a description and uses the "Virtualization - Max Performance" workload profile.
 
     .EXAMPLE
-    New-HPECOMSettingServerBios -Region eu-central -Name "Custom-Bios-For-ESX" -Description "Description..." -WorkloadProfileName "Custom" `
+    New-HPECOMSettingServerBios -Region eu-central -Name "Custom-Bios-HPC" -Description "HPC with custom settings" -WorkloadProfileName "High Performance Compute (HPC)" `
       -AdminName Albert -AdminEmail "alb@domain.com" -AsrTimeoutMinutes Timeout10 -AutoPowerOn AlwaysPowerOn -CoreBoosting:$true -F11BootMenu:$False -ThermalConfig OptimalCooling 
 
-    This example sets a customized BIOS configuration for "Custom-Bios-For-ESX" in the eu-central region. It includes admin details (AdminName and AdminEmail), various BIOS feature configurations such as ASR timeout, auto power on, core boosting, F11 boot menu, and thermal configuration for optimal cooling.
+    This example creates a new BIOS setting named "Custom-Bios-HPC" in the eu-central region using the "High Performance Compute (HPC)" workload profile as a base. It then customizes specific settings including admin details (AdminName and AdminEmail), ASR timeout, auto power on behavior, core boosting, F11 boot menu access, and thermal configuration for optimal cooling.
 
     .INPUTS
     Pipeline input is not supported.
@@ -3186,7 +2729,7 @@ Function New-HPECOMSettingServerBios {
         [string]$SciRasSupport,
 
         [bool]$SecStartBackupImage,
-        [bool]$SecureBootStatus,
+        [bool]$SecureBootEnable,
 
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
@@ -4924,7 +4467,7 @@ Function New-HPECOMSettingServerBios {
                 'SataSanitize',
                 'SataSecureErase',
                 'SecStartBackupImage',
-                'SecureBootStatus',
+                'SecureBootEnable',
                 'ServerConfigLockStatus',
                 'Slot1MctpBroadcastSupport',
                 'Slot2MctpBroadcastSupport',
@@ -5448,7 +4991,7 @@ Function New-HPECOMSettingServerBios {
                 if (-not $WhatIf) {
     
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Bios server setting cannot be created!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Bios server setting cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
     
                 }
@@ -5486,6 +5029,11 @@ Function Set-HPECOMSettingServerBios {
         - For iLO7, see https://servermanagementportal.ext.hpe.com/docs/redfishservices/ilos/ilo7/ilo7_113/ilo7_bios_resourcedefns113/
         - For iLO6, see: https://servermanagementportal.ext.hpe.com/docs/redfishservices/ilos/ilo6/ilo6_159/ilo6_bios_resourcedefns159/
         - For iLO5, see: https://servermanagementportal.ext.hpe.com/docs/redfishservices/ilos/ilo5/ilo5_304/ilo5_bios_resourcedefns304/
+
+    Note: This cmdlet supports over 300 BIOS configuration parameters covering processor, memory, storage, network, PCI, power, thermal, security, and boot settings. 
+    Due to the extensive number of parameters, this help documentation provides descriptions for the most commonly used ones. For complete parameter descriptions, 
+    valid values, and platform-specific availability, please refer to the HPE iLO BIOS documentation links above. Parameter availability varies by server generation 
+    and model. Use Get-Help Set-HPECOMSettingServerBios -Parameter <ParameterName> to view individual parameter details, or use tab completion to discover available parameters.
 
     Note: If a parameter is incompatible with your iLO generation or server platform, 'Invoke-HPECOMGroupBiosConfiguration' will return an error message stating "Apply BIOS settings failed…".
     To get more detailed information about the parameters that caused these errors, access the iLO Redfish API using a GET request to /redfish/v1/Systems/1/Bios/ and inspect the @Redfish.Settings.Messages property.
@@ -5527,471 +5075,6 @@ Function Set-HPECOMSettingServerBios {
 
     .PARAMETER NewName
     Specifies a new name for the BIOS server setting.
-
-    .PARAMETER AccessControlService
-    Enables or disables the Access Control Service.
-
-    .PARAMETER AcpiHpet
-    Enables or disables the ACPI HPET (High Precision Event Timer).
-
-    .PARAMETER AcpiRootBridgePxm
-    Enables or disables ACPI Root Bridge PXM.
-
-    .PARAMETER AcpiSlit
-    Enables or disables ACPI SLIT (System Locality Information Table).
-
-    .PARAMETER AdjSecPrefetch
-    Enables or disables Adjacent Sector Prefetch.
-
-    .PARAMETER AdminEmail
-    Specifies the email address of the server administrator.
-
-    .PARAMETER AdminName
-    Specifies the name of the server administrator.
-
-    .PARAMETER AdminOtherInfo
-    Specifies other information about the server administrator.
-
-    .PARAMETER AdminPhone
-    Specifies the phone number of the server administrator.
-
-    .PARAMETER AdvCrashDumpMode
-    Enables or disables Advanced Crash Dump Mode.
-
-    .PARAMETER AdvancedMemProtection
-    Specifies the advanced memory protection mode.
-
-    .PARAMETER AllowLoginWithIlo
-    Enables or disables login with iLO.
-
-    .PARAMETER Amd5LevelPage
-    Enables or disables AMD 5-Level Paging.
-
-    .PARAMETER AmdCdma
-    Enables or disables AMD CDMA.
-
-    .PARAMETER AmdCstC2Latency
-    Specifies the AMD C-state C2 latency setting.
-
-    .PARAMETER AmdDmaRemapping
-    Enables or disables AMD DMA Remapping.
-
-    .PARAMETER AmdL1Prefetcher
-    Enables or disables AMD L1 Prefetcher.
-
-    .PARAMETER AmdL2Prefetcher
-    Enables or disables AMD L2 Prefetcher.
-
-    .PARAMETER AmdMemPStates
-    Specifies the AMD Memory P-States setting.
-
-    .PARAMETER AmdMemoryBurstRefresh
-    Enables or disables AMD Memory Burst Refresh.
-
-    .PARAMETER AmdPeriodicDirectoryRinse
-    Enables or disables AMD Periodic Directory Rinse.
-
-    .PARAMETER AmdSecureMemoryEncryption
-    Enables or disables AMD Secure Memory Encryption.
-
-    .PARAMETER AmdSecureNestedPaging
-    Enables or disables AMD Secure Nested Paging.
-
-    .PARAMETER AmdVirtualDrtmDevice
-    Enables or disables AMD Virtual DRTM Device.
-
-    .PARAMETER AmdXGMILinkSpeed
-    Specifies the AMD XGMI Link Speed.
-
-    .PARAMETER ApplicationPowerBoost
-    Enables or disables Application Power Boost.
-
-    .PARAMETER AsrStatus
-    Enables or disables Automatic Server Recovery (ASR).
-
-    .PARAMETER AsrTimeoutMinutes
-    Specifies the ASR timeout in minutes.
-
-    .PARAMETER AssetTagProtection
-    Specifies the asset tag protection mode.
-
-    .PARAMETER AutoPowerOn
-    Specifies the auto power-on behavior after power loss.
-
-    .PARAMETER BootOrderPolicy
-    Specifies the boot order policy.
-
-    .PARAMETER ChannelInterleaving
-    Enables or disables channel interleaving.
-
-    .PARAMETER CollabPowerControl
-    Enables or disables collaborative power control.
-
-    .PARAMETER ConsistentDevNaming
-    Specifies the consistent device naming policy.
-
-    .PARAMETER CoreBoosting
-    Enables or disables core boosting.
-
-    .PARAMETER CustomPostMessage
-    Specifies a custom message to display on the POST screen during system startup.
-
-    .PARAMETER CustomPstate0
-    Specifies the value for CustomPstate0.
-
-    .PARAMETER DataFabricCStateEnable
-    Specifies the value for DataFabricCStateEnable.
-
-    .PARAMETER DaylightSavingsTime
-    Specifies the value for DaylightSavingsTime.
-
-    .PARAMETER DeterminismControl
-    Specifies the value for DeterminismControl.
-
-    .PARAMETER DcuIpPrefetcher
-    Specifies the value for DcuIpPrefetcher.
-
-    .PARAMETER DcuStreamPrefetcher
-    Specifies the value for DcuStreamPrefetcher.
-
-    .PARAMETER Dhcpv4
-    Specifies the value for Dhcpv4.
-
-    .PARAMETER DirectToUpi
-    Specifies the value for DirectToUpi.
-
-    .PARAMETER DramControllerPowerDown
-    Specifies the value for DramControllerPowerDown.
-
-    .PARAMETER DynamicPowerCapping
-    Specifies the value for DynamicPowerCapping.
-
-    .PARAMETER EmbNicAspm
-    Specifies the value for EmbNicAspm.
-
-    .PARAMETER EmbNicEnable
-    Specifies the value for EmbNicEnable.
-
-    .PARAMETER EmbNicLinkSpeed
-    Specifies the value for EmbNicLinkSpeed.
-
-    .PARAMETER EmbNicPCIeOptionROM
-    Specifies the value for EmbNicPCIeOptionROM.
-
-    .PARAMETER EmbSas1Aspm
-    Specifies the value for EmbSas1Aspm.
-
-    .PARAMETER EmbSas1Boot
-    Specifies the value for EmbSas1Boot.
-
-    .PARAMETER EmbSas1Enable
-    Specifies the value for EmbSas1Enable.
-
-    .PARAMETER EmbSas1LinkSpeed
-    Specifies the value for EmbSas1LinkSpeed.
-
-    .PARAMETER EmbSas1PcieOptionROM
-    Specifies the value for EmbSas1PcieOptionROM.
-
-    .PARAMETER EmbSata1Aspm
-    Specifies the value for EmbSata1Aspm.
-
-    .PARAMETER EmbSata1Enable
-    Specifies the value for EmbSata1Enable.
-
-    .PARAMETER EmbSata1PCIeOptionROM
-    Specifies the value for EmbSata1PCIeOptionROM.
-
-    .PARAMETER EmbSata2Aspm
-    Specifies the value for EmbSata2Aspm.
-
-    .PARAMETER EmbSata2Enable
-    Specifies the value for EmbSata2Enable.
-
-    .PARAMETER EmbSata2PCIeOptionROM
-    Specifies the value for EmbSata2PCIeOptionROM.
-
-    .PARAMETER EmbSata3Aspm
-    Specifies the value for EmbSata3Aspm.
-
-    .PARAMETER EmbSata3Enable
-    Specifies the value for EmbSata3Enable.
-
-    .PARAMETER EmbSata3PCIeOptionROM
-    Specifies the value for EmbSata3PCIeOptionROM.
-
-    .PARAMETER EmbSata4Aspm
-    Specifies the value for EmbSata4Aspm.
-
-    .PARAMETER EmbSata4Enable
-    Specifies the value for EmbSata4Enable.
-
-    .PARAMETER EmbSata4PCIeOptionROM
-    Specifies the value for EmbSata4PCIeOptionROM.
-
-    .PARAMETER EmbVideoConnection
-    Specifies the value for EmbVideoConnection.
-
-    .PARAMETER EmbeddedDiagnostics
-    Specifies the value for EmbeddedDiagnostics.
-
-    .PARAMETER EmbeddedIpxe
-    Specifies the value for EmbeddedIpxe.
-
-    .PARAMETER EmbeddedSata
-    Specifies the value for EmbeddedSata.
-
-    .PARAMETER EmbeddedSerialPort
-    Specifies the value for EmbeddedSerialPort.
-
-    .PARAMETER EmbeddedUefiShell
-    Specifies the value for EmbeddedUefiShell.
-
-    .PARAMETER EmsConsole
-    Specifies the value for EmsConsole.
-
-    .PARAMETER EnabledCoresPerProcIlo6_7
-    Specifies the value for EnabledCoresPerProc for iLO 6 and 7.
-
-    .PARAMETER EnabledCoresPerProcIlo5
-    Specifies the value for EnabledCoresPerProc for iLO 5.
-
-    .PARAMETER EnergyEfficientTurbo
-    Specifies the value for EnergyEfficientTurbo.
-
-    .PARAMETER EnergyPerfBias
-    Specifies the value for EnergyPerfBias.
-
-    .PARAMETER EnhancedProcPerf
-    Specifies the value for EnhancedProcPerf.
-
-    .PARAMETER ExtendedAmbientTemp
-    Specifies the value for ExtendedAmbientTemp.
-
-    .PARAMETER ExtendedMemTest
-    Specifies the value for ExtendedMemTest.
-
-    .PARAMETER F11BootMenu
-    Specifies the value for F11BootMenu.
-
-    .PARAMETER FCScanPolicy
-    Specifies the value for FCScanPolicy.
-
-    .PARAMETER FanFailPolicy
-    Specifies the value for FanFailPolicy.
-
-    .PARAMETER FanInstallReq
-    Specifies the value for FanInstallReq.
-
-    .PARAMETER FlexLom1Aspm
-    Specifies the value for FlexLom1Aspm.
-
-    .PARAMETER FlexLom1Enable
-    Specifies the value for FlexLom1Enable.
-
-    .PARAMETER FlexLom1LinkSpeed
-    Specifies the value for FlexLom1LinkSpeed.
-
-    .PARAMETER FlexLom1PCIeOptionROM
-    Specifies the value for FlexLom1PCIeOptionROM.
-
-    .PARAMETER HourFormat
-    Specifies the value for HourFormat.
-
-    .PARAMETER HttpSupport
-    Specifies the value for HttpSupport.
-
-    .PARAMETER HwPrefetcher
-    Specifies the value for HwPrefetcher.
-
-    .PARAMETER InfinityFabricPstate
-    Specifies the value for InfinityFabricPstate.
-
-    .PARAMETER IntelDmiLinkFreq
-    Specifies the value for IntelDmiLinkFreq.
-
-    .PARAMETER IntelNicDmaChannels
-    Specifies the value for IntelNicDmaChannels.
-
-    .PARAMETER IntelPerfMonitoring
-    Specifies the value for IntelPerfMonitoring.
-
-    .PARAMETER IntelProcVtd
-    Specifies the value for IntelProcVtd.
-
-    .PARAMETER IntelSpeedSelect
-    Specifies the value for IntelSpeedSelect.
-
-    .PARAMETER IntelTxt
-    Specifies the value for IntelTxt.
-
-    .PARAMETER IntelUpiFreq
-    Specifies the value for IntelUpiFreq.
-
-    .PARAMETER IntelUpiLinkEn
-    Specifies the value for IntelUpiLinkEn.
-
-    .PARAMETER IntelUpiPowerManagement
-    Specifies the value for IntelUpiPowerManagement.
-
-    .PARAMETER IntelVmdDirectAssign
-    Specifies the value for IntelVmdDirectAssign.
-
-    .PARAMETER IntelVmdSupport
-    Specifies the value for IntelVmdSupport.
-
-    .PARAMETER IntelVrocSupport
-    Specifies the value for IntelVrocSupport.
-
-    .PARAMETER IntelligentProvisioning
-    Specifies the value for IntelligentProvisioning.
-
-    .PARAMETER InternalSDCardSlot
-    Specifies the value for InternalSDCardSlot.
-
-    .PARAMETER IpmiWatchdogTimerAction
-    Specifies the value for IpmiWatchdogTimerAction.
-
-    .PARAMETER IpmiWatchdogTimerStatus
-    Specifies the value for IpmiWatchdogTimerStatus.
-
-    .PARAMETER IpmiWatchdogTimerTimeout
-    Specifies the value for IpmiWatchdogTimerTimeout.
-
-    .PARAMETER Ipv4Address
-    Specifies the value for Ipv4Address.
-
-    .PARAMETER Ipv4Gateway
-    Specifies the value for Ipv4Gateway.
-
-    .PARAMETER Ipv4PrimaryDNS
-    Specifies the value for Ipv4PrimaryDNS.
-
-    .PARAMETER Ipv4SubnetMask
-    Specifies the value for Ipv4SubnetMask.
-
-    .PARAMETER Ipv6Address
-    Specifies the value for Ipv6Address.
-
-    .PARAMETER Ipv6ConfigPolicy
-    Specifies the value for Ipv6ConfigPolicy.
-
-    .PARAMETER Ipv6Duid
-    Specifies the value for Ipv6Duid.
-
-    .PARAMETER Ipv6Gateway
-    Specifies the value for Ipv6Gateway.
-
-    .PARAMETER Ipv6PrimaryDNS
-    Specifies the value for Ipv6PrimaryDNS.
-
-    .PARAMETER Ipv6SecondaryDNS
-    Specifies the value for Ipv6SecondaryDNS.
-
-    .PARAMETER IpxeAutoStartScriptLocation
-    Specifies the value for IpxeAutoStartScriptLocation.
-
-    .PARAMETER IpxeBootOrder
-    Specifies the value for IpxeBootOrder.
-
-    .PARAMETER IpxeScriptAutoStart
-    Specifies the value for IpxeScriptAutoStart.
-
-    .PARAMETER IpxeScriptVerification
-    Specifies the value for IpxeScriptVerification.
-
-    .PARAMETER IpxeStartupUrl
-    Specifies the value for IpxeStartupUrl.
-
-    .PARAMETER LastLevelCacheAsNUMANode
-    Specifies the value for LastLevelCacheAsNUMANode.
-
-    .PARAMETER LLCDeadLineAllocation
-    Specifies the value for LLCDeadLineAllocation.
-
-    .PARAMETER LlcPrefetch
-    Specifies the value for LlcPrefetch.
-
-    .PARAMETER LocalRemoteThreshold
-    Specifies the value for LocalRemoteThreshold.
-
-    .PARAMETER MaxMemBusFreqMHz
-    Specifies the value for MaxMemBusFreqMHz.
-
-    .PARAMETER MaxPcieSpeed
-    Specifies the value for MaxPcieSpeed.
-
-    .PARAMETER MemClearWarmReset
-    Specifies the value for MemClearWarmReset.
-
-    .PARAMETER MemFastTraining
-    Specifies the value for MemFastTraining.
-
-    .PARAMETER MemMirrorMode
-    Specifies the value for MemMirrorMode.
-
-    .PARAMETER MemPatrolScrubbing
-    Specifies the value for MemPatrolScrubbing.
-
-    .PARAMETER MemRefreshRate
-    Specifies the value for MemRefreshRate.
-
-    .PARAMETER MemoryControllerInterleaving
-    Specifies the value for MemoryControllerInterleaving.
-
-    .PARAMETER MemoryRemap
-    Specifies the value for MemoryRemap.
-
-    .PARAMETER MicrosoftSecuredCoreSupport
-    Specifies the value for MicrosoftSecuredCoreSupport.
-
-    .PARAMETER MinProcIdlePkgState
-    Specifies the value for MinProcIdlePkgState.
-
-    .PARAMETER MinProcIdlePower
-    Specifies the value for MinProcIdlePower.
-
-    .PARAMETER MinimumSevAsid
-    Specifies the value for MinimumSevAsid.
-
-    .PARAMETER MixedPowerSupplyReporting
-    Specifies the value for MixedPowerSupplyReporting.
-
-    .PARAMETER NetworkBootRetry
-    Specifies the value for NetworkBootRetry.
-
-    .PARAMETER NetworkBootRetryCount
-    Specifies the value for NetworkBootRetryCount.
-
-    .PARAMETER NicBoot1
-    Specifies the value for NicBoot1.
-
-    .PARAMETER NicBoot2
-    Specifies the value for NicBoot2.
-
-    .PARAMETER NicBoot3
-    Specifies the value for NicBoot3.
-
-    .PARAMETER NicBoot4
-    Specifies the value for NicBoot4.
-
-    .PARAMETER NicBoot5
-    Specifies the value for NicBoot5.
-
-    .PARAMETER NicBoot6
-    Specifies the value for NicBoot6.
-
-    .PARAMETER NicBoot7
-    Specifies the value for NicBoot7.
-
-    .PARAMETER NicBoot8
-    Specifies the value for NicBoot8.
-
-    .PARAMETER NicBoot9
-    Specifies the value for NicBoot9.
-
-    .PARAMETER NicBoot10
-    Specifies the value for NicBoot10.
 
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -8357,7 +7440,7 @@ Function Set-HPECOMSettingServerBios {
         [string]$SciRasSupport,
 
         [bool]$SecStartBackupImage,
-        [bool]$SecureBootStatus,
+        [bool]$SecureBootEnable,
 
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
@@ -10097,7 +9180,7 @@ Function Set-HPECOMSettingServerBios {
                 'SataSanitize',
                 'SataSecureErase',
                 'SecStartBackupImage',
-                'SecureBootStatus',
+                'SecureBootEnable',
                 'ServerConfigLockStatus',
                 'Slot1MctpBroadcastSupport',
                 'Slot2MctpBroadcastSupport',
@@ -10676,7 +9759,7 @@ Function Set-HPECOMSettingServerBios {
                 if (-not $WhatIf) {
 
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Bios server setting cannot be updated!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Bios server setting cannot be updated!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -11168,7 +10251,7 @@ Function New-HPECOMSettingServerInternalStorage {
                 if (-not $WhatIf) {
 
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Internal storage server setting cannot be created!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Internal storage server setting cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -11407,7 +10490,7 @@ Function Set-HPECOMSettingServerInternalStorage {
                 if (-not $WhatIf) {
 
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Internal storage server setting cannot be updated!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Internal storage server setting cannot be updated!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -11684,7 +10767,7 @@ Function New-HPECOMSettingServerOSImage {
                 if (-not $WhatIf) {
     
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "OS image configuration server setting cannot be created!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "OS image configuration server setting cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
     
                 }
@@ -12014,7 +11097,7 @@ Function Set-HPECOMSettingServerOSImage {
                 if (-not $WhatIf) {
 
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "OS Image server setting cannot be updated!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "OS Image server setting cannot be updated!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -12285,7 +11368,7 @@ Function New-HPECOMSettingServerFirmware {
                 if (-not $WhatIf) {
 
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Firmware server setting cannot be created!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Firmware server setting cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -12632,7 +11715,7 @@ Function Set-HPECOMSettingServerFirmware {
                 if (-not $WhatIf) {
 
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Firmware server setting cannot be updated!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Firmware server setting cannot be updated!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -12866,7 +11949,7 @@ Function New-HPECOMSettingServerExternalStorage {
                 if (-not $WhatIf) {
     
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Firmware server setting cannot be created!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Firmware server setting cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
     
                 }
@@ -13118,7 +12201,7 @@ Function Set-HPECOMSettingServerExternalStorage {
                 if (-not $WhatIf) {
 
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "External storage server setting cannot be updated!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "External storage server setting cannot be updated!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -15230,7 +14313,7 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
                 if (-not $WhatIf) {
         
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "iLO server setting cannot be created!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "iLO server setting cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData
     
                 }
@@ -17891,7 +16974,7 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
                 if (-not $WhatIf) {
         
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "iLO server setting cannot be set!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "iLO server setting cannot be set!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData
     
                 }  
@@ -18273,7 +17356,7 @@ Function Remove-HPECOMSetting {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Server setting cannot be deleted!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Server setting cannot be deleted!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                 }
             }           
@@ -18508,10 +17591,10 @@ Export-ModuleMember -Function `
 
 
 # SIG # Begin signature block
-# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBgq2QlIlDgCNkr
-# NfYaW0EhzJlj0mD6Ag3mUGVJP7wQM6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCLIvRV+kG5ePbB
+# ClFvJBq0SoRwf1hai6bJ1w0QZ1IyeKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -18607,154 +17690,154 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg8w9M1w5TgR2yt0YzFvfXNPI0LUI6j3lRzN25onZmARAwDQYJKoZIhvcNAQEB
-# BQAEggIAbi0dvLPh3PlUiMnr99nvJM9SIG7vqKAt7OS8idVenBQo8H1Yb/1qdS/x
-# cwVMuLijBCHjOO6p0rEX2iPifNyHxzYGdeMM70/DOPEanN7jP9SquPkSzDe0dgfk
-# pHjZ4O4DCu4YQBUkI0mlBam6T3oL78TP+8BE3V3DNyfEWMabJ9UvhAspn4OBs5Rs
-# BuQqZDuwzg4nbL/Disd+g9EWnYH3CHNi7Z3pg9lUzdaVFxmdDz2nB57YLr8vYYZV
-# OUH67Z5NQuj5MJJuScj1pebT1PbIHwObdPuYqBasXWksO1wKhFq1TLBe8jV+I8WI
-# y/McaqV+cfdtzMOjMuR3vgPDp11/tWG63IQn0byCZdvLtXIobcFC70HC/R5DwkzU
-# KVkqQBka6182IIRnX2YFZrZjPNWQMCoyTkynIP1soMyY1qUnLYnhfWkfMQu3B0wa
-# RWxkOKb3te7jSs1bBt5f3/PBIB7oU9kdAEjOYEDrzNNjMKNdZxEZHsmg3GO4uzcr
-# xQ4nH400EHr0BDswtb855Znq8bPG8rWle00uQyMZ/7hgaCzAPaWTbSBW6x9OY270
-# ZKuCuRlIHmLGZz838aRna0/r9hA6SC7eO1/ti9wdr33OrpkFFrTBvFU7WDVGW9Ag
-# zBiPMWZDslUrDSHcnbryJwwB0rE428D5p+w/eCUKHMnDrFU1VF2hghjoMIIY5AYK
-# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwSpLTyc4hs4lqOEd2k5CLCDbM8DL4KCofHIwP
-# KkCb0sQaEKGat/oafYvdtSq3cKyZAhQKKpod+UFF5RNTzYRwBw/Ti7LN1RgPMjAy
-# NjAxMTkxODIxMjhaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
-# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
-# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
-# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
-# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
-# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
-# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
-# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
-# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
-# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
-# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
-# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
-# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
-# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
-# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
-# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
-# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
-# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
-# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
-# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
-# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
-# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
-# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
-# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
-# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
-# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
-# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
-# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
-# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
-# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
-# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
-# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
-# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
-# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
-# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
-# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
-# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
-# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
-# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
-# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
-# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
-# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
-# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
-# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
-# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
-# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
-# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
-# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
-# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
-# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
-# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
-# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
-# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
-# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
-# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
-# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
-# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
-# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
-# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
-# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
-# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
-# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
-# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
-# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
-# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
-# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
-# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
-# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
-# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
-# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
-# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
-# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
-# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
-# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
-# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
-# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
-# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
-# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
-# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
-# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
-# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
-# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
-# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
-# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
-# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
-# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
-# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
-# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
-# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
-# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
-# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
-# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
-# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
-# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
-# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
-# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
-# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
-# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
-# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
-# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
-# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
-# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
-# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
-# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjYwMTE5MTgyMTI4WjA/BgkqhkiG9w0BCQQxMgQwYMVCv44ieVfgrGiqbtey
-# CYTJzAJ4xB/v9hxqeTOMttCslQ3TYWdjNJVV7vQ4yoB0MIIBegYLKoZIhvcNAQkQ
-# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
-# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
-# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
-# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
-# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
-# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgAHI05LEygMCurvA0Ufm9vgKGT1FwSKmKXMxa94BuV3PH4EgTsqUADSjDIIxVgZ
-# c5yXr8ftolxQ0p118eU7/vNsoP3DfgjF5VwHhxpFaob6ejw0RuVqMRdWDR99hRGL
-# ScO5o3Pe1pedJPaHFb92pBP5NgZn2f0u6ttDpYQi/oFJo2A1YOs+7Jk0I9GLnNHr
-# aVIZPjGGjFIeBfJj9o7vnxPRNG1QmuyvBCTXpZHp8THTGey3TfTBhsBS+i/eH9xQ
-# aEr0fIPYmIcaH9keifDUgFVV2y/C0Uwrp5cX1t3qc8S9zXAzPhv7TOVjtfJdIbFL
-# OzDZSMiUV2Y212BCK9l0OHJ9Ma9BiWC2dY/tR0UkQtO/sb435qBz7mNdzLQetF8X
-# jMNZjsLiETyHwRzaVJfA6ELnzhMdxpjLW7bthgWYbrJMi3V5wHmmOL9q88LifTDg
-# +eSJdOBgtSHvTgFgaJvOWZfL0JfBBhMAhSOnnVBjHTtNNNca9tSu63EzbibIjOqt
-# 1CduWSTt+vss6S9V5wfdQTieJiUYjawUMfRllulbUMonugVitmTT+wtb+ANyEX5D
-# uY0NZ3Za+zu94z7Q/Psj91S9u88wadgeFJG2ek5PXgrrdUxDiTFQyPvfJl7KmGGa
-# NyHzKcW5hxYW1yWU68BrKduUq7crWecMwogFwx67eviWng==
+# IgQgM7fcVEPaVlSQb31AxXf1NhujtCatMYsXfJr5IVOdx/8wDQYJKoZIhvcNAQEB
+# BQAEggIAYREiWhwPcqSrDivlfudBfk/jOfyUSle5l02aNWZNUuSgPww0LZKQJ2O4
+# D6rU+WcIpc9Ca8Rz3CEBW2+F/HUf7BiymLvbvtKoJ6DQRwsRqDaKqzCcTt1CMZ6J
+# +bet23j2yK8u6isVCB5xL09I0/JFmnbq2TU5jVFfhIPlCkJ/kkPOVcPRuXbljb7D
+# dOvObb2NSOvS7z/31QFwN6OzI++Thju7qnBB5E9HIFQl/4hNXijenpDAstO8XJdb
+# sO7bW7AsT00v0a2HshWrA32aamUCU2/I0iqnAVLia4QFLpSHh395RJxioXKp7tSN
+# ozYsT7+wz7AZ3xkTvLiXNAyKRw73AUdgLRS2Tqk/b2CmtSd0rxEw77pjs2ANlq6T
+# PBatMhgRipMGoSzqh/1o+CMUzrdmpCkeEjhmtiY6v+ZJ3URbdtoa8uvXuetquWc/
+# usMApZDGk5K9o48jS/hIzIWrQKOZf8W8dkUamxswehzsIuWBooiEyKLurY13TBYT
+# pQGeq+Du8SpO32fx0bzLNDNJTBmBuTwmECze8Ckm18mCIiKcOGsNES7Y0ePcYeYg
+# M+VyVNPcif5/pM5Rgw2tRJNjF7goNKXeUYz4RSd75iNUucWzQiCoSO2lMfdlwu7J
+# geG0g4tZqKZLFHkT41moQihh3P+O7w//m2fZBTxlYH77AUVjL/KhghjpMIIY5QYK
+# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQw4CgJ8T55HwwmV1VPazJ28YeOwVptmMGp7dpX
+# 3VsmZTRChQ+C4Gj3LX1fWXjjg0fNAhUAs74PDTMGRE2FboPwx9p0MTKylj8YDzIw
+# MjYwMTMwMTA1MDM3WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
+# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
+# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
+# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
+# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
+# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
+# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
+# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
+# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
+# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
+# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
+# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
+# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
+# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
+# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
+# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
+# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
+# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
+# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
+# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
+# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
+# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
+# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
+# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
+# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
+# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
+# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
+# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
+# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
+# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
+# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
+# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
+# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
+# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
+# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
+# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
+# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
+# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
+# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
+# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
+# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
+# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
+# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
+# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
+# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
+# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
+# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
+# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
+# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
+# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
+# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
+# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
+# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
+# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
+# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
+# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
+# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
+# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
+# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
+# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
+# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
+# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
+# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
+# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
+# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
+# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
+# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
+# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
+# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
+# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
+# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
+# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
+# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
+# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
+# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
+# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
+# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
+# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
+# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
+# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
+# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
+# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
+# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
+# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
+# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
+# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
+# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
+# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
+# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
+# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
+# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
+# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
+# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
+# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
+# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
+# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
+# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
+# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
+# MQ8XDTI2MDEzMDEwNTAzN1owPwYJKoZIhvcNAQkEMTIEMNi5AV1wKxovxoe8cACn
+# LQ/aYFFcWva0wvInMBAX9h/yj9lXeHqs9KcZvMr/7lOzQzCCAXoGCyqGSIb3DQEJ
+# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
+# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
+# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
+# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
+# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
+# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
+# ggIAGFsQpqSfr1YGGLPYneGdsFFw5UV0y3nS264QwwJnrPrlaDjUKePbKaH+kH0k
+# bZsAY5NscoSzRn3Yjq0q/cdKpw0Vs/d8TzCtis2hPfjFZqTFVGnUVDdUUmydabwU
+# tBk4U0eRFHY7+6jgZ2lIBJFh/2xLaWmzcGuDf3kohkJKkLXZxNrjiLA06UG8e/L5
+# ghwMxwm/hPvLX1FLKm0tV0ObBkaep0oMOf8YZs3X83pHz+d6cvkAIywGP2T9cW/B
+# o/XI3RDlc/2TrEmuIKoF8uuk/4U76gvMPRBd0R1b76OwubvRVifYeHDANJ28BiA0
+# jq3ps92e9YsTUnOUkcgdFZk2I09TnR1LVMhpUHuS6ZNwZzep/j2EfZOz/K6BZYb8
+# f5USBV4j8lx+7KpuKCTAW+2Qw2DZU1+JnajZubq0BwQlpSa/z4yIoEpAvUEKWrfR
+# 7J843QQj40Xjb0eLL+SJ/RKAsQLVrxuPWwiZk4A3daxQ7fiZbjDtCDlas/i6pvU8
+# Ws/o53ko910vSl4Bfg/474vN7H2BPOqcomQp91zJEfeaZ0EgBJ1PNlF2Vz7X3io2
+# Q5CGDiIVedXzlXRdr/9k/QNMPzCesmBg6BoBfM+zLjpYj1abimEZwlEnpcuwfDJB
+# aYU9LOimR/gsUCHGXibxsCCyFBZtL60aO9EuITSImTfee7E=
 # SIG # End signature block

@@ -54,6 +54,12 @@ Function Get-HPECOMGroup {
     .PARAMETER ShowSettings
     Optional parameter that can be used to obtain a list of server settings that are assigned to the designated group. 
 
+    .PARAMETER ShowActivities
+    Optional parameter that can be used to retrieve activities from the last month for the specified group.
+
+    .PARAMETER ShowJobs
+    Optional parameter that can be used to retrieve jobs from the last month for the specified group.
+
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
@@ -101,6 +107,16 @@ Function Get-HPECOMGroup {
     Get-HPECOMGroup -Region eu-central -Name ESXi_group -ShowPolicies
 
     Return the list of policies that are assigned to the group 'ESXi_group'.
+
+    .EXAMPLE
+    Get-HPECOMGroup -Region eu-central -Name ESXi_group -ShowActivities
+
+    Return activities from the last month for the group 'ESXi_group'.
+
+    .EXAMPLE
+    Get-HPECOMGroup -Region eu-central -Name ESXi_group -ShowJobs
+
+    Return jobs from the last month for the group 'ESXi_group'.
     
     .INPUTS
     No pipeline support   
@@ -140,6 +156,8 @@ Function Get-HPECOMGroup {
         [Parameter (Mandatory, ParameterSetName = 'ExternalStorageCompliance')]
         [Parameter (Mandatory, ParameterSetName = 'ShowSettings')]
         [Parameter (Mandatory, ParameterSetName = 'ShowPolicies')]
+        [Parameter (ParameterSetName = 'ShowActivities')]
+        [Parameter (ParameterSetName = 'ShowJobs')]
         [String]$Name,
 
         [Parameter (ParameterSetName = 'Compliance')]
@@ -162,6 +180,12 @@ Function Get-HPECOMGroup {
                 
         [Parameter (ParameterSetName = 'ShowSettings')]
         [Switch]$ShowSettings,
+
+        [Parameter (ParameterSetName = 'ShowActivities')]
+        [Switch]$ShowActivities,
+
+        [Parameter (ParameterSetName = 'ShowJobs')]
+        [Switch]$ShowJobs,
 
         [Switch]$WhatIf
        
@@ -186,7 +210,7 @@ Function Get-HPECOMGroup {
             $Uri = (Get-COMGroupsUri) + "/properties"
             
         }
-        elseif ($ShowMembers -or $ShowCompliance -or $ShowFirmwareCompliance -or $ShowiLOSettingsCompliance -or $ShowExternalStorageCompliance) {
+        elseif (($ShowMembers -or $ShowCompliance -or $ShowFirmwareCompliance -or $ShowiLOSettingsCompliance -or $ShowExternalStorageCompliance) -or ($ShowActivities -and $Name) -or ($ShowJobs -and $Name)) {
 
             $Uri = (Get-COMGroupsUri) + "?filter=name eq '$name'"
 
@@ -219,6 +243,14 @@ Function Get-HPECOMGroup {
                 if ($ShowMembers) {
                     $Uri = (Get-COMGroupsUri) + "/" + $GroupID + "/devices"
                 }
+
+                if ($ShowActivities) {
+                    # No URI needed here, we'll call Get-HPECOMActivity directly
+                }
+
+                if ($ShowJobs) {
+                    # No URI needed here, we'll call Get-HPECOMJob directly
+                }
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)
@@ -234,18 +266,52 @@ Function Get-HPECOMGroup {
             
         }
 
-        try {
-            [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
-    
-        }
-        catch {
-            # For ShowExternalStorageCompliance, 404 means no external storage data available
-            if ($ShowExternalStorageCompliance -and $_.Exception.Message -match '404') {
-                "[{0}] No external storage compliance data available for group '{1}' (404 - may indicate no external storage configured)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
-                return
+        if ($ShowActivities) {
+            try {
+                if ($Name) {
+                    # Get activities for specific group
+                    "[{0}] Retrieving activities for group '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                    [Array]$CollectionList = Get-HPECOMActivity -Region $Region -SourceName $Name -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                } else {
+                    # Get activities for all groups using Category filter
+                    "[{0}] Retrieving activities for all groups in region '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                    [Array]$CollectionList = Get-HPECOMActivity -Region $Region -Category Group -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                }
             }
-            $PSCmdlet.ThrowTerminatingError($_)
-                   
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+        }
+        elseif ($ShowJobs) {
+            try {
+                if ($Name) {
+                    # Get jobs for specific group
+                    "[{0}] Retrieving jobs for group '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                    [Array]$CollectionList = Get-HPECOMJob -Region $Region -SourceName $Name -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                } else {
+                    # Get jobs for all groups using Category filter
+                    "[{0}] Retrieving jobs for all groups in region '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                    [Array]$CollectionList = Get-HPECOMJob -Region $Region -Category Group -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                }
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+        }
+        else {
+            try {
+                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+    
+            }
+            catch {
+                # For ShowExternalStorageCompliance, 404 means no external storage data available
+                if ($ShowExternalStorageCompliance -and $_.Exception.Message -match '404') {
+                    "[{0}] No external storage compliance data available for group '{1}' (404 - may indicate no external storage configured)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                    return
+                }
+                $PSCmdlet.ThrowTerminatingError($_)
+                       
+            }
         }           
         
 
@@ -253,8 +319,10 @@ Function Get-HPECOMGroup {
       
         if ($Null -ne $CollectionList) {   
             
-            # Add region to object
-            $CollectionList | Add-Member -type NoteProperty -name region -value $Region
+            # Add region to object (skip for activities and jobs as they already have it)
+            if (-not $ShowActivities -and -not $ShowJobs) {
+                $CollectionList | Add-Member -type NoteProperty -name region -value $Region
+            }
                        
             if ($ShowCompliance) {
                 
@@ -404,6 +472,20 @@ Function Get-HPECOMGroup {
                 $_CollectionList = $_CollectionList | Sort-Object name
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $_CollectionList -ObjectName "COM.Settings"    
 
+            }
+            elseif ($ShowActivities) {
+
+                # Activities are already in the correct format from Get-HPECOMActivity
+                # Just return them directly without repackaging
+                $ReturnData = $CollectionList
+                
+            }
+            elseif ($ShowJobs) {
+
+                # Jobs are already in the correct format from Get-HPECOMJob
+                # Just return them directly without repackaging
+                $ReturnData = $CollectionList
+                
             }
             elseif ($ShowPolicies) {
 
@@ -1324,7 +1406,7 @@ Function New-HPECOMGroup {
     
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Group cannot be created!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Group cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                 }
             }           
@@ -1523,7 +1605,7 @@ Function Remove-HPECOMGroup {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Group cannot be deleted!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Group cannot be deleted!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                 }
             }           
@@ -2470,7 +2552,7 @@ Function Set-HPECOMGroup {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Group cannot be updated!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Group cannot be updated!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -2652,7 +2734,7 @@ Function Add-HPECOMServerToGroup {
             
         }
         catch {
-            $PSCmdlet.ThrowTerminatingError($_)                
+            $PSCmdlet.ThrowTerminatingError($_)               
         }
         
         
@@ -3361,8 +3443,8 @@ Export-ModuleMember -Function 'Get-HPECOMGroup', 'New-HPECOMGroup', 'Remove-HPEC
 # SIG # Begin signature block
 # MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBGzASqcqfFryox
-# IWMsxzs68ksq2QkIyQilwVk9LsGvTKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAubKQncpkfxXH+
+# 7FtYXKrObCtfh1NCw7/TVz/7gn1lyaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -3463,23 +3545,23 @@ Export-ModuleMember -Function 'Get-HPECOMGroup', 'New-HPECOMGroup', 'Remove-HPEC
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgavLBdUkUwklU3XnscxuB8XcAJXx8SsJ1hsL9W8XLe+UwDQYJKoZIhvcNAQEB
-# BQAEggIAYnlFSj/bEkyPE3PV2GLYSDtwFsQYzQna13u82k0WtOUhwal7dhpvPQAf
-# /4+fjQy1zp/FAAs059bAUtyGehCqj6qxNegdor4v0tDsCd8n3bOUl34s/UlsqRTH
-# tKiZDM6UAxQr9QcTkmXxZt2Y5Yt/N2zfdenGeS64MjZ4GxG+OYkCBlqQBjofuCPX
-# 9j4ijyJCZXrAmYgRR5btqlgp+VeVaMgfeE/cDbVf0kh3SthhGWBMUVXkndJPi0WP
-# elvolshQBwdPQNHEp5raKc6D0hkgH5Xi/Jk4tv00wEK58LBYo03EcavVqm4BBFZs
-# mxd82OMWav6eBPFZcY+Kf9G3pmnagXB5aQ3sVqYgPt29dvXVdYH4DoX9JMCbzMvM
-# HEhKnkk7FN5TgfK3Kr+mksp2Sir/Lq47TLkClE6J8ZZFm/GT2A/n3vS+s+QTh7+X
-# fZE10/fq68kQcjmCUE4APerwOdpS/SJTiXnjq6UYB8IXqLDUTExcX4iSJn6I+QKc
-# ob1FsK/EB5BC+IXUu1LNmhOXqz0oEcveKle+thuNDVS+QfUFudrq3agYZ5PpW+Yj
-# NrtszlKal7yMq23qlr42FWH3dHzlUO9mRmkWy4QKFfi/3o//gApRHYl5JVsLopZk
-# 0HNHUsnSZX4Y9uwsdOoyPeQNQzwKKStOI4LOWrCEjXm1dedC1sahgheYMIIXlAYK
+# IgQgEOlAOL6MCsTNgz8/CTbqvOZMWjT5QrXArUkQjhi1HUUwDQYJKoZIhvcNAQEB
+# BQAEggIA0xapIO357iUpMRHpxsRUo/73rn2B2xQAfZOD4G0vKeCao7njmYrCzdXD
+# ZG2lIEvOz8GJK5x0GaCmrt/787nlAU6ko+Q9AdnGJA9RvNukEGgrX1hlKonsKq64
+# v7VfBlKYB1FEEG6QbJyXOosiiJxFcx/Tj/KMe7j0I9M2Z0OAzSHGVL52CB614Jwj
+# HTNgTMs1Ohkm4PhfT0S+ait9kR/3ySMyoZrZ4eYvGXovpf61Dixk/P1LwSg+y22p
+# AvlzjuaBxUb+C85cqcUX0s0ZMqmwjq7A8iEoRBqwct09X6vVNsLbBlkLc7f/VBJh
+# 6HLLE91pIwJEqwq9UziYhtPmrHmESqoAFEoGwPBHpr4cccZPwwlePcQ9CYGgS+8H
+# 9vi1k/O6wFCHzg2LOmJXUvK3KYgZmUn7zONWWTqeUvQUM1GHb2sTxptX2cvmYhHX
+# /7GAYusE/yPl2CZpG0CqYKLAstdljWt7VwvUTHTdXNFK7W1B+jc+pXQuUrcJ+ikG
+# NML/M5jQHgI47Kv6L7kL1IJEpv1xKJeMeMAa4+o/1NgcY6Ic7ytiCjxxSFALtTal
+# BSQEsEa0IcmDekcOQ1PpSg9TC1z09df65M96sxZzd4YMysSeVWIgER8jKUU15O4L
+# ELqox095nyHgGwFaL0rvjjmAgLrJ81+ZFFsVSXL86jXHlA7t4tahgheYMIIXlAYK
 # KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMC2v5Zto9LWfRsvbUKyTwgeoCbf/ddUObeobeEW5xXU8
-# 8yvTpEiqDLaHrxwSzOSUAgIRAI2KQ4Dw6qmJ3W5BMaBNEmMYDzIwMjYwMTE5MTgx
-# ODA5WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQYJYIZIAWUDBAICBQAEMFkzazwsqV7SX4ZfsEFBpsyRuGPcUfAWNWv30muKemmY
+# jFYW28Ptdc9Xw2PryEbqJQIRAOFLZ9CiE3SnjYs1y1jjpAQYDzIwMjYwMTMwMTA0
+# NzI0WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
 # DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
 # MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
 # NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
@@ -3585,20 +3667,20 @@ Export-ModuleMember -Function 'Get-HPECOMGroup', 'New-HPECOMGroup', 'Remove-HPEC
 # aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
 # EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
 # NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDEx
-# OTE4MTgwOVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDEz
+# MDEwNDcyNFowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
 # llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMOkhro1T6niga3/oMtPyekgm
-# 2Cgnxfkt/tKhITSQQrs3iMMP0HGrdd+viv9+1tKeqzANBgkqhkiG9w0BAQEFAASC
-# AgAgjPb4P7cDqd2PDHEKP0v41huXsUiP8Z7cuLlVmcE4SJVf63LPWNxt0lp+j0it
-# oWYzhKpKWCIXWnpEaMp/tjoKkMgRzjx6KTRMryM/IeNESku9PAHs1H9HiJKXbJSG
-# m/eI+ELXo4hO2Njxfcl9SUCYpxwNj4KhYJKIKQsGdZZGV8e8f8s3qtMeUqg+dDaM
-# zLAdDuZ/+qNSFxXGhaHGbQjyLqSlK1kxvaD1EJp/CQZK0PKY/iPaAxi9yzxPTTrw
-# kl31ZgGMTZXTcx0md1+CAwM3+R7MnAqm3UXlOuchIrsFasOR6gVLvlWub4LwyeB5
-# YcGBsxrI6OES4qkLBIjR5KRJxqeppUojnCi8EDPUfJZFNAB+7+fOpU7e8aMZjIgL
-# 8a6RUTri/uedaz2PVuHABDu2i1yAQRkQ4P9dl8H2NjMt5EkvaS86E5GcdiRI+mXU
-# C5cMpwHwP4SlD5MtkjejZlAY/P4XFwYlt3jH6VLwduZncgwi/aXw+MXryBUlBG3V
-# YmkimprD4R9I9RAGkllkNwjJn3UXxn4ycZ9NZbOpyDgPgd+yMjiz7XKpY+zuXfr4
-# SqU9JylyARSVhkcgztFgBXMiJh8kYvUuayb7AGYF2AEV80X6VirBibFOZ8ovLckt
-# BGhq8aQztfcup1Z48IWrRx3mOp/9jGxzbb21q7rf8GlGyQ==
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMCUu4iA+rfkhZwhldmxD5KMU
+# 6J7LQGL2PvegTTjKxhrHxo8caitK0ToESBx0DKhr2TANBgkqhkiG9w0BAQEFAASC
+# AgC8thVvcajQTKPE9HtyIk+oSckB27fW4tGfzXRSWcIbMm93JHFunWFmwi7ypHZ2
+# 0Mn6v1vV2KypqOrspg2BFiu4kPjNQYsh6aouVMdTXXC4jD18nSOhpjaXnrlmGvK9
+# b+mlUhx1pWLsKruAATOZU9qqbiIQig46FyIwAQjXEesDZGC7lpRHeN7MzevNUQw7
+# mekjoXFTnANuv8T4pwA4Wk/Nnzv7e1Rk17SS89mZx9XCIWfuyOPnBUCw4nQhPNRv
+# qeNaAY3/aRBTUhI93rTliNwsSwZQdyVQXXF3CExyuhjF/P70bDu8illbWSBxAm+h
+# J8sBIyHE7mukRsGCT+8lccx873lmHj24En5xgA1HS4Hz8c/lbcNJ/UVSGlPBNxRK
+# 6R17RWDmxKB1KWi4LJFIhsEHStPBW5BB9BDYF/c8Nyl9yM9q/vCdST5q/FE3fDqA
+# wGJmUJlz8Xv2okxY33+x+p8Q6IH1PTQhN9IXfUBVNs2s8k3KfUXjmuScUXeKerBC
+# xmMbgTogjQDPCu5sNZriW8bdns91y2OEv6xjY0WYEWpX+1kn6ntu3ySiLHpZrRKc
+# lyflCK47priRPHRmN+lv/UUrjbcQMStqmK5VVRDBsIUECdPTRM2ouIcaZGYpNVoi
+# nLSK0lbZZQvo84/ec9UpX7vz4fjeoYIjhU3BRap+h8IBxg==
 # SIG # End signature block

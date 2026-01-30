@@ -1048,6 +1048,25 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     .PARAMETER IloProxyPassword
     (Optional) Specifies the iLO web proxy password, if applicable, as a SecureString.
 
+    .PARAMETER RemoveExistingiLOProxySettings
+    If present, this switch parameter removes any existing iLO proxy configuration before connecting to Compute Ops Management. 
+    This is useful when an incorrectly configured proxy is preventing the iLO from connecting to the cloud.
+    
+    Note: Due to an iLO firmware limitation, the proxy error may persist in the iLO's cached network state even after removal. 
+    In such cases, use the -ResetiLOIfProxyErrorPersists parameter to automatically reset the iLO and clear the cached state.
+    
+    .PARAMETER ResetiLOIfProxyErrorPersists
+    (Optional) When used with -RemoveExistingiLOProxySettings, automatically resets the iLO if cached proxy errors persist after proxy removal.
+    This addresses a known iLO firmware limitation where the network stack does not properly clear cached connectivity test results.
+    
+    The cmdlet will:
+    - Detect if proxy errors remain cached after removal
+    - Perform an iLO reset (ForceRestart) to clear the network stack
+    - Wait up to 120 seconds for iLO to restart (with 6 retry attempts)
+    - Reconnect to iLO and complete the COM connection
+    
+    This provides a fully automated solution for the cached proxy issue without manual intervention.
+
     .PARAMETER DisconnectiLOfromOneView
     If present, this switch parameter disconnects a system managed by HPE OneView in order to connect it to Compute Ops Management. If absent, the connection to Compute Ops Management will fail if the system is already managed by HPE OneView.
     
@@ -1175,6 +1194,16 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
        192.168.0.2, Administrator, password
        192.168.0.3, demo, password
 
+    .EXAMPLE
+    $iLO_credential = Get-Credential 
+    $COM_Activation_Key = New-HPECOMServerActivationKey -Region eu-central
+    Connect-HPEGLDeviceComputeiLOtoCOM -IloIP "192.168.0.21" -IloCredential $iLO_credential -ActivationKeyfromCOM $COM_Activation_Key -RemoveExistingiLOProxySettings -ResetiLOIfProxyErrorPersists -SkipCertificateValidation
+
+    Connect the iLO at 192.168.0.21 to the Compute Ops Management instance in the eu-central region. 
+    If the iLO has an existing proxy configuration causing connection issues, it will be removed. 
+    If cached proxy errors persist after removal (due to iLO firmware limitation), the iLO will be automatically reset to clear the network stack, 
+    then reconnected and the COM connection completed. This provides a fully automated solution for proxy-related connection issues.
+
     .INPUTS
     System.Collections.ArrayList
         List of Device(s) with an IP property (iLO IP address).
@@ -1231,6 +1260,9 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
 
         [Parameter (ParameterSetName = 'DisableProxySettings')]
         [Switch]$RemoveExistingiLOProxySettings,
+        
+        [Parameter (ParameterSetName = 'DisableProxySettings')]
+        [Switch]$ResetiLOIfProxyErrorPersists,
 
         [Switch]$DisconnectiLOfromOneView
   
@@ -1619,15 +1651,192 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                         "[{0}] {1} [{2}] iLO proxy server settings removed successfully!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
                         $objStatus.ProxySettingsStatus = "Complete"
                         $objStatus.ProxySettingsDetails = "iLO proxy server settings removed successfully!"
+                        
+                        # Verify proxy settings were actually removed by reading them back
+                        try {
+                            $NetworkProtocolURI = "/redfish/v1/Managers/1/NetworkProtocol/"
+                            $NetworkProtocolUrl = $iLObaseURL + $NetworkProtocolURI
+                            
+                            Start-Sleep -Seconds 3
+                            
+                            if ($SkipCertificateValidation) {
+                                $NetworkProtocolCheck = Invoke-RestMethod -Method GET -Uri $NetworkProtocolUrl -Headers $Headers -ErrorAction Stop -SkipCertificateCheck
+                            }
+                            else {
+                                $NetworkProtocolCheck = Invoke-RestMethod -Method GET -Uri $NetworkProtocolUrl -Headers $Headers -ErrorAction Stop
+                            }
+                            
+                            $CurrentProxyServer = $NetworkProtocolCheck.Oem.Hpe.WebProxyConfiguration.ProxyServer
+                            "[{0}] {1} [{2}] Verified proxy settings - ProxyServer: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CurrentProxyServer | Write-Verbose
+                            
+                            if ($CurrentProxyServer) {
+                                "[{0}] {1} [{2}] Warning: Proxy server still configured as '{3}' - proxy removal may not have fully applied!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CurrentProxyServer | Write-Verbose
+                            }
+                        }
+                        catch {
+                            "[{0}] {1} [{2}] Warning: Could not verify proxy removal: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $_.Exception.Message | Write-Verbose
+                        }
+                        
+                        # Wait additional time for proxy removal to propagate
+                        "[{0}] {1} [{2}] Waiting 10 seconds for proxy removal to fully propagate..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                        Start-Sleep -Seconds 10
+                        
+                        # Check if CloudConnect is still showing proxy error - if so, disable it to clear cached state
+                        try {
+                            $CheckURI = "/redfish/v1/Managers/1/"
+                            $CheckUrl = $iLObaseURL + $CheckURI
+                            
+                            if ($SkipCertificateValidation) {
+                                $CheckResponse = Invoke-RestMethod -Method GET -Uri $CheckUrl -Headers $Headers -ErrorAction Stop -SkipCertificateCheck
+                            }
+                            else {
+                                $CheckResponse = Invoke-RestMethod -Method GET -Uri $CheckUrl -Headers $Headers -ErrorAction Stop
+                            }
+                            
+                            $CurrentFailReason = $CheckResponse.Oem.Hpe.CloudConnect.FailReason
+                            $CurrentStatus = $CheckResponse.Oem.Hpe.CloudConnect.CloudConnectStatus
+                            
+                            "[{0}] {1} [{2}] Current CloudConnect state: Status='{3}', FailReason='{4}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CurrentStatus, $CurrentFailReason | Write-Verbose
+                            
+                            # If still showing proxy error, disable CloudConnect to force fresh test
+                            if ($CurrentFailReason -match "ProxyOrFirewall") {
+                                
+                                if ($ResetiLOIfProxyErrorPersists) {
+                                    # Known iLO firmware limitation: cached proxy error persists even after proxy removal
+                                    # Only solution is iLO reset - faster and more reliable than disable/wait/enable cycle
+                                    "[{0}] {1} [{2}] iLO has cached proxy error that persists after removal. Performing iLO reset to clear network stack..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                    
+                                    try {
+                                        $ResetURI = "/redfish/v1/Managers/1/Actions/Manager.Reset/"
+                                        $ResetUrl = $iLObaseURL + $ResetURI
+                                        $ResetBody = @{ ResetType = "ForceRestart" } | ConvertTo-Json
+                                        
+                                        if ($SkipCertificateValidation) {
+                                            $null = Invoke-RestMethod -Method POST -Uri $ResetUrl -Headers $Headers -Body $ResetBody -ErrorAction Stop -SkipCertificateCheck
+                                        }
+                                        else {
+                                            $null = Invoke-RestMethod -Method POST -Uri $ResetUrl -Headers $Headers -Body $ResetBody -ErrorAction Stop
+                                        }
+                                        
+                                        "[{0}] {1} [{2}] iLO reset initiated. Waiting 60 seconds for iLO to restart and clear cached network state..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                        Start-Sleep -Seconds 60
+                                        
+                                        # Retry reconnection with multiple attempts (iLO resets can take 90-120 seconds)
+                                        "[{0}] {1} [{2}] Attempting to reconnect to iLO after reset..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                        
+                                        $MaxReconnectAttempts = 6
+                                        $ReconnectInterval = 10
+                                        $ReconnectSuccess = $false
+                                        
+                                        for ($attempt = 1; $attempt -le $MaxReconnectAttempts; $attempt++) {
+                                            try {
+                                                # Create new session after reset
+                                                $Ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($iLOCredential.Password)
+                                                $iLOPasswordPlainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($Ptr)
+                                                
+                                                $ReconnectBody = [System.Collections.Hashtable]@{
+                                                    UserName = $iLOCredential.UserName
+                                                    Password = $iLOPasswordPlainText
+                                                } | ConvertTo-Json
+                                                
+                                                $SessionURI = "/redfish/v1/SessionService/Sessions/"
+                                                $SessionUrl = $iLObaseURL + $SessionURI
+                                                
+                                                if ($SkipCertificateValidation) {
+                                                    $SessionResponse = Invoke-WebRequest -Method POST -Uri $SessionUrl -Body $ReconnectBody -ContentType "application/json" -ErrorAction Stop -SkipCertificateCheck
+                                                }
+                                                else {
+                                                    $SessionResponse = Invoke-WebRequest -Method POST -Uri $SessionUrl -Body $ReconnectBody -ContentType "application/json" -ErrorAction Stop
+                                                }
+                                                
+                                                # Extract X-Auth-Token from response headers
+                                                $NewXAuthToken = (($SessionResponse.RawContent -split "[`r`n]" | select-string -Pattern 'X-Auth-Token' ) -split " ")[1]
+                                                
+                                                # Update the Headers hashtable with new token
+                                                $Headers['X-Auth-Token'] = $NewXAuthToken
+                                                
+                                                "[{0}] {1} [{2}] iLO session re-established after reset (attempt {3}/{4})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $attempt, $MaxReconnectAttempts | Write-Verbose
+                                                $ReconnectSuccess = $true
+                                                
+                                                # Clean up sensitive data
+                                                $iLOPasswordPlainText = $null
+                                                [GC]::Collect()
+                                                break
+                                            }
+                                            catch {
+                                                if ($attempt -lt $MaxReconnectAttempts) {
+                                                    "[{0}] {1} [{2}] iLO not ready yet (attempt {3}/{4}). Waiting {5} seconds before retry..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $attempt, $MaxReconnectAttempts, $ReconnectInterval | Write-Verbose
+                                                    Start-Sleep -Seconds $ReconnectInterval
+                                                }
+                                                else {
+                                                    "[{0}] {1} [{2}] Warning: Failed to reconnect to iLO after {3} attempts: {4}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $MaxReconnectAttempts, $_.Exception.Message | Write-Verbose
+                                                    "[{0}] {1} [{2}] iLO may be taking longer than expected to restart. Please verify iLO is accessible and retry the connection." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Warning
+                                                }
+                                            }
+                                        }
+                                        
+                                        if (-not $ReconnectSuccess) {
+                                            # Could not reconnect after reset - return error
+                                            $ErrorMessage = "iLO reset completed but could not re-establish connection after {0} seconds. Please verify iLO is accessible and retry." -f (60 + ($MaxReconnectAttempts * $ReconnectInterval))
+                                            $objStatus.Status = "Failed"
+                                            $objStatus.Details = $ErrorMessage
+                                            [void] $iLOConnectionStatus.add($objStatus)
+                                            return
+                                        }
+                                        
+                                    }
+                                    catch {
+                                        "[{0}] {1} [{2}] Warning: iLO reset failed: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $_.Exception.Message | Write-Verbose
+                                        "[{0}] {1} [{2}] Attempting to continue with disable/enable CloudConnect approach..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                    }
+                                }
+                                
+                                if (-not $ResetiLOIfProxyErrorPersists) {
+                                    "[{0}] {1} [{2}] iLO still has cached proxy error. Disabling CloudConnect to clear state..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                    "[{0}] {1} [{2}] NOTE: Due to iLO firmware limitation, proxy error may persist. Consider using -ResetiLOIfProxyErrorPersists parameter for reliable clearing." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Warning
+                                    
+                                    $DisableURI = "/redfish/v1/Managers/1/Actions/Oem/Hpe/HpeiLO.DisableCloudConnect/"
+                                    $DisableUrl = $iLObaseURL + $DisableURI
+                                    $DisableBody = @{} | ConvertTo-Json
+                                    
+                                    if ($SkipCertificateValidation) {
+                                        $null = Invoke-RestMethod -Method POST -Uri $DisableUrl -Headers $Headers -Body $DisableBody -ErrorAction Stop -SkipCertificateCheck
+                                    }
+                                    else {
+                                        $null = Invoke-RestMethod -Method POST -Uri $DisableUrl -Headers $Headers -Body $DisableBody -ErrorAction Stop
+                                    }
+                                    
+                                    "[{0}] {1} [{2}] CloudConnect disabled successfully. Waiting for network stack to clear cached state..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                    
+                                    # Wait even longer for iLO network stack to fully reset
+                                    Start-Sleep -Seconds 30
+                                    
+                                    # Verify CloudConnect is now in NotEnabled state
+                                    if ($SkipCertificateValidation) {
+                                        $VerifyResponse = Invoke-RestMethod -Method GET -Uri $CheckUrl -Headers $Headers -ErrorAction Stop -SkipCertificateCheck
+                                    }
+                                    else {
+                                        $VerifyResponse = Invoke-RestMethod -Method GET -Uri $CheckUrl -Headers $Headers -ErrorAction Stop
+                                    }
+                                    
+                                    $VerifyStatus = $VerifyResponse.Oem.Hpe.CloudConnect.CloudConnectStatus
+                                    $VerifyFailReason = $VerifyResponse.Oem.Hpe.CloudConnect.FailReason
+                                    "[{0}] {1} [{2}] CloudConnect state after disable: Status='{3}', FailReason='{4}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $VerifyStatus, $VerifyFailReason | Write-Verbose
+                                }
+                            }
+                            else {
+                                "[{0}] {1} [{2}] iLO has cleared the proxy error state" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                            }
+                        }
+                        catch {
+                            "[{0}] {1} [{2}] Warning: Error checking/clearing CloudConnect state: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $_.Exception.Message | Write-Verbose
+                        }
                     }
                     else {
                         "[{0}] {1} [{2}] iLO proxy server settings removal error! Message: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $msg | Write-Verbose
                         $objStatus.ProxySettingsStatus = "Failed"
                         $objStatus.ProxySettingsDetails = $msg                        
-                    }  
-                    
-                    # Wait for 5 seconds to allow iLO to apply the changes
-                    Start-Sleep -Seconds 5
+                    }
                 }
                 catch {
 
@@ -1645,6 +1854,117 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                 "[{0}] {1} [{2}] No existing iLO proxy server settings to remove" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
                 $objStatus.ProxySettingsStatus = "Complete"
                 $objStatus.ProxySettingsDetails = "No existing iLO proxy server settings to remove"
+                
+                # Even though proxy is disabled, check if there's a cached proxy error from previous configuration
+                if ($ResetiLOIfProxyErrorPersists) {
+                    try {
+                        $CheckURI = "/redfish/v1/Managers/1/"
+                        $CheckUrl = $iLObaseURL + $CheckURI
+                        
+                        if ($SkipCertificateValidation) {
+                            $CheckResponse = Invoke-RestMethod -Method GET -Uri $CheckUrl -Headers $Headers -ErrorAction Stop -SkipCertificateCheck
+                        }
+                        else {
+                            $CheckResponse = Invoke-RestMethod -Method GET -Uri $CheckUrl -Headers $Headers -ErrorAction Stop
+                        }
+                        
+                        $CurrentFailReason = $CheckResponse.Oem.Hpe.CloudConnect.FailReason
+                        $CurrentStatus = $CheckResponse.Oem.Hpe.CloudConnect.CloudConnectStatus
+                        
+                        "[{0}] {1} [{2}] Current CloudConnect state: Status='{3}', FailReason='{4}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CurrentStatus, $CurrentFailReason | Write-Verbose
+                        
+                        # If still showing proxy error even though proxy is disabled, reset iLO to clear cached state
+                        if ($CurrentFailReason -match "ProxyOrFirewall") {
+                            "[{0}] {1} [{2}] Proxy is disabled but iLO has cached proxy error from previous configuration. Performing iLO reset to clear network stack..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                            
+                            try {
+                                $ResetURI = "/redfish/v1/Managers/1/Actions/Manager.Reset/"
+                                $ResetUrl = $iLObaseURL + $ResetURI
+                                $ResetBody = @{ ResetType = "ForceRestart" } | ConvertTo-Json
+                                
+                                if ($SkipCertificateValidation) {
+                                    $null = Invoke-RestMethod -Method POST -Uri $ResetUrl -Headers $Headers -Body $ResetBody -ErrorAction Stop -SkipCertificateCheck
+                                }
+                                else {
+                                    $null = Invoke-RestMethod -Method POST -Uri $ResetUrl -Headers $Headers -Body $ResetBody -ErrorAction Stop
+                                }
+                                
+                                "[{0}] {1} [{2}] iLO reset initiated. Waiting 60 seconds for iLO to restart and clear cached network state..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                Start-Sleep -Seconds 60
+                                
+                                # Retry reconnection with multiple attempts
+                                "[{0}] {1} [{2}] Attempting to reconnect to iLO after reset..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                
+                                $MaxReconnectAttempts = 6
+                                $ReconnectInterval = 10
+                                $ReconnectSuccess = $false
+                                
+                                for ($attempt = 1; $attempt -le $MaxReconnectAttempts; $attempt++) {
+                                    try {
+                                        # Create new session after reset
+                                        $Ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($iLOCredential.Password)
+                                        $iLOPasswordPlainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($Ptr)
+                                        
+                                        $ReconnectBody = [System.Collections.Hashtable]@{
+                                            UserName = $iLOCredential.UserName
+                                            Password = $iLOPasswordPlainText
+                                        } | ConvertTo-Json
+                                        
+                                        $SessionURI = "/redfish/v1/SessionService/Sessions/"
+                                        $SessionUrl = $iLObaseURL + $SessionURI
+                                        
+                                        if ($SkipCertificateValidation) {
+                                            $SessionResponse = Invoke-WebRequest -Method POST -Uri $SessionUrl -Body $ReconnectBody -ContentType "application/json" -ErrorAction Stop -SkipCertificateCheck
+                                        }
+                                        else {
+                                            $SessionResponse = Invoke-WebRequest -Method POST -Uri $SessionUrl -Body $ReconnectBody -ContentType "application/json" -ErrorAction Stop
+                                        }
+                                        
+                                        # Extract X-Auth-Token from response headers
+                                        $NewXAuthToken = (($SessionResponse.RawContent -split "[`r`n]" | select-string -Pattern 'X-Auth-Token' ) -split " ")[1]
+                                        
+                                        # Update the Headers hashtable with new token
+                                        $Headers['X-Auth-Token'] = $NewXAuthToken
+                                        
+                                        "[{0}] {1} [{2}] iLO session re-established after reset (attempt {3}/{4})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $attempt, $MaxReconnectAttempts | Write-Verbose
+                                        $ReconnectSuccess = $true
+                                        
+                                        # Clean up sensitive data
+                                        $iLOPasswordPlainText = $null
+                                        [GC]::Collect()
+                                        break
+                                    }
+                                    catch {
+                                        if ($attempt -lt $MaxReconnectAttempts) {
+                                            "[{0}] {1} [{2}] iLO not ready yet (attempt {3}/{4}). Waiting {5} seconds before retry..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $attempt, $MaxReconnectAttempts, $ReconnectInterval | Write-Verbose
+                                            Start-Sleep -Seconds $ReconnectInterval
+                                        }
+                                        else {
+                                            "[{0}] {1} [{2}] Warning: Failed to reconnect to iLO after {3} attempts: {4}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $MaxReconnectAttempts, $_.Exception.Message | Write-Verbose
+                                            "[{0}] {1} [{2}] iLO may be taking longer than expected to restart. Please verify iLO is accessible and retry the connection." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Warning
+                                        }
+                                    }
+                                }
+                                
+                                if (-not $ReconnectSuccess) {
+                                    # Could not reconnect after reset - return error
+                                    $ErrorMessage = "iLO reset completed but could not re-establish connection after {0} seconds. Please verify iLO is accessible and retry." -f (60 + ($MaxReconnectAttempts * $ReconnectInterval))
+                                    $objStatus.Status = "Failed"
+                                    $objStatus.Details = $ErrorMessage
+                                    [void] $iLOConnectionStatus.add($objStatus)
+                                    return
+                                }
+                                
+                            }
+                            catch {
+                                "[{0}] {1} [{2}] Warning: iLO reset failed: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $_.Exception.Message | Write-Verbose
+                            }
+                        }
+                    }
+                    catch {
+                        "[{0}] {1} [{2}] Warning: Error checking CloudConnect state: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $_.Exception.Message | Write-Verbose
+                    }
+                }
             }
             #EndRegion
 
@@ -1842,9 +2162,37 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                             "[{0}] {1} [{2}] About to run GET {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, ($iLObaseURL + "/redfish/v1/Managers/1/") | Write-Verbose
 
                             do {                           
-                                $CloudConnectStatus = (Invoke-RestMethod @CloudConnectStatusParams).Oem.Hpe.CloudConnect.CloudConnectStatus
-                                "[{0}] {1} [{2}] Connection to COM status: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CloudConnectStatus | Write-Verbose
+                                $ManagerInfo = Invoke-RestMethod @CloudConnectStatusParams
+                                $CloudConnectStatus = $ManagerInfo.Oem.Hpe.CloudConnect.CloudConnectStatus
+                                $FailReason = $ManagerInfo.Oem.Hpe.CloudConnect.FailReason
+                                $WebConnectivity = $ManagerInfo.Oem.Hpe.CloudConnect.ExtendedStatusInfo.WebConnectivity
+                                
+                                "[{0}] {1} [{2}] Connection to COM status: '{3}' - FailReason: '{4}' - WebConnectivity: '{5}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CloudConnectStatus, $FailReason, $WebConnectivity | Write-Verbose
                             
+                                # Check for actual errors (not "NotTested" and not success indicators like "Already_Connected")
+                                if ($FailReason -and $FailReason -ne "NotTested" -and $FailReason -notmatch "Already|Connected") {
+                                    Clear-SpinnerOutput
+                                    "[{0}] {1} [{2}] Error detected - FailReason: '{3}', WebConnectivity: '{4}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $FailReason, $WebConnectivity | Write-Verbose
+                                    
+                                    # Format user-friendly error message
+                                    $errorDetail = switch -Regex ($FailReason) {
+                                        "ProxyOrFirewall" { "Proxy or Firewall Issue - Check network connectivity and proxy settings" }
+                                        default { $FailReason -replace "_", " " }
+                                    }
+                                    
+                                    # If this is a proxy error and we just removed proxy settings, suggest using reset parameter
+                                    if ($RemoveExistingiLOProxySettings -and $FailReason -match "ProxyOrFirewall" -and -not $ResetiLOIfProxyErrorPersists) {
+                                        "[{0}] {1} [{2}] WARNING: Proxy error persists after proxy removal due to iLO firmware limitation (cached network state)." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Warning
+                                        "[{0}] {1} [{2}] RECOMMENDATION: Use -ResetiLOIfProxyErrorPersists parameter to automatically reset iLO and clear cached state." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Warning
+                                    }
+                                    
+                                    $objStatus.iLOConnectionStatus = "Failed"
+                                    $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! $errorDetail"
+                                    $objStatus.Status = "Failed"
+                                    [void]$iLOConnectionStatus.add($objStatus)
+                                    return
+                                }
+
                                 # Calculate the current spinner character
                                 $spinnerChar = $spinner[$subcounter % $spinner.Length]
                             
@@ -1857,6 +2205,22 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                                 Start-Sleep -Seconds 4
                             
                             } while ($CloudConnectStatus -eq "ConnectionInProgress" -and $subcounter -le 30) # Wait up to 2 minutes for connection to complete 
+
+                            # After monitoring loop completes, check FailReason one more time
+                            if ($CloudConnectStatus -eq "NotConnected") {
+                                $FinalManagerInfo = Invoke-RestMethod @CloudConnectStatusParams
+                                $FinalFailReason = $FinalManagerInfo.Oem.Hpe.FailReason
+                                
+                                if ($FinalFailReason) {
+                                    Clear-SpinnerOutput
+                                    "[{0}] {1} [{2}] FailReason detected after monitoring: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $FinalFailReason | Write-Verbose
+                                    $objStatus.iLOConnectionStatus = "Failed"
+                                    $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! $FinalFailReason"
+                                    $objStatus.Status = "Failed"
+                                    [void]$iLOConnectionStatus.add($objStatus)
+                                    return
+                                }
+                            }
 
                             # Process response inside try to catch errors
                             if ($iLOConnectiontoCOMResponse -and $iLOConnectiontoCOMResponse.PSObject.Properties['error'] -and $iLOConnectiontoCOMResponse.error.'@Message.ExtendedInfo') {
@@ -1910,10 +2274,58 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                     if ($counter -gt 10) {
                         Clear-SpinnerOutput
                     
+                        # Check Oem.Hpe.FailReason using Views endpoint (same as iLO UI)
+                        try {
+                            "[{0}] {1} [{2}] Connection timeout - Checking iLO FailReason via Views endpoint..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+
+                            $ViewsBody = @{
+                                Select = @(
+                                    @{
+                                        From = "/Managers/1/"
+                                        Properties = @(
+                                            "Oem.Hpe.CloudConnect as CloudConnect",
+                                            "Oem.Hpe.FailReason as FailReason"
+                                        )
+                                    }
+                                )
+                            } | ConvertTo-Json -Depth 5
+
+                            $ViewsParams = @{
+                                Method  = 'POST'
+                                Uri     = ($iLObaseURL + "/redfish/v1/Views/")
+                                Headers = $Headers
+                                Body    = $ViewsBody
+                                ContentType = 'application/json'
+                            }
+                            if ($SkipCertificateValidation) {
+                                $ViewsParams.SkipCertificateCheck = $true
+                            }
+
+                            "[{0}] {1} [{2}] About to POST {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, ($iLObaseURL + "/redfish/v1/Views/") | Write-Verbose
+                            "[{0}] {1} [{2}] Views Body: `n{3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $ViewsBody | Write-Verbose
+
+                            $ViewsData = Invoke-RestMethod @ViewsParams
+                            $FailReason = $ViewsData.FailReason
+                            $CloudConnectStatus = $ViewsData.CloudConnect.CloudConnectStatus
+                        
+                            if ($FailReason) {
+                                "[{0}] {1} [{2}] FailReason found: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $FailReason | Write-Verbose
+                                $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! $FailReason"
+                            }
+                            else {
+                                "[{0}] {1} [{2}] No FailReason found. CloudConnect status: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CloudConnectStatus | Write-Verbose
+                                $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! Connection timeout - Check network connectivity, proxy settings, and firewall rules."
+                            }
+                        }
+                        catch {
+                            "[{0}] {1} [{2}] Error retrieving FailReason via Views: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $_ | Write-Verbose
+                            $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! Connection timeout - Unable to retrieve error details."
+                        }
+
                         $objStatus.iLOConnectionStatus = "Failed"
-                        $objStatus.iLOConnectionDetails = "iLO cannot be connected to Compute Ops Management! Connection timeout - Check the iLO event log for more information."
                         $objStatus.Status = "Failed"
                         [void] $iLOConnectionStatus.add($objStatus)
+                        return
                     }
                     else {
                         Clear-SpinnerOutput
@@ -2020,6 +2432,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                 $objStatus.Exception = "Error: '{0}'" -f $_
                 $objStatus.Status = "Failed"
                 [void] $iLOConnectionStatus.add($objStatus)
+                return
             }
             #EndRegion
         }
@@ -5020,7 +5433,7 @@ Function New-HPEGLLocation {
                 "[{0}] Failed to create location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Location cannot be created!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Location cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 }
 
@@ -6345,7 +6758,7 @@ Are you sure you want to proceed?
 
                     if (-not $WhatIf) {
                         $objStatus.Status = "Failed"
-                        $objStatus.Details = "Location cannot be deleted!"
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Location cannot be deleted!" }
                         $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                     }
 
@@ -7407,10 +7820,10 @@ Export-ModuleMember -Function `
 
 
 # SIG # Begin signature block
-# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB8BGf5Ye5uQETx
-# zW/LIWo1Gigu3/FsmHf0HGyAT3Pw26CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB2ug3q3wprSv77
+# xGZ7zc2tKPqQ0f47jtCMFX1ULVzsY6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -7506,147 +7919,154 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgFyOm+18bWUz4QEY47iIw9ixoJaHKcGliaUaCV/3UE40wDQYJKoZIhvcNAQEB
-# BQAEggIAUN8TkhKOXtAMC4uZhNymBdgE0zFoh7yHEz0/QRwF14CG46nuxwunQGgd
-# /ZH2BksHHiBfhLV4Pl6yqtxZcnEt2G6//psRphaqnufG1nbtq+pM3tbO2baL8YTi
-# oNhqYN5yFThkuG8TSvzkdz4yAQHPyGZ4eYlMa3EheXp5eHuIFEK3rXbQItzkHnQd
-# LqA0z9bTVmbj3ntgAeYxg5EWzSodUxXHNlpkKclGYm3TvjBFFXyLmZPG1SCrS0UQ
-# Jj4/Hz+24wApfA+ZssEAKgfUPgrw+q0katEnqbYxbPtiZmQ+MQaAmc5BIyQ0xjHi
-# cgO0dbnHCPOqKeBrsKKYxhebp7+Texo4NSWtNHv24QLKEwrVsSwD+LJ4b1DOhixo
-# GI+cXNBA4226JVkQ4EpsP9VsQq6lInLt/QKCa80tOEi2gfEbagvbbwWgvTCmlPJL
-# 5PDIMjgA8uHK+2C6DEmnlxiGjDst38M23MPBUIDMkIekRRvgAix3mUYmf9bgAImU
-# voC8lCgwTuiVIJOTTpuQFKCxaFr+Qm+R5f0PXdwPRbWOYj2RX/+ec++Y9LPkoc4Y
-# 3ssJMDX2hvjC6jZ6+U62frIZzXMU4YnaBBlgVVe5yP0QVXNN51OuzsxvijARtxUU
-# 4C8tr+5tWeq1X7op5AYvGWXRaZ9xIP8OqRJh7EfPVZKt/XuOFLqhgheYMIIXlAYK
-# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMN3bmfmppWEjxg/Io/wJqqWCieyWsMUbZRrUUVW+CUFa
-# GGyEVxYJqUFRSPWcj12iRgIRAKHjy1RqjtE49u5lXYojHUEYDzIwMjYwMTE5MTgy
-# MzA5WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
-# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
-# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
-# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
-# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
-# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
-# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
-# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
-# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
-# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
-# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
-# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
-# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
-# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
-# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
-# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
-# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
-# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
-# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
-# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
-# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
-# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
-# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
-# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
-# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
-# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
-# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
-# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
-# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
-# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
-# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
-# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
-# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
-# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
-# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
-# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
-# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
-# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
-# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
-# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
-# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
-# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
-# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
-# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
-# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
-# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
-# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
-# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
-# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
-# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
-# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
-# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
-# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
-# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
-# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
-# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
-# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
-# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
-# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
-# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
-# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
-# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
-# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
-# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
-# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
-# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
-# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
-# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
-# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
-# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
-# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
-# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
-# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
-# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
-# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
-# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
-# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
-# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
-# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
-# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
-# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
-# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
-# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
-# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
-# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
-# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
-# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
-# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
-# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
-# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
-# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
-# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
-# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
-# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
-# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
-# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
-# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
-# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
-# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
-# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
-# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDEx
-# OTE4MjMwOVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
-# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMPFeqQB+fb4S4U0eDelbAqGA
-# xyzM7HbLFJWBpomftgpAE/uaoIZyVJQbu4rJuW9HNzANBgkqhkiG9w0BAQEFAASC
-# AgBMcnkg8PEYY93AiqEq1wZiJYD+eDwjApp+p1F7CwDqHhtcN445yDmLm335R2rh
-# mamstVpzSj/nEJQJP7ebOeb+egUXVi1udD+7GqSgXFioEZ+gWXUxykgKpdebLpuR
-# F2EnRnQOEyXCS9sXuX50EeGGkA+qLc7mesERbPTj1hPFSw2hVEvix983PByAiy1s
-# FXVw8Fl4pleXGnOriVCMdoXBxUmjEv1fiXNeSZQenCPXET4OfynI4TUmWwjK/4BE
-# vA2cJUBXUTxUbc38JHK0oD38eH+ri2nmNLB2kFTEgBB3z93s9De6/JWB0/VA0r0r
-# 20GFSsh4avBKlHchuuasHIhN86GKjadijjPP1DH7RgdfSOlqIQiYn2TM0IxY0zS9
-# 1Dzn8c3nwh0w4h5dyyrwvQK2DnOgWc8I9qQMI2NJ5xooY2MBACQCbxY5L9Rn7NJc
-# gkNW4fAPVnmd6UvtHwynyxi7NDQZpM269j8XUTWc1G64emvocxhy+R9fmpr7A5vv
-# B+dCeVjkYPHl/7Rj92U2svUWjrw5qyHM2ULyRss2XDJKo8uMTZm/IO7e5jIeN6CH
-# QekkMjFPOpo7u9GaRzmS4h2U5WBopjo0cVuQmo0PCpoPTTKkH97VOJkAvjttYopi
-# ctetEfnfrUJeXvLSsGE14nrDwax7/Uf8Zunn43mAooxNTw==
+# IgQgCyChe+Atp4qBjxu9VotlVhvKkqV73991mq7sipKlYYEwDQYJKoZIhvcNAQEB
+# BQAEggIASioHaCHVeda0pnOcDxL9A1aOO4bLSqKJrlyikFimF7l25AYJLfwMhPEm
+# 2yZ3RABcFwujPhS5y+/svEdbNxKaOw7T2Ebrw6WIKCDLF45ebj1phVDnOWrUvIGA
+# yYw6YwXX3r63L+blaOYNtmYd35CgziAzPZ24bHpv1zgLzTeSLS+cmPkF66R6AIKO
+# htjLp6SBTrtWTlpjFZgc2ht04AQlDhc5Rf5r81vBmKHkYLYRUTmDSpqzedLGtfkT
+# xTgHTLuzVKIPESBFWZ4XBkVGsqGx8HxcDccJGGANuri2fD/noYwbjs+ro1vay+DM
+# eGL6qUXM5M7Toy36TLIVDyYPSKEOAu0kmC99dO90L4+1143FmdNDYAULeZkJZjkt
+# 3h32u5XyIh9gxuMWIC3aslJWugSRY2R9thTigb4o9UwJGuV1o6JkWMhVk3oUFG0c
+# 7XhL97YboQEvD0dhwOqPZCSb3LE8zRrrvh7Bb+RU6OTZrbWIDEJiDlMxtHpmakvF
+# y/TSFezQeG5otlTacCSnCcKElNALkXLOV7cZphdK/o/uRQHy+QdKpVKIG5d6lt+w
+# e0Bf5cGAe2tN3t4Ed7im/twTGsyuP+v+nKFmxdx54SmUVbK7zQgUXttylOXl5uxR
+# EdAK23APr+T6pEfTTedUM8vemYlyOZZAO3RGhO5wMDDfJp72Mw+hghjpMIIY5QYK
+# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQws8hWLnQzvKEVOPOK94SzpKrnj+8nJytBioDj
+# g5YqMcToPdXc2d+mBz4WcBap3crfAhUAtHIEoGYGebkUON3wl24qZ6GPMXAYDzIw
+# MjYwMTMwMTA1MjE3WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
+# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
+# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
+# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
+# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
+# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
+# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
+# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
+# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
+# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
+# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
+# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
+# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
+# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
+# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
+# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
+# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
+# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
+# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
+# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
+# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
+# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
+# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
+# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
+# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
+# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
+# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
+# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
+# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
+# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
+# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
+# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
+# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
+# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
+# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
+# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
+# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
+# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
+# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
+# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
+# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
+# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
+# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
+# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
+# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
+# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
+# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
+# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
+# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
+# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
+# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
+# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
+# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
+# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
+# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
+# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
+# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
+# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
+# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
+# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
+# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
+# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
+# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
+# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
+# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
+# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
+# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
+# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
+# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
+# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
+# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
+# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
+# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
+# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
+# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
+# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
+# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
+# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
+# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
+# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
+# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
+# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
+# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
+# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
+# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
+# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
+# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
+# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
+# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
+# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
+# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
+# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
+# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
+# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
+# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
+# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
+# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
+# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
+# MQ8XDTI2MDEzMDEwNTIxN1owPwYJKoZIhvcNAQkEMTIEMI3akWfDiDFC/Hh/hy6N
+# TZRPxeXQtsDkIXZ5+bSRoXc9xDjFQVjhxsvPJHpeEScULDCCAXoGCyqGSIb3DQEJ
+# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
+# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
+# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
+# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
+# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
+# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
+# ggIAmz+ac5w/HPrHIGW008zFfuIDdnw1xXYjXh9nQ1u4xDFHUplTvHouPQF45N0x
+# FYa5epe8Ee6cbqatY+30ZdZaPJuwlYxXOeAsgVNB8q/AnXwHDTCat0EnyONJmxNs
+# 6ytOK1GyiOKcDAKZOvlgw6u33TZxgwppO25jCi4x/ZmVPl8YvZzaF4Px60dONmzQ
+# aYJcpA6VZv9uYjhIZB2haItSF/enkKdXn88P+Tgx5q5klj8UIdnp2wcihfN7Utbe
+# eX9OGyObvX2hkA5/eF/xP6lD1vd3kwqX8iV9rUemcKLRZzz6fmcBkasLy+0RjnoS
+# Sff/AaUGt+jZoH+bkNzEwtbND09SLJu/T79WubJE0J1jmt/bI5bzFbsXkkEyIRqM
+# xjQFs4eVvwpb7zsmHtLKiXGhzgWem1SeUE1LMbyfVKc9RMqroa8AsxR5pJCyq3w9
+# tcuxWLs7y1ZbWuRI5JD2uiMMuRRsuStOIPpcd2VHjQLE+2ZirQHTDdK4Rj3J+mGd
+# ZOf63tH7uwSfYfjYnME88q+tt4kgKafqUwqMU47Ax3grhELQP+qjow8wOuf/kVWv
+# kBZiFx6qcbrO37DODuviRr6SW+quUC19du1sTbydJqTA1Rb9DrIKP0C9CUVKKlye
+# GYRWWdNV/e8lzO2o5oVQ/UWiyDeomqP4ScSKNP3a1t/xSS4=
 # SIG # End signature block
