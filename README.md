@@ -34,6 +34,7 @@ This library is actively maintained with continuous updates to support new HPE G
 ## Documentation & Tutorials
 
 **📘 Blog & Guides**: For detailed insights, step-by-step tutorials, and the latest updates, visit:
+- 🚀 **[HPE Compute Ops Management Zero Touch Automation Example](https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/Examples/COM-Zero-Touch-Automation.ps1)** - Learn best practices with a complete automation example covering the entire infrastructure deployment lifecycle showcasing workspace creation, zero-touch server onboarding, configuration, firmware updates, and teardown
 - ✨ **[PowerShell Library for HPE Compute Ops Management](https://jullienl.github.io/PowerShell-library-for-HPE-GreenLake)** - Main blog with examples and best practices
 - 🎯 **[Configuring SAML SSO with HPE GreenLake and Passwordless Authentication](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)** - Complete setup guide for integrating Okta, Microsoft Entra ID, and PingIdentity with HPE GreenLake using passwordless authentication methods for this PowerShell module
 
