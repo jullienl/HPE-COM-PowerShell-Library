@@ -8,7 +8,7 @@ This library is actively maintained with continuous updates to support new HPE G
 
 | Version | Downloads | Status | PowerShell |
 |---------|-----------|--------|------------|
-| 1.0.19 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
+| 1.0.20 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
 
 
 ## Table of Contents
@@ -90,7 +90,7 @@ Get up and running in 3 steps:
       Add-HPECOMServerToGroup -Region "us-west" -ServerSerialNumber "J208PP0026" -GroupName "Production-Servers"
       ```
 
-      📦 **More Examples**: Explore the [Zero Touch Automation](https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/Examples/Zero_Touch_Automation.ps1) script for comprehensive command reference.
+      📦 **More Examples**: Explore the [HPE Compute Ops Management Zero Touch Automation Example](https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/Examples/COM-Zero-Touch-Automation.ps1) script for comprehensive command reference.
 
 
 4. **Disconnect when done**
@@ -152,7 +152,7 @@ Get-Command -Module HPECOMCmdlets
 
 - **Workspace Type Compatibility**:
 
-  - **Enhanced workspaces (IAMv2):** Fully supported since v1.0.19 
+  - **Enhanced workspaces (IAMv2):** Fully supported since v1.0.20 
     - ✅ Complete feature set including new organization management, user groups, and scope-based access control (SBAC)
     - ✅ Advanced identity features: domains, SSO connections, authentication policies
     - ✅ Modern user and role management with improved security
@@ -162,7 +162,7 @@ Get-Command -Module HPECOMCmdlets
     - ✅ Core functionality remains fully operational
     - ⚠️ Some SAML SSO domain functions are deprecated (migration guidance provided)
     - ⚠️ Limited access to newer IAMv2-specific features (user groups, advanced SBAC, etc.)
-    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.19.md#migration-guide) in release notes for updating deprecated functions 
+    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.20.md#migration-guide) in release notes for updating deprecated functions 
 
 ## Best Practices & Performance Considerations
 
@@ -839,7 +839,7 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 
 🔗 [PowerShell Gallery](https://www.powershellgallery.com/packages/HPECOMCmdlets)
 
-* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.192en_us)
+* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.202en_us)
 * [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 

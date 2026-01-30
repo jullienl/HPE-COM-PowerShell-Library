@@ -37,7 +37,20 @@ Function Get-HPECOMServer {
 
     .PARAMETER Limit 
     This parameter allows you to define a limit on the number of servers to be displayed. 
+
+    .PARAMETER ShowActivities
+    Optional parameter that can be used to retrieve activities from the last month for the specified server.
+    When used with -Name, retrieves activities for that specific server. 
+    When used without -Name, retrieves activities for all servers in the region.
+
+    .PARAMETER ShowJobs
+    Optional parameter that can be used to retrieve jobs from the last month for the specified server.
+    When used with -Name, retrieves jobs for that specific server.
+    When used without -Name, retrieves jobs for all servers in the region.
     
+    .PARAMETER ShowAlerts 
+    Optional parameter that can be used to get the server alerts. Alerts provide security information and issues related to servers.
+
     .PARAMETER ShowHealthStatus 
     Optional parameter that can be used to get the server health status including overall health summary, fans, memory, network, power supplies, processor, storage, temperature, BIOS, and health LED status.
     Note: The default table view displays the most commonly used properties. Use Format-List or Select-Object * to view all properties including redundancy states (fanRedundancy, liquidCoolingRedundancy, powerSupplyRedundancy), liquidCooling, smartStorage, and connectionType.
@@ -84,9 +97,6 @@ Function Get-HPECOMServer {
 
     .PARAMETER ShowGroupExternalStorageCompliance
     Optional parameter that can be used when a server is a member of a group to get the group external storage compliance.
-
-    .PARAMETER ShowAlerts 
-    Optional parameter that can be used to get the server alerts. 
 
     .PARAMETER ShowSupportDetails
     Optional parameter that can be used to get the server support details.
@@ -268,6 +278,21 @@ Function Get-HPECOMServer {
     This command returns the external storage details of the server with name 'ESX-1.domain.lab'.
 
     .EXAMPLE
+    Get-HPECOMServer -Region eu-central -Name ESX-1.domain.lab -ShowActivities
+
+    This command returns the last month activities for the server with name 'ESX-1.domain.lab'.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -Name ESX-1.domain.lab -ShowJobs
+
+    This command returns the last month jobs for the server with name 'ESX-1.domain.lab'.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -PowerState ON -ShowJobs
+
+    This command returns the last month jobs for all powered on servers in the central EU region.
+
+    .EXAMPLE
     Get-HPECOMServer -Region us-west -ConnectedState False
     
     Lists all servers that are not connected to Compute Ops Management.
@@ -338,6 +363,7 @@ Function Get-HPECOMServer {
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ByName')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'WithNameForbidFilters')]
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'JobsWithNameForbidFilters')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AdapterToSwitchPortMappingsName')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'AlertsName')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ShowServersWithShowSupportDetails')]
@@ -352,6 +378,8 @@ Function Get-HPECOMServer {
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'ActivitiesWithoutName')]
+        [Parameter (ParameterSetName = 'JobsWithoutName')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 $Items = @('Direct', 'OneView managed', 'Secure gateway')
@@ -367,6 +395,8 @@ Function Get-HPECOMServer {
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'ActivitiesWithoutName')]
+        [Parameter (ParameterSetName = 'JobsWithoutName')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 $Items = @('True', 'False')
@@ -381,11 +411,15 @@ Function Get-HPECOMServer {
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'ActivitiesWithoutName')]
+        [Parameter (ParameterSetName = 'JobsWithoutName')]
         [String]$Model,
         
         [Parameter (ParameterSetName = 'ByName')]
         [Parameter (ParameterSetName = 'Other')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'ActivitiesWithoutName')]
+        [Parameter (ParameterSetName = 'JobsWithoutName')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 $Items = @('ON', 'OFF')
@@ -401,8 +435,21 @@ Function Get-HPECOMServer {
         [Parameter (ParameterSetName = 'Other')]
         [Parameter (ParameterSetName = 'ShowServersWithRecentSupportCases')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
+        [Parameter (ParameterSetName = 'ActivitiesWithoutName')]
+        [Parameter (ParameterSetName = 'JobsWithoutName')]
         [ValidateRange(1, 100)]
         [int]$Limit,
+
+        [Parameter (ParameterSetName = 'ActivitiesWithoutName')]
+        [Parameter (ParameterSetName = 'WithNameForbidFilters')]
+        [Switch]$ShowActivities,
+
+        [Parameter (ParameterSetName = 'JobsWithoutName')]
+        [Parameter (ParameterSetName = 'JobsWithNameForbidFilters')]
+        [Switch]$ShowJobs,
+
+        [Parameter (ParameterSetName = 'AlertsName')]
+        [Switch]$ShowAlerts,
 
         # Basic Server Information
         [Parameter (ParameterSetName = 'HealthStatusWithoutName')]
@@ -438,9 +485,6 @@ Function Get-HPECOMServer {
         [Switch]$ShowGroupExternalStorageCompliance,
 
         # Support & Subscription Parameters
-        [Parameter (ParameterSetName = 'AlertsName')]
-        [Switch]$ShowAlerts,
-
         [Parameter (ParameterSetName = 'ShowSupportDetailsName')]
         [Parameter (ParameterSetName = 'ShowSupportDetailsWithoutName')]
         [Switch]$ShowSupportDetails,
@@ -500,7 +544,7 @@ Function Get-HPECOMServer {
             'ShowExternalStorageDetails', 'ShowGroupMembership', 'ShowGroupFirmwareCompliance',
             'ShowGroupCompliance', 'ShowGroupiLOSettingsCompliance', 'ShowGroupExternalStorageCompliance',
             'ShowGroupFirmwareDeviation', 'ShowLocation', 'ShowNotificationStatus', 'ShowSecurityParameters',
-            'ShowSecurityParametersDetails', 'ShowHealthStatus'
+            'ShowSecurityParametersDetails', 'ShowHealthStatus', 'ShowActivities', 'ShowJobs'
         )
         
         $SpecifiedShowParams = $ShowParameters | Where-Object { $PSBoundParameters.ContainsKey($_) }
@@ -629,6 +673,8 @@ Function Get-HPECOMServer {
             -or $ShowSupportCases `
             -or ($ShowExternalStorageDetails -and $Name) `
             -or ($ShowLocation -and $Name) `
+            -or ($ShowActivities -and $Name) `
+            -or ($ShowJobs -and $Name) `
             -or ($ShowSupportDetails -and $Name) `
             -or ($ShowNotificationStatus -and $Name) `
             -or $ShowSecurityParametersDetails `
@@ -674,10 +720,10 @@ Function Get-HPECOMServer {
         # Requests using $ServerID in URI    
         if ($ShowAlerts) {
 
-            $Uri = (Get-COMServersUri) + "/" + $ServerID + "/alerts"
-
             try {
-                [Array]$CollectionList = Invoke-HPECOMWebRequest -Method Get -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+                # Use Get-HPECOMAlert cmdlet instead of native API call
+                $ServerNameOrSerial = if ($Name) { $Name } else { ($ServerID -split '\+')[1] }
+                [Array]$CollectionList = Get-HPECOMAlert -Region $Region -SourceName $ServerNameOrSerial -WhatIf:$WhatIf -Verbose:$false
     
             }
             catch {
@@ -848,7 +894,9 @@ Function Get-HPECOMServer {
                             caseId  = $Null
                             caseState = $Null
                             caseURL = $Null
+                            caseMessage = $Null
                             createdAt = $Null
+                            severity = $Null
                         }
     
                         if ($null -ne $alert.case_.Id) {
@@ -859,7 +907,9 @@ Function Get-HPECOMServer {
                             $Object.caseId = $alert.case_.caseId
                             $Object.caseState = $alert.case_.caseState
                             $Object.caseURL = $alert.case_.caseURL
+                            $Object.caseMessage = $alert.case_.userMessage_
                             $Object.createdAt = $alert.createdAt
+                            $Object.severity = $alert.severity
                             
                             [void]$ListofCases.Add($Object)                     
                         }
@@ -1055,6 +1105,56 @@ Function Get-HPECOMServer {
             }
                     
         }
+        elseif ($ShowActivities) {
+
+            if ($Name) {
+                # Get activities for the specific server
+
+                try {
+                    "[{0}] Retrieving activities for server '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                    [Array]$CollectionList = Get-HPECOMActivity -Region $Region -SourceName $ServerSerialNumber -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+            }
+            else {
+                # Get activities for all servers
+                try {
+                    "[{0}] Retrieving activities for all servers in region '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                    
+                    [Array]$CollectionList = Get-HPECOMActivity -Region $Region -Category 'Server' -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+            }
+        }
+        elseif ($ShowJobs) {
+
+            if ($Name) {
+                # Get jobs for the specific server
+
+                try {
+                    "[{0}] Retrieving jobs for server '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                    [Array]$CollectionList = Get-HPECOMJob -Region $Region -SourceName $ServerSerialNumber -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+            }
+            else {
+                # Get jobs for all servers
+                try {
+                    "[{0}] Retrieving jobs for all servers in region '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                    
+                    [Array]$CollectionList = Get-HPECOMJob -Region $Region -Category 'Server' -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+            }
+        }
         else {
 
             try {
@@ -1120,12 +1220,23 @@ Function Get-HPECOMServer {
                                        
             if ($ShowAlerts) {
 
-                # Add serial number and servername to object
-                $_ServerName = (Get-HPECOMServer -Region $Region -Name  ($CollectionList.serverId -split '\+')[1]).name
-                $CollectionList | Add-Member -type NoteProperty -name serverName -value $_ServerName -Force
-                $CollectionList | ForEach-Object { $_ | Add-Member -type NoteProperty -name serialNumber -value ($_.serverId -split '\+')[1] }
+                # Alerts are already in the correct format from Get-HPECOMAlert
+                # Just return them directly without repackaging
+                $ReturnData = $CollectionList
+                
+            }
+            elseif ($ShowActivities) {
 
-                $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Servers.Alert"    
+                # Activities are already in the correct format from Get-HPECOMActivity
+                # Just return them directly without repackaging
+                $ReturnData = $CollectionList
+                
+            }
+            elseif ($ShowJobs) {
+
+                # Jobs are already in the correct format from Get-HPECOMJob
+                # Just return them directly without repackaging
+                $ReturnData = $CollectionList
                 
             }
             elseif ($ShowServersWithRecentSupportCases -or $ShowSupportDetails) {
@@ -2539,7 +2650,7 @@ Function Enable-HPECOMServerAutoiLOFirmwareUpdate {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Server auto iLO firmware cannot be enabled!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Server auto iLO firmware cannot be enabled!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -2757,7 +2868,7 @@ Function Disable-HPECOMServerAutoiLOFirmwareUpdate {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Server auto iLO firmware cannot be disabled!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Server auto iLO firmware cannot be disabled!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
 
                 }
@@ -2882,6 +2993,441 @@ Function Get-HPECOMServerActivationKey {
         }
         else {
             return
+        }
+
+    }   
+}
+
+Function Get-HPECOMServerLogs {
+    <#
+    .SYNOPSIS
+    Collects and downloads server logs in zip format.
+
+    .DESCRIPTION   
+    This cmdlet submits a job to collect server logs (AHS logs) for a specified server in a Compute Ops Management service instance.
+    Once the logs are collected, a download URL is provided which can be used to download the logs in zip format.
+    The log collection process may take some time (up to 2-4 minutes) as it gathers diagnostic information from the server.
+    
+    Optionally, you can use the -Path parameter to automatically download the logs to a specified directory.
+    
+    TIMEOUT HANDLING:
+    If the job does not complete within the specified timeout period, the cmdlet returns a status of "Timeout" along with the job URI.
+    You can then use one of the following methods to retrieve the logs once the job completes:
+    
+    1. Continue waiting for the job:
+       Wait-HPECOMJobComplete -Region <region> -Job <JobUri>
+    
+    2. Check the job status:
+       $Job = Get-HPECOMJob -Region <region> -JobResourceUri <JobUri>
+    
+    3. Once the job completes (state = "COMPLETE"), retrieve the download URL:
+       $ServerID =  $Job.resource.id
+       $response = Invoke-HPECOMWebRequest -Region <region> -Uri "/compute-ops-mgmt/v1/servers/$ServerID/download-logs" -Method GET
+       $logsUrl = $response.downloadUrl
+
+    4. Download the logs using the URL:
+       Invoke-WebRequest -Uri $logsUrl -OutFile "C:\Path\To\DownloadedLogs.zip"
+    
+    .PARAMETER Region 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).  
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the server name or serial number for which to collect and download logs.
+    This parameter accepts pipeline input and can be used with Get-HPECOMServer.
+
+    .PARAMETER Path
+    Optional parameter that specifies the local path where the logs should be downloaded.
+    If not specified, only the logs URL will be returned without downloading.
+    The filename will be automatically generated as "server-logs-<servername>-<timestamp>.zip".
+
+    .PARAMETER DownloadAHSLogs
+    Optional switch parameter to download the AHS (Active Health System) logs in addition to the standard server logs. 
+    AHS logs contain comprehensive diagnostic data that HPE support typically requests when troubleshooting hardware issues or analyzing support cases. These logs provide detailed hardware health and performance information.
+    By default, only standard server logs are collected. Use this switch when HPE support specifically requests AHS logs for case analysis.
+
+    .PARAMETER Timeout
+    Timeout in seconds before the cmdlet stops waiting for job completion. Default is 240 seconds (4 minutes).
+    This parameter is ignored when using -Async.
+
+    .PARAMETER Async
+    Optional switch to submit the job and return immediately without waiting for completion.
+    Returns the job resource URI in the output, which can be monitored using Wait-HPECOMJobComplete or Get-HPECOMJob.
+    When using -Async, the download URL will not be available in the initial response.
+
+    .PARAMETER WhatIf
+    Displays the raw REST API call that would be made to COM instead of sending the request. 
+    Useful for understanding the native REST API calls used by COM.
+
+    .EXAMPLE
+    Get-HPECOMServerLogs -Region eu-central -Name "ESX-1.domain.lab"
+
+    Submits a job to collect logs for the server named "ESX-1.domain.lab" in the "eu-central" region and returns a download URL once collection is complete.
+
+    .EXAMPLE
+    $logsUrl = Get-HPECOMServerLogs -Region us-west -Name "2M240400JN"
+
+    Collects logs from server with serial number "2M240400JN" and stores the download URL in the $logsUrl variable.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region eu-central -Name "ESX-1" | Get-HPECOMServerLogs -Path "C:\Logs"
+
+    Collects and downloads server logs for "ESX-1" to the C:\Logs directory using pipeline input.
+
+    .EXAMPLE
+    Get-HPECOMServer -Region us-west -PowerState ON | Get-HPECOMServerLogs 
+
+    Collects logs from all powered-on servers in the US West region and returns download URLs for each.
+
+    .EXAMPLE
+    Get-HPECOMServerLogs -Region eu-central -Name "ESX-1.domain.lab" -DownloadAHSLogs
+
+    Collects server logs and AHS logs for the specified server.
+
+    .EXAMPLE
+    Get-HPECOMServerLogs -Region eu-central -Name "ESX-1.domain.lab" -Async
+
+    Submits log collection job and returns immediately without waiting. Use the returned JobUri with Wait-HPECOMJobComplete to monitor progress.
+
+    .EXAMPLE
+    Get-HPECOMServerLogs -Region eu-central -Name "ESX-1.domain.lab" -Timeout 600
+
+    Collects logs with a custom timeout of 10 minutes (600 seconds) instead of the default 4 minutes.
+
+    .EXAMPLE
+    # Handle timeout scenario - retrieve logs after job completes
+    $result = Get-HPECOMServerLogs -Region eu-central -Name "ESX-1.domain.lab"
+    if ($result.Status -eq "Timeout") {
+        # Wait for job to complete
+        Wait-HPECOMJobComplete -Region eu-central -Job $result.JobUri
+        
+        # Get server ID from the result
+        $server = Get-HPECOMServer -Region eu-central -Name $result.ServerName
+        
+        # Retrieve download URL
+        $downloadInfo = Invoke-HPECOMWebRequest -Region eu-central -Uri "/compute-ops-mgmt/v1/servers/$($server.id)/download-logs" -Method GET
+        
+        Write-Host "Download URL: $($downloadInfo.downloadUrl)"
+    }
+
+    .INPUTS
+    System.String
+        A server name or serial number.
+    System.Collections.ArrayList
+        List of servers from 'Get-HPECOMServer'.
+
+    .OUTPUTS
+    System.Management.Automation.PSCustomObject
+        Returns an object with the following properties:
+        - ServerName: Name of the server
+        - SerialNumber: Serial number of the server
+        - Region: Region code
+        - JobUri: Job resource URI (available when using -Async or on timeout)
+        - LogsUrl: Download URL for the collected logs (null when using -Async)
+        - DownloadPath: Local path where logs were downloaded (if -Path was specified)
+        - Status: Status of the operation (Running, Complete, Failed, Timeout)
+        - Details: Additional details about the operation
+    
+    #>
+
+    [CmdletBinding()]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $Global:HPECOMRegions global variable and create completions
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [String]$Name,
+
+        [String]$Path,
+
+        [Switch]$DownloadAHSLogs,
+
+        [Parameter()]
+        [int]$Timeout = 240,
+
+        [Switch]$Async,
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        # Get job template for CollectServerLogs
+        $_JobTemplateName = 'CollectServerLogs'
+        $JobTemplateUri = $Global:HPECOMjobtemplatesUris | Where-Object name -eq $_JobTemplateName | ForEach-Object resourceUri
+        
+        "[{0}] Job template '{1}' URI: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_JobTemplateName, $JobTemplateUri | Write-Verbose
+
+        $ServerLogsList = [System.Collections.ArrayList]::new()
+
+        $JobsUri = Get-COMJobsUri
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Pre-validation: Get server information
+        try {
+            "[{0}] Retrieving server information for '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+            
+            $Server = Get-HPECOMServer -Region $Region -Name $Name -Verbose:$false
+            
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        # Validation: Check if server exists
+        if (-not $Server) {
+            "[{0}] Server '{1}' not found in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+            
+            if ($WhatIf) {
+                $ErrorMessage = "Server '{0}' not found in region '{1}'. Cannot display API request." -f $Name, $Region
+                Write-Warning $ErrorMessage
+                return
+            }
+            else {
+                # For Get-* cmdlets, return nothing silently for "not found"
+                return
+            }
+        }
+
+        "[{0}] Server ID: '{1}', Serial Number: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Server.id, $Server.hardware.serialNumber | Write-Verbose
+
+        # Build object for status tracking
+        $objStatus = [pscustomobject]@{
+            ServerName   = $Server.name
+            SerialNumber = $Server.hardware.serialNumber
+            Region       = $Region
+            JobUri       = $null
+            LogsUrl      = $null
+            DownloadPath = $null
+            Status       = $null
+            Details      = $null
+        }
+
+        # Extract Job Template ID from URI
+        $ServerID = $Server.id
+        $JobTemplateId = $JobTemplateUri -replace '.*/([^/]+)$', '$1'
+
+        "[{0}] Server ID: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerID | Write-Verbose
+        "[{0}] Job Template ID: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $JobTemplateId | Write-Verbose
+
+        # Build job payload
+        if ($DownloadAHSLogs) {
+
+            $payload = @{
+                jobTemplate  = $JobTemplateId
+                resourceId   = $ServerID
+                resourceType = "compute-ops-mgmt/server"
+                jobParams    = @{
+                    collect_ahs_log = $true
+                }
+            }
+        }
+        else {
+            $payload = @{
+                jobTemplate  = $JobTemplateId
+                resourceId   = $ServerID
+                resourceType = "compute-ops-mgmt/server"
+            }
+        }
+
+        $payload = ConvertTo-Json $payload -Depth 10
+
+        "[{0}] Job payload: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $payload | Write-Verbose
+
+        try {
+            # Submit the job to collect server logs
+            "[{0}] Submitting job to collect logs for server '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Server.name | Write-Verbose
+            
+            $JobResponse = Invoke-HPECOMWebRequest -Method POST -Uri $JobsUri -Body $payload -ContentType "application/json" -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+            if (-not $WhatIf) {
+                
+                "[{0}] Job submitted, response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($JobResponse | Out-String) | Write-Verbose
+
+                # If Async, return immediately with job URI
+                if ($Async) {
+                    "[{0}] Async mode: Returning job URI without waiting" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    $objStatus.JobUri = $JobResponse.resourceUri
+                    $objStatus.Status = "Running"
+                    $objStatus.Details = "Job submitted successfully. Use Wait-HPECOMJobComplete or Get-HPECOMJob to monitor progress and retrieve logs URL when complete."
+                }
+                else {
+                    # Wait for job to complete
+                    "[{0}] Waiting for job to complete (timeout: {1} seconds)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Timeout | Write-Verbose
+                    
+                    try {
+                        $JobResult = Wait-HPECOMJobComplete -Region $Region -Job $JobResponse.resourceUri -Timeout $Timeout
+
+                        "[{0}] Job completed with state: {1}, resultCode: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $JobResult.State, $JobResult.resultCode | Write-Verbose
+
+                # Check if job completed successfully
+                if ($JobResult.State -eq "Complete" -and $JobResult.resultCode -eq "SUCCESS") {
+                    
+                    # Get the download URL by calling the download-logs endpoint
+                    $DownloadLogsUri = "/compute-ops-mgmt/v1/servers/$ServerID/download-logs"
+                    
+                    "[{0}] Retrieving download URL from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DownloadLogsUri | Write-Verbose
+                    
+                    try {
+                        $DownloadResponse = Invoke-HPECOMWebRequest -Method GET -Uri $DownloadLogsUri -Region $Region -Verbose:$VerbosePreference
+                        
+                        "[{0}] Download response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($DownloadResponse | ConvertTo-Json -Depth 5) | Write-Verbose
+                        
+                        $LogsUrl = $DownloadResponse.downloadUrl
+                        
+                        if ($LogsUrl) {
+                            "[{0}] Download URL received: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $LogsUrl | Write-Verbose
+                            
+                            $objStatus.LogsUrl = $LogsUrl
+                            $objStatus.Status = "Complete"
+                            $objStatus.Details = "Server logs collected successfully"
+
+                            # Download the file if Path parameter was provided
+                            if ($Path) {
+                                try {
+                                    # Create directory if it doesn't exist
+                                    if (-not (Test-Path -Path $Path)) {
+                                        "[{0}] Creating directory: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Path | Write-Verbose
+                                        New-Item -ItemType Directory -Path $Path -Force | Out-Null
+                                    }
+
+                                    # Generate filename with timestamp
+                                    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+                                    $filename = "server-logs-{0}-{1}.zip" -f $Server.name, $timestamp
+                                    $fullPath = Join-Path -Path $Path -ChildPath $filename
+
+                                    "[{0}] Downloading logs to: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $fullPath | Write-Verbose
+
+                                    # Download the file
+                                    Invoke-WebRequest -Uri $LogsUrl -OutFile $fullPath -ErrorAction Stop
+
+                                    "[{0}] Download completed successfully" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                                    $objStatus.DownloadPath = $fullPath
+                                    $objStatus.Details = "Logs downloaded successfully to $fullPath"
+
+                                }
+                                catch {
+                                    "[{0}] Download failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+                                    
+                                    $objStatus.Status = "Failed"
+                                    $objStatus.Details = if ($_.Exception.Message) { "Logs collected but download failed: $($_.Exception.Message)" } else { "Logs collected but download failed!" }
+                                }
+                            }
+                        }
+                        else {
+                            "[{0}] No download URL in response" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            
+                            $objStatus.Status = "Failed"
+                            $objStatus.Details = "Job completed but no download URL was returned from the download-logs endpoint"
+                        }
+                    }
+                    catch {
+                        "[{0}] Failed to retrieve download URL: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+                        
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details = if ($_.Exception.Message) { "Job completed but failed to retrieve download URL: $($_.Exception.Message)" } else { "Job completed but failed to retrieve download URL!" }
+                    }
+                }
+                else {
+                    "[{0}] Job failed with state: {1}, resultCode: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $JobResult.State, $JobResult.resultCode | Write-Verbose
+                    
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($JobResult.Status) { "Job failed: $($JobResult.Status)" } else { "Job did not complete successfully. State: $($JobResult.State), ResultCode: $($JobResult.resultCode)" }
+                }
+            }
+            catch {
+                # Handle timeout gracefully
+                if ($_.Exception.Message -match "Timeout") {
+                    "[{0}] Job timed out after {1} seconds" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Timeout | Write-Verbose
+                    
+                    $objStatus.JobUri = $JobResponse.resourceUri
+                    $objStatus.Status = "Timeout"
+                    $objStatus.Details = "Job timed out after $Timeout seconds. Job is still running. See warning message for instructions on retrieving logs."
+                    
+                    # Display warning with instructions on how to retrieve logs
+                    $TimeoutWarning = @"
+
+Log collection job for server '$($Server.name)' timed out after $Timeout seconds, but the job is still running in the background.
+
+TO RETRIEVE LOGS AFTER JOB COMPLETES:
+
+1. Wait for the job to complete:
+   Wait-HPECOMJobComplete -Region $Region -Job '$($JobResponse.resourceUri)'
+
+2. Check job status:
+   Get-HPECOMJob -Region $Region -JobResourceUri '$($JobResponse.resourceUri)'
+
+3. Once job completes (state = 'COMPLETE'), retrieve the download URL:
+   `$downloadInfo = Invoke-HPECOMWebRequest -Region $Region -Uri '/compute-ops-mgmt/v1/servers/$ServerID/download-logs' -Method GET
+   `$downloadUrl = `$downloadInfo.downloadUrl
+
+4. Download the logs using the URL:
+   Invoke-WebRequest -Uri `$downloadUrl -OutFile "C:\Path\To\DownloadedLogs.zip"
+
+TIP: You can increase the timeout using -Timeout parameter (e.g., -Timeout 600 for 10 minutes)
+"@
+                    Write-Warning $TimeoutWarning
+                }
+                else {
+                    # Re-throw other errors
+                    throw
+                }
+            }
+                }
+            }
+
+        }
+        catch {
+            if (-not $WhatIf) {
+                "[{0}] Error collecting logs: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+                
+                $objStatus.Status = "Failed"
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to collect server logs!" }
+            }
+        }
+
+        [void]$ServerLogsList.Add($objStatus)
+
+    }
+
+    End {
+
+        if (-not $WhatIf -and $ServerLogsList.Count -gt 0) {
+            $ServerLogsList = Invoke-RepackageObjectWithType -RawObject $ServerLogsList -ObjectName "COM.Servers.Logs"
+            Return $ServerLogsList
         }
 
     }   
@@ -3258,7 +3804,7 @@ Function Remove-HPECOMServerActivationKey {
     
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Activation key cannot be removed from $Region region!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Activation key cannot be removed from $Region region!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
     
                 }
@@ -3785,7 +4331,7 @@ Function Enable-HPECOMEmailNotificationPolicy {
             
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = "Email notification policy cannot be modified!"
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Email notification policy cannot be modified!" }
                 $objStatus.Exception = $Global:HPECOMInvokeReturnData
             }
         }                  
@@ -4106,7 +4652,7 @@ Function Disable-HPECOMEmailNotificationPolicy {
 
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = "Email notification policy cannot be modified!"
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Email notification policy cannot be modified!" }
                 $objStatus.Exception = $Global:HPECOMInvokeReturnData 
             }
         }           
@@ -4187,6 +4733,7 @@ Export-ModuleMember -Function `
     'Enable-HPECOMServerAutoiLOFirmwareUpdate', `
     'Disable-HPECOMServerAutoiLOFirmwareUpdate', `
     'Get-HPECOMServerActivationKey', `
+    'Get-HPECOMServerLogs', `
     'New-HPECOMServerActivationKey', `
     'Remove-HPECOMServerActivationKey', `
     'Get-HPECOMEmailNotificationPolicy', `
@@ -4204,10 +4751,10 @@ Export-ModuleMember -Function `
 
 
 # SIG # Begin signature block
-# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBqB8jVbNQwkzW0
-# wGKpeujT61JnGJUAr5Q3O9BJ3eEMHqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCClKIEk7BAUCQzO
+# 51aybEGErjikL+i3/2Wb/lOxGXDctKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -4303,147 +4850,154 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgdDzV5oJgxd+1gh3lq1U5kY8j5A5apvVnx+txRuxBcMQwDQYJKoZIhvcNAQEB
-# BQAEggIAb15axgJW6spPVotu3YFHnDA9bjOGq4Oc0SVwJwJVBVoqQMJUlUFsfVPf
-# SJuShjd+FrMER/+WHgLvWuD0g5Dw3SEf93cw1R1gh4fbnpPh/WNYMJWxocYMc7FA
-# PwxUOY7NsI3HRSw6g/PCtaUZob/LbeK1mqy45BboJ4kyf8bBzVHLl0uIaHILT/wd
-# V4Zm26YzmvEQDzCPy9UnQ5mPVP5dvlfAEA+ojNROhazMYgUQ2RPD7P5vFykxdh7y
-# QvDgmpJtD0w8M0l0htIQxrWYbSIpz2xz7KyHMgddb+F+fZbU/bMauya6Ax9SjBVd
-# 8yt3ljwd2J+IFbP5NKzetPHvKz2uaCb0GWWAxTY5G074KCbOmAih1lR1nFU/s8D/
-# uDjcwxQ/yDf3vJCLX240ICv+rvNz5eoyPz5Ao2zTZ5pJLJ7AbcCyhKNXfmWZ9Cmm
-# 8ieyHmAow45lV4CcX72O2fNi7aqXVggng4mryLQ8TXwAXjaWrFt6FxlQX0xUuUtq
-# AhdR+tkX2TdyyC8x4OiHxqcpzImSltHzBu7HsJSzXQ9kw0A4XAAESGPV6kPbE/4P
-# bBszofp7fjIwNxnxsp2LInUTu8uoA8xcTuETpsVWVu7PR95JSKAu01KzeHDjc9HI
-# A/TU8GVaq/p8t9prFrv4Fm0+g2bZROmeo2q7eAdBpaoXArltjWmhgheXMIIXkwYK
-# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMLJbj8qxGdUWzYf0slnOwuZa2IesF0rD0D3p2WAiuFIO
-# yS/GNz5z+05lgLXFkTxOBgIQekKDSDKjszLIITy2rfEAJBgPMjAyNjAxMTkxODIx
-# MDJaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
-# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
-# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
-# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
-# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
-# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
-# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
-# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
-# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
-# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
-# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
-# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
-# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
-# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
-# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
-# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
-# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
-# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
-# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
-# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
-# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
-# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
-# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
-# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
-# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
-# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
-# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
-# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
-# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
-# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
-# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
-# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
-# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
-# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
-# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
-# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
-# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
-# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
-# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
-# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
-# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
-# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
-# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
-# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
-# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
-# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
-# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
-# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
-# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
-# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
-# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
-# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
-# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
-# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
-# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
-# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
-# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
-# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
-# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
-# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
-# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
-# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
-# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
-# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
-# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
-# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
-# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
-# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
-# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
-# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
-# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
-# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
-# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
-# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
-# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
-# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
-# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
-# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
-# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
-# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
-# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
-# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
-# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
-# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
-# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
-# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
-# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
-# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
-# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
-# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
-# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
-# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
-# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
-# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
-# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
-# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMTE5
-# MTgyMTAyWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
-# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwq5NnoUxuerEM6gavt5ky4O/n
-# Pq93wVtxOaojrdTMpdIbIY3yB4Q/pK7p0OX29UteMA0GCSqGSIb3DQEBAQUABIIC
-# AHiKYe+Rd53luAjxdAmgRCAwd2+kxENciIyOioP0/67eT3S6Bn8QmWa7/WgguJOQ
-# rWzDCy8eSrLIuH/eNGoYK6NR1h9mTRFWuesLk5c7lsE293dQVxupIX+6vb6bl6E+
-# EQzqCmHOMumhSgDgamkwWBDXMPp+kBv8pf21UA+vuXAB1tRhj+kn+1urMq1Tq/zO
-# dlAbSD3KMZwzyFL0xLeGvKO1FiEOEy198U6l3P2y2s1x20s5yNelUGDcsk7b/HNn
-# 5Q4oUewMmc/hqs6bn3KYpMXjxhPVCRtTZYt+ldzSyrM9bAyPG+gXL97AjRh11Xue
-# Gtgtp/PmxzkHsCYAl4IA/vFrOipuORd+m1JqH7/FsNsReGfFi5w4zmba5MEbQwNa
-# vHTEblQyZl0cWF+BLuKoWkiYbrSRgQhr2MCPLIBAFkB73Qw8BjSdx09GIFgwmmGA
-# duQcw9TktVadw8F1+e2Mqb/OlXbX/Zrphvc6oghyVyXPM7wHO9Ep95tCaAsZMmzg
-# UNwmlTJwSlpDteRd8K5vL9ioZAwRLGxEbS61JLVCBSPkqC2Hq24m4+4vHNzHBSVC
-# Gw1T06sMuviqmyXuaj9qPjbXGwQiYZD28SbW6FEANrlrEKfYgmzfpdC7tmd6auRT
-# HFtE2eh53RWHa2MeF4z14UwNRA+QwSKOc7c5bZPOfJu4
+# IgQg+GOplOXuASMHzS9cuRlixUcl/ItcSJ+kZ3po5f4lGyMwDQYJKoZIhvcNAQEB
+# BQAEggIAKE3yKvTwim15oE5I6sglCO5RVwR6YINcpnZNQtV0FeKWAk/cIp/g0HFw
+# eTYu5eKN6x4OGaM5lM4zb9Hutps9PheYslcuNNJFvy5lvKyQas+b0tEAZXWlxr78
+# tzOtKtHwhxQ0FGx8IwS6WHCtFppVxQaGAXL1owctigBYxVOPHG3nVKRowJotKRYi
+# tlUOonwNsb5t8AVpGEq1J6o419M6t27XQ2GM+jkV0OkWmwzNP3pCvnnqRDr2LFiV
+# EHHAb/2HTVuGLK/Sup+hVYXvm0trXEALXAvQrIt05OkpFDJN1hNF7Q+0RqWPCfV3
+# 5w2HQl+P5BMUAVhX2GrzVDQD9yrlD0cpXKmyhh8/QAFKNiyLZoI81a/Hc4AD14XS
+# U/Y/bYS/yL9B/ufKZ4aeIEc7JhhK7MMiD8GpcH5AlDYllX20CDFQL475juQXKRZO
+# Okg+K7rxIB5jmdgAZI7OOqHafliUKTvg4i0aXA1l1jpAsPtRt3EUbPdpDF0vLgcA
+# n8q37qxG8ClwFEZEBpE1BWvlsjgg3UGfB/RXXxeNFPB9DcpxV21eYTKUxrQet+8h
+# PKDQBlQ8eOwvCGU017IkTL0LKY6mmvpQuv0M7BESlCCxElBUGtZQw9oh+mxrrcMd
+# M//U0oAQAh4qg9GPEe+Pq3SsycxMmq4lJYH2Zx1YlDMlRMcJaSOhghjpMIIY5QYK
+# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwgP+oTOHM+qyXKvKOH8FfNrVEa4p9LBd7ZvwJ
+# bYpSfLCTtZ2oYafCK+e0Na7MUBbpAhUAoR7/3Ci+Xg9jeefXocG0kR2O1CcYDzIw
+# MjYwMTMwMTA1MDAwWqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
+# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
+# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
+# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
+# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
+# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
+# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
+# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
+# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
+# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
+# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
+# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
+# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
+# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
+# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
+# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
+# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
+# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
+# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
+# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
+# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
+# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
+# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
+# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
+# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
+# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
+# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
+# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
+# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
+# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
+# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
+# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
+# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
+# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
+# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
+# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
+# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
+# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
+# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
+# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
+# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
+# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
+# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
+# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
+# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
+# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
+# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
+# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
+# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
+# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
+# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
+# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
+# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
+# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
+# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
+# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
+# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
+# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
+# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
+# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
+# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
+# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
+# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
+# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
+# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
+# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
+# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
+# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
+# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
+# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
+# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
+# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
+# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
+# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
+# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
+# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
+# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
+# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
+# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
+# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
+# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
+# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
+# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
+# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
+# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
+# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
+# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
+# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
+# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
+# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
+# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
+# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
+# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
+# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
+# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
+# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
+# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
+# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
+# MQ8XDTI2MDEzMDEwNTAwMFowPwYJKoZIhvcNAQkEMTIEMPKu92yUGhUZJJM2UjJ7
+# /5LAm4WGhNVQr6GrAiNyV+EPXi1qDKpx8m1HuoYZBjTwADCCAXoGCyqGSIb3DQEJ
+# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
+# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
+# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
+# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
+# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
+# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
+# ggIASY8kdtiAIqzyYDlouPnp59MpKE0ELEiIAsqZSW/M6KkykWBP/wKM5yKlLVae
+# g9/TGHgwF1m9i6pV/pm9SQ9pCiqKcb9rasNBTWtELpcnMNXmZw2tJCsX+s+5HdqM
+# 9W7/S1rnHnHxOA79iqSK8mEn3ycyfb8m8eT7o+lrVVhfAyj+ryrU2yT87heC8qv5
+# rHs9cpqnuXooSzmlybgZ/4rNmlvLuB8W6oyUI3Oyxc3eeMTivfk+NVL69xLvC3ZX
+# EPhSNKmGfWlYpSG70b+oPvAxJmqWrePH9yW5dbA48IX4FZhjCOQKVUCIwn5iFz1n
+# crIo7liAsnuhsh5wGyIebMI+eALdPcfx9x6X+s+fRgDIN7aiRKMRIYHi5cXpDbz/
+# o2vZMc/+ggVNOWSTq+pbtL+3mOK7sjO+U+yfktFcaFL9CFhTtgXTLtleY2b+B9sy
+# ydupupH+OxkD9M5qIRmbyRhZY7IOvwjlNLvdufGU256l3vX7vlgnEV/kt6DKmXZS
+# TOVak0HxV96AyAZDd4F47sTr1NirwXqZXcOMuJtlL9xr0OmBafFcxqYd6i770twi
+# O7JZxMYRACSHvB0J3Y2hmokIu+6t8KU67bY0bvCMqdz3hs1bg19xmh5RbNa1srdn
+# UD+dU9YIDK2Ou5NGS6P4d7txZ3f7lCITpY9r1tO53+PRTyM=
 # SIG # End signature block

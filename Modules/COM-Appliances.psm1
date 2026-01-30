@@ -18,10 +18,9 @@ Function Get-HPECOMAppliance {
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.  
 
     .PARAMETER Name
-    Specifies the name of the appliance resource.      
-
-    .PARAMETER IPAddress
-    Specifies the IP address of the appliance resource.      
+    Specifies the name or IP address of the appliance resource.
+    This parameter accepts both hostnames and IP addresses. The cmdlet automatically detects whether the provided value is an IP address or hostname.
+    You can also use the -IPAddress alias for clarity when providing an IP address.
 
     .PARAMETER Limit 
     This parameter allows you to define the number of appliances to be displayed. 
@@ -31,6 +30,16 @@ Function Get-HPECOMAppliance {
 
     .PARAMETER ShowActivationKey
     Optional switch parameter that can be used to display the activation key of the appliance.
+
+    .PARAMETER ShowActivities
+    Optional switch parameter that can be used to retrieve activities from the last month for the specified appliance(s). 
+    When used with -Name, it retrieves activities for that specific appliance.
+    When used without -Name, it retrieves activities for all appliances in the region using the Appliance category filter.
+
+    .PARAMETER ShowJobs
+    Optional switch parameter that can be used to retrieve jobs from the last month for the specified appliance(s).
+    When used with -Name, it retrieves jobs for that specific appliance.
+    When used without -Name, it retrieves jobs for all appliances in the region using the Appliance category filter.
 
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -44,6 +53,16 @@ Function Get-HPECOMAppliance {
     Get-HPECOMAppliance -Region eu-central -Name oneview.hpelab.net
 
     Return the OneView appliance named 'oneview.hpelab.net' in the central european region. 
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Name 192.168.1.65
+
+    Return the appliance with IP address '192.168.1.65' in the central european region.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -IPAddress 192.168.1.65
+
+    Return the appliance with IP address '192.168.1.65' in the central european region using the -IPAddress alias.
 
     .EXAMPLE
     Get-HPECOMAppliance -Region eu-central -Name oneview.hpelab.net -ShowActivationKey
@@ -69,6 +88,26 @@ Function Get-HPECOMAppliance {
     Get-HPECOMAppliance -Region us-west -name comgw.lab -ShowActivationKey 
 
     Return the activation key for the Secure Gateway appliance named 'comgw.lab' in the "us-west" region.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Name oneview.hpelab.net -ShowActivities
+
+    Return activities from the last month for the OneView appliance named 'oneview.hpelab.net'.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -ShowActivities
+
+    Return activities from the last month for all appliances in the eu-central region.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Name oneview.hpelab.net -ShowJobs
+
+    Return jobs from the last month for the OneView appliance named 'oneview.hpelab.net'.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -ShowJobs
+
+    Return jobs from the last month for all appliances in the eu-central region.
 
     
    #>
@@ -98,11 +137,10 @@ Function Get-HPECOMAppliance {
             })]
         [String]$Region,  
 
-        [Parameter (Mandatory, ParameterSetName = 'IP')]
-        [ValidateScript({ [String]::IsNullOrEmpty($_) -or $_ -match [Net.IPAddress]$_ })]
-        [string]$IPAddress,
-
-        [Parameter (Mandatory, ParameterSetName = 'Name')]
+        [Parameter (Mandatory, ParameterSetName = 'Name')]  
+        [Parameter (ParameterSetName = 'ShowActivities')]
+        [Parameter (ParameterSetName = 'ShowJobs')]
+        [Alias('IPAddress')]
         [String]$Name,
 
         [Parameter (ParameterSetName = 'Limit')]
@@ -110,8 +148,9 @@ Function Get-HPECOMAppliance {
         [int]$Limit,
 
         [Parameter (ParameterSetName = 'Limit')]
-        [Parameter (ParameterSetName = 'IP')]
+        [Parameter (ParameterSetName = 'ShowActivities')]
         [Parameter (ParameterSetName = 'Name')]
+        [Parameter (ParameterSetName = 'ShowJobs')]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
                 $environments = @('SynergyComposer', 'OneViewVM', 'SecureGateway')
@@ -134,6 +173,12 @@ Function Get-HPECOMAppliance {
         [String]$Type,
 
         [Switch]$ShowActivationKey,
+
+        [Parameter (Mandatory, ParameterSetName = 'ShowActivities')]
+        [Switch]$ShowActivities,
+
+        [Parameter (Mandatory, ParameterSetName = 'ShowJobs')]
+        [Switch]$ShowJobs,
 
         [Switch]$WhatIf
        
@@ -210,15 +255,14 @@ Function Get-HPECOMAppliance {
             }
             
             
-            if ($IPAddress) {
-            
-                $CollectionList = $CollectionList | Where-Object ipaddress -eq $IPAddress
-                  
-            } 
-            elseif ($Name) {
-                
-                $CollectionList = $CollectionList | Where-Object name -eq $Name 
-                
+            if ($Name) {
+                # Check if $Name is an IP address or a hostname
+                if ($Name -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+                    $CollectionList = $CollectionList | Where-Object ipaddress -eq $Name
+                }
+                else {
+                    $CollectionList = $CollectionList | Where-Object name -eq $Name
+                }
             }       
             
             if ($CollectionList.applianceType -eq "GATEWAY" -and $ShowActivationKey) {
@@ -237,6 +281,74 @@ Function Get-HPECOMAppliance {
                 $CollectionList = $CollectionList.activationkey
                 return $CollectionList 
                 
+            }
+            elseif ($ShowActivities) {
+
+                if ($Name) {
+                    # Get activities for specific appliance
+                    if (-not $CollectionList -or $CollectionList.Count -eq 0) {
+                        Write-Warning "Appliance not found."
+                        return
+                    }
+
+                    if ($CollectionList.Count -gt 1) {
+                        Write-Warning "Multiple appliances found. Please refine your query to return only one appliance."
+                        return
+                    }
+
+                    $ApplianceName = $CollectionList.name
+
+                    try {
+                        "[{0}] Retrieving activities for appliance '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ApplianceName | Write-Verbose
+                        [Array]$Activities = Get-HPECOMActivity -Region $Region -SourceName $ApplianceName -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                        return $Activities
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                    }
+                } else {
+                    # Get activities for all appliances using Category filter
+                    "[{0}] Retrieving activities for all appliances in region '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                    return Get-HPECOMActivity -Region $Region -Category Appliance -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                }
+            }
+            elseif ($ShowJobs) {
+
+                if ($Name) {
+                    # Get jobs for specific appliance
+                    # Need to get the appliance name first
+                    if ($Name -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$') {
+                        $ApplianceMatch = $CollectionList | Where-Object ipaddress -eq $Name
+                    }
+                    else {
+                        $ApplianceMatch = $CollectionList | Where-Object name -eq $Name
+                    }
+
+                    if (-not $ApplianceMatch -or $ApplianceMatch.Count -eq 0) {
+                        Write-Warning "Appliance not found."
+                        return
+                    }
+
+                    if ($ApplianceMatch.Count -gt 1) {
+                        Write-Warning "Multiple appliances found. Please refine your query to return only one appliance."
+                        return
+                    }
+
+                    $ApplianceName = $ApplianceMatch.name
+
+                    try {
+                        "[{0}] Retrieving jobs for appliance '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ApplianceName | Write-Verbose
+                        [Array]$Jobs = Get-HPECOMJob -Region $Region -SourceName $ApplianceName -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                        return $Jobs
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                    }
+                } else {
+                    # Get jobs for all appliances using Category filter
+                    "[{0}] Retrieving jobs for all appliances in region '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+                    return Get-HPECOMJob -Region $Region -Category Appliance -ShowLastMonth -Verbose:$VerbosePreference -WhatIf:$WhatIf -WarningAction SilentlyContinue
+                }
             }
              
             $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Appliances"    
@@ -478,7 +590,7 @@ Function New-HPECOMAppliance {
             
                     if (-not $WhatIf) {
                         $objStatus.Status = "Failed"
-                        $objStatus.Details = "OneView appliance cannot be added to $Region region!"
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "OneView appliance cannot be added to $Region region!"}
                         $objStatus.Exception = $Global:HPECOMInvokeReturnData 
             
                     }
@@ -534,7 +646,7 @@ Function New-HPECOMAppliance {
         
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Secure gateway appliance activation key cannot be generated!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Secure gateway appliance activation key cannot be generated!"}
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
         
                 }
@@ -757,7 +869,7 @@ Function Remove-HPECOMAppliance {
     
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Appliance cannot be removed from $Region region!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Appliance cannot be removed from $Region region!"}
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
     
                 }
@@ -1060,10 +1172,10 @@ Function Get-HPECOMApplianceFirmwareBundle {
 Export-ModuleMember -Function 'Get-HPECOMAppliance', 'New-HPECOMAppliance', 'Remove-HPECOMAppliance', 'Get-HPECOMApplianceFirmwareBundle' -Alias *
 
 # SIG # Begin signature block
-# MIItTAYJKoZIhvcNAQcCoIItPTCCLTkCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCsrAwEX5JUKG0s
-# XzsWmW06zumulsASUo8nb11z9w7VlKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCGb7BpzKbebl5y
+# yJc+vy0q/kYenmUI9F/icWTIGm4jW6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -1159,147 +1271,154 @@ Export-ModuleMember -Function 'Get-HPECOMAppliance', 'New-HPECOMAppliance', 'Rem
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGqwwghqoAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgr8DRKoA4/5wz17CxJAjJGiq2/vLU4EbKh2D8G2XNm8owDQYJKoZIhvcNAQEB
-# BQAEggIAvv2LWUCYvZvuXDd8N4uHNJQhluyK+g/iKRPMRB3mYJk1wFI79O9+hzne
-# KibEgXFJocoCCV+vwniQeJGRaSs6jub9VetS9zx0iuo1pOnZYd8aF6W2YiQ1K6b+
-# qJkJyEG9C2ACPsi0AYP/0yrAMBD6nMb7rXB3V3VtZr26ElICR+bSoxLzOQQSEb67
-# CwxGWkIdDk0/las+hSVFsk7pdp/mFB3355NZmFqix5Wu6NBjW4D4hiAv+OWiYSwE
-# UeqjpWHgRKBCNWj8ys/1UB1A+GW9WUbEx+oKgsfvCawsQe6TJT6pDv8DykFmN6Nt
-# g/MLD96+BP3i5mSb4pQB3c3s1qhBfn8IkeYry+KTq+T1wEygQWUWQh2cYWYOVKpg
-# VXTuDf+NGjj8KUY0giOIQIYZWRL5/5ZSVwVjfoP78BU8E4octfVWjlkkC0f1XhRX
-# cFXUrQNkN11T5oeGE9L0XPUzh//GGuRz6HZPzr8H3Nu4Z6DDk/uoYQi8J5537xMi
-# pGdPnbxgxoaw749xAKKUT4YaJRlO6B7bolfrKzfrtsGhiEhNxOYzwhDknD9cqz5/
-# iUTMMypwKXNi3/dmx79BmzoQ/Xf2+KuX6FikFepo+qX+1cp5BcEg0ocxqT4a4oWV
-# M4kgqB4gJR+zzWOwO5GRujNfHvFlo2UTjiTLgVPlbPpOR/weMGqhgheWMIIXkgYK
-# KwYBBAGCNwMDATGCF4Iwghd+BgkqhkiG9w0BBwKgghdvMIIXawIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGGBgsqhkiG9w0BCRABBKB3BHUwcwIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMJfCQjXNQPWeZnnjxpEZrDqyaZKketJQd65HSn23jYQF
-# l5utGFARCpBvDPnlTz7upgIPRXwx6iMPVacY6nO5XiTIGA8yMDI2MDExOTE4MTU0
-# MVqgghM6MIIG7TCCBNWgAwIBAgIQDCBDSfnQ91n7mC3kCBuIezANBgkqhkiG9w0B
-# AQwFADBpMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/
-# BgNVBAMTOERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYg
-# U0hBMjU2IDIwMjUgQ0ExMB4XDTI1MDYwNDAwMDAwMFoXDTM2MDkwMzIzNTk1OVow
-# YzELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMTswOQYDVQQD
-# EzJEaWdpQ2VydCBTSEEzODQgUlNBNDA5NiBUaW1lc3RhbXAgUmVzcG9uZGVyIDIw
-# MjUgMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBANs5UvuLdLflyQ1R
-# 2PrzScab+/eLDNzuFEMnJikV5mC7PmEX87cpfECe5/1KsTUylpo3RQ1hr+N/mtqI
-# ieNcsTntLC6BcfBdWs9iUU2XO3YQMW53vm8neW39khGZQq7hscVkqm6VGOnQBkQg
-# sgTmohWqF4ZJ/i9eXn3KJg0q05wOVYHfabzDvu2zPrUluCcwIiGztpiD8ghHSmLH
-# Jj5fmAbnp0j+zScPYnC9bVqZ+tbjOlslDb+EXMgQM/jbyWzX+ZEzOxeOnLwcKdJW
-# WIrGUffOcubGI+HuMlAWzwccq0+WjTGfvubYrPBg5hwqaslS0OHix8KYpuYsEePU
-# 0RHxE7ZRBTkVk5CdoTjtc81QFrOo7XXqddlbRWaEDoSMHVHzx0rAMN/cRVXrxRBX
-# 9rvg1a9bDleyQAmPsXBvIViHqjxlVMJIsgUVE4AOx3gMSW9IkJeBgwQumQQOMBjf
-# 2oTMReH7ibDrNc8JDwUp15h5JtfB8B4CDypNvO3TCHIWco5u8xnAmGeG4rKFGFi/
-# aE4GvSQnxTE3PcpdulwwdM5fa3UsL4jpmmEpWkWpxfOKMQGJ6oAcumfPcpD4Fp2+
-# 0kYt9Tcj9+fVoaJPt+n5MsUz40qwlrzCu6c20YPLXyEZVJ8ZexuWyK5D6jGw/cya
-# Ae/TBxYC6+ZY1O663C8MvnBH6cxTAgMBAAGjggGVMIIBkTAMBgNVHRMBAf8EAjAA
-# MB0GA1UdDgQWBBRVnrnnZ8iREEm0NlKNebckxT8t+DAfBgNVHSMEGDAWgBTvb1NK
-# 6eQGfHrK4pBW9i/USezLTjAOBgNVHQ8BAf8EBAMCB4AwFgYDVR0lAQH/BAwwCgYI
-# KwYBBQUHAwgwgZUGCCsGAQUFBwEBBIGIMIGFMCQGCCsGAQUFBzABhhhodHRwOi8v
-# b2NzcC5kaWdpY2VydC5jb20wXQYIKwYBBQUHMAKGUWh0dHA6Ly9jYWNlcnRzLmRp
-# Z2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQwOTZT
-# SEEyNTYyMDI1Q0ExLmNydDBfBgNVHR8EWDBWMFSgUqBQhk5odHRwOi8vY3JsMy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
-# U0hBMjU2MjAyNUNBMS5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9
-# bAcBMA0GCSqGSIb3DQEBDAUAA4ICAQAbfgskh9gJasVB51Fp2SSO66XQKqND3IpM
-# lePC7ZOUFhYMaRz/VrY0d5bJBADpN07M5rjcjIne1bsR5UCZeCnHU6+XENmC8vpe
-# etKXgYDO5AOBwiahqnUHc418q5YN2AnX547PcP+wTvMVJpQGqvw/j02WTvjJ8Wt/
-# yKMmLBfi/YFl+FScWS5Y1bOSSpqUqJ58rDGL+wmqpEKQQ5iVlNhevJiy2V31NMF2
-# w8vUEE7JIHB74skA3gdZeo5f1sDkIkjUzWn2EFEdmbCeazybtTT8ztYbSsHYlI1n
-# px8KuQUStQUe/g/k8Bve1B1+FdFvibxWafM93dxubAOz7fajuf+gFmftMn/JzefA
-# /hwAEoR5p8tubelu6helUkWQiKRq/IWwI32wYTuDGPBtlPc8FSqekpY7ipJ8Xdm7
-# ooTt93YqAhrAera1/vsUCn+EJWEoIBbw/WVkhuMrCT2DsfoW7AUxDjRba/fcejoC
-# Z58lZA6LnSJ/oJlfgavmthvvgS1OQFzlXJRMabqFEF1GRead7FK3dtUIxfUWtMeE
-# Q9NoEuF8IMzfrb7mPrY4TyAsF5h9xES/nzyKMWU9F4MFT/te1KlG4uWaXuGHWnRu
-# Vowkwb7ZpTOCVaLxmEb8gMn5mCScdP9E/qitOcESaYOKvNbzirgkD2hPR/fSQlb3
-# wgwZuCo6xDCCBrQwggScoAMCAQICEA3HrFcF/yGZLkBDIgw6SYYwDQYJKoZIhvcN
-# AQELBQAwYjELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcG
-# A1UECxMQd3d3LmRpZ2ljZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3Rl
-# ZCBSb290IEc0MB4XDTI1MDUwNzAwMDAwMFoXDTM4MDExNDIzNTk1OVowaTELMAkG
-# A1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQDEzhEaWdp
-# Q2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1NiAyMDI1
-# IENBMTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBALR4MdMKmEFyvjxG
-# wBysddujRmh0tFEXnU2tjQ2UtZmWgyxU7UNqEY81FzJsQqr5G7A6c+Gh/qm8Xi4a
-# PCOo2N8S9SLrC6Kbltqn7SWCWgzbNfiR+2fkHUiljNOqnIVD/gG3SYDEAd4dg2dD
-# GpeZGKe+42DFUF0mR/vtLa4+gKPsYfwEu7EEbkC9+0F2w4QJLVSTEG8yAR2CQWIM
-# 1iI5PHg62IVwxKSpO0XaF9DPfNBKS7Zazch8NF5vp7eaZ2CVNxpqumzTCNSOxm+S
-# AWSuIr21Qomb+zzQWKhxKTVVgtmUPAW35xUUFREmDrMxSNlr/NsJyUXzdtFUUt4a
-# S4CEeIY8y9IaaGBpPNXKFifinT7zL2gdFpBP9qh8SdLnEut/GcalNeJQ55IuwnKC
-# gs+nrpuQNfVmUB5KlCX3ZA4x5HHKS+rqBvKWxdCyQEEGcbLe1b8Aw4wJkhU1JrPs
-# FfxW1gaou30yZ46t4Y9F20HHfIY4/6vHespYMQmUiote8ladjS/nJ0+k6Mvqzfpz
-# PDOy5y6gqztiT96Fv/9bH7mQyogxG9QEPHrPV6/7umw052AkyiLA6tQbZl1KhBtT
-# asySkuJDpsZGKdlsjg4u70EwgWbVRSX1Wd4+zoFpp4Ra+MlKM2baoD6x0VR4RjSp
-# WM8o5a6D8bpfm4CLKczsG7ZrIGNTAgMBAAGjggFdMIIBWTASBgNVHRMBAf8ECDAG
-# AQH/AgEAMB0GA1UdDgQWBBTvb1NK6eQGfHrK4pBW9i/USezLTjAfBgNVHSMEGDAW
-# gBTs1+OC0nFdZEzfLmc/57qYrhwPTzAOBgNVHQ8BAf8EBAMCAYYwEwYDVR0lBAww
-# CgYIKwYBBQUHAwgwdwYIKwYBBQUHAQEEazBpMCQGCCsGAQUFBzABhhhodHRwOi8v
-# b2NzcC5kaWdpY2VydC5jb20wQQYIKwYBBQUHMAKGNWh0dHA6Ly9jYWNlcnRzLmRp
-# Z2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRSb290RzQuY3J0MEMGA1UdHwQ8MDow
-# OKA2oDSGMmh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRS
-# b290RzQuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG/WwHATANBgkq
-# hkiG9w0BAQsFAAOCAgEAF877FoAc/gc9EXZxML2+C8i1NKZ/zdCHxYgaMH9Pw5tc
-# BnPw6O6FTGNpoV2V4wzSUGvI9NAzaoQk97frPBtIj+ZLzdp+yXdhOP4hCFATuNT+
-# ReOPK0mCefSG+tXqGpYZ3essBS3q8nL2UwM+NMvEuBd/2vmdYxDCvwzJv2sRUoKE
-# fJ+nN57mQfQXwcAEGCvRR2qKtntujB71WPYAgwPyWLKu6RnaID/B0ba2H3LUiwDR
-# AXx1Neq9ydOal95CHfmTnM4I+ZI2rVQfjXQA1WSjjf4J2a7jLzWGNqNX+DF0SQzH
-# U0pTi4dBwp9nEC8EAqoxW6q17r0z0noDjs6+BFo+z7bKSBwZXTRNivYuve3L2oiK
-# NqetRHdqfMTCW/NmKLJ9M+MtucVGyOxiDf06VXxyKkOirv6o02OoXN4bFzK0vlNM
-# svhlqgF2puE6FndlENSmE+9JGYxOGLS/D284NHNboDGcmWXfwXRy4kbu4QFhOm0x
-# JuF2EZAOk5eCkhSxZON3rGlHqhpB/8MluDezooIs8CVnrpHMiD2wL40mm53+/j7t
-# FaxYKIqL0Q4ssd8xHZnIn/7GELH3IdvG2XlM9q7WP/UwgOkw/HQtyRN62JK4S1C8
-# uw3PdBunvAZapsiI5YKdvlarEvf8EA+8hcpSM9LHJmyrxaFtoza2zNaQ9k+5t1ww
-# ggWNMIIEdaADAgECAhAOmxiO+dAt5+/bUOIIQBhaMA0GCSqGSIb3DQEBDAUAMGUx
-# CzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3
-# dy5kaWdpY2VydC5jb20xJDAiBgNVBAMTG0RpZ2lDZXJ0IEFzc3VyZWQgSUQgUm9v
-# dCBDQTAeFw0yMjA4MDEwMDAwMDBaFw0zMTExMDkyMzU5NTlaMGIxCzAJBgNVBAYT
-# AlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2Vy
-# dC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0ZWQgUm9vdCBHNDCCAiIwDQYJ
-# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAL/mkHNo3rvkXUo8MCIwaTPswqclLskh
-# PfKK2FnC4SmnPVirdprNrnsbhA3EMB/zG6Q4FutWxpdtHauyefLKEdLkX9YFPFIP
-# Uh/GnhWlfr6fqVcWWVVyr2iTcMKyunWZanMylNEQRBAu34LzB4TmdDttceItDBvu
-# INXJIB1jKS3O7F5OyJP4IWGbNOsFxl7sWxq868nPzaw0QF+xembud8hIqGZXV59U
-# WI4MK7dPpzDZVu7Ke13jrclPXuU15zHL2pNe3I6PgNq2kZhAkHnDeMe2scS1ahg4
-# AxCN2NQ3pC4FfYj1gj4QkXCrVYJBMtfbBHMqbpEBfCFM1LyuGwN1XXhm2ToxRJoz
-# QL8I11pJpMLmqaBn3aQnvKFPObURWBf3JFxGj2T3wWmIdph2PVldQnaHiZdpekjw
-# 4KISG2aadMreSx7nDmOu5tTvkpI6nj3cAORFJYm2mkQZK37AlLTSYW3rM9nF30sE
-# AMx9HJXDj/chsrIRt7t/8tWMcCxBYKqxYxhElRp2Yn72gLD76GSmM9GJB+G9t+ZD
-# pBi4pncB4Q+UDCEdslQpJYls5Q5SUUd0viastkF13nqsX40/ybzTQRESW+UQUOsx
-# xcpyFiIJ33xMdT9j7CFfxCBRa2+xq4aLT8LWRV+dIPyhHsXAj6KxfgommfXkaS+Y
-# HS312amyHeUbAgMBAAGjggE6MIIBNjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQW
-# BBTs1+OC0nFdZEzfLmc/57qYrhwPTzAfBgNVHSMEGDAWgBRF66Kv9JLLgjEtUYun
-# pyGd823IDzAOBgNVHQ8BAf8EBAMCAYYweQYIKwYBBQUHAQEEbTBrMCQGCCsGAQUF
-# BzABhhhodHRwOi8vb2NzcC5kaWdpY2VydC5jb20wQwYIKwYBBQUHMAKGN2h0dHA6
-# Ly9jYWNlcnRzLmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5j
-# cnQwRQYDVR0fBD4wPDA6oDigNoY0aHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0Rp
-# Z2lDZXJ0QXNzdXJlZElEUm9vdENBLmNybDARBgNVHSAECjAIMAYGBFUdIAAwDQYJ
-# KoZIhvcNAQEMBQADggEBAHCgv0NcVec4X6CjdBs9thbX979XB72arKGHLOyFXqka
-# uyL4hxppVCLtpIh3bb0aFPQTSnovLbc47/T/gLn4offyct4kvFIDyE7QKt76LVbP
-# +fT3rDB6mouyXtTP0UNEm0Mh65ZyoUi0mcudT6cGAxN3J0TU53/oWajwvy8Lpuny
-# NDzs9wPHh6jSTEAZNUZqaVSwuKFWjuyk1T3osdz9HNj0d1pcVIxv76FQPfx2CWiE
-# n2/K2yCNNWAcAgPLILCsWKAOQGPFmCLBsln1VWvPJ6tsds5vIy30fnFqI2si/xK4
-# VC0nftg62fC2h5b9W9FcrBjDTZ9ztwGpn1eqXijiuZQxggOMMIIDiAIBATB9MGkx
-# CzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4
-# RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYg
-# MjAyNSBDQTECEAwgQ0n50PdZ+5gt5AgbiHswDQYJYIZIAWUDBAICBQCggeEwGgYJ
-# KoZIhvcNAQkDMQ0GCyqGSIb3DQEJEAEEMBwGCSqGSIb3DQEJBTEPFw0yNjAxMTkx
-# ODE1NDFaMCsGCyqGSIb3DQEJEAIMMRwwGjAYMBYEFHK8/aAQf0k0sAccYQ/m15ZQ
-# AJh3MDcGCyqGSIb3DQEJEAIvMSgwJjAkMCIEIDLz47G9oteybU8dG4zdvY+LhHah
-# eJ7WEs08qnqe/zXCMD8GCSqGSIb3DQEJBDEyBDBeqRDdMMDdyRUfpxtE//76fseI
-# nwSxOJ3uBixWlr41iSvyJA53QttIu1uqAMKQqhkwDQYJKoZIhvcNAQEBBQAEggIA
-# 2NTKJBeD43jV2/ZbWFdgB3FkOyDg60H4p74fmkpiFDyY5H+gwNo7ISTVHq+cciP/
-# XXlK1R7JyZ75G8cTcpgPU4JWFfmhr4DdYzgKUyg0O9uRKvczuAOMxw6da9M6c+tr
-# TzLZ6NfqLRTf3aiNXI0eYFIipyLHsOyLpcqQw6a20tQkHpEx72L/Z/vflH4Hy9Cl
-# +JnHTFBjq2RmQc67KW6nC4cfcDaInCQVm4nCIOkNJNX48WV2fQxk8qKCUmzG2XtB
-# uQugXAHVsTBJb7BBIZuX8tNkvPhgRcswCbPAe51e6FPwTpkq7L99jQDOPnLM8teR
-# jI2NO+KKnR9jO0UC6cjR93Yn52xu+6kyaaHv9z2z08OIaPBEOwTkxhBNDr29XFC8
-# sXpM4o2w+a+xSAwqrSKyuY+vkonXE6vWyiRoEfEVod+5FFt1qnYGYwi6oG7AClUD
-# Hqi67dfUnwiq6AMLh2SbkJ2XI6SPhpAeGZQRWyyezik9cRGG1R55Nlm1NKFQvjt8
-# yTgy4oxVG6i0x++kNgP7zb+1+SYDYlAhXSpnq2rYsM+0cKcyQGWXshODEePmuA0W
-# l+JXH28NligPxiIso8X84XiGJxcC9GgcOZGaktpQFWXqjxFxTGA1n32dYciQDfma
-# 1LXA7jJyWhhmw0ekRXg5f79mYhFZRfcXJtYHqtB4uV0=
+# IgQgh16j9zEEwfi3DBcsJ2shXxqULa68b1JqNefje4k9GMEwDQYJKoZIhvcNAQEB
+# BQAEggIAm8Fn2XWz4qO3sUuihmGWZx2bL25EIO+gheHDrtt0ErnD826EYjlQpNlF
+# 7JXi/GHRIvAmejZJ6epqhF/ObZG3SE4XLA8ejKyYTO/+Qxs+ORC4QSyZGtnf5jRC
+# iX8jbF1qF8kAgWPfLdrFFbC8yMHPhAP+OqwOkKf73ttKiU5N/5bB10AWctfHeqPN
+# hcw5c1f7t8s0wMkpBBZGFv+SgvAbGQVse9nxLdFszFykIQk8bw1kMhH0YDrFGXGU
+# j6cYGN32vU4Othyb+tHGdlxrnbXrhMSUPHcvmMsTWrWVUCIFLtVULEsabdVZPTNQ
+# HRYKtPscQBoyAsfl0liqbEngoAwdV0fDEWeETcOOWjlOsTCWcIGachUuFfD2xIG/
+# bDBXcncz03efHH1DFWQT+a/5ajMGSsiIgdjNUYMqRlH3y4xgdC7xBy7om5RSvED4
+# MDW0KHNfmVy8ihn6KkSgUhg9QsVIti3TVFhhvMRWbmBfyEecpiQpQ3fxxaNRqKHj
+# dNnaRyi2VOW54273zbr8JNK5rovQieJB+TUkIgdPHvqpahf/o6LJrTc9KjXD8d0Z
+# 0r7uqFVocftpd2NlH6Pj29Kc10ABUz7IudZXzqAFE59y2TiOU1ffvESIGtH8N5pb
+# ZxcE0Q2WfjSp95kAh9dDDr0ctNZHkEa1tWMGuBkrVU61PiAEf2WhghjpMIIY5QYK
+# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwYnRWF1lgy7Qxc4ZMTLwZR/ogmrYwBi3Wtke2
+# tTG39eMO9DQ8KVeZ79grJq2QHue4AhUAvTH5GsYiVQazvP9bDTnU2Os/zaoYDzIw
+# MjYwMTMwMTA0NTA1WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
+# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
+# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
+# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
+# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
+# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
+# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
+# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
+# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
+# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
+# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
+# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
+# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
+# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
+# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
+# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
+# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
+# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
+# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
+# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
+# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
+# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
+# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
+# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
+# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
+# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
+# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
+# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
+# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
+# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
+# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
+# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
+# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
+# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
+# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
+# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
+# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
+# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
+# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
+# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
+# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
+# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
+# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
+# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
+# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
+# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
+# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
+# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
+# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
+# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
+# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
+# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
+# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
+# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
+# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
+# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
+# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
+# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
+# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
+# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
+# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
+# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
+# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
+# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
+# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
+# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
+# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
+# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
+# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
+# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
+# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
+# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
+# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
+# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
+# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
+# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
+# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
+# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
+# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
+# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
+# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
+# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
+# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
+# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
+# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
+# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
+# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
+# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
+# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
+# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
+# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
+# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
+# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
+# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
+# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
+# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
+# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
+# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
+# MQ8XDTI2MDEzMDEwNDUwNVowPwYJKoZIhvcNAQkEMTIEMAHddeSKMqE2Th15GeUY
+# iBDruDIeuge6VuOowGd5jM88LG2b9vpjRmv+8R7hH1a64TCCAXoGCyqGSIb3DQEJ
+# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
+# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
+# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
+# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
+# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
+# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
+# ggIAJNPdyEXG0QHeNMXR9o1YdJlF/pd+gduXc9JrS7FE4Xr58N+gU/K8ExNGwnOw
+# U+tH7Omn7ZomjRx/1LzCLrzVxhw79hG1zMgCbr8OBoZv22tssNiXCQsWoqO4orWB
+# Y9tpC1iLcKcii4Rm6duMSOqH/+6R3nZGYNReaHo6t9gTbn25DU3i/2CTdCZiupaZ
+# +zYwJy7IyYzV2YyjCW+z0PLcWroTgkGebfwVQCnuZn9Qt1EaoIqKNBLvVXyIrC8Z
+# hPxCBwPK22URM1v9nDxadSrpXQdPJ9aD6w6qlwVxbB0NY+AKetFZl4HxvIHdwJSu
+# 5ur4BAFdm7WYivT+CeeCsNpwij88eI4qtTvaKD1DuRGc+Ypduqi6PQmvOtVclxjA
+# 0y6p++s5gPIWGtSyAUeaYaXoVsGsv1TbvBBP2Nx7mFchWU1NR4Nl6t8Z5Yj3oKKO
+# hX3yunbf9fuj39T81HjBJfovxWjWIF3aYkHYBxhlXaoA9lsgSy6NoWinZA2mNiHk
+# aod4fYrtWxakGP51fBZlKpED+74rxH4rTwa0juNEWtd/yHygTnAKi9+g+/lOs1BO
+# N+kpLk6bZTXsmTqlZi4SLPcRj0g7NwG85jGxA4MpAtXR/scBqPjUWE0xytoxLwZr
+# SQizmPHdzIEU1I9nP4Vro68KVNi/4TBJWiN26QW4unQdSjE=
 # SIG # End signature block

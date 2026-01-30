@@ -458,7 +458,7 @@ Function New-HPECOMFilter {
     
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Filter cannot be created!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Filter cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                 }
             }           
@@ -645,7 +645,7 @@ Function Remove-HPECOMFilter {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Filter cannot be deleted!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Filter cannot be deleted!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                 }
             }           
@@ -950,7 +950,7 @@ Function Set-HPECOMFilter {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Filter cannot be updated!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Filter cannot be updated!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                 }
             }           
@@ -1031,8 +1031,8 @@ Export-ModuleMember -Function 'Get-HPECOMFilter', 'New-HPECOMFilter', 'Remove-HP
 # SIG # Begin signature block
 # MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBTIGxtCv8H/vVz
-# XiPBGcpC580suPTFHxGbmxbXvgyK8KCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCl3FQkpinaaQAM
+# MAYGNPAsgt/1QKIQd8wdGiNCt6ieCqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -1133,23 +1133,23 @@ Export-ModuleMember -Function 'Get-HPECOMFilter', 'New-HPECOMFilter', 'Remove-HP
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgBga9qpC/lH9Ng3TSl0LeXozZF2ZYHXucotpXWnFhyqQwDQYJKoZIhvcNAQEB
-# BQAEggIAiaZt7h9AM/7FnuYOhL02poX8g53odIw6XcHlPiL6BkUoLkZjh90DW7Ut
-# Qh/S419OnxYpBUfBbPT7hjYP9ApFWBqkwBq33q+NZault3qq2B5xrcry5GJdJziJ
-# VPjsPPkDmZDiW11Y6dZS94PWXnp8qM8LLYYIzpeTlzbukjDAPzM+JfAMNADMXbE2
-# zJ4HhtbWJsaZ6ILTWILDl9TAokAnf9B6gJgNeza9ObRsNcfzq9/DbNsF7DmIZJ06
-# bkV/L6g/4fFw4p7BIbX0AMl5T8eWse/TV0h4F3tk0XdWSN2aXZj89vkQKjwJtpQ9
-# QQ5yNlQkkjKgNQXPqLN3EftCeJKLUobHsdmtKussgVkFvXYPR6C4rJvgGy1rLCRM
-# Z/mIJhqEO7ldYPrGPJ5CLheUxjjehgN6m0RBofTvGE2c15ceghi/gmyrl+LEkkqh
-# 3uYSLJY/ltFsXQhjolP7p62IIRpWL1iyt9n3fCNlJAt1OSsxn0Gmj9kNcw1q+56E
-# 0fWlPE7rLQzMaX455qbxQwEyZ31I/pBAsFDtS4dWS9+qwqtzfIEFKLSxnDI5lKzP
-# Fg/dtsua99/Es+WnqX5qA1k82AGs11Z+JlLd2WxSdIwKYbztXycygPbqkVVXYpyZ
-# zwP8Yz7EBBOci4byEaQr4CN94kKPZsG9MCIRAYRZ+V08iatKkGWhgheXMIIXkwYK
+# IgQgEweqmPpn5JpSatEazu+dWgK0d1hTsfbhf/a/mo+KvrYwDQYJKoZIhvcNAQEB
+# BQAEggIAnqQ0NzjAPXE1R7tMeskJwbEmgCW56NkfQwnuqXFUwrWxz3mcDkCgrreZ
+# 6IJNQLEyc8HrsSAGB37cdDwBz9rxf7/hkpjPNLPJKflzqdqip99k30/4FFz2qN5l
+# dvgauLCOFhGGQaaWTr3XTqcgIzxd7y5u3cj24VJY4jj//xrYPt3mQbkhbhX3kbvx
+# Tl//PU6IY9S3s9OnIhERmT0YyrrqbYpALzlDdP244SLzUJf9ksD1I3+rULtvc9HC
+# 0pVt0PwtV8oBQ5uDDzivB9+Fb73Y5j/DJdavYuYUAPoCivi72D2gSK1FwW6TJA7T
+# X8x2fmxuiswcaENKZ/AgtqciANWazTe8KegdPoKKoO0R3Sv9AIU/xovp2ZiXP7vi
+# 55K9nKSSftGRmVPxPb8AcSFyjJblhvSxkHh2RIk/5vwjiW7a8h3XhsJVPfFosPG9
+# lQwCCW9qen67PBLL6y8gft7zt7hxcjZgG6OWo0YYsBsxJW5lz+BI4xzzTZTyyfW5
+# XE5KI8ganOPJk7cQSbeH8F1owvlxzGzffH3bWiWjcwyy3fhS2ogxEsNd5KmMtSNs
+# LcZEVBbZMm4bAyruYtQh6lHan0yk0yyeww0jL+Hcxxh7rr/qyuV6ikBYNv/6r2Mr
+# WrmKHMmPJuseOvBHGmbU5Y85PSwQLHxw9cqNNyP3kP0WDr+VrbyhgheXMIIXkwYK
 # KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMNObSeKuCzXl5mNxd980BSe7+3cr2BuoApd+egPtzHPM
-# Iyk90HXYSCJO1ngcRt6mfwIQFfDF9CXdWG019SvCvyTtjhgPMjAyNjAxMTkxODE3
-# MDFaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# DQYJYIZIAWUDBAICBQAEMLMhs5YDqHNvugx2fYo9Jhh4GQcBitsr2+m8crifO/S8
+# jVRcNKxdb3Hp09mszjAI1QIQHrPEelQe3krMKr/xQu8OhBgPMjAyNjAxMzAxMDQ2
+# MzZaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
 # AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
 # PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
 # IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
@@ -1255,20 +1255,20 @@ Export-ModuleMember -Function 'Get-HPECOMFilter', 'New-HPECOMFilter', 'Remove-HP
 # MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
 # OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
 # IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMTE5
-# MTgxNzAxWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMTMw
+# MTA0NjM2WjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
 # UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQw7n6xpwbE1BzRj62obIqFWadH
-# 7R3vTaM9f9m0k4JHk5VB0fpWlCW7/Y1oNoilTgtaMA0GCSqGSIb3DQEBAQUABIIC
-# ANPe8OD/OermSSNVKCTGrAvDL5iZVZNy92tErLXj2DiIuvZoCXyJ3ggnw6AQdck0
-# iBpMKbwrjkY3TPiVAHlGHWo4Idf6EeHqjXS2wrCGpbGiY8IDjzI6fs6hEwtILC29
-# FBLRPucdCM1AEVXmDid4Vi8xD8KyitI9WtBE7euQ1Zf6SerTN8RXCCx+muox6pZq
-# I2Go0U4WzEHViQD44NDmhZ70p4FdbxZWKKVZpfuGEOHTwUu4bcjTB2UUWALVu08k
-# wQ9tYcB+vaxON6jxHfxqECxfjAjSJYmF2VsSDq5jMF7c0b97HgvRWuBNKWS8wrhh
-# RJO2QRkZ9MuP53Yi0j/Gq2ghs59MDtsOxTudNpKkl2dNrS1Oy7ShorKaODH4M6qC
-# Lp9fHhDgylSZcZstR6ReFru0Ysrtq59g5fsqA6yMzV5tdZobhkZLc3CTQm3ng1zI
-# fkhqqaGINk61Y6amBqmEkR9J1LiIZPKZTHt8lPGb4/YajbXwAE93hwteF+f39dVP
-# +7ho2h/lTZ9r6LRNrpj3rj/sJEnc7mVN5ys5sATCnZSkKReVjpd79N1EwYyhN8Qq
-# O5UYhohIriVIVuO+vpMvLpg2y4+fD8cWspCx8NjvyMDRKydH294jQTiUmTprsmG0
-# Ahku3uAw06GSV75UPGMJvmvABpWiwKusRM8VYMeRyw1i
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQw1tmFnIHeWv4gGJriYtTRYnPB
+# vSillm38rxbshSIIb6bhKkYGsKG9SGPmEtt2UpSXMA0GCSqGSIb3DQEBAQUABIIC
+# AHToywbfFMKWMvCD8eyriwhaghDcdN6sMCBxRnF5bCmaaF2B2iYo0N2FtURUNpP9
+# JTeEuANWNYV/AievMrhOL7KQ+4Ka7wBhMtoxbPRjefR10UAuSn8k2ugHvpiMUFt1
+# qIAzU8Xx9dexeh8xJjhmoUmXG+dfdNY64vmzjIImK+8MJbvtzmfWDNBmQzwtbbkE
+# nKx0MKJ8o/rjLeeoId0/KIo7WiiQaPvpj9yigbdoBhF15Mw29CLlslabiQofeE1J
+# D0mNZFexTX/AIeOuL6/d4MdU6Tn9kqVDu+fFxhFnEBoRqR3VrddEKE8+z6mLHqQQ
+# 1VOZd2X4nSmFpppu5qNrGebIW9Mf0EeaWPfzzcEHYiXsip6sUqHnZjkeYexBcnJs
+# I7vKzuKDT1aK4xw8H2UtjNvJbmr/8NHWYrcl/aWl038smw+dHHtZRyyu8fMljZvx
+# y+ElHwQwUjMf7FQ3yIObu1zF4C4Lf73E31CiuZTS1hRjGiWG0O9bF5RfjXqTQPmI
+# KMDWodWoSEK1AWqZc00dcQlsT8qBUfOSCMGmfTlu3Wtuads429Sct3HdHPO14Ssz
+# XzoHqu9E4bA8vRyiAqUy1aJBIhf64hy38Ukv5ago0tQdydycaaR0PLv2T+YmrNIE
+# 6GvZST8kWO9OlnCVg8SpKgxMw6PvyNLTQT5akMoH0nV6
 # SIG # End signature block

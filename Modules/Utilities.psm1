@@ -649,8 +649,7 @@ After connecting, you will be able to use HPE GreenLake cmdlets.
                             $statusCode = "N/A"
                         }
                         
-                        
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
+                        "[{0}] Session expired or HTML error response detected" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose 
                         "[{0}] --------------------------------------------------------------------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
                                              
                         
@@ -707,11 +706,19 @@ Example:
                             "[{0}] No HTTP status code or response content available." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                         }
 
-                        # Extract JSON block from the exception string
-                        $exceptionString = $_ | Out-String
-                        $errorData = $exceptionString
-
-                        "[{0}] Exception raw content:`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exceptionString | Write-Verbose
+                        # Extract JSON response body from ErrorDetails or exception string
+                        if ($_.ErrorDetails.Message) {
+                            # ErrorDetails.Message contains the actual JSON response body from the API
+                            $errorData = $_.ErrorDetails.Message
+                            "[{0}] Captured error response from ErrorDetails.Message" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            "[{0}] Raw API error response (before processing):`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData | Write-Verbose
+                        }
+                        else {
+                            # Fallback to full exception string if ErrorDetails not available
+                            $errorData = $_ | Out-String
+                            "[{0}] ErrorDetails.Message not available, using exception string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            "[{0}] Exception content:`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData | Write-Verbose
+                        }
 
                         Write-Verbose "--------------------------------------------------------------------------------------------------------------------------------------"
 
@@ -818,8 +825,7 @@ Example:
                             $statusCode = "N/A"
                         }
                         
-                        
-                        "[{0}] Exception raw content: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose 
+                        "[{0}] Retryable error encountered" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose 
                         "[{0}] --------------------------------------------------------------------------------------------------" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose                    
                         
                         if ($statusCode -in 408, 500, 502, 503, 504) {
@@ -970,11 +976,19 @@ Example:
                             "[{0}] No HTTP status code or response content available." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                         }
 
-                        # Extract JSON block from the exception string
-                        $exceptionString = $_ | Out-String
-                        $errorData = $exceptionString
-
-                        "[{0}] Exception raw content:`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $exceptionString | Write-Verbose
+                        # Extract JSON response body from ErrorDetails or exception string
+                        if ($_.ErrorDetails.Message) {
+                            # ErrorDetails.Message contains the actual JSON response body from the API
+                            $errorData = $_.ErrorDetails.Message
+                            "[{0}] Captured error response from ErrorDetails.Message" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            "[{0}] Raw API error response (before processing):`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData | Write-Verbose
+                        }
+                        else {
+                            # Fallback to full exception string if ErrorDetails not available
+                            $errorData = $_ | Out-String
+                            "[{0}] ErrorDetails.Message not available, using exception string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            "[{0}] Exception content:`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData | Write-Verbose
+                        }
 
                         Write-Verbose "--------------------------------------------------------------------------------------------------------------------------------------"
 
@@ -1018,58 +1032,56 @@ Example:
 
                 if ($errorData) {
                     Write-Verbose "-------------------------------------------- Enhanced Exception Handling (`$ErrorMsg) ------------------------------------------------------------------"
-                    # "[{0}] Raw error details: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMsg | Write-Verbose
-
+                    
                     $originalErrorData = $errorData
-                    $jsonParsingFailed = $false
+                    
+                    # First, extract pure JSON if wrapped in PowerShell error formatting
+                    # Remove common wrappers like "Invoke-WebRequest: " prefix
+                    $cleanedJson = $originalErrorData
+                    if ($originalErrorData -match '\{[\s\S]*\}') {
+                        $cleanedJson = $matches[0]
+                        "[{0}] Extracted JSON from error wrapper" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    }
                     
                     try {
-                        $errorData = $errorData | ConvertFrom-Json -ErrorAction Stop
+                        # Parse the entire JSON response dynamically - preserve all properties
+                        $errorData = $cleanedJson | ConvertFrom-Json -ErrorAction Stop
+                        "[{0}] Successfully parsed error response as JSON" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                     }
                     catch {
-                        "[{0}] JSON parsing failed due to malformed JSON, attempting to fix and re-parse..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                        $jsonParsingFailed = $true
+                        "[{0}] JSON parsing failed, attempting to fix common issues..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                         
-                        # Try to fix common JSON issues
+                        # Try to fix common JSON formatting issues (smart quotes, escaping, etc.)
                         try {
-                            # Fix triple quotes and other common escaping issues
-                            $fixedJson = $originalErrorData -replace '"""', '\"'  # Replace triple quotes with single quote
-                            $fixedJson = $fixedJson -replace '\\"""', '\\"'        # Fix escaped triple quotes
-                            
-                            "[{0}] Attempting to parse fixed JSON..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $fixedJson = $cleanedJson -replace '"""', '\"' -replace '\\"""', '\\"'
                             $errorData = $fixedJson | ConvertFrom-Json -ErrorAction Stop
-                            "[{0}] Successfully parsed fixed JSON!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            $jsonParsingFailed = $false
+                            "[{0}] Successfully parsed fixed JSON" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                         }
                         catch {
-                            "[{0}] JSON fix attempt failed, extracting fields manually from raw string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            # Last resort: manual extraction of known fields
+                            "[{0}] JSON parsing failed completely, extracting key fields manually" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                             
-                            # Try to extract key fields manually from the raw string using regex
-                            # Use non-greedy match to capture everything including smart quotes/escaped chars
-                            $message = if ($originalErrorData -match '"message"\s*:\s*"(.*?)"[,\}]') { 
-                                ($matches[1] -replace '\\"', '"' -replace '"', '"' -replace '"', '"') 
-                            } else { $null }
-                            $errorCode = if ($originalErrorData -match '"errorCode"\s*:\s*"([^"]+)"') { $matches[1] } else { $null }
-                            $httpStatusCode = if ($originalErrorData -match '"httpStatusCode"\s*:\s*"?(\d+)"?') { $matches[1] } else { $null }
-                            
-                            # Try to parse rawError as JSON object for cleaner verbose display
-                            $rawErrorObj = $originalErrorData
-                            try {
-                                # Clean up the JSON string first - remove smart quotes and fix formatting
-                                $rawErrorObj = $originalErrorData | ConvertFrom-Json -ErrorAction Stop
-                                $rawErrorObj = $cleanedJson | ConvertFrom-Json -ErrorAction Stop
-                                "[{0}] Successfully parsed rawError as JSON object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            } catch {
-                                # Keep as string if parsing fails
-                                "[{0}] Could not parse rawError as JSON, keeping as string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $errorData = [PSCustomObject]@{
+                                message = if ($cleanedJson -match '"message"\s*:\s*"(.*?)"[,\}]') { 
+                                    ($matches[1] -replace '\\"', '"' -replace '"', '"' -replace '"', '"') 
+                                } else { $null }
+                                errorCode = if ($cleanedJson -match '"errorCode"\s*:\s*"([^"]+)"') { 
+                                    $matches[1] 
+                                } else { $null }
+                                httpStatusCode = if ($cleanedJson -match '"httpStatusCode"\s*:\s*"?(\d+)"?') { 
+                                    $matches[1] 
+                                } else { $null }
+                                rawError = $originalErrorData
                             }
                             
-                            # Create a simplified object with extracted fields
-                            $errorData = [PSCustomObject]@{
-                                message = $message
-                                errorCode = $errorCode
-                                httpStatusCode = $httpStatusCode
-                                rawError = $rawErrorObj
+                            # Try to extract errorDetails array if present
+                            if ($cleanedJson -match '"errorDetails"\s*:\s*(\[[\s\S]*?\])\s*[,\}]') {
+                                try {
+                                    $errorData | Add-Member -NotePropertyName 'errorDetails' -NotePropertyValue ($matches[1] | ConvertFrom-Json -ErrorAction Stop) -Force
+                                    "[{0}] Extracted errorDetails array from raw string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                } catch {
+                                    "[{0}] Could not parse errorDetails array" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                }
                             }
                         }
                     }
@@ -1110,17 +1122,22 @@ Example:
                     $msg = if ($exceptionMessage) { "{0} - {1}" -f $Message, $exceptionMessage } else { $Message }
                     # "[{0}] Final constructed message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
 
-                    # Check for GreenLake 403 Forbidden - missing role assignment
-                    if ($errorData.httpStatusCode -eq 403 -and $Message -match 'Insufficient permission') {
-                        "[{0}] 403 Forbidden detected with 'Insufficient permission' - likely missing HPE GreenLake role assignment" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    # Check for GreenLake 403 Forbidden errors - always a permissions issue
+                    if ($errorData.httpStatusCode -eq 403) {
+                        "[{0}] 403 Forbidden detected - insufficient permissions for this operation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                         
+                        # 403 errors are always permission-related - provide helpful guidance
                         $EnhancedError = "Insufficient permissions to perform this HPE GreenLake operation.`n`n"
-                        $EnhancedError += "CAUSE:`nYou do not have the required role assigned in this workspace.`n`n"
-                        $EnhancedError += "ACTION REQUIRED:`nAssign yourself the appropriate role using Add-HPEGLRoleToUser.`n`n"
-                        $EnhancedError += "Example:`n"
-                        $EnhancedError += "    Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Workspace Administrator'`n`n"
-                        $EnhancedError += "To check your current roles, run: Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles`n"
-                        $EnhancedError += "To see available roles, run: Get-HPEGLRole"
+                        $EnhancedError += "CAUSE:`n"
+                        $EnhancedError += "You do not have the required role or permissions in this workspace.`n`n"
+                        $EnhancedError += "ACTION REQUIRED:`n"
+                        $EnhancedError += "1. Verify you have the appropriate role assigned using:`n"
+                        $EnhancedError += "   Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles`n`n"
+                        $EnhancedError += "2. If no role is assigned, request the appropriate role for this operation.`n`n"
+                        $EnhancedError += "3. To assign a role (requires workspace admin privileges):`n"
+                        $EnhancedError += "   Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Workspace Administrator'`n`n"
+                        $EnhancedError += "4. To see available roles, run: Get-HPEGLRole`n`n"
+                        $EnhancedError += "Error code: {0}" -f $errorData.errorCode
                         
                         $msg = $EnhancedError
                     }
@@ -1415,6 +1432,14 @@ Example:
                             }
                             else {
                             "[{0}] Response detected with no items (total is 0)" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            
+                            # If ReturnFullObject is requested, return the full object even when total is 0
+                            # This is needed to access other response properties like 'excluded'
+                            if ($ReturnFullObject) {
+                                "[{0}] ReturnFullObject requested - returning full response even though total is 0" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                return $InvokeReturnData
+                            }
+                            
                             "[{0}] Leaving Invoke-HPEGLWebRequest and returning no content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                             return
                         }
@@ -1611,6 +1636,14 @@ Example:
                             }
                             else {
                                 "[{0}] Response detected with no items (total is 0)" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                
+                                # If ReturnFullObject is requested, return the full object even when total is 0
+                                # This is needed to access other response properties like 'excluded'
+                                if ($ReturnFullObject) {
+                                    "[{0}] ReturnFullObject requested - returning full response even though total is 0" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                    return $InvokeReturnData
+                                }
+                                
                                 "[{0}] Leaving Invoke-HPEGLWebRequest and returning no content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                                 return
                             }
@@ -2027,22 +2060,9 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                 }
                 catch {
                     $attempt++
-                    $lastException = $_        
-
-                    # Extract error string for better diagnostics
-                    $errorString = $_ | Out-String
+                    $lastException = $_
                     $errorMsg = $_.Exception.Message
                     $parsedErrorMsg = $null
-                    if ([string]::IsNullOrWhiteSpace($errorMsg)) {
-                        try {
-                            $parsedError = $errorString | ConvertFrom-Json -ErrorAction Stop
-                            if ($parsedError -and $parsedError.message) {
-                                $parsedErrorMsg = $parsedError.message
-                            }
-                        }
-                        catch {}
-                        $errorMsg = if ($parsedErrorMsg) { $parsedErrorMsg } else { $errorString }
-                    }
 
                     Write-Verbose "-------------------------------------------- Catch triggered! -----------------------------------------------------------------------" 
                     "[{0}] Exception type: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.GetType().Name | Write-Verbose
@@ -2059,27 +2079,18 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                         "[{0}] No HTTP status code or response content available." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                     }
 
-                    # Extract JSON block from the exception string
-                    $exceptionString = $_ | Out-String
-                    if ($exceptionString -match '(\{[\s\S]*\})') {
-                        $jsonBlock = $matches[1]
-                        $decodedJson = [System.Text.RegularExpressions.Regex]::Unescape($jsonBlock)
-                        try {
-                            $prettyJson = $decodedJson | ConvertFrom-Json | ConvertTo-Json -Depth 30
-                            "[{0}] Exception raw content (parsing):" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            $prettyJson -split "`r?`n" | ForEach-Object { Write-Verbose $_ }
-                            $errorData = $prettyJson
-                        }
-                        catch {
-                            "[{0}] Exception raw content (fallback):" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            $decodedJson -split "`r?`n" | ForEach-Object { Write-Verbose $_ }
-                            $errorData = $decodedJson
-                        }
+                    # Extract JSON response body from ErrorDetails or exception string
+                    if ($_.ErrorDetails.Message) {
+                        # ErrorDetails.Message contains the actual JSON response body from the API
+                        $errorData = $_.ErrorDetails.Message
+                        "[{0}] Captured error response from ErrorDetails.Message" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        "[{0}] Raw API error response (before processing):`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData | Write-Verbose
                     }
                     else {
-                        "[{0}] Exception raw content (unparsed):" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                        $exceptionString -split "`r?`n" | ForEach-Object { Write-Verbose $_ }
-                        $errorData = $exceptionString
+                        # Fallback to full exception string if ErrorDetails not available
+                        $errorData = $_ | Out-String
+                        "[{0}] ErrorDetails.Message not available, using exception string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        "[{0}] Exception content:`n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $errorData | Write-Verbose
                     }
 
                     Write-Verbose "--------------------------------------------------------------------------------------------------------------------------------------" 
@@ -2117,23 +2128,31 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
 
                 if ($errorData) {
                     Write-Verbose "-------------------------------------------- Enhanced Exception Handling (`$ErrorMsg) ------------------------------------------------------------------"
-                    # "[{0}] Raw error details: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMsg | Write-Verbose
 
                     $originalErrorData = $errorData
                     $jsonParsingFailed = $false
                     
+                    # Try to extract pure JSON from wrapper text (remove "Invoke-WebRequest:" prefix, etc.)
+                    if ($errorData -match '\{[\s\S]*\}') {
+                        $errorData = $matches[0]
+                        "[{0}] Extracted JSON from error wrapper" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    }
+                    
                     try {
+                        # Dynamic parsing - preserves ALL properties automatically
                         $errorData = $errorData | ConvertFrom-Json -ErrorAction Stop
+                        "[{0}] Successfully parsed error response as JSON" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                     }
                     catch {
-                        "[{0}] JSON parsing failed due to malformed JSON, attempting to fix and re-parse..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        "[{0}] JSON parsing failed, attempting to fix common issues and re-parse..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                         $jsonParsingFailed = $true
                         
                         # Try to fix common JSON issues
                         try {
-                            # Fix triple quotes and other common escaping issues
-                            $fixedJson = $originalErrorData -replace '"""', '\"'  # Replace triple quotes with single quote
-                            $fixedJson = $fixedJson -replace '\\"""', '\\"'        # Fix escaped triple quotes
+                            # Fix smart quotes and other escaping issues
+                            $fixedJson = $originalErrorData -replace '"', '"' -replace '"', '"'  # Fix smart quotes
+                            $fixedJson = $fixedJson -replace '"""', '\"'  # Replace triple quotes with single quote
+                            $fixedJson = $fixedJson -replace '\\"""', '\\"'  # Fix escaped triple quotes
                             
                             "[{0}] Attempting to parse fixed JSON..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                             $errorData = $fixedJson | ConvertFrom-Json -ErrorAction Stop
@@ -2148,15 +2167,16 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                             $errorCode = if ($originalErrorData -match '"errorCode"\s*:\s*"([^"]+)"') { $matches[1] } else { $null }
                             $httpStatusCode = if ($originalErrorData -match '"httpStatusCode"\s*:\s*"?(\d+)"?') { $matches[1] } else { $null }
                             
-                            # Try to parse rawError as JSON object for cleaner verbose display
-                            $rawErrorObj = $originalErrorData
-                            try {
-                                # Try to parse directly - if it has smart quotes it will fail and we'll keep as string
-                                $rawErrorObj = $originalErrorData | ConvertFrom-Json -ErrorAction Stop
-                                "[{0}] Successfully parsed rawError as JSON object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            } catch {
-                                # Keep as string if parsing fails
-                                "[{0}] Could not parse rawError as JSON, keeping as string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            # Try to extract errorDetails array
+                            $errorDetailsArray = $null
+                            if ($originalErrorData -match '"errorDetails"\s*:\s*\[([\s\S]*?)\]') {
+                                try {
+                                    $errorDetailsJson = "[" + $matches[1] + "]"
+                                    $errorDetailsArray = $errorDetailsJson | ConvertFrom-Json -ErrorAction Stop
+                                    "[{0}] Successfully extracted errorDetails array" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                } catch {
+                                    "[{0}] Could not parse errorDetails array" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                }
                             }
                             
                             # Create a simplified object with extracted fields
@@ -2164,7 +2184,8 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                                 message = $message
                                 errorCode = $errorCode
                                 httpStatusCode = $httpStatusCode
-                                rawError = $rawErrorObj
+                                errorDetails = $errorDetailsArray
+                                rawError = $originalErrorData
                             }
                         }
                     }
@@ -2205,18 +2226,23 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                     $msg = if ($exceptionMessage) { "{0} - {1}" -f $Message, $exceptionMessage } else { $Message }
                     # "[{0}] Final constructed message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
 
-                    # Check for COM 403 Forbidden - missing role assignment
-                    if ($errorData.httpStatusCode -eq 403 -and $Message -match 'Insufficient permission') {
-                        "[{0}] 403 Forbidden detected with 'Insufficient permission' - likely missing COM role assignment" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    # Check for COM 403 Forbidden errors - always a permissions issue
+                    if ($errorData.httpStatusCode -eq 403) {
+                        "[{0}] 403 Forbidden detected - insufficient permissions for this operation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                         
+                        # 403 errors are always permission-related - provide helpful guidance
                         $EnhancedError = "Insufficient permissions to perform this Compute Ops Management operation.`n`n"
-                        $EnhancedError += "CAUSE:`nYou do not have a Compute Ops Management role assigned in this workspace.`n`n"
-                        $EnhancedError += "ACTION REQUIRED:`nAssign yourself one of the following roles using Add-HPEGLRoleToUser:`n"
-                        $EnhancedError += "  - 'Compute Ops Management administrator' (full access)`n"
-                        $EnhancedError += "  - 'Compute Ops Management operator' (operational access)`n`n"
-                        $EnhancedError += "Example:`n"
-                        $EnhancedError += "    Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Compute Ops Management administrator'`n`n"
-                        $EnhancedError += "To check your current roles, run: Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles"
+                        $EnhancedError += "CAUSE:`n"
+                        $EnhancedError += "You do not have the required Compute Ops Management role or permissions in this workspace.`n`n"
+                        $EnhancedError += "ACTION REQUIRED:`n"
+                        $EnhancedError += "1. Verify you have a Compute Ops Management role assigned using:`n"
+                        $EnhancedError += "   Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles`n`n"
+                        $EnhancedError += "2. If no COM role is assigned, request one of the following roles:`n"
+                        $EnhancedError += "   - 'Compute Ops Management administrator' (full access)`n"
+                        $EnhancedError += "   - 'Compute Ops Management operator' (operational access)`n`n"
+                        $EnhancedError += "3. To assign a role (requires workspace admin privileges):`n"
+                        $EnhancedError += "   Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Compute Ops Management administrator'`n`n"
+                        $EnhancedError += "Error code: {0}" -f $errorData.errorCode
                         
                         $msg = $EnhancedError
                     }
@@ -2451,6 +2477,14 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                                 }
                                 else {
                                     "[{0}] Response detected with no items (total is 0)" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                    
+                                    # If ReturnFullObject is requested, return the full object even when total is 0
+                                    # This is needed to access other response properties like 'excluded'
+                                    if ($ReturnFullObject) {
+                                        "[{0}] ReturnFullObject requested - returning full response even though total is 0" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                        return $InvokeReturnData
+                                    }
+                                    
                                     "[{0}] Leaving Invoke-HPECOMWebRequest and returning no content" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                                     return
                                 }
@@ -2938,7 +2972,47 @@ SESSION PROPERTIES
      | ccsSid                    | String             | HPE CCS session ID                                              |    
      --------------------------------------------------------------------------------------------------------------------
      | onepassToken              | Object             |  OAuth2 token details for the HPE Onepass authentication        |    
+     --------------------------------------------------------------------------------------------------------------------
+     | IsValid                   | Boolean            | Dynamic property indicating if session tokens are still valid   |    
      ====================================================================================================================
+
+SESSION METHODS AND PROPERTIES
+
+The session object includes convenient methods and properties for session management:
+
+Clone() Method:
+    Creates a deep copy of the session object for saving and restoring session state.
+    
+    Example - Save and restore session:
+        PS> $SavedSession = $Global:HPEGreenLakeSession.Clone()
+        PS> # Perform operations in a different workspace...
+        PS> $Global:HPEGreenLakeSession = $SavedSession  # Restore instantly without reconnecting
+    
+    Benefits:
+    • Instant restoration (no API calls)
+    • Preserves all session properties and tokens
+    • Useful for switching between workspaces without reconnecting
+
+IsValid Property:
+    Dynamically checks if the session is still valid by verifying both OAuth2 and GLP API token expiration.
+    
+    Example - Check session validity:
+        PS> if ($Global:HPEGreenLakeSession.IsValid) {
+        PS>     Write-Host "Session is valid"
+        PS> } else {
+        PS>     Connect-HPEGL -Credential $cred -Workspace $workspace
+        PS> }
+    
+    Validation Logic:
+    • OAuth2 token: Valid for 120 minutes from creation
+    • GLP API token: Valid for duration specified in expires_in (typically 15 minutes)
+    • Returns $true only if BOTH tokens are valid
+    • Returns $false if either token has expired
+    
+    Benefits:
+    • Simplifies session validation in scripts
+    • Prevents authentication failures from expired tokens
+    • Eliminates complex date calculation logic
 
 API client credentials are stored in `${Global:HPEGreenLakeSession.apiCredentials}` and contains the following properties:
      
@@ -10011,6 +10085,35 @@ Please verify your authenticator app and try again.
             
         $Global:HPEGreenLakeSession = Invoke-RepackageObjectWithType -RawObject $Global:HPEGreenLakeSession -ObjectName 'Connection'
 
+        # Add Clone() method for easy session copying
+        $Global:HPEGreenLakeSession | Add-Member -MemberType ScriptMethod -Name Clone -Value {
+            return $this.PSObject.Copy()
+        } -Force
+        
+        # Add IsValid property that dynamically checks session validity
+        $Global:HPEGreenLakeSession | Add-Member -MemberType ScriptProperty -Name IsValid -Value {
+            # Check OAuth2 token (120 minutes validity)
+            $oauth2Valid = $false
+            if ($this.oauth2TokenCreation) {
+                $oauth2Expiration = $this.oauth2TokenCreation.AddMinutes(120)
+                $oauth2Valid = (Get-Date) -lt $oauth2Expiration
+            }
+            
+            # Check GLP API token validity
+            $glpApiValid = $false
+            if ($this.glpApiAccessTokenv1_2) {
+                $glpExpiration = $this.glpApiAccessTokenv1_2[0].creation_Time.AddSeconds($this.glpApiAccessTokenv1_2[0].expires_in)
+                $glpApiValid = (Get-Date) -lt $glpExpiration
+            }
+            elseif ($this.glpApiAccessToken) {
+                $glpExpiration = $this.glpApiAccessToken[0].creation_Time.AddSeconds($this.glpApiAccessToken[0].expires_in)
+                $glpApiValid = (Get-Date) -lt $glpExpiration
+            }
+            
+            # Session is valid only if both tokens are valid
+            return ($oauth2Valid -and $glpApiValid)
+        } -Force
+
         "[{0}] `$Global:HPEGreenLakeSession global variable set!" -f $functionName | Write-Verbose
 
         $completedSteps++
@@ -11674,7 +11777,9 @@ Manually remove old credentials via the HPE GreenLake web portal (Manage Workspa
                 $Global:HPEGreenLakeSession.organization = $null
                 $Global:HPEGreenLakeSession.organizationId = $null
                 
-                $OrganizationGovernance = Get-HPEGLOrganization -ShowCurrent
+                # Suppress organization warning for standalone workspaces
+                # This is informational only and not critical to connection success
+                $OrganizationGovernance = Get-HPEGLOrganization -ShowCurrent -WarningAction SilentlyContinue
                 if ($OrganizationGovernance -and $OrganizationGovernance.name -and $OrganizationGovernance.id) {
                     $Global:HPEGreenLakeSession.organization = $OrganizationGovernance.name
                     $Global:HPEGreenLakeSession.organizationId = $OrganizationGovernance.id
@@ -12053,7 +12158,7 @@ function Invoke-RestMethodWhatIf {
         if ( -not $Body ) {
             $Body = 'No Body provided'
         }
-        write-warning "You have selected the 'What-If' option; therefore, the call will not be made. Instead, you will see a preview of the REST API call."
+        write-warning "You have selected the '-WhatIf' option; therefore, the call will not be made. Instead, you will see a preview of the REST API call."
         Write-host "The cmdlet executed for this call will be:" 
         write-host  "$Cmdlet" -ForegroundColor green
         Write-host "The URI for this call will be:" 
@@ -12627,8 +12732,8 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # SIG # Begin signature block
 # MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAenTJY1QS7ssGP
-# 6MU8czrrz0rzWpmuY+MC2ztSxJV5NqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCubD/scVfmfH5F
+# Zed1pah250R1gukTWGEGIfdeWy+EOaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -12729,23 +12834,23 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg2M9iMxH6e19gKR87HhbSPXcxUQYhK4QiNpaHphdizA0wDQYJKoZIhvcNAQEB
-# BQAEggIAVXXM28ozC4ZWsPphXqJcw96y0xeaMRyDBLCBNVTOzD9DJtOUsiTDrQnn
-# oqfQ4VNjKjF/ujfhUNLvzWsDvKspjnV4sIbFlQ87fr9720SMTt2h6NIXjEBM+tq7
-# rdQUCEXzXjHftv3KPmaSAoiQXbTzUuraM/1THiJZtOeVxWUETqqtrJkU6vxsbzKK
-# L7Vuqc+x2ST4bxOWIwOcwIWcRUzfcID2pXcstNSdoGCY3i3401q2srZLMrCZa4i+
-# 8scMsyovkZINWm3NCch0Xkb6Lh1Dea4fdfr7fu3L+CGosY6DRoGjG2sA4V8idkH+
-# EB1Fr7MkJPeItxYyw0nb+YSEIiAeLRycAsWpBpy6pYJvW66ev1T9YSx/CVGNv23N
-# 3CbtcN7H+6Wp89MWXMQyjpbAhUapEGVHJ3DTdSl6bb/gSuNuttGsYnvtT8iZikv0
-# HrUV2YtXks7RSji2mRmLI6J82XMbnvh+/SfCtY1+lW5gCYsPDKYRZvaDbH/dP7aa
-# +neL2KEfsAbXoWRGm/HCbxdO/kXoLfEkL1rOcNM1xTqRUDOMKLalqcXcE9cMnJ/d
-# mTbnh5ZY9jb20TEZw5zyVxATGxxMJgZGFHHTjBCGa2Sg3lwDweqAqBM9kcf8i61h
-# ddxxmfG88JVe5EJa+0AAs6gDFMRm8Ui3PHiYgoA10jMg6NVlnGyhghjpMIIY5QYK
+# IgQgtV95iNxijGk5dQ1hS35Dj/WxfWsRZQDSQ1fexdsR9EwwDQYJKoZIhvcNAQEB
+# BQAEggIAPTXY+Kh4up275HGZ7sppVLS/a4g6VxK/GLWnJhf5fS9VsSJi7zaDLrfX
+# onmJ+a5yCzNlP43xGIvu/h5ql6F1ll+jj7kGbuZttd70MqT0eBNFau2qxen68juC
+# rtkVpSUxX3DCSjXhMUb39UHyv0qqZeyL7AxLkzIj/+w/Lme5Fmd9ajc8LGUSksSi
+# QFJk5fJqUpymFe7UvLYyII8DZO8bIhHIBGRfBt81VP/CJCOF615Gn1JgB2UsiehI
+# P50mV4AiZp3dmqdSgc46SEIMsOwrsf8amuO+oh9786DfMcfWxkYJe3Htg+zaZ2JF
+# B6Z7L1hY1/u9eSJqrfEII1yfMGOJf25hMbDzCIw06FGOTNKtsDyxmH7g1SsZ0o5N
+# oBUaLTDHjnwP3BeVzp8OOmqfKUwb5yLoevZKx5p/uleu3yUB7GtKfymiiMUJ40pf
+# yopb/LkxZG6Mk+zDdZ8rYnEPiP+zRJSl4L4RxErXhv7BI+0ts7FBqzzt1ZqP4igL
+# /HhjGMJtrDhMnR8Mxth1XkB5B8G6fXyu6Df3h35+64SfQwYrg89t91CMme0gq+2j
+# T9lK/lPsqSrFcMQverb+k2HUkncf9hB8Xme9MePPsEZqHA9BtiJ8JaeDCSktpgpp
+# s5IdJdy3xGDkATwMfJ3v+r3MPBgP0V5UejFxRvLwKuXvp8BePlShghjpMIIY5QYK
 # KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwgsjOawp0xKME6DFih1yg47dbXDyb1CmwQEYX
-# kxs9kbD8yvMw784iO/5aWvtHV2ShAhUA+1zWjfKrvZ7h1N/cu0Az90EgO38YDzIw
-# MjYwMTE5MTgyNjU0WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# AQEwQTANBglghkgBZQMEAgIFAAQwb3Q8Yo/SpSvopfxwI53NcKRG7EqEdvMmA/SR
+# cs2BbKMW1UyLZxidbCS8AerADJ4cAhUA6GlVI/xILZ2O7tlv6RIKR8fx4noYDzIw
+# MjYwMTMwMTA1NjExWqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
 # WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
 # Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
 # yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
@@ -12853,8 +12958,8 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
 # ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
 # AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI2MDExOTE4MjY1NFowPwYJKoZIhvcNAQkEMTIEMEtEswy6ydSODIqxHh1+
-# CSiyCvA1vvwXtlz6YuVBDjvdaUNhmyhvBQUtIZhsV2NNlDCCAXoGCyqGSIb3DQEJ
+# MQ8XDTI2MDEzMDEwNTYxMVowPwYJKoZIhvcNAQkEMTIEMMkD+2e7UWV8OxwNOCmO
+# R8UtlUN7UJVxFiP38EYA9/rpaM2teD/59v29Mln/+2ZWwzCCAXoGCyqGSIb3DQEJ
 # EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
 # eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
 # U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
@@ -12863,15 +12968,15 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
 # UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
 # dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAyGn8sB+ngIeuACCYFeSHKjtw+/Iqtin30ZajzxU/SdCByJgFKDdcv+0dsgzV
-# 92NWsAq15nZVYs3VjdHekcHnSF+4NpE/dqx4qtB9LeAVARS4WeY+iipIfloGFApI
-# v7fMC4IxNbhjRRlm46FYr6zVdjpKzJJE/0gNIj4otSVaPJIYmv5rG02cuGyLDbAP
-# 1t4C6K3BGMKhPxkFUl6AWWDXWxKBid9CiQZKzkhVJXUfkaVP7ZkBi/HOmpIP+B0+
-# +SV6wIvqYYKOxCnteaU6W4EQQG2Dg/v/l+UKICRm2js9p+nxGSJaTHsb7x1yl6Ts
-# cKn1ZVod1JfENMlsdFwvquFrPOmNaMTpSHcFayfuEzBnPXIPO4bbuAP0BJskpSac
-# neYdaS4FO6a7fhXewaD+V1gpC/ZJOrUQyHpJ9BNoKOtJC3Srvi4jBGlQK81QtuCU
-# P00jsnL5xsJVVubdvr7NdTErw4r4XtU1pfXxQI8sjgU4G6Sxg5K9xdlMZ+Dq6w+8
-# XS+T2ylYvwtGmzJcFTinjGiz3zIltiht6hZaiGBWaUq19+L9QORIiSkiO+fGUwyA
-# NG1Urx+NaLSQYsDpjE+CQQ/4XaPKao3JQ8UpyThG5tomZL9M7VRFFX6/TQTmN2Nv
-# ZmF6ypUzKYeD3MRjvuc3p+e9hB3U+StvzEbBuKGoRhWs7bo=
+# ggIAymq4gTuijWGniRaVBeYt2OaHESnL5CJ23Ej71WiU1cHWN80MvkELCGVnUPRU
+# h248nfVjND/KYUy58E+KayhWXdL9+ouY9NAHl7gqQhnpOTN0f8HWZIXMnP9KSDLD
+# 2CqDNRm+So59z8JxuBLc+QRNlEpJe91bgHyHYFGKqL4GUpAGCFUhY31E4Roa4V6u
+# 4sawqf6w2w1e2rKAKbLXGk6IfkQ5yScqGOOxeZ8Y0dEj3pkQznHAy+ACFz5HsqBT
+# eK1d4/8u+ir6w/RigaY5LDKf/N0RMCllZ9LTbYkCvBOjMiNVk4wsHeO3QjrWgDLO
+# BYD8jXXDvKdrBL2X3Hql9oxQ4A84PeckynOwX/+9OClbsnTU6D16v05wz0Tv+h7C
+# /zkS3nJ8A8Ccf55NcYCPj1KgmH0a3zjeyhrDa+yiDJ2KhcTMabuQNSJfP6SE3WIY
+# wsphyWA340b7nQoNfZbjrUu9INJ7F9Ua5NM1tPnJhLADt3iYw9L2dvONY8NCNxeE
+# kJxLqM2CH8KjIU0Dnjkm1ebROlnxzijbdYD7YpYWTrwo2b8XzDxC+9Gdh/Qm//1P
+# MvGzEANtzMwu+d0uuvHBLHG6aqca0ecqAvnd9FOvy6SQB9AAQnyRYkm57ja/EMia
+# GafgOXJkButSvzXRyqjEehycB2U+peiWoKWmHwZV3JSGYHI=
 # SIG # End signature block

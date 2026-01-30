@@ -393,7 +393,87 @@ Function New-HPEGLSubscription {
                     
                     # Add subscription key to response for clarity
                     $response | Add-Member -NotePropertyName 'subscriptionKey' -NotePropertyValue $subscriptionKey -Force
-                    $response | Add-Member -NotePropertyName 'canBeClaimed' -NotePropertyValue $true -Force
+                    
+                    # Set canBeClaimed based on actual claim_status from API
+                    $canClaim = $response.claim_status -eq "NOT_CLAIMED"
+                    $response | Add-Member -NotePropertyName 'canBeClaimed' -NotePropertyValue $canClaim -Force
+                    
+                    # Initialize workspaceId and workspaceName as empty (will be populated if subscription is claimed)
+                    $response | Add-Member -NotePropertyName 'workspaceId' -NotePropertyValue $null -Force
+                    $response | Add-Member -NotePropertyName 'workspaceName' -NotePropertyValue $null -Force
+                    
+                    # If already claimed, check if it's in current workspace or elsewhere
+                    if ($response.claim_status -eq "CLAIMED") {
+                        "[{0}] Subscription already claimed - checking workspace location" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        
+                        # First check if subscription exists in current workspace
+                        try {
+                            $existingSubscription = Get-HPEGLSubscription -SubscriptionKey $subscriptionKey -ErrorAction SilentlyContinue
+                            
+                            if ($existingSubscription) {
+                                # Subscription is in current workspace
+                                "[{0}] Subscription found in current workspace: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Global:HPEGreenLakeSession.workspace | Write-Verbose
+                                $response | Add-Member -NotePropertyName 'workspaceName' -NotePropertyValue $Global:HPEGreenLakeSession.workspace -Force
+                            }
+                            else {
+                                # Subscription claimed elsewhere - attempt claim to get workspace from error
+                                "[{0}] Subscription not in current workspace - attempting claim to retrieve workspace details" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                
+                                try {
+                                    $claimUri = Get-SubscriptionsUri
+                                    $claimPayload = ConvertTo-Json -Depth 10 @{ subscriptions = @(@{ key = $subscriptionKey }) }
+                                    Invoke-HPEGLWebRequest -Uri $claimUri -method 'POST' -body $claimPayload -ContentType "application/json" -Verbose:$VerbosePreference | Out-Null
+                                }
+                                catch {
+                                    # Expected to fail - extract workspace info from error
+                                    $errorData = $Global:HPECOMInvokeReturnData
+                                    $workspaceId = $null
+                                    
+                                    # Try to extract from exception raw content
+                                    $rawContent = $_.Exception.Message
+                                    if ($_.ErrorDetails.Message) {
+                                        $rawContent = $_.ErrorDetails.Message
+                                    }
+                                    
+                                    # Parse workspaceId and workspaceName from errorDetails metadata
+                                    if ($rawContent -match '"workspaceId":\s*"([^"]+)"') {
+                                        $workspaceId = $Matches[1]
+                                        $response | Add-Member -NotePropertyName 'workspaceId' -NotePropertyValue $workspaceId -Force
+                                    }
+                                    
+                                    if ($rawContent -match '"workspaceName":\s*"([^"]+)"') {
+                                        $response | Add-Member -NotePropertyName 'workspaceName' -NotePropertyValue $Matches[1] -Force
+                                    }
+                                    elseif ($workspaceId) {
+                                        # Fallback: Try to get workspace name from workspace list if not in error
+                                        try {
+                                            $allWorkspaces = Get-HPEGLWorkspace -ErrorAction SilentlyContinue
+                                            $targetWorkspace = $allWorkspaces | Where-Object { $_.id -eq $workspaceId }
+                                            if ($targetWorkspace) {
+                                                $response | Add-Member -NotePropertyName 'workspaceName' -NotePropertyValue $targetWorkspace.name -Force
+                                            }
+                                        }
+                                        catch {
+                                            "[{0}] Could not retrieve workspace name for ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $workspaceId | Write-Verbose
+                                        }
+                                    }
+                                    
+                                    # Fallback: try old regex patterns
+                                    if (-not $workspaceId -and $errorData.rawError) {
+                                        if ($errorData.rawError -match '"workspaceName":\s*"([^"]+)"') {
+                                            $response | Add-Member -NotePropertyName 'workspaceName' -NotePropertyValue $Matches[1] -Force
+                                        }
+                                        if ($errorData.rawError -match '"workspaceId":\s*"([^"]+)"') {
+                                            $response | Add-Member -NotePropertyName 'workspaceId' -NotePropertyValue $Matches[1] -Force
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch {
+                            "[{0}] Error checking subscription in current workspace: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+                        }
+                    }
                     
                     $preclaimResults += $response
                     
@@ -405,21 +485,54 @@ Function New-HPEGLSubscription {
                     # Try to get structured error data from Global variable set by Invoke-HPEGLWebRequest
                     $errorData = $Global:HPECOMInvokeReturnData
                     
-                    # Try to extract workspace information from rawError if available
-                    $errorMessage = $_.Exception.Message
+                    # Extract workspace information
                     $workspaceId = $null
                     $workspaceName = $null
-                    $fullMessage = $null
+                    $fullMessage = if ($errorData.message) { $errorData.message } else { $_.Exception.Message }
                     
-                    # Check if rawError contains the full error JSON
-                    if ($errorData.rawError -and $errorData.rawError -match '"workspaceId":\s*"([^"]+)"') {
-                        $workspaceId = $Matches[1]
+                    # Extract from errorData.errorDetails.metadata
+                    if ($errorData.errorDetails -and $errorData.errorDetails.Count -gt 0) {
+                        foreach ($detail in $errorData.errorDetails) {
+                            if ($detail.metadata) {
+                                if ($detail.metadata.workspaceId) {
+                                    $workspaceId = $detail.metadata.workspaceId
+                                    "[{0}] Extracted workspaceId: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $workspaceId | Write-Verbose
+                                }
+                                if ($detail.metadata.workspaceName) {
+                                    $workspaceName = $detail.metadata.workspaceName
+                                    "[{0}] Extracted workspaceName: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $workspaceName | Write-Verbose
+                                }
+                            }
+                        }
                     }
-                    if ($errorData.rawError -and $errorData.rawError -match '"workspaceName":\s*"([^"]+)"') {
-                        $workspaceName = $Matches[1]
-                    }
-                    if ($errorData.rawError -and $errorData.rawError -match '"message":\s*"([^"]+)"') {
-                        $fullMessage = $Matches[1]
+                    
+                    # If we have workspaceId but no workspaceName, look it up
+                    if ($workspaceId -and -not $workspaceName) {
+                        "[{0}] workspaceName not available, looking up workspace ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $workspaceId | Write-Verbose
+                        try {
+                            $allWorkspaces = Get-HPEGLWorkspace -ErrorAction SilentlyContinue
+                            "[{0}] Get-HPEGLWorkspace returned {1} workspace(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $(if ($allWorkspaces) { $allWorkspaces.Count } else { 0 }) | Write-Verbose
+                            
+                            if ($allWorkspaces) {
+                                "[{0}] Searching for workspace ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $workspaceId | Write-Verbose
+                                "[{0}] Available workspace IDs: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), (($allWorkspaces.platform_customer_id | Select-Object -First 5) -join ', ') | Write-Verbose
+                                
+                                $targetWorkspace = $allWorkspaces | Where-Object { $_.platform_customer_id -eq $workspaceId }
+                                if ($targetWorkspace) {
+                                    $workspaceName = $targetWorkspace.company_name
+                                    "[{0}] Found workspace name: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $workspaceName | Write-Verbose
+                                }
+                                else {
+                                    "[{0}] Workspace ID {1} not found in workspace list" -f $MyInvocation.InvocationName.ToString().ToUpper(), $workspaceId | Write-Verbose
+                                }
+                            }
+                            else {
+                                "[{0}] Get-HPEGLWorkspace returned no workspaces" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            }
+                        }
+                        catch {
+                            "[{0}] Error during workspace lookup: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+                        }
                     }
                     
                     # Build structured error result
@@ -761,7 +874,7 @@ Function Remove-HPEGLSubscription {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Failed to remove the device subscription from the workspace."
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to remove the device subscription from the workspace." }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                 }
             
@@ -1110,7 +1223,7 @@ function Set-HPEGLDeviceAutoSubscription {
         catch {
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = "Automatic assignment of subscriptions to '$DeviceType' cannot be set!"
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Automatic assignment of subscriptions to '$DeviceType' cannot be set!" }
                 $objStatus.Exception = $Global:HPECOMInvokeReturnData 
             }
         }
@@ -1273,7 +1386,7 @@ function Remove-HPEGLDeviceAutoSubscription {
             catch {
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = "Automatic assignment of subscriptions to '$DeviceType' cannot be set!"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Automatic assignment of subscriptions to '$DeviceType' cannot be set!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                 }
             }
@@ -1580,7 +1693,7 @@ function Set-HPEGLDeviceAutoReassignSubscription {
         catch {
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = "Automatic reassignment of subscriptions cannot be set!"
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Automatic reassignment of subscriptions cannot be set!" }
                 $objStatus.Exception = $Global:HPECOMInvokeReturnData 
             }
         }
@@ -1788,7 +1901,7 @@ function Remove-HPEGLDeviceAutoReassignSubscription {
         catch {
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = "Automatic reassignment of subscriptions cannot be disabled!"
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Automatic reassignment of subscriptions cannot be disabled!" }
                 $objStatus.Exception = $Global:HPECOMInvokeReturnData 
             }
         }
@@ -2447,10 +2560,10 @@ Export-ModuleMember -Function `
 
 
 # SIG # Begin signature block
-# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB+g6hh7FTGbnZt
-# z5KgLtuMtMk6YRy/XvkZ8V0HWi0GcqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAtW7MgB/ILFKJe
+# KYHi67jQk8QZ/kIoZ66BcwUh3sRVcKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -2546,154 +2659,147 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg8SKPxxRAcpFqKJoO5UVL46RXVpn6Z0/wExY1NzugGP0wDQYJKoZIhvcNAQEB
-# BQAEggIALGZWWme3J7ezm/70vofTXxrjB8QbxY8wcaXdgqaEUD5M1nzxwkR+ZxTB
-# IacjdtTmzoLUchN9B61bQBj2C5+QEp3LtG4GOJ6jbWh+VvUtYZtaKqMbIeevSYip
-# 1TVd8ynjXndJ2CQcuuk7VyaGWMCS6GSJOprXJO1pMSbY/Ypa0UKOFXK2hXcyBHss
-# X29cH+ijdEKqAZp4gOP5ud6XUJ1+Kmg77BEPgfo/rVr9PPtXFw71IVJM61PAev8J
-# cNDbJnhOdo/ueUoBNamWN2mXYTq9ZBQu/HncBseph1nfekFgdTuyOHmTArHeBGro
-# 5Yv5z9YuRXQQv95Qbl1r+GbnjDJf3te37rS/1NpCY8axf2bfPI4sPrH2zj8VMOag
-# xqbECkgdOickaSUK8iEVe+Po0SCCztwGpypt6FH8qNABDEkj1SH1Zh4hA8aDe6QB
-# 9cL+nGr41DtUXmwQA6zc1Pf0VLjZMDSV1nwHbXLxJm5Fw2wYH7PBfYuPun4i1qL5
-# aZ8HvogKdmoR06A2xajIfx0EGLpS3M2qIsh+obhUGc/UnPwyRp4T5KOi1uMa66/+
-# P9hyyMmFmx8sUQ8au1u/yj8E13mGCKeGWo0OsaFJw20chjbu9Vi+1NvKyNfvz0hJ
-# IapedfKJprcst5zQGqR097HrR7A/ag9jAaQEDyNEE1MlfIv4fVahghjpMIIY5QYK
-# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwyNTNMKD//OW9a/lnighAW9wshHOKzrIzueIy
-# njAtzne4bxgDqYjobuIpkZUM1zUlAhUAkan5r6FfySinnwKmBOngpLzCPCYYDzIw
-# MjYwMTE5MTgyNDQ1WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
-# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
-# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
-# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
-# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
-# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
-# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
-# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
-# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
-# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
-# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
-# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
-# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
-# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
-# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
-# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
-# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
-# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
-# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
-# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
-# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
-# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
-# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
-# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
-# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
-# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
-# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
-# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
-# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
-# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
-# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
-# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
-# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
-# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
-# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
-# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
-# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
-# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
-# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
-# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
-# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
-# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
-# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
-# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
-# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
-# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
-# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
-# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
-# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
-# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
-# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
-# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
-# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
-# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
-# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
-# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
-# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
-# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
-# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
-# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
-# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
-# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
-# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
-# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
-# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
-# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
-# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
-# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
-# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
-# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
-# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
-# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
-# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
-# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
-# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
-# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
-# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
-# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
-# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
-# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
-# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
-# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
-# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
-# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
-# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
-# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
-# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
-# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
-# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
-# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
-# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
-# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
-# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
-# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
-# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
-# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
-# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
-# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
-# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
-# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
-# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
-# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
-# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI2MDExOTE4MjQ0NVowPwYJKoZIhvcNAQkEMTIEMDcN1JeOv/BPT6fX4Tps
-# 8yD6Gy7jrXkq38zdZOpKPg+GikePsKHy+Il39znUyNmT4zCCAXoGCyqGSIb3DQEJ
-# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
-# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
-# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
-# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
-# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
-# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAe83vnSQLn3MUyvsalBqgGFx3U0W1yhMPBNJwHjhphmKZnIweOQnk5s1JCtio
-# nZstR8/KE3pVRp4mv6CG/MYTHjdAG4g1QYXXIebC+WSAFBID0gTWM9PBS7LbJp7r
-# SfZ2U96ZcfKP5qOMPiCiwvYMnCaNCiZZJppoZ2S00rBwJRsNnFbzrypDdC7IPw8q
-# qs79w5CiBs6Hw0FCc8L4Br5KZ5DlkfjodhcdD9hCxCOyogp1aiPSGNJvr11MYaV/
-# 7hNuqlxUTc6jX5kfUCFSqwxHqp8RJHaNcaIBmV3UkhM9DKxIwo9t80vng4+Dr149
-# 8BgRnEQsDh5VUrfQRUoTpkAazWs32z47ZFgU+3k+9kD5i3asP+KZvZlcllQdjnfX
-# TEsRqqpZK/ANO3IwIJEukLlKUDw4H1c4y6gL97/xlUr8MdOtLAztxygtOXGFWlov
-# O37LN0AainIO8ALaUhNVXK9iUBymHU9sl8OJ3YahuYn49IdQBci1/rzQ82YdDbYc
-# NpdnrMfY7G6jF0XgDA4TY6wd9bAB+C9Jki5VGx0noyMnBk7mgYfWlmEO6hurBDnh
-# RjjfE2751n6tVM2poFDm6SPERNJvlVngMIBNY491ghQZCJj7LMQp0b2fgJRjP53L
-# Vl0AVjL+Y/nWWJlPI77PPOX1u6Rrcnhow+PX88Hjx7aAqco=
+# IgQgdT1EemN8F3hqntfBOBKfY8I2kmbOCnplGvRMttRa2XYwDQYJKoZIhvcNAQEB
+# BQAEggIAzhGp/9kgV/iNJibr6umVdSMKTKOR2V6t8j2D7DEex8FzqR4oE9dbq5wn
+# nTZQ351X/6Qm5TTD1enIWcTq8Q+VB9ZFwIDUV+ebkOQaArvIW6Zjb7MLrKOs/LfE
+# OK4NgqsNJk3Cc7TeNP6fhqmM430jXHtnNMcHlxd88AVF2qzkha6OV5eQMWCRMz5R
+# BRh1UGTq4L0/np+QamRfzkisJ37gQcsaTKADLLnZBouMjo2lpoWhLxZ/g/X09nXl
+# iEi7xmvrSL66wEYkh1QTdz4dVUzGsYE0bkrHvY34M5g85AV3aWgrCIW2gW0JLtPh
+# lP1dnQJPI+1y1rSWBmFPEOVJNCw/obSZLNvaEhjyQaMP2TMk9b0f87cdTcsCFeH7
+# Rn4pIHEAV6JlUqIluGMf86IWY1qUnFvs5Omgp586YCde17gYcvASw6P/e+tFFp+Q
+# qlYm0dLXFSiOl0a3WO/GpqUbZd2ZjLygoiTUPUBCj/LprD0uY7w5fz7ICsXZoWs2
+# TrIb0NqlukAQNJVTk28Zvg08ah/vI0AaLCihgcVh7xoENFEIwalxShObGpD7ZG6i
+# G4CzcFC3e4upKcvGIIlP2sibgfZn0o1Fx6dYEVdm2Yo7rq8NuQCAKSVBCz+BQbbO
+# swKO2fvnvLpEXkFTIjIg8u770gn591JEbBREYsWRja3afdW52FShgheYMIIXlAYK
+# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMNCoyfCB6yJnvNSFCAXKl3LUSVZm52wEgtsbeSyerGb+
+# 8OS1A+zdy6cI8enB8DINYQIRAOVCWCVLK8lnTpP1TCPK3tAYDzIwMjYwMTMwMTA1
+# NDAxWqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
+# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
+# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
+# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
+# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
+# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
+# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
+# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
+# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
+# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
+# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
+# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
+# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
+# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
+# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
+# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
+# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
+# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
+# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
+# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
+# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
+# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
+# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
+# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
+# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
+# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
+# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
+# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
+# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
+# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
+# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
+# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
+# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
+# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
+# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
+# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
+# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
+# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
+# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
+# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
+# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
+# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
+# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
+# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
+# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
+# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
+# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
+# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
+# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
+# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
+# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
+# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
+# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
+# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
+# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
+# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
+# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
+# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
+# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
+# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
+# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
+# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
+# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
+# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
+# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
+# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
+# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
+# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
+# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
+# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
+# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
+# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
+# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
+# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
+# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
+# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
+# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
+# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
+# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
+# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
+# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
+# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
+# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
+# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
+# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
+# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
+# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
+# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
+# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
+# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
+# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
+# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
+# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
+# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
+# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
+# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
+# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
+# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
+# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
+# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
+# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDEz
+# MDEwNTQwMVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMHroL/TzBbGSSIqZrASu7dOD
+# de9c00ti1OMBBla/Dg/3IKfZf+q/JXlQWtfPPayELjANBgkqhkiG9w0BAQEFAASC
+# AgCOXdTLYpum2vITUs6bI2fZxQVxyWaBefvFRsm1Xs0IOxPNubsc0Ewdocu19Z/T
+# uSMqqN3ZZEa1+6xJ5trWlQztFCl7fLPXwlhYNNS0I06SgCxNsRurehNGQvzdgJFy
+# HPjmf9GoLsC+Cm+1VoGjm1EZVAFHMMeKiDj/lsYnh47Yo+qQW74zXONlTw+PvNJ1
+# 388Q60nB35oxsD80XMT69bnhRvaSWqAKrF5UWPirqpmcwhzc/X6hwsHfwHVu9c8N
+# 8BT4fa5ICA8FxzIaJ436bdHAV2MyA33wQmpvfxK3DuJR9rXIN7MqYKGNNKiMvp1D
+# mTm3UTnSy6LsJWAvfE9hAksWK5Zl6a2pFNFlZHxXlSK//XdyFHeCuKvJ3IY1gum0
+# dSRTltjwsiimG8RTxbVJFZsmoszzlp/cMUs67nq/hNkfsdHSKB0P2Clz55xKFjeA
+# hr81wzuBKdYv37rPO84jmIU5d/gDkaFAxPLkk7eYNUaIplo0Cbe1Y+fi4I7xUn9+
+# jOlevHVPWDnTM7NX0e9JhNqwTBPuFGCFFeC9q5lUbONFvqLTipkABtPHl0yoXBoT
+# T5XVuHT9T/5JO9GTTDLXJtCeBoD3PvgHHWp8Q9ariMxlPtv5JiZg2DWJOvZJB+0h
+# RPJ7olVZKBgndt8+sLjHXCRLtgeEpqnhas2f8G0DFMBlzw==
 # SIG # End signature block
