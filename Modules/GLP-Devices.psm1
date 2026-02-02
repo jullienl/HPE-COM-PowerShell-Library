@@ -1067,6 +1067,18 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     
     This provides a fully automated solution for the cached proxy issue without manual intervention.
 
+    .PARAMETER MaxConnectionAttempts
+    (Optional) Specifies the maximum number of connection attempts before giving up. Valid range is 1-30. Default is 10.
+    Increase this value for networks with intermittent connectivity issues, or decrease for faster failure detection.
+    
+    .PARAMETER ConnectionRetryDelaySeconds
+    (Optional) Specifies the delay in seconds between connection retry attempts. Valid range is 1-60. Default is 5 seconds.
+    Increase this value to allow more time between retries on slower networks, or decrease for faster retry cycles.
+    
+    .PARAMETER ConnectionMonitoringTimeoutSeconds
+    (Optional) Specifies the maximum time in seconds to monitor a connection in 'ConnectionInProgress' state. Valid range is 30-600. Default is 120 seconds (2 minutes).
+    Increase this value for slower network environments or when connecting through complex network paths.
+    
     .PARAMETER DisconnectiLOfromOneView
     If present, this switch parameter disconnects a system managed by HPE OneView in order to connect it to Compute Ops Management. If absent, the connection to Compute Ops Management will fail if the system is already managed by HPE OneView.
     
@@ -1264,7 +1276,19 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         [Parameter (ParameterSetName = 'DisableProxySettings')]
         [Switch]$ResetiLOIfProxyErrorPersists,
 
-        [Switch]$DisconnectiLOfromOneView
+        [Switch]$DisconnectiLOfromOneView,
+
+        [Parameter (Mandatory = $false)]
+        [ValidateRange(1, 30)]
+        [int]$MaxConnectionAttempts = 10,
+
+        [Parameter (Mandatory = $false)]
+        [ValidateRange(1, 60)]
+        [int]$ConnectionRetryDelaySeconds = 5,
+
+        [Parameter (Mandatory = $false)]
+        [ValidateRange(30, 600)]
+        [int]$ConnectionMonitoringTimeoutSeconds = 120
   
     ) 
 
@@ -2204,7 +2228,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                                 "[{0}] {1} [{2}] Waiting for iLO to connect to COM... (check {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $subcounter | Write-Verbose
                                 Start-Sleep -Seconds 4
                             
-                            } while ($CloudConnectStatus -eq "ConnectionInProgress" -and $subcounter -le 30) # Wait up to 2 minutes for connection to complete 
+                            } while ($CloudConnectStatus -eq "ConnectionInProgress" -and $subcounter -le ([Math]::Ceiling($ConnectionMonitoringTimeoutSeconds / 4))) # Dynamic timeout based on parameter 
 
                             # After monitoring loop completes, check FailReason one more time
                             if ($CloudConnectStatus -eq "NotConnected") {
@@ -2251,9 +2275,9 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                             "[{0}] Catch triggered! {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
                         
                             # Check if the error message indicates "Connection in progress"
-                            if ($_ -match "Connection in progress" -and $counter -le 10 -and $_ -notmatch "COMActivationDenied") {
+                            if ($_ -match "Connection in progress" -and $counter -le $MaxConnectionAttempts -and $_ -notmatch "COMActivationDenied") {
                                 "[{0}] {1} [{2}] Connection in progress, retrying (attempt {3})..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $counter | Write-Verbose
-                                Start-Sleep -Seconds 5
+                                Start-Sleep -Seconds $ConnectionRetryDelaySeconds
                             } 
                             else {
                                 Clear-SpinnerOutput
@@ -2269,9 +2293,9 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                             }
                         }
                         
-                    } until ($CloudConnectStatus -eq "Connected" -or $counter -gt 10)      
+                    } until ($CloudConnectStatus -eq "Connected" -or $counter -gt $MaxConnectionAttempts)      
                 
-                    if ($counter -gt 10) {
+                    if ($counter -gt $MaxConnectionAttempts) {
                         Clear-SpinnerOutput
                     
                         # Check Oem.Hpe.FailReason using Views endpoint (same as iLO UI)
@@ -4168,7 +4192,7 @@ System.Collections.ArrayList
                             $object.TagsAdded = if ($TagsToBeCreated) { ($TagsToBeCreated | ForEach-Object { "{0}={1}" -f $_.name, $_.value }) -join ", " } else { $null }
                             $object.TagsDeleted = if ($TagsToBeDeleted) { ($TagsToBeDeleted | ForEach-Object { "{0}={1}" -f $_.name, $_.value }) -join ", " } else { $null }
                             $object.TagsUnmodified = if ($object.TagsUnmodified) { ($object.TagsUnmodified | ForEach-Object { "{0}={1}" -f $_.name, $_.value }) -join ", " } else { $null }
-                            $object.Details = [PSCustomObject]@{TagsAdded = $TagsToBeCreated.count; TagsDeleted = $TagsToBeDeleted.count; TagsUnmodified = $object.TagsUnmodified -ne $null ? ($object.TagsUnmodified -split ",").Count : 0; Error = $null }
+                            $object.Details = [PSCustomObject]@{TagsAdded = $TagsToBeCreated.count; TagsDeleted = $TagsToBeDeleted.count; TagsUnmodified = $null -ne $object.TagsUnmodified ? ($object.TagsUnmodified -split ",").Count : 0; Error = $null }
                             [void] $AddTagsDevicesStatus.add($object)
                         }
                     }
@@ -4184,7 +4208,7 @@ System.Collections.ArrayList
                             $object.Details = [PSCustomObject]@{
                                 TagsAdded      = 0; 
                                 TagsDeleted    = 0; 
-                                TagsUnmodified = $object.TagsUnmodified -ne $null ? ($object.TagsUnmodified -split ",").Count : 0; 
+                                TagsUnmodified = $null -ne $object.TagsUnmodified ? ($object.TagsUnmodified -split ",").Count : 0; 
                                 Error          = "No action required, the same tag configuration already exists!" 
                             }
                             [void] $AddTagsDevicesStatus.add($object)
@@ -4619,7 +4643,7 @@ System.Collections.ArrayList
                                 $object.TagsDeleted = $null
                             }
                             $object.Exception = $null
-                            $object.Details = [PSCustomObject]@{TagsDeleted = $TagsToBeDeleted.count; TagsNotFound = $object.TagsNotFound -ne $null ? ($object.TagsNotFound -split ",").Count : 0; Error = $Null }
+                            $object.Details = [PSCustomObject]@{TagsDeleted = $TagsToBeDeleted.count; TagsNotFound = $null -ne $object.TagsNotFound ? ($object.TagsNotFound -split ",").Count : 0; Error = $Null }
                             [void] $RemoveTagsDevicesStatus.add($object)
                         }
                     }
@@ -7822,8 +7846,8 @@ Export-ModuleMember -Function `
 # SIG # Begin signature block
 # MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB2ug3q3wprSv77
-# xGZ7zc2tKPqQ0f47jtCMFX1ULVzsY6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDUG2lybLN7G5Es
+# HJyarH5A7okocm0/A0ZEOEWC225aD6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -7924,23 +7948,23 @@ Export-ModuleMember -Function `
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgCyChe+Atp4qBjxu9VotlVhvKkqV73991mq7sipKlYYEwDQYJKoZIhvcNAQEB
-# BQAEggIASioHaCHVeda0pnOcDxL9A1aOO4bLSqKJrlyikFimF7l25AYJLfwMhPEm
-# 2yZ3RABcFwujPhS5y+/svEdbNxKaOw7T2Ebrw6WIKCDLF45ebj1phVDnOWrUvIGA
-# yYw6YwXX3r63L+blaOYNtmYd35CgziAzPZ24bHpv1zgLzTeSLS+cmPkF66R6AIKO
-# htjLp6SBTrtWTlpjFZgc2ht04AQlDhc5Rf5r81vBmKHkYLYRUTmDSpqzedLGtfkT
-# xTgHTLuzVKIPESBFWZ4XBkVGsqGx8HxcDccJGGANuri2fD/noYwbjs+ro1vay+DM
-# eGL6qUXM5M7Toy36TLIVDyYPSKEOAu0kmC99dO90L4+1143FmdNDYAULeZkJZjkt
-# 3h32u5XyIh9gxuMWIC3aslJWugSRY2R9thTigb4o9UwJGuV1o6JkWMhVk3oUFG0c
-# 7XhL97YboQEvD0dhwOqPZCSb3LE8zRrrvh7Bb+RU6OTZrbWIDEJiDlMxtHpmakvF
-# y/TSFezQeG5otlTacCSnCcKElNALkXLOV7cZphdK/o/uRQHy+QdKpVKIG5d6lt+w
-# e0Bf5cGAe2tN3t4Ed7im/twTGsyuP+v+nKFmxdx54SmUVbK7zQgUXttylOXl5uxR
-# EdAK23APr+T6pEfTTedUM8vemYlyOZZAO3RGhO5wMDDfJp72Mw+hghjpMIIY5QYK
+# IgQgI8Q1v33ZRBL9rtTwuNPtkEZ/XN4kMXitpgxdIbIWXlgwDQYJKoZIhvcNAQEB
+# BQAEggIAb1AgSXLK0aFwQ4wW+iFN5Qe/11Id8ZYi7PoQK7ugjOxgFceA5vbOZDf8
+# WkGAyyjaZAZxBxXjq3TTb93K/YEgWHwyuwDTWTAbBa8gHVrfoFJDorHf3R9eDQMY
+# r5eG/+rLoXusVYRVF6sdpFaNcbw35S2mclzCC+hcsrPfCKyqEesuL/0ea/cU0MWS
+# ih458v6EQvv3SZwvZl1qd9CUGzt6RhXDlbSIDeGt5Se4u6osge0CqGPPKvX65dRa
+# zB4EvQCMY+AZRpidDwJxzDjxhe6Roi23Qm3d3Gw2TYAJ8+uyDMGuGxdcNX+YV+Q3
+# u/4kAAp6WVMSNgM0lrjliFDykTt6kaQ2SwlaElT+hv6rd8BCi7HOdD7ncqtoYduF
+# d4SrTAENXC7KIsrQsZl7hj86GC4ExSGwRDHvRIy5Oi7dBtrRuSFBIIrYvS/CXkd/
+# /JNwijUPkOlCEMZCBvFKpH11JMaMGoumKOWGYQKnQXSJEbRJbu981RA5FT6Vr2Jg
+# 5Qd+vSrBmTA33bfDOmatSBsO2W97DUYVlrs1PpC2uOaWm/pQVUaCJp9d290YYV8g
+# VvUW03ro0JBOSA1XYr0L4rndBD59HoO6GlHSZcK5INAoN1U/TXUl7g7mvOQrORtS
+# 4ueFGMOBV6ERzhaHRj6EfBPCbqdn/BEgahQ6bo3R2rcnRTBG0qShghjpMIIY5QYK
 # KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQws8hWLnQzvKEVOPOK94SzpKrnj+8nJytBioDj
-# g5YqMcToPdXc2d+mBz4WcBap3crfAhUAtHIEoGYGebkUON3wl24qZ6GPMXAYDzIw
-# MjYwMTMwMTA1MjE3WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# AQEwQTANBglghkgBZQMEAgIFAAQwEv8pTqpY+fhFA2eyMTLOYD26ibt2SO0Nuft+
+# 7w+AlgSUaSO4e2ebhnYMTA+0NKBIAhUA7hevl6ZIJ2svI10To0KLoxgiVRAYDzIw
+# MjYwMjAyMDk0MDU0WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
 # WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
 # Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
 # yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
@@ -8048,8 +8072,8 @@ Export-ModuleMember -Function `
 # BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
 # ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
 # AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI2MDEzMDEwNTIxN1owPwYJKoZIhvcNAQkEMTIEMI3akWfDiDFC/Hh/hy6N
-# TZRPxeXQtsDkIXZ5+bSRoXc9xDjFQVjhxsvPJHpeEScULDCCAXoGCyqGSIb3DQEJ
+# MQ8XDTI2MDIwMjA5NDA1NFowPwYJKoZIhvcNAQkEMTIEMM/twRF4L+BvNAsTV4ZO
+# 6QZ9pI1XZXH9k0wrA/oIZ5EmvsZfemrOsVg/KagbtJYdNjCCAXoGCyqGSIb3DQEJ
 # EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
 # eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
 # U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
@@ -8058,15 +8082,15 @@ Export-ModuleMember -Function `
 # dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
 # UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
 # dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAmz+ac5w/HPrHIGW008zFfuIDdnw1xXYjXh9nQ1u4xDFHUplTvHouPQF45N0x
-# FYa5epe8Ee6cbqatY+30ZdZaPJuwlYxXOeAsgVNB8q/AnXwHDTCat0EnyONJmxNs
-# 6ytOK1GyiOKcDAKZOvlgw6u33TZxgwppO25jCi4x/ZmVPl8YvZzaF4Px60dONmzQ
-# aYJcpA6VZv9uYjhIZB2haItSF/enkKdXn88P+Tgx5q5klj8UIdnp2wcihfN7Utbe
-# eX9OGyObvX2hkA5/eF/xP6lD1vd3kwqX8iV9rUemcKLRZzz6fmcBkasLy+0RjnoS
-# Sff/AaUGt+jZoH+bkNzEwtbND09SLJu/T79WubJE0J1jmt/bI5bzFbsXkkEyIRqM
-# xjQFs4eVvwpb7zsmHtLKiXGhzgWem1SeUE1LMbyfVKc9RMqroa8AsxR5pJCyq3w9
-# tcuxWLs7y1ZbWuRI5JD2uiMMuRRsuStOIPpcd2VHjQLE+2ZirQHTDdK4Rj3J+mGd
-# ZOf63tH7uwSfYfjYnME88q+tt4kgKafqUwqMU47Ax3grhELQP+qjow8wOuf/kVWv
-# kBZiFx6qcbrO37DODuviRr6SW+quUC19du1sTbydJqTA1Rb9DrIKP0C9CUVKKlye
-# GYRWWdNV/e8lzO2o5oVQ/UWiyDeomqP4ScSKNP3a1t/xSS4=
+# ggIAqQA3m3hEwdtBn8gMNsnOpoDS9KrcirSpA3RAD4LkNgMtnvTMOzHwdJmgEb+U
+# 7aiQ2tOegUvctzP5bc3rMl6m3K0qRkXGgkiYJx3gTBWcn/ahf+HM7Gbm9usaWUdN
+# 4VGT1sH6SSUEh9gaWzWYjpH28lcuIhzMT8K8RIo0XaQQpY92SNlfo1UpH+OxropO
+# 7FWxUxnuUv5tm47JeZJ983w1gpeD58DKpAcSdgXpXwFeRIG+H5bemRGjDztnz5my
+# S85wJFMeF0ja+R60x7EokBB1wOPsjwepeIsPIr7j9POWeu5feySHU2E1NK7Jz555
+# ninfiFaqtzd4AhPfx392gfJ3GZRVPzQV4PIf/FuSIJ4yKGOWLI1I2QQ/nMcvymxc
+# VRsNIwUZjoL7eFEJYiUJvW697VV3Kkyymf7/+ljNcCEuZARvUho+AY0xq3LChyX7
+# I5QHZTzvzTg+6XvbFUaW+Iygd2X2gFzKeHKNvzFfDILjuTVxbbsFfWqb9UxNpyb0
+# tOmaIZY2x/6Y8YFEotPEat38TXr/X7hSvERxsANDnTj0YigDY32V0CncTujMXG9a
+# 1ZC1LuOTegLvv0UifsYtirb6izVv3zXIY99d6vxV4YgDjloXbezYBOOCMqAg4pCJ
+# dGxQ22chdTTJFpYE8WCRZK2U2X+LZRVJB4ay9Qb5vlJqNKs=
 # SIG # End signature block

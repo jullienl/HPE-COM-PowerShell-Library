@@ -75,7 +75,7 @@
     
     HPE COMPUTE OPS MANAGEMENT - ZERO TOUCH AUTOMATION
     ================================================================================
-    ℹ Started at: 2026-01-26 10:57:27
+    ℹ Started at: 1/31/2026 6:44 PM
     ℹ Workspace: Production-Workspace-5551
 
     STEP 1: Module Import and Authentication
@@ -122,21 +122,18 @@
 
     STEP 7: Server Onboarding (2 servers)
     ================================================================================
-    ℹ
-    Onboarding server: 192.168.1.100 (DL360 Gen11)...
+    ℹ Onboarding server: 192.168.1.100 (DL360 Gen11)...
     ✓ Activation key generated: xxxxxxxxx                                                                                   
     ℹ Connecting iLO 192.168.1.100 to Compute Ops Management...
     ℹ Connection attempt 1 failed. Retrying in 5 seconds...
     ✓ iLO 192.168.1.100 connected to Compute Ops Management
     ℹ Waiting for device to appear in COM inventory...
-    ℹ 
-    Onboarding server: 192.168.1.101 (DL360 Gen11)...
+    ℹ Onboarding server: 192.168.1.101 (DL360 Gen11)...
     ✓ Activation key generated: xxxxxxxxx
     ℹ Connecting iLO 192.168.1.101 to Compute Ops Management...
     ✓ iLO 192.168.1.101 connected to Compute Ops Management
     ℹ Waiting for device to appear in COM inventory...
-    ℹ 
-    Successfully onboarded 2 of 2 servers
+    ℹ Successfully onboarded 2 of 2 servers
 
     STEP 8: Device Configuration
     ================================================================================
@@ -174,8 +171,8 @@
 
     STEP 12: Schedule Firmware Update
     ================================================================================
-    ℹ Scheduling firmware update for group 'Production-Web-Servers' on 2026-02-25 11:00...
-    ✓ Firmware update scheduled for 2026-02-25T10:00:57.638646Z
+    ℹ Scheduling firmware update for group 'Production-Web-Servers' on 3/2/2026 6:48 PM...
+    ✓ Firmware update scheduled for 3/2/2026 6:48 PM
 
     AUTOMATION COMPLETED
     ================================================================================
@@ -183,8 +180,8 @@
     ℹ Workspace: Production-Workspace-5551
     ℹ Region: us-west
     ℹ Servers Onboarded: 2
-    ℹ Duration: 03:31
-    ℹ Completed at: 2026-01-26 11:00:59
+    ℹ Duration: 03:57
+    ℹ Completed at: 1/31/2026 6:48 PM
 
     Next Steps:
     1. Log in to HPE GreenLake portal to verify workspace and server configuration
@@ -222,9 +219,9 @@
     ================================================================================
     ✓ Environment cleanup completed successfully!
     ℹ Workspace: Production-Workspace-5551
-    ℹ Cleanup Duration: 01:33
-    ℹ Completed at: 2026-01-26 11:02:55
-    ℹ Total Script Duration (Provisioning + Cleanup): 05:27
+    ℹ Cleanup Duration: 01:09
+    ℹ Completed at: 1/31/2026 6:50 PM
+    ℹ Total Script Duration (Provisioning + Cleanup): 05:26
 
 
 .LINK
@@ -273,7 +270,7 @@ $LocationConfig = @{
     State                = "CA"
     PostalCode           = "94304"
     Country              = "United States"
-    PrimaryContactEmail  = "operations@company.com"
+    PrimaryContactEmail  = $MyEmail
 }
 
 # Subscription Keys (obtain from HPE GreenLake portal)
@@ -287,14 +284,14 @@ $Servers = @(
     @{
         iLOIP       = "192.168.1.100"
         iLOUsername = "Administrator"
-        iLOPassword = "YourSecurePassword1"
+        iLOPassword = "YouriLOPassword1"
         Model       = "DL360 Gen11"
         Description = "Production Web Server 1"
     },
     @{
         iLOIP       = "192.168.1.101"
         iLOUsername = "Administrator"
-        iLOPassword = "YourSecurePassword2"
+        iLOPassword = "YouriLOPassword2"
         Model       = "DL360 Gen11"
         Description = "Production Web Server 2"
     }
@@ -382,17 +379,26 @@ function Write-Info {
 # Start Script Execution
 $ErrorActionPreference = "Stop"
 $StartTime = Get-Date
+Clear-Host
 
 Write-SectionHeader "HPE COMPUTE OPS MANAGEMENT - ZERO TOUCH AUTOMATION"
 Write-Info "Started at: $($StartTime.ToString('yyyy-MM-dd HH:mm:ss'))"
 Write-Info "Workspace: $($WorkspaceConfig.Name)"
 
 
-
 # ============================================================================
 # STEP 1: Module Import and Authentication
 # ============================================================================
 Write-SectionHeader "STEP 1: Module Import and Authentication"
+
+# Validate iLO connectivity before proceeding with onboarding
+Write-Info "Validating network connectivity to iLO management interfaces..."
+foreach ($Server in $Servers) {
+    if (-not (Test-Connection -ComputerName $Server.iLOIP -Count 1 -Quiet)) {
+        Write-Failure "iLO IP $($Server.iLOIP) is not reachable. Please check network connectivity."
+        exit 1
+    }
+}
 
 try {
     Import-Module HPECOMCmdlets -ErrorAction Stop
@@ -627,7 +633,7 @@ Write-SectionHeader "STEP 7: Server Onboarding ($($Servers.Count) servers)"
 $OnboardedServers = @()
 
 foreach ($Server in $Servers) {
-    Write-Info "`nOnboarding server: $($Server.iLOIP) ($($Server.Model))..."
+    Write-Info "Onboarding server: $($Server.iLOIP) ($($Server.Model))..."
     
     # Generate activation key
     try {
@@ -646,47 +652,16 @@ foreach ($Server in $Servers) {
         
         Write-Info "Connecting iLO $($Server.iLOIP) to Compute Ops Management..."
         
-        $maxRetries = 3
-        $retryCount = 0
-        $ConnectionTask = $null
+        $ConnectionTask = Connect-HPEGLDeviceComputeiLOtoCOM `
+            -iLOCredential $iLOCredential `
+            -IloIP $Server.iLOIP `
+            -ActivationKeyfromCOM $ActivationKey `
+            -SkipCertificateValidation `
+            -RemoveExistingiLOProxySettings `
+            -ConnectionMonitoringTimeoutSeconds 120 `
+            -ResetiLOIfProxyErrorPersists
         
-        while ($retryCount -lt $maxRetries) {
-            $retryCount++
-            try {
-                $ConnectionTask = Connect-HPEGLDeviceComputeiLOtoCOM `
-                    -iLOCredential $iLOCredential `
-                    -IloIP $Server.iLOIP `
-                    -ActivationKeyfromCOM $ActivationKey `
-                    -SkipCertificateValidation `
-                    -RemoveExistingiLOProxySettings `
-                    -ResetiLOIfProxyErrorPersists
-                
-                if ($ConnectionTask.Status -eq "Complete") {
-                    break
-                }
-                else {
-                    if ($retryCount -lt $maxRetries) {
-                        Write-Info "Connection attempt $retryCount failed. Retrying in 5 seconds..."
-                        Start-Sleep -Seconds 5
-                    }
-                }
-            }
-            catch {
-                if ($retryCount -lt $maxRetries) {
-                    Write-Info "Connection attempt $retryCount failed: $($_.Exception.Message). Retrying..."
-                    Start-Sleep -Seconds 5
-                }
-                else {
-                    throw
-                }
-            }
-        }
-        
-        if ($retryCount -eq $maxRetries -and $ConnectionTask.Status -ne "Complete") {
-            Write-Host "✗ iLO connection task failed after $maxRetries attempts: $($ConnectionTask.Details)" -ForegroundColor Red
-            exit
-        }
-        elseif ($ConnectionTask.Status -eq "Complete") {
+        if ($ConnectionTask.Status -eq "Complete") {
             Write-Success "iLO $($Server.iLOIP) connected to Compute Ops Management"
             $OnboardedServers += $Server.iLOIP
         }
@@ -705,7 +680,7 @@ foreach ($Server in $Servers) {
     Start-Sleep -Seconds 10
 }
 
-Write-Info "`nSuccessfully onboarded $($OnboardedServers.Count) of $($Servers.Count) servers"
+Write-Info "Successfully onboarded $($OnboardedServers.Count) of $($Servers.Count) servers"
 
 # ============================================================================
 # STEP 8: Device Configuration (Location, Tags, Contacts)
@@ -940,7 +915,7 @@ Write-SectionHeader "STEP 12: Schedule Firmware Update"
 
 try {
     $UpdateDate = (Get-Date).AddDays($FirmwareUpdateInDays)
-    Write-Info "Scheduling firmware update for group '$($GroupConfig.Name)' on $($UpdateDate.ToString('yyyy-MM-dd HH:mm'))..."
+    Write-Info "Scheduling firmware update for group '$($GroupConfig.Name)' on $($UpdateDate.ToString('g'))..."
     
     $FirmwareUpdateTask = Update-HPECOMGroupFirmware `
         -Region $COMRegion `
@@ -950,7 +925,7 @@ try {
         -ScheduleTime $UpdateDate
     
     if ($FirmwareUpdateTask.NextStartAt) {
-        Write-Success "Firmware update scheduled for $($FirmwareUpdateTask.NextStartAt)"
+        Write-Success "Firmware update scheduled for $([datetime]::Parse($FirmwareUpdateTask.NextStartAt).ToString('g'))"
     }
 }
 catch {
@@ -969,7 +944,7 @@ Write-Info "Workspace: $($WorkspaceConfig.Name)"
 Write-Info "Region: $COMRegion"
 Write-Info "Servers Onboarded: $($OnboardedServers.Count)"
 Write-Info "Duration: $($Duration.ToString('mm\:ss'))"
-Write-Info "Completed at: $($EndTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+Write-Info "Completed at: $($EndTime.ToString('g'))"
 
 Write-Host "`nNext Steps:" -ForegroundColor Cyan
 Write-Host "  1. Log in to HPE GreenLake portal to verify workspace and server configuration" -ForegroundColor White
@@ -1167,7 +1142,7 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
     else {
         # No devices to move, just wait for service removal
         Write-Info "Waiting for service removal to propagate..."
-        Start-Sleep -Seconds 10
+        Start-Sleep -Seconds 15
     }
     
     # Delete workspace (only if no devices or devices were moved)
@@ -1180,13 +1155,50 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
             $Global:HPEGreenLakeSession = $CurrentWorkspaceSession.Clone()
             
             Write-Info "Deleting workspace '$($WorkspaceConfig.Name)'..."
+            
+            # Retry workspace deletion up to 3 times
+            $maxRetries = 3
+            $retryCount = 0
+            $RemoveResult = $null
+            $deletionSuccess = $false
+            
+            while ($retryCount -lt $maxRetries -and -not $deletionSuccess) {
+                $retryCount++
+                try {
+                    if ($retryCount -gt 1) {
+                        Write-Info "Deletion attempt $retryCount of $maxRetries..."
+                        Start-Sleep -Seconds 5
+                    }
+                    
             $RemoveResult = Remove-HPEGLWorkspace -Force
-            if ($RemoveResult.status -in @("Complete", "Completed")) {
+                    
+                    if ($RemoveResult.status -eq "Complete") {
                 Write-Success "Workspace '$($WorkspaceConfig.Name)' deleted successfully"
+                        $deletionSuccess = $true
             }
             else {
                 Write-Failure "Workspace deletion returned unexpected status: $($RemoveResult.status)"
-                $CleanupErrors += "Workspace deletion status: $($RemoveResult.status)"
+                        if ($retryCount -lt $maxRetries) {
+                            Write-Info "Retrying workspace deletion..."
+                        }
+                        else {
+                            $CleanupErrors += "Workspace deletion status after $maxRetries attempts: $($RemoveResult.status)"
+                        }
+                    }
+                }
+                catch {
+                    Write-Failure "Deletion attempt $retryCount failed: $($_.Exception.Message)"
+                    if ($retryCount -lt $maxRetries) {
+                        Write-Info "Retrying workspace deletion..."
+                    }
+                    else {
+                        throw
+                    }
+                }
+            }
+            
+            if (-not $deletionSuccess -and $retryCount -eq $maxRetries) {
+                Write-Failure "Workspace deletion failed after $maxRetries attempts"
             }
         }
         catch {
@@ -1217,7 +1229,7 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
     
     Write-Info "Workspace: $($WorkspaceConfig.Name)"
     Write-Info "Cleanup Duration: $($CleanupDuration.ToString('mm\:ss'))"
-    Write-Info "Completed at: $($CleanupEndTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+    Write-Info "Completed at: $($CleanupEndTime.ToString('g'))"
     Write-Info "Total Script Duration (Provisioning + Cleanup): $(($CleanupEndTime - $StartTime).ToString('mm\:ss'))"
 }
 else {
