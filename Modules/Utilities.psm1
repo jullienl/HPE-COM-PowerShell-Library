@@ -1481,21 +1481,29 @@ Example:
                                     }
                                 }
 
-                                # If no standard collection property found, look for any array property
+                                # If no standard collection property found, look for any array property (excluding metadata like 'excluded')
                                 if (-not $collectionProperty) {
+                                    "[{0}] Standard collection property not found - searching for array properties" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                                     foreach ($prop in $InvokeReturnData.PSObject.Properties) {
+                                        # Skip metadata properties that aren't the actual data collection
+                                        if ($prop.Name -in @('excluded', 'count', 'total', 'offset', 'limit')) {
+                                            continue
+                                        }
                                         if ($prop.Value -is [System.Collections.IEnumerable] -and $prop.Value.GetType().Name -ne 'String') {
                                             $collectionProperty = $prop.Name
-                                            "[{0}] Detected non-standard collection property: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $collectionProperty | Write-Verbose
+                                            "[{0}] Detected non-standard collection property: '{1}' with {2} items" -f $MyInvocation.InvocationName.ToString().ToUpper(), $collectionProperty, $prop.Value.Count | Write-Verbose
                                             break
                                         }
                                     }
                                 }
 
-                                # Validate collection property exists
+                                # If still no collection property found, return full object and let calling function handle it
                                 if (-not $collectionProperty) {
-                                    Write-Error "[$($MyInvocation.InvocationName.ToString().ToUpper())] No collection property (items/roles/users/etc.) found in response"
-                                    return
+                                    "[{0}] No array collection property found in response with total={1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.total | Write-Verbose
+                                    "[{0}] Response properties: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), (($InvokeReturnData.PSObject.Properties.Name) -join ', ') | Write-Verbose
+                                    $Depth = if ($optimalDepth -and $optimalDepth -is [int]) { $optimalDepth } else { 15 }
+                                    "[{0}] Leaving Invoke-HPEGLWebRequest and returning full response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InvokeReturnData | ConvertTo-Json -Depth $Depth) | Write-Verbose
+                                    return $InvokeReturnData
                                 }
 
                                 # Get all paginated pages (if any)
@@ -1764,6 +1772,9 @@ function Invoke-HPECOMWebRequest {
     .PARAMETER ReturnFullObject
     Switch parameter to return the full response object, including all properties, instead of only the items collection when an items property is present in the response.
 
+    .PARAMETER SkipPaginationParameters
+    Switch parameter to skip the automatic addition of limit and offset query parameters. Use this when calling APIs that do not support pagination or when you want to use the URI exactly as provided.
+
     .PARAMETER WhatIfBoolean
     Switch parameter to show the user what would happen if the cmdlet was to run without actually running it.
 
@@ -1828,7 +1839,9 @@ You can also use the Tab key for auto-completion to see the list of provisioned 
 
         [switch]$UseLegacyEndpoints,
 
-        [switch]$ReturnFullObject
+        [switch]$ReturnFullObject,
+
+        [switch]$SkipPaginationParameters
 
     )
    
@@ -1956,20 +1969,18 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
             }
 
 
+            # Parse query parameters (needed for pagination logic even when SkipPaginationParameters is set)
+            $url = $ConnectivityEndPoint + $uri
+            $uriobj = [System.Uri]::new($url)
+            $queryParameters = [System.Web.HttpUtility]::ParseQueryString($uriobj.Query)
+
             # Process pagination for GET 
-            if ($Method -eq "GET" -and -not $SkipPaginationLimit) {
+            if ($Method -eq "GET" -and -not $SkipPaginationParameters) {
 
                 $AllCollection = [System.Collections.ArrayList]::new()
 
                 # Get 100 items pagination
                 $pagination = 100
-
-                # Detect if $uri contains a query parameter
-                $url = $ConnectivityEndPoint + $uri
-                $uriobj = [System.Uri]::new($url)
-
-                # Parse the query parameters into a dictionary
-                $queryParameters = [System.Web.HttpUtility]::ParseQueryString($uriobj.Query)
                 
                 # If contains a query limit parameter
                 if ($queryParameters["limit"]) {
@@ -1987,7 +1998,7 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
             }
             else {
 
-                $url = $ConnectivityEndPoint + $uri
+                $Url = $ConnectivityEndPoint + $uri
 
             }
         }
@@ -2348,12 +2359,49 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                                     
                                     "[{0}] Total items is {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.total | Write-Verbose
 
-                                    if (-not $InvokeReturnData.PSObject.Properties['items']) {
-                                        Write-Error "[$($MyInvocation.InvocationName.ToString().ToUpper())] Items property missing in response"
-                                        return
+                                    # Dynamically detect the collection property name (items, roles, users, etc.)
+                                    $collectionProperty = $null
+                                    $commonCollectionNames = @('items', 'roles', 'users', 'members', 'resources', 'data')
+                                    foreach ($propName in $commonCollectionNames) {
+                                        if ($InvokeReturnData.PSObject.Properties[$propName]) {
+                                            $collectionProperty = $propName
+                                            "[{0}] Detected collection property: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $collectionProperty | Write-Verbose
+                                            break
+                                        }
                                     }
 
-                                    if ($Method -eq "GET" -and -not $queryParameters["limit"]) {
+                                    # If no standard collection property found, look for any array property (excluding metadata like 'excluded')
+                                    if (-not $collectionProperty) {
+                                        "[{0}] Standard collection property not found - searching for array properties" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                                        foreach ($prop in $InvokeReturnData.PSObject.Properties) {
+                                            # Skip metadata properties that aren't the actual data collection
+                                            if ($prop.Name -in @('excluded', 'count', 'total', 'offset', 'limit')) {
+                                                continue
+                                            }
+                                            if ($prop.Value -is [System.Collections.IEnumerable] -and $prop.Value.GetType().Name -ne 'String') {
+                                                $collectionProperty = $prop.Name
+                                                "[{0}] Detected non-standard collection property: '{1}' with {2} items" -f $MyInvocation.InvocationName.ToString().ToUpper(), $collectionProperty, $prop.Value.Count | Write-Verbose
+                                                break
+                                            }
+                                        }
+                                    }
+
+                                    # If still no collection property found, return full object and let calling function handle it
+                                    if (-not $collectionProperty) {
+                                        "[{0}] No array collection property found in response with total={1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InvokeReturnData.total | Write-Verbose
+                                        "[{0}] Response properties: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), (($InvokeReturnData.PSObject.Properties.Name) -join ', ') | Write-Verbose
+                                        $Depth = if ($optimalDepth -and $optimalDepth -is [int]) { $optimalDepth } else { 15 }
+                                        "[{0}] Leaving Invoke-HPECOMWebRequest and returning full response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InvokeReturnData | ConvertTo-Json -Depth $Depth) | Write-Verbose
+                                        return $InvokeReturnData
+                                    }
+
+                                    # Normalize by adding 'items' alias if not already 'items'
+                                    if ($collectionProperty -ne 'items') {
+                                        $InvokeReturnData | Add-Member -MemberType AliasProperty -Name "items" -Value $collectionProperty -Force
+                                        "[{0}] Added 'items' as alias to '{1}' property for consistent handling" -f $MyInvocation.InvocationName.ToString().ToUpper(), $collectionProperty | Write-Verbose
+                                    }
+
+                                    if ($Method -eq "GET" -and -not $SkipPaginationParameters -and -not $queryParameters["limit"]) {
                                         $Offset = 0
                                         $failedPages = [System.Collections.ArrayList]::new() 
 
@@ -2666,7 +2714,9 @@ function Connect-HPEOnepass {
                 $location = $_.Exception.Response.Headers["Location"]
             }
             elseif ($_.Exception.Response -and $_.Exception.Response.Headers.GetValues) {
-                try { $location = $_.Exception.Response.Headers.GetValues("Location")[0] } catch {}
+                try { $location = $_.Exception.Response.Headers.GetValues("Location")[0] } catch { 
+                    # Intentionally ignore - Location header may not exist
+                }
             }
             if ($location) {
                 $currentUrl = $location
@@ -4483,7 +4533,9 @@ For complete Okta setup prerequisites, see: $script:HelpUrl
                                     $errorMessage = $errorJson.errorSummary
                                 }
                             }
-                            catch { }
+                            catch { 
+                                # Intentionally ignore - JSON parsing may fail for non-JSON error responses
+                            }
                         }
 
                         "[{0}] Failed to submit TOTP code: {1}" -f $functionName, $errorMessage | Write-Verbose
@@ -5002,7 +5054,9 @@ For setup prerequisites, see: $script:HelpUrl
                             $reader.Close()
                             "[{0}] Server response body: {1}" -f $functionName, $serverErrorBody | Write-Verbose
                         }
-                        catch { }
+                        catch { 
+                            # Intentionally ignore - response stream may not be readable
+                        }
                     }
                     
                     # Check if error indicates passwordless is disabled (400 Bad Request with CONSTRAINT_VIOLATION or Invalid flow status)
@@ -5383,7 +5437,9 @@ For complete PingIdentity setup prerequisites, see: $script:HelpUrl
                                     $errorMessage = $errorBody
                                 }
                             }
-                            catch { }
+                            catch { 
+                                # Intentionally ignore - response stream may not be readable
+                            }
                         }
 
                         "[{0}] Failed to submit OTP code: {1}" -f $functionName, $errorMessage | Write-Verbose
@@ -5526,7 +5582,9 @@ For complete PingIdentity setup prerequisites, see: $script:HelpUrl
                                                 $errorMessage = $errorBody
                                             }
                                         }
-                                        catch { }
+                                        catch { 
+                                            # Intentionally ignore - response stream may not be readable
+                                        }
                                     }
                                     
                                     "[{0}] Failed to submit OTP code: {1}" -f $functionName, $errorMessage | Write-Verbose
@@ -11938,102 +11996,144 @@ Example:
 }
 
 function Get-HPEGLJWTDetails {
+<#
+.SYNOPSIS
+Decodes a JWT (JSON Web Token) access token and converts it to a PowerShell object with additional metadata.
+
+.DESCRIPTION
+This cmdlet decodes a JWT access token and converts it into a PowerShell object. The resulting object includes the standard JWT claims plus additional properties:
+- JWT Signature (sig)
+- JWT Token Expiry as a DateTime object (expiryDateTime)
+- Time remaining until expiry (timeToExpiry)
+
+The decoded token provides visibility into authentication details, user identity, permissions, and token validity without requiring external tools.
+
+.PARAMETER token
+The JWT access token string to decode. Must be a valid JWT format (three base64-encoded sections separated by dots).
+
+.INPUTS
+System.String
+    You can pipe a JWT token string to this cmdlet.
+
+.OUTPUTS
+System.Management.Automation.PSCustomObject
+    Returns a PowerShell object containing the decoded JWT claims and additional metadata:
+    - tenant_id: The tenant identifier
+    - internal: Boolean indicating internal authentication
+    - pod: The deployment region/pod
+    - org: Organization identifier
+    - identity_id: User's identity ID
+    - user_name: Username of the authenticated user
+    - strong_auth_supported: Boolean indicating if strong authentication is supported
+    - user_id: Numeric user identifier
+    - scope: Array of permissions (e.g., read, write)
+    - exp: Unix timestamp of token expiration
+    - jti: JWT ID (unique identifier for the token)
+    - sig: Base64-encoded token signature
+    - expiryDateTime: Token expiration as a PowerShell DateTime object (local time)
+    - timeToExpiry: TimeSpan showing time remaining until expiration (negative if expired)
+
+.EXAMPLE
+Get-HPEGLJWTDetails -token $myAccessToken
+
+Decodes the JWT token stored in $myAccessToken and displays the decoded claims with metadata.
+
+.EXAMPLE
+$myAccessToken | Get-HPEGLJWTDetails
+
+Decodes a JWT token via pipeline input.
+
+.EXAMPLE
+$tokenInfo = Get-HPEGLJWTDetails -token $Global:HPEGreenLakeSession.oauth2AccessToken
+if ($tokenInfo.timeToExpiry.TotalMinutes -lt 5) {
+    Write-Warning "Token expires in less than 5 minutes!"
+}
+
+Checks if the current session token is about to expire.
+
+.EXAMPLE
+$decodedToken = Get-HPEGLJWTDetails $myAccessToken
+
+tenant_id             : cd988f3c-710c-43eb-9e25-123456789012
+internal              : False
+pod                   : uswest2
+org                   : myOrg
+identity_id           : 1c818084624f8babcdefgh9a4
+user_name             : adminUser
+strong_auth_supported : True
+user_id               : 100666
+scope                 : {read, write}
+exp                   : 1564474732
+jti                   : 1282411c-ffff-1111-a9d0-f9314a123c7a
+sig                   : SWPhCswizzleQWdM4K8A8HotX5fP/PT8kBWnaaAf2g6k=
+expiryDateTime        : 7/30/2019 6:18:52 PM
+timeToExpiry          : -00:57:37.4457299
+
+Example output showing an expired token (negative timeToExpiry).
+
+.NOTES
+- Expired tokens show negative values in timeToExpiry
+- The expiryDateTime is converted to local time based on system timezone
+- This cmdlet does not validate the token signature or verify authenticity
+- No network calls are made - this is purely a decoding operation
+
+.LINK
+https://jwt.io/
+For more information about JWT token structure and validation.
+
+#>
+
     [cmdletbinding()]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, Position = 0)]
         [string]$token
-    )
-  
-    <#
-  
-  .SYNOPSIS
-  Decode a JWT Access Token and convert to a PowerShell Object.
-  JWT Access Token updated to include the JWT Signature (sig), JWT Token Expiry (expiryDateTime) and JWT Token time to expiry (timeToExpiry).
-  
-  .DESCRIPTION
-  Decode a JWT Access Token and convert to a PowerShell Object.
-  JWT Access Token updated to include the JWT Signature (sig), JWT Token Expiry (expiryDateTime) and JWT Token time to expiry (timeToExpiry).
-  
-  Thanks to Darren Robinson for this function!
-  https://github.com/darrenjrobinson/JWTDetails
-  https://blog.darrenjrobinson.com
+    )  
 
-  .PARAMETER token
-  The JWT Access Token to decode and update with expiry time and time to expiry
+    process {
+        if (!$token.Contains(".") -or !$token.StartsWith("eyJ")) { Write-Error "Invalid token" -ErrorAction Stop }
   
-  .INPUTS
-  Token from Pipeline 
-  
-  .OUTPUTS
-  PowerShell Object
-  
-  .EXAMPLE
-  Get-HPEGLJWTDetails
-  
-  .EXAMPLE
-  PS> Get-HPEGLJWTDetails($myAccessToken)
-  or 
-  PS> $myAccessToken | Get-JWTDetails
-  tenant_id             : cd988f3c-710c-43eb-9e25-123456789
-  internal              : False
-  pod                   : uswest2
-  org                   : myOrd
-  identity_id           : 1c818084624f8babcdefgh9a4
-  user_name             : adminDude
-  strong_auth_supported : True
-  user_id               : 100666
-  scope                 : {read, write}
-  exp                   : 1564474732
-  jti                   : 1282411c-ffff-1111-a9d0-f9314a123c7a
-  sig                   : SWPhCswizzleQWdM4K8A8HotX5fP/PT8kBWnaaAf2g6k=
-  expiryDateTime        : 30/07/2019 6:18:52 PM
-  timeToExpiry          : -00:57:37.4457299
-  
-  #>
-  
-    if (!$token.Contains(".") -or !$token.StartsWith("eyJ")) { Write-Error "Invalid token" -ErrorAction Stop }
-  
-    # Token
-    foreach ($i in 0..1) {
-        $data = $token.Split('.')[$i].Replace('-', '+').Replace('_', '/')
-        switch ($data.Length % 4) {
-            0 { break }
-            2 { $data += '==' }
-            3 { $data += '=' }
+        # Token
+        foreach ($i in 0..1) {
+            $data = $token.Split('.')[$i].Replace('-', '+').Replace('_', '/')
+            switch ($data.Length % 4) {
+                0 { break }
+                2 { $data += '==' }
+                3 { $data += '=' }
+            }
         }
-    }
   
-    $decodedToken = [System.Text.Encoding]::UTF8.GetString([convert]::FromBase64String($data)) | ConvertFrom-Json 
-    # "[{0}] JWT Token: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $decodedToken | Write-Verbose
+        $decodedToken = [System.Text.Encoding]::UTF8.GetString([convert]::FromBase64String($data)) | ConvertFrom-Json 
+        # "[{0}] JWT Token: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $decodedToken | Write-Verbose
 
   
-    # Signature
-    foreach ($i in 0..2) {
-        $sig = $token.Split('.')[$i].Replace('-', '+').Replace('_', '/')
-        switch ($sig.Length % 4) {
-            0 { break }
-            2 { $sig += '==' }
-            3 { $sig += '=' }
+        # Signature
+        foreach ($i in 0..2) {
+            $sig = $token.Split('.')[$i].Replace('-', '+').Replace('_', '/')
+            switch ($sig.Length % 4) {
+                0 { break }
+                2 { $sig += '==' }
+                3 { $sig += '=' }
+            }
         }
-    }
-    # "[{0}] JWT Signature: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $sig | Write-Verbose
+        # "[{0}] JWT Signature: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $sig | Write-Verbose
 
-    $decodedToken | Add-Member -Type NoteProperty -Name "sig" -Value $sig
+        $decodedToken | Add-Member -Type NoteProperty -Name "sig" -Value $sig
   
-    # Convert Expiry time to PowerShell DateTime
-    $orig = (Get-Date -Year 1970 -Month 1 -Day 1 -hour 0 -Minute 0 -Second 0 -Millisecond 0)
-    $timeZone = Get-TimeZone
-    $utcTime = $orig.AddSeconds($decodedToken.exp)
-    $offset = $timeZone.GetUtcOffset($(Get-Date)).TotalMinutes #Daylight saving needs to be calculated
-    $localTime = $utcTime.AddMinutes($offset)     # Return local time,
+        # Convert Expiry time to PowerShell DateTime
+        $orig = (Get-Date -Year 1970 -Month 1 -Day 1 -hour 0 -Minute 0 -Second 0 -Millisecond 0)
+        $timeZone = Get-TimeZone
+        $utcTime = $orig.AddSeconds($decodedToken.exp)
+        $offset = $timeZone.GetUtcOffset($(Get-Date)).TotalMinutes #Daylight saving needs to be calculated
+        $localTime = $utcTime.AddMinutes($offset)     # Return local time,
       
-    $decodedToken | Add-Member -Type NoteProperty -Name "expiryDateTime" -Value $localTime
+        $decodedToken | Add-Member -Type NoteProperty -Name "expiryDateTime" -Value $localTime
       
-    # Time to Expiry
-    $timeToExpiry = ($localTime - (get-date))
-    $decodedToken | Add-Member -Type NoteProperty -Name "timeToExpiry" -Value $timeToExpiry
+        # Time to Expiry
+        $timeToExpiry = ($localTime - (get-date))
+        $decodedToken | Add-Member -Type NoteProperty -Name "timeToExpiry" -Value $timeToExpiry
   
-    return $decodedToken
+        return $decodedToken
+    }
 }
 
 
@@ -12162,7 +12262,7 @@ function Invoke-RestMethodWhatIf {
         Write-host "The cmdlet executed for this call will be:" 
         write-host  "$Cmdlet" -ForegroundColor green
         Write-host "The URI for this call will be:" 
-        write-host  "$Uri" -ForegroundColor green
+        write-host  ([uri]::UnescapeDataString($Uri)) -ForegroundColor green
         Write-host "The Method of this call will be:"
         write-host -ForegroundColor green $Method
 
@@ -12730,10 +12830,10 @@ function Invoke-RepackageObjectWithType {
 Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest', 'Connect-HPEOnepass', 'Connect-HPEGL', 'Disconnect-HPEGL', 'Connect-HPEGLWorkspace', 'Invoke-HPEGLAutoReconnect', 'Get-HPEGLJWTDetails' -Alias *
 
 # SIG # Begin signature block
-# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCubD/scVfmfH5F
-# Zed1pah250R1gukTWGEGIfdeWy+EOaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDyGhtew5fpDS9l
+# wSLa8eSu3F8NY8+1BXa0QGMiD++IpqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -12829,154 +12929,147 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgtV95iNxijGk5dQ1hS35Dj/WxfWsRZQDSQ1fexdsR9EwwDQYJKoZIhvcNAQEB
-# BQAEggIAPTXY+Kh4up275HGZ7sppVLS/a4g6VxK/GLWnJhf5fS9VsSJi7zaDLrfX
-# onmJ+a5yCzNlP43xGIvu/h5ql6F1ll+jj7kGbuZttd70MqT0eBNFau2qxen68juC
-# rtkVpSUxX3DCSjXhMUb39UHyv0qqZeyL7AxLkzIj/+w/Lme5Fmd9ajc8LGUSksSi
-# QFJk5fJqUpymFe7UvLYyII8DZO8bIhHIBGRfBt81VP/CJCOF615Gn1JgB2UsiehI
-# P50mV4AiZp3dmqdSgc46SEIMsOwrsf8amuO+oh9786DfMcfWxkYJe3Htg+zaZ2JF
-# B6Z7L1hY1/u9eSJqrfEII1yfMGOJf25hMbDzCIw06FGOTNKtsDyxmH7g1SsZ0o5N
-# oBUaLTDHjnwP3BeVzp8OOmqfKUwb5yLoevZKx5p/uleu3yUB7GtKfymiiMUJ40pf
-# yopb/LkxZG6Mk+zDdZ8rYnEPiP+zRJSl4L4RxErXhv7BI+0ts7FBqzzt1ZqP4igL
-# /HhjGMJtrDhMnR8Mxth1XkB5B8G6fXyu6Df3h35+64SfQwYrg89t91CMme0gq+2j
-# T9lK/lPsqSrFcMQverb+k2HUkncf9hB8Xme9MePPsEZqHA9BtiJ8JaeDCSktpgpp
-# s5IdJdy3xGDkATwMfJ3v+r3MPBgP0V5UejFxRvLwKuXvp8BePlShghjpMIIY5QYK
-# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwb3Q8Yo/SpSvopfxwI53NcKRG7EqEdvMmA/SR
-# cs2BbKMW1UyLZxidbCS8AerADJ4cAhUA6GlVI/xILZ2O7tlv6RIKR8fx4noYDzIw
-# MjYwMTMwMTA1NjExWqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
-# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
-# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
-# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
-# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
-# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
-# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
-# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
-# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
-# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
-# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
-# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
-# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
-# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
-# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
-# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
-# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
-# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
-# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
-# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
-# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
-# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
-# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
-# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
-# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
-# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
-# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
-# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
-# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
-# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
-# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
-# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
-# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
-# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
-# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
-# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
-# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
-# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
-# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
-# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
-# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
-# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
-# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
-# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
-# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
-# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
-# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
-# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
-# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
-# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
-# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
-# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
-# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
-# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
-# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
-# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
-# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
-# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
-# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
-# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
-# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
-# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
-# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
-# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
-# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
-# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
-# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
-# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
-# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
-# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
-# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
-# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
-# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
-# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
-# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
-# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
-# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
-# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
-# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
-# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
-# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
-# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
-# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
-# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
-# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
-# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
-# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
-# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
-# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
-# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
-# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
-# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
-# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
-# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
-# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
-# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
-# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
-# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
-# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
-# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
-# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
-# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
-# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI2MDEzMDEwNTYxMVowPwYJKoZIhvcNAQkEMTIEMMkD+2e7UWV8OxwNOCmO
-# R8UtlUN7UJVxFiP38EYA9/rpaM2teD/59v29Mln/+2ZWwzCCAXoGCyqGSIb3DQEJ
-# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
-# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
-# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
-# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
-# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
-# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAymq4gTuijWGniRaVBeYt2OaHESnL5CJ23Ej71WiU1cHWN80MvkELCGVnUPRU
-# h248nfVjND/KYUy58E+KayhWXdL9+ouY9NAHl7gqQhnpOTN0f8HWZIXMnP9KSDLD
-# 2CqDNRm+So59z8JxuBLc+QRNlEpJe91bgHyHYFGKqL4GUpAGCFUhY31E4Roa4V6u
-# 4sawqf6w2w1e2rKAKbLXGk6IfkQ5yScqGOOxeZ8Y0dEj3pkQznHAy+ACFz5HsqBT
-# eK1d4/8u+ir6w/RigaY5LDKf/N0RMCllZ9LTbYkCvBOjMiNVk4wsHeO3QjrWgDLO
-# BYD8jXXDvKdrBL2X3Hql9oxQ4A84PeckynOwX/+9OClbsnTU6D16v05wz0Tv+h7C
-# /zkS3nJ8A8Ccf55NcYCPj1KgmH0a3zjeyhrDa+yiDJ2KhcTMabuQNSJfP6SE3WIY
-# wsphyWA340b7nQoNfZbjrUu9INJ7F9Ua5NM1tPnJhLADt3iYw9L2dvONY8NCNxeE
-# kJxLqM2CH8KjIU0Dnjkm1ebROlnxzijbdYD7YpYWTrwo2b8XzDxC+9Gdh/Qm//1P
-# MvGzEANtzMwu+d0uuvHBLHG6aqca0ecqAvnd9FOvy6SQB9AAQnyRYkm57ja/EMia
-# GafgOXJkButSvzXRyqjEehycB2U+peiWoKWmHwZV3JSGYHI=
+# IgQgWrP1rkWMdv7duvu5/FkQyO0rG9zPVZwA2qI7EMoAulYwDQYJKoZIhvcNAQEB
+# BQAEggIASxA5Cj2Fp9FksopS4TND1UdDkDiknO8kOm14Z0UnybvtPcPxHDHi0EN2
+# +DSJW9epbRnwBAHBqfS+3MqrmPwLpanuypykkW3WUCrW0OnCRzD3OszpRygaDZOu
+# olvs3eT2ZLx8dgHiicF/WdG6XgoApcKzC65DV6Zc8JT/gxbiy5QXoe6bliwkXTtz
+# Ul3Iv91ILkbeUuj95L1F/TAOYHvevuTUYoDOQDze0PrbL8N/YFXIjA+m6SyD83vJ
+# QLLTiRDHU0ye73D7sAoiPiKNggcqEK6ETl/giTQVOaZY9nxK0FpeG5FicIZLnuqA
+# JB7iuDaKRl7xODyS5b7z4wBdhhK1PYWFiNsg+LF2C/V5nPYJy877PUXcc3ZNGEM0
+# pk+3jpCxwqrrUik29NInrBJ6A+djrLnKm5BTBIo7Es7KMaEUcgesqw1jZACTBkta
+# r6wi2pPDtKbO8Poq7AG9z3qgVj/msOOnAHbRwZoR8VOCGMQ8SFTQTkkmga6VWyjI
+# jciufIvNHddLOXCzJpni+Zy8ros8XFZMt8MqvniS3V0R6KVeg9nU/Wu/+7fjRlAn
+# TrLLGBN9rQOSLBrkmTg5emtxkEsBt9hzkcFBoYM67hEc8DCeWYgakMxNNhXijsZ3
+# M1jVlywj2pcMG/clhxOES/uVert/4Doawx4PcflMsk7IYkXVHcShgheYMIIXlAYK
+# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMBx0qittu/CK8WC0l+a2HnLr0pOijGB3n+kYWtf3VDEo
+# HWuG+QT20AUfVLkDULEZmwIRAPnUxFumrfvG5eGtExhHvhcYDzIwMjYwMjAyMDk0
+# MjE4WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
+# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
+# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
+# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
+# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
+# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
+# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
+# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
+# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
+# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
+# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
+# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
+# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
+# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
+# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
+# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
+# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
+# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
+# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
+# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
+# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
+# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
+# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
+# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
+# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
+# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
+# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
+# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
+# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
+# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
+# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
+# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
+# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
+# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
+# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
+# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
+# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
+# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
+# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
+# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
+# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
+# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
+# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
+# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
+# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
+# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
+# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
+# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
+# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
+# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
+# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
+# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
+# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
+# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
+# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
+# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
+# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
+# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
+# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
+# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
+# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
+# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
+# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
+# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
+# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
+# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
+# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
+# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
+# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
+# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
+# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
+# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
+# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
+# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
+# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
+# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
+# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
+# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
+# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
+# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
+# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
+# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
+# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
+# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
+# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
+# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
+# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
+# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
+# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
+# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
+# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
+# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
+# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
+# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
+# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
+# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
+# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
+# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
+# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
+# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
+# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDIw
+# MjA5NDIxOFowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMNAT173ZYzrxtK8uhlQR5Aay
+# nnmNF0I0kHq57rxDmONUMNd0r3HmSDfsw0eLA/D06jANBgkqhkiG9w0BAQEFAASC
+# AgA6yvBrc+g9A0yeg0/FqUW4i71AivfbFTUsG1OvQ5+1rULN7Qk1E0Pd5D2jOshT
+# NBaH+Tc8AlHatcQf3frLDgEc1gm7oBOKYjZxuk7INcWnbyYZ62Q1K4KRTvdbM8Uw
+# b7CaeEjkJTNEvJ9jEYmlnppPKjWCy3HKmpe8Jly0JOBFRL/qN9pskRMTfNXVFS6J
+# AvtJcE+SjnkEFLcY6DyK64CP2E//jBgQrMiFCnzPBO18tHIuDYNF1PGbNbkThefl
+# gI233xWLr3OckkhT3mwgQ+ksMnaHpOcDUzP34rnt5nTWHjQ7I4qLRdWpUcq06Obw
+# kDm5a0tc6KjfULgLV2zgEZPNABk+Ngp0vmtYCAD/j3vsM477iayKhic3cepoGhmi
+# 2jQc5+yGDzgWU91ZJKl3VbyLnNxopKLnWHrAcHQbqHc2fsFJfSjowUCS67c7ARI1
+# 611VvhwQRMBNVWQCwwSCrpk6nhNISjyNz5HTMZxFnfdafTe64WIm2+8Y2B6/XMZW
+# RP4ZPyJyE8Wxd2DFu1gLLVo6EfpV6Gcszwk1HSt79hwdbCs874O39RbhuBR+hs/H
+# Nm2Bct4Qe/OvPx5ZC+YtlF5kWUxPLST8UAyp/c1ekA8OvhFxBWrh6+kw1Q5dGg8U
+# v6EAkU4ZZXMHDzSHRip7h7Mx5K/VloKJ7X8d3w/ZMNU80Q==
 # SIG # End signature block
