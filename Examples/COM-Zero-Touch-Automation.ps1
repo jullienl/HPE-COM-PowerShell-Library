@@ -233,18 +233,18 @@
 #Requires -Modules HPECOMCmdlets
 
 # ============================================================================
-# CONFIGURATION SECTION - Customize these values for your environment
+#Region - CONFIGURATION SECTION - Customize these values for your environment
 # ============================================================================
 
 # Workspace Configuration
 $WorkspaceConfig = @{
-    Name        = "Production-Workspace-$(Get-Random -Maximum 9999)"
-    Type        = 'Standard enterprise workspace'
-    Street      = "3000 Hanover Street"
-    City        = "Palo Alto"
-    State       = "CA"
-    PostalCode  = "94304"
-    Country     = "United States"
+    Name       = "Production-Workspace-$(Get-Random -Maximum 9999)"
+    Type       = 'Standard enterprise workspace'
+    Street     = "3000 Hanover Street"
+    City       = "Palo Alto"
+    State      = "CA"
+    PostalCode = "94304"
+    Country    = "United States"
 }
 
 # HPE GreenLake Credentials
@@ -252,8 +252,8 @@ $MyEmail = "admin@company.com"  # Your HPE GreenLake account email
 
 # Additional User to Provision
 $AdditionalUser = @{
-    Email = "operations@company.com"
-    Role  = 'Workspace Administrator'
+    Email            = "operations@company.com"
+    Role             = 'Workspace Administrator'
     SendWelcomeEmail = $true
 }
 
@@ -263,14 +263,14 @@ $COMRegion = "us-west"
 
 # Location Configuration
 $LocationConfig = @{
-    Name                 = "Primary Data Center"
-    Description          = "Main production data center"
-    Street               = "3000 Hanover Street"
-    City                 = "Palo Alto"
-    State                = "CA"
-    PostalCode           = "94304"
-    Country              = "United States"
-    PrimaryContactEmail  = $MyEmail
+    Name                = "Primary Data Center"
+    Description         = "Main production data center"
+    Street              = "3000 Hanover Street"
+    City                = "Palo Alto"
+    State               = "CA"
+    PostalCode          = "94304"
+    Country             = "United States"
+    PrimaryContactEmail = $MyEmail
 }
 
 # Subscription Keys (obtain from HPE GreenLake portal)
@@ -302,43 +302,43 @@ $DeviceTags = "Environment=Production, Application=WebServices, Tier=Frontend"
 
 # Server Settings Configuration
 $SettingsConfig = @{
-    BiosSettingName             = "Production-BIOS-Settings"
-    BiosWorkloadProfile         = "Virtualization - Max Performance"
-    BiosASREnabled              = $true
-    BiosASRTimeout              = "Timeout10"
+    BiosSettingName       = "Production-BIOS-Settings"
+    BiosWorkloadProfile   = "Virtualization - Max Performance"
+    BiosASREnabled        = $true
+    BiosASRTimeout        = "Timeout10"
     
-    StorageSettingName          = "Production-Storage-RAID"
-    StorageDescription          = "Standard RAID configuration for production servers"
+    StorageSettingName    = "Production-Storage-RAID"
+    StorageDescription    = "Standard RAID configuration for production servers"
     
-    FirmwareSettingName         = "Production-Firmware-Baseline"
-    FirmwareDescription         = "Latest firmware baselines for production servers"
+    FirmwareSettingName   = "Production-Firmware-Baseline"
+    FirmwareDescription   = "Latest firmware baselines for production servers"
     
-    iLOSettingName              = "Production-iLO-Settings"
-    iLODescription              = "Secure iLO settings for production environment"
-    iLOVirtualMedia             = "Enabled"
-    iLOPasswordComplexity       = "Enabled"
-    iLOWebServerSSL             = "Enabled"
-    iLOThirdPartyFirmware       = "Disabled"
+    iLOSettingName        = "Production-iLO-Settings"
+    iLODescription        = "Secure iLO settings for production environment"
+    iLOVirtualMedia       = "Enabled"
+    iLOPasswordComplexity = "Enabled"
+    iLOWebServerSSL       = "Enabled"
+    iLOThirdPartyFirmware = "Disabled"
 }
 
 # Group Configuration
 $GroupConfig = @{
-    Name                                = "Production-Web-Servers"
-    Description                         = "Production web server fleet"
-    AutoBiosApplyOnAdd                  = $false
-    AutoIloApplyOnAdd                   = $true
-    AutoFirmwareUpdateOnAdd             = $false
-    PowerOffServerAfterFirmwareUpdate   = $false
-    FirmwareDowngradeAllowed            = $false
-    AutoStorageVolumeCreationOnAdd      = $false
-    AutoStorageVolumeDeletionOnAdd      = $false
-    TagUsedForAutoAddServer             = "Application=WebServices"
+    Name                              = "Production-Web-Servers"
+    Description                       = "Production web server fleet"
+    AutoBiosApplyOnAdd                = $false
+    AutoIloApplyOnAdd                 = $true
+    AutoFirmwareUpdateOnAdd           = $false
+    PowerOffServerAfterFirmwareUpdate = $false
+    FirmwareDowngradeAllowed          = $false
+    AutoStorageVolumeCreationOnAdd    = $false
+    AutoStorageVolumeDeletionOnAdd    = $false
+    TagUsedForAutoAddServer           = "Application=WebServices"
 }
 
 # Email Notification Settings
 $EmailNotifications = @{
-    DailySummary                        = $true
-    ServiceEventAndCriticalAndWarning   = $true
+    DailySummary                      = $true
+    ServiceEventAndCriticalAndWarning = $true
 }
 
 # Firmware Update Schedule (days from now)
@@ -350,8 +350,11 @@ $FirmwareUpdateInDays = 30
 # $ParkingLotWorkspace = $null  
 $ParkingLotWorkspace = "MyParkingLotWorkspace"  
 
+#EndRegion
+
+
 # ============================================================================
-# SCRIPT EXECUTION - Do not modify below unless you know what you're doing
+#Region - SCRIPT EXECUTION - Do not modify below unless you know what you're doing
 # ============================================================================
 
 # Color-coded output functions
@@ -382,12 +385,14 @@ $StartTime = Get-Date
 Clear-Host
 
 Write-SectionHeader "HPE COMPUTE OPS MANAGEMENT - ZERO TOUCH AUTOMATION"
-Write-Info "Started at: $($StartTime.ToString('yyyy-MM-dd HH:mm:ss'))"
+Write-Info "Started at: $($StartTime.ToString('g'))"
 Write-Info "Workspace: $($WorkspaceConfig.Name)"
+
+#EndRegion
 
 
 # ============================================================================
-# STEP 1: Module Import and Authentication
+#Region - STEP 1: Module Import and Authentication
 # ============================================================================
 Write-SectionHeader "STEP 1: Module Import and Authentication"
 
@@ -423,7 +428,7 @@ if (-not $SessionValid) {
     Write-Info "Connecting to HPE GreenLake (you will be prompted for credentials)..."
     try {
         $Credential = Get-Credential -UserName $MyEmail -Message "Enter your HPE GreenLake credentials"
-        Connect-HPEGL -Credential $Credential -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+        Connect-HPEGL -Credential $Credential -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
         Write-Success "Connected to HPE GreenLake successfully"
     }
     catch {
@@ -432,8 +437,11 @@ if (-not $SessionValid) {
     }
 }
 
+#EndRegion
+
+
 # ============================================================================
-# STEP 2: Workspace Creation
+#Region - STEP 2: Workspace Creation
 # ============================================================================
 Write-SectionHeader "STEP 2: Workspace Creation"
 
@@ -470,7 +478,10 @@ try {
         $Credential = Get-Credential -UserName $MyEmail -Message "Enter your HPE GreenLake credentials"
     }
     
-    Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+    Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+
+    # Save current workspace session for later restoration
+    $CurrentWorkspaceSession = $Global:HPEGreenLakeSession.Clone()
     Write-Success "Connected to workspace '$($WorkspaceConfig.Name)' successfully"
 }
 catch {
@@ -478,8 +489,11 @@ catch {
     exit 1
 }
 
+#EndRegion
+
+
 # ============================================================================
-# STEP 3: User Provisioning
+#Region - STEP 3: User Provisioning
 # ============================================================================
 Write-SectionHeader "STEP 3: User Provisioning"
 
@@ -500,8 +514,11 @@ catch {
     exit 1
 }
 
+#EndRegion
+
+
 # ============================================================================
-# STEP 4: Enable Compute Ops Management Service
+#Region - STEP 4: Enable Compute Ops Management Service
 # ============================================================================
 Write-SectionHeader "STEP 4: Enable Compute Ops Management Service"
 
@@ -541,8 +558,10 @@ catch {
     exit 1
 }
 
+#EndRegion
+
 # ============================================================================
-# STEP 5: Location Creation
+#Region - STEP 5: Location Creation
 # ============================================================================
 Write-SectionHeader "STEP 5: Location Creation"
 
@@ -571,8 +590,11 @@ catch {
     exit 1
 }
 
+#EndRegion
+
+
 # ============================================================================
-# STEP 6: Add Subscriptions and Configure Policies
+#Region - STEP 6: Add Subscriptions and Configure Policies
 # ============================================================================
 Write-SectionHeader "STEP 6: Add Subscriptions and Configure Policies"
 
@@ -625,8 +647,11 @@ catch {
     Write-Failure "Failed to enable auto-reassign policy: $($_.Exception.Message)"
 }
 
+#EndRegion
+
+
 # ============================================================================
-# STEP 7: Server Onboarding
+#Region - STEP 7: Server Onboarding
 # ============================================================================
 Write-SectionHeader "STEP 7: Server Onboarding ($($Servers.Count) servers)"
 
@@ -682,8 +707,11 @@ foreach ($Server in $Servers) {
 
 Write-Info "Successfully onboarded $($OnboardedServers.Count) of $($Servers.Count) servers"
 
+#EndRegion
+
+
 # ============================================================================
-# STEP 8: Device Configuration (Location, Tags, Contacts)
+#Region - STEP 8: Device Configuration (Location, Tags, Contacts)
 # ============================================================================
 Write-SectionHeader "STEP 8: Device Configuration"
 
@@ -732,8 +760,11 @@ if ($Devices) {
     }
 }
 
+#EndRegion
+
+
 # ============================================================================
-# STEP 9: Create Server Settings
+#Region - STEP 9: Create Server Settings
 # ============================================================================
 Write-SectionHeader "STEP 9: Create Server Settings"
 
@@ -835,8 +866,11 @@ catch {
     Write-Failure "Failed to create iLO setting: $($_.Exception.Message)"
 }
 
+#EndRegion
+
+
 # ============================================================================
-# STEP 10: Create Group and Add Servers
+#Region - STEP 10: Create Group and Add Servers
 # ============================================================================
 Write-SectionHeader "STEP 10: Create Group and Add Servers"
 
@@ -888,8 +922,11 @@ catch {
     Write-Failure "Failed to add servers to group: $($_.Exception.Message)"
 }
 
+#EndRegion
+
+
 # ============================================================================
-# STEP 11: Enable Email Notifications
+#Region - STEP 11: Enable Email Notifications
 # ============================================================================
 Write-SectionHeader "STEP 11: Enable Email Notifications"
 
@@ -907,9 +944,11 @@ try {
 catch {
     Write-Failure "Failed to enable email notifications: $($_.Exception.Message)"
 }
+#EndRegion
+
 
 # ============================================================================
-# STEP 12: Schedule Firmware Update
+#Region - STEP 12: Schedule Firmware Update
 # ============================================================================
 Write-SectionHeader "STEP 12: Schedule Firmware Update"
 
@@ -932,8 +971,10 @@ catch {
     Write-Failure "Failed to schedule firmware update: $($_.Exception.Message)"
 }
 
+#EndRegion
+
 # ============================================================================
-# COMPLETION SUMMARY
+#Region - COMPLETION SUMMARY
 # ============================================================================
 $EndTime = Get-Date
 $Duration = $EndTime - $StartTime
@@ -952,11 +993,19 @@ Write-Host "  2. Review server settings and adjust as needed for your environmen
 Write-Host "  3. Monitor firmware update schedule and server health" -ForegroundColor White
 Write-Host "  4. Configure additional automation workflows as required" -ForegroundColor White
 
+#EndRegion
+
+
 # ============================================================================
-# OPTIONAL: CLEANUP ENVIRONMENT
+#Region - OPTIONAL: CLEANUP ENVIRONMENT
 # ============================================================================
 Write-Host "`n" -ForegroundColor White
+do {
 $CleanupResponse = Read-Host "Do you want to clean up the environment now? (Y/N)"
+    if ($CleanupResponse -notmatch '^[YyNn]$') {
+        Write-Host "Invalid input. Please enter Y or N." -ForegroundColor Yellow
+    }
+} while ($CleanupResponse -notmatch '^[YyNn]$')
 
 if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
     Write-SectionHeader "ENVIRONMENT CLEANUP"
@@ -965,9 +1014,16 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
     
     Write-Info "Starting cleanup process for workspace: $($WorkspaceConfig.Name)"
     
-    # Save current workspace session for later restoration
-    $CurrentWorkspaceSession = $Global:HPEGreenLakeSession.Clone()
+
     
+    if ($CurrentWorkspaceSession.IsValid) {
+        Write-Success "Workspace session is still valid, proceeding with cleanup..."
+    }
+    else {
+        Write-Info "No valid session available, reconnecting to workspace for cleanup..."
+        Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+        Write-Success "Connected to workspace '$($WorkspaceConfig.Name)' for cleanup"
+    }
     # Get devices before any cleanup
     $DevicesBeforeCleanup = $null
     try {
@@ -1089,6 +1145,9 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
         if ($Service) {
             $Service | Remove-HPEGLService -Force | Out-Null
             Write-Success "Compute Ops Management service removed from region '$COMRegion'"
+            # No devices to move, just wait for service removal
+            Write-Info "Waiting for service removal to propagate..."
+            Start-Sleep -Seconds 5
         }
         else {
             Write-Info "No COM service to remove"
@@ -1106,7 +1165,8 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
                 Write-Info "Moving $($DevicesBeforeCleanup.Count) device(s) to parking lot workspace '$ParkingLotWorkspace'..."
                 
                 # Connect to parking lot workspace
-                Connect-HPEGL -Credential $Credential -Workspace $ParkingLotWorkspace -NoProgress -ErrorAction Stop | Out-Null
+                Connect-HPEGL -Credential $Credential -Workspace $ParkingLotWorkspace -NoProgress -WarningAction SilentlyContinue -ErrorAction Stop -RemoveExistingCredentials | Out-Null
+                write-Success "Connected to parking lot workspace '$ParkingLotWorkspace'"
                 
                 foreach ($device in $DevicesBeforeCleanup) {
                     try {
@@ -1124,7 +1184,7 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
                 
                 # Wait for operations to settle
                 Write-Info "Waiting for device moves and service removal to propagate..."
-                Start-Sleep -Seconds 5
+                Start-Sleep -Seconds 15
             }
             catch {
                 Write-Failure "Error moving devices to parking lot: $($_.Exception.Message)"
@@ -1139,11 +1199,6 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
             $CleanupErrors += "Workspace has devices but no parking lot configured"
         }
     }
-    else {
-        # No devices to move, just wait for service removal
-        Write-Info "Waiting for service removal to propagate..."
-        Start-Sleep -Seconds 15
-    }
     
     # Delete workspace (only if no devices or devices were moved)
     $CanDeleteWorkspace = (-not $DevicesBeforeCleanup) -or ($ParkingLotWorkspace -and $DevicesBeforeCleanup)
@@ -1152,7 +1207,6 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
         try {
             # Reconnect to workspace to ensure proper session state before deletion
             Write-Info "Reconnecting to workspace for deletion..."
-            $Global:HPEGreenLakeSession = $CurrentWorkspaceSession.Clone()
             
             Write-Info "Deleting workspace '$($WorkspaceConfig.Name)'..."
             
@@ -1167,17 +1221,17 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
                 try {
                     if ($retryCount -gt 1) {
                         Write-Info "Deletion attempt $retryCount of $maxRetries..."
-                        Start-Sleep -Seconds 5
+                        Start-Sleep -Seconds 10
                     }
                     
-            $RemoveResult = Remove-HPEGLWorkspace -Force
+                    $RemoveResult = Remove-HPEGLWorkspace -Force
                     
                     if ($RemoveResult.status -eq "Complete") {
-                Write-Success "Workspace '$($WorkspaceConfig.Name)' deleted successfully"
+                        Write-Success "Workspace '$($WorkspaceConfig.Name)' deleted successfully"
                         $deletionSuccess = $true
-            }
-            else {
-                Write-Failure "Workspace deletion returned unexpected status: $($RemoveResult.status)"
+                    }
+                    else {
+                        Write-Failure "Workspace deletion returned unexpected status: $($RemoveResult.status)"
                         if ($retryCount -lt $maxRetries) {
                             Write-Info "Retrying workspace deletion..."
                         }
@@ -1209,6 +1263,7 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
     else {
         Write-Info "Workspace deletion skipped (devices present, no parking lot configured)"
     }
+
     
     # Cleanup completion summary
     $CleanupEndTime = Get-Date
@@ -1230,10 +1285,15 @@ if ($CleanupResponse -eq 'Y' -or $CleanupResponse -eq 'y') {
     Write-Info "Workspace: $($WorkspaceConfig.Name)"
     Write-Info "Cleanup Duration: $($CleanupDuration.ToString('mm\:ss'))"
     Write-Info "Completed at: $($CleanupEndTime.ToString('g'))"
-    Write-Info "Total Script Duration (Provisioning + Cleanup): $(($CleanupEndTime - $StartTime).ToString('mm\:ss'))"
+    # Calculate total active script duration (excluding user prompt wait time)
+    $TotalActiveDuration = $Duration + $CleanupDuration
+    Write-Info "Total Script Duration (Provisioning + Cleanup): $($TotalActiveDuration.ToString('mm\:ss'))"
 }
 else {
     Write-Host "`nCleanup skipped. Workspace '$($WorkspaceConfig.Name)' remains active." -ForegroundColor Cyan
 }
 
 Write-Host "`n" -ForegroundColor White
+
+#EndRegion 
+
