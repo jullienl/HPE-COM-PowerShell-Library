@@ -191,7 +191,6 @@ Function Get-HPEGLOrganization {
                     
                     if (-not $OrgCollection) {
                         "[{0}] Organization not found. The workspace is not part of any organization." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                        Write-Warning "Cannot determine organization for this workspace. The workspace may not be part of any organization."
                         return
                     }
                     
@@ -199,8 +198,7 @@ Function Get-HPEGLOrganization {
                 }
                 else {
                     "[{0}] No workspace session found. Please connect with Connect-HPEGLWorkspace first." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                    Write-Warning "No workspace session found. Please connect with Connect-HPEGLWorkspace first."
-                    return
+                    Write-Error -Message "No workspace session found. Please connect with Connect-HPEGLWorkspace first." -ErrorAction Stop
                 }
             }
 
@@ -331,7 +329,7 @@ Function New-HPEGLOrganization {
 
             if ($WhatIf) {
                 $ErrorMessage = "Organization '{0}': Resource already exists in HPE GreenLake! No action needed." -f $Name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -347,7 +345,7 @@ Function New-HPEGLOrganization {
 
         #     if ($WhatIf) {
         #         $ErrorMessage = "Organization already set for this workspace! No action needed."
-        #         Write-warning $ErrorMessage
+        #         Write-Warning "$ErrorMessage Cannot display API request."
         #         return
         #     }
         #     else {
@@ -390,18 +388,20 @@ Function New-HPEGLOrganization {
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
                     $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Organization cannot be created!" }
-                    $objStatus.Exception = $_.Exception.message
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 }
             }
         }
 
-        [void] $OrganizationCreationStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $OrganizationCreationStatus.add($objStatus)
+        }
 
     }
 
     End {
 
-        if (-not $WhatIf) {
+        if ($OrganizationCreationStatus.Count -gt 0) {
             
             $Global:HPEGreenLakeSession.organization = $Name
             $Global:HPEGreenLakeSession.organizationId = $Response.id
@@ -568,18 +568,20 @@ Function Set-HPEGLOrganization {
                 "[{0}] Organization details cannot be updated!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Organization details cannot be updated!" }
-                $objStatus.Exception = $_.Exception.message 
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
             }
         }    
 
-        [void] $SetOrganizationStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $SetOrganizationStatus.add($objStatus)
+        }
         
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($SetOrganizationStatus.Count -gt 0) {
 
             $SetOrganizationStatus = Invoke-RepackageObjectWithType -RawObject $SetOrganizationStatus -ObjectName "ObjStatus.NSDE" 
             Return $SetOrganizationStatus
@@ -686,8 +688,8 @@ Function Join-HPEGLOrganization {
                 "[{0}] Organization '{1}' not found or not eligible to join!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
 
                 if ($WhatIf) {
-                    $ErrorMessage = "Organization '{0}': Not found or not eligible to join! No action taken." -f $Name
-                    Write-Warning $ErrorMessage
+                    $ErrorMessage = "Organization '{0}': Not found or not eligible to join! No action taken. Cannot display API request." -f $Name
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
@@ -702,8 +704,8 @@ Function Join-HPEGLOrganization {
                     "[{0}] Current workspace is already part of organization '{1}' (ID: {2})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Global:HPEGreenLakeSession.organization, $Global:HPEGreenLakeSession.organizationId | Write-Verbose
                     
                     if ($WhatIf) {
-                        $ErrorMessage = "Current workspace is already part of organization '{0}'! No action needed." -f $Global:HPEGreenLakeSession.organization
-                        Write-Warning $ErrorMessage
+                        $ErrorMessage = "Current workspace is already part of organization '{0}'! No action needed. Cannot display API request." -f $Global:HPEGreenLakeSession.organization
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -761,7 +763,7 @@ Function Join-HPEGLOrganization {
                             catch {
                                 "[{0}] WARNING: Failed to automatically reconnect to workspace. You may need to manually reconnect to access organization resources. Error: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
                                 $objStatus.Status = "Complete"
-                                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Successfully joined organization '$($Organization.name)'! Note: Please reconnect to the workspace to refresh your session and access organization resources." }
+                                $objStatus.Details = "Successfully joined organization '$($Organization.name)'! Note: Please reconnect to the workspace to refresh your session and access organization resources."
                             }
                         }
                     }
@@ -803,7 +805,7 @@ Function Join-HPEGLOrganization {
                                 $objStatus.Details = "Failed to join organization!"
                             }
                             
-                            $objStatus.Exception = $_.Exception.message
+                            $objStatus.Exception = $Global:HPECOMInvokeReturnData
                         }
                     }
                 }
@@ -817,12 +819,14 @@ Function Join-HPEGLOrganization {
             }            
         }
 
-        [void] $JoinOrganizationStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $JoinOrganizationStatus.add($objStatus)
+        }
     }
 
     End {
 
-        if (-not $WhatIf) {
+        if ($JoinOrganizationStatus.Count -gt 0) {
             
             # Session variables are already updated in the Process block, no need to update here again
             
@@ -895,8 +899,8 @@ Export-ModuleMember -Function 'Get-HPEGLOrganization', 'New-HPEGLOrganization', 
 # SIG # Begin signature block
 # MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAq7CwMh0E3urpw
-# KU50rf29p1djOQXSqrCC+CV8vLH1YKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAPZncIo/SNaCJi
+# VoV1M7GurjA4NBaZ+6GKIWTrMgpwPaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -997,23 +1001,23 @@ Export-ModuleMember -Function 'Get-HPEGLOrganization', 'New-HPEGLOrganization', 
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgtD6gAi9jKwBVmV1RDso0kQCLtOvnUeZOEcelnt0si6IwDQYJKoZIhvcNAQEB
-# BQAEggIAvTxPzAuj4eZ/9WMpbyjHY1+CJiIt7+clEcbDnHjcgSGi5W6K8XhmUU2r
-# kVVIA4Mxs2A+S5JwPCbAc7jdlDBYGz/2EDJO3vj+6rrGJgfstup6S5LJUzFgonqS
-# HVAyxwoG974kjquTDIqA0epqNLgkGaj4Pzd2ZUkbvW3hNzGGPF5zaqIXWo0RSav4
-# 75niFGvdq4kGSUck8PrB4MRjel/c8yjE4ZwpElFaSkjaQ8df70fQPrPTp6WnobXc
-# eZqGAWdGNYXNe2IwN8b8EOvAkMVEsO/8TwkPN1a6Kx+Yy/nTKAwwUJfN3cCEyhdG
-# 802C3buGwnC2e0lpYRJmSdGar6SzCR/3+fi23bmUcbM1awQ/yfB63AB+GegDEf1u
-# 6ZOhFroMn73AL45te+okztKIT6dXO8ShuFdZNEjupQIoL+DrsBs0gR5yo69auFRb
-# VMob21Fc8OBQRm02E+jK+hU0BXspjCEwlEEGkxlSVns2UpnP0THbp/aJfNU06mBh
-# 79A5hIhNlRhcgddC0mM2yqIyddnK8TwgSsVT4795x2pyDUQi0AJY3m4FPwqg2mZY
-# B0HdzZcbD5aViAalxj3MRf5mvxWO8NoK6a0epRfou1aGKGpEhg2Vf4nt/dC1FzjS
-# iHIufyo3xYvXo59KQUR+hzfo9JDtf7qlaY/gSk9xoCM3IIseMiChghjpMIIY5QYK
+# IgQg1EsRQ+jS7S1VnnGQQPkR6zajW0GlWPfWBgeOF6LpsYgwDQYJKoZIhvcNAQEB
+# BQAEggIAqGW7vhLYLs9dHFpBFdPlFaJyqCX1h3QKoMnvZfO8779KoXeDkJWre51x
+# i+1zj0Gvz8gfDq8dY1gpg/EST8cUKqJZUTDeVSZKCVB1C257tW7mNQ2tFirXx+AU
+# EZMTUQB25FFrAT5v0ALIO4sdfBWcnuHV4fKP1tsk4l7dzFnr6JJd0JFXzbiY3xsb
+# rF+8bHV74Y97P411rtEGr0ZpR+imVpDTcr8atwWTeYx9otRVU+l+BWlt6bd2GenA
+# X6BKzNwGyDGzXa3ixJgnUmD5J+zk1aHeML5rOet3I8uy5Lb8QbjE6D0091Yg606S
+# OcJmE37Ie1hnImJRhj+XJv9CgeND6J6Y9wdKiRyCbRAtOa+N7w0N+18QH+4DY/ih
+# hNzzaRxsj2M5qh5YPrZGrh/fT+UI/OcBSqIzPewfKvlKm9IaQB2MRtR9dQBUDin2
+# TE0hrho47DT7D1/4y6CDjRIaChqsNQ9SPsQkTbvOtPr9lD7ousv2dc2EcvXOR/ic
+# mc1dpmMqcJXt8zM3F/y705NtyXOrJVoym6C8KvhmM+jqHvtyCiFH7hjcr+DwHnVf
+# QWWpXI8u3AkiB/dDkXCOZvUl7NNc7aLjdP8JG3LA1keXl9ZyX3ErzJGM3m1OOlHp
+# Ua7kJJT4DHDtNgjwUHEY9+KGTSsRLSdVGgQZx1brFZ5QzTeOBWyhghjpMIIY5QYK
 # KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwsM0N9XJGRwsO8i92WuQqkzCCjhfG2Yg/nqE1
-# ijAt39dRaWdyvp7jEoslfHNqidVBAhUAmgQdi9vp/hvuTdiiR3aCNHVDlLEYDzIw
-# MjYwMjAyMDk0MTM0WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# AQEwQTANBglghkgBZQMEAgIFAAQwJictvMvcV3EeFaDV8vd/se9vJT0ZoHvpoq6H
+# PvmIjHol5Z/8CuEYmq6SU+/IB72KAhUAu9SqGU53wS4aN+L19M29JsMW9JUYDzIw
+# MjYwMzE3MTQzNTIxWqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
 # WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
 # Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
 # yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
@@ -1121,8 +1125,8 @@ Export-ModuleMember -Function 'Get-HPEGLOrganization', 'New-HPEGLOrganization', 
 # BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
 # ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
 # AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI2MDIwMjA5NDEzNFowPwYJKoZIhvcNAQkEMTIEMJsgw7av5yfENVoL93lM
-# 1yHj/sRhVNAM4Y7ToMu/XqQ+rMdqK4eiKqlrO0fy/Pto1TCCAXoGCyqGSIb3DQEJ
+# MQ8XDTI2MDMxNzE0MzUyMVowPwYJKoZIhvcNAQkEMTIEMLqEjHJevBQZnRQHumJo
+# dvZfUK0vf/BxbtBK1Wfg38jTbBFPkIjiUC4bXYiQfGPryDCCAXoGCyqGSIb3DQEJ
 # EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
 # eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
 # U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
@@ -1131,15 +1135,15 @@ Export-ModuleMember -Function 'Get-HPEGLOrganization', 'New-HPEGLOrganization', 
 # dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
 # UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
 # dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAP8xR28GQyxQ1EODLNZhPs2dxeWOuLSRyy+hmWQ/76h1KuLbuhD9xa2fta5Se
-# KmmWzqxvR0PX4sutoxqhMRC7YWmz4lORyQ4hHAMrnyGiGr9KI97hJ0TzCkpwVRwi
-# ZpAxeZcMbnotLi1+jAGaQEpyv64YUCUUzSD2BeTdaMZHh+cojO2FBkEj1GRVEbtj
-# 3/sDlYumJPHW+x+mqUBVDnKuU7B63/yBxxuvifWKTDjQMVEoZ5/KuzKMYWT4SVrw
-# itn3Z2/4jFyYJHE1w2RspDs5y9o4XRoyKFibRGaWggFR+474JMAty02Dtd6mu24b
-# 7aYcJP4+t1YADmlKmpmGBQ2FneZAlp9t8xupgqoY0tJYwW1emM1sSpo6QoFcu7ly
-# C7hH5T7M412iDwrICbzBArSFMD74ohLs8YXcTn6YJYTkRpgPXbcVEYU3ZAhQJrT6
-# g/YPA/PBMzZDz0dr5EnAFqFtkLuJAoGiFUtJbPBaQfyIGb5CZ3mO1n9jfYv1m4eK
-# ZwLCOlYhi7QNNlQOS+ZnlkU9ouowGDh28HgjpUgkX3nWG1E/HkbK/GmesbThXhLt
-# ZzhgCsJ3dqxX2fO9S/IKqn1t2n2cyaWNg9CelpY816+yS6MdbMYMtw2NabTORhkx
-# IXSVMvfoqVMdRK3luS0f7KBaQ7ENIFMLT0SOJY4/p0v5CxI=
+# ggIAFpeZiHPI4Hk1Dz6+EmLxrlFegnxE4raqvDW1Wk4On6aUZsKV5D2543sS5L6K
+# sX5EqLbdzwJIEFxlxiaPOfcfhsydUAfo7eu3uvsKDEaPIb/1zla1xAHegDUiqdDn
+# /iYW6yk1O5kLyBScULjxlrcpdGfJ48JK7xTsLzmHePCkesq3l140bC1cO8oodztt
+# cr/lTbw+VYmUJYo01AlGvWN/RXso8ELZI/rch0mJ/6kICSjyZXghiJyibmukAU02
+# el4mfCJyPQE3Ke2GVgZSSu0rKflpQLRuqZ8C7a+aTvnqY7XUDpLY3ko/iTVcHt0p
+# 1aviLUxjRpAka/Ntc9QvJb4ep8L/vaYm+uv+7YqiQL3rCLhG6tzxApEjyrbAEI3a
+# w9a7E/5QjbDjjniNrCGzlH2ahF51Pdh2mgfsX8IA7dWaf5YukqKT0+SPrgQkWiIY
+# /jqTqbIRE1tNaKvE9IHeyxHaJkSOgEBbV9D0RyUPCh0dyVNASJ25vnlyA4hFrbx7
+# 7uXw9+LL2qed6FptrUa6wv0AEP1SEhWpIwY8VGtftSfE4qDNEWjk9qvUr5mQckuT
+# qUuUdAzT4eoAvycKJ5CebDJKV0EHIWa4KjrooPyzzgGEBhB21OvKtQ7rDkO/GApd
+# PyhUJS/OaNdHP5zkeopFMjtCq5OecLAnZYpc1gOjDQX3QMo=
 # SIG # End signature block

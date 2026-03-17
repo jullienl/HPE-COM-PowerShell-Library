@@ -251,10 +251,10 @@ Function Enable-HPECOMMetricsConfiguration {
         if (-not $CurrentMetricConfiguration) {
             if ($WhatIf) {
                 $ErrorMessage = "Unable to retrieve metrics configuration for region '$Region'. Please check your configuration and try again."
-                Write-Warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             } else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Metrics configuration cannot be found in the region!"
                 return $objStatus
             }  
@@ -281,7 +281,7 @@ Function Enable-HPECOMMetricsConfiguration {
                             Write-Warning "The server group '$($group.name)' does not exist in the '$Region' region. Please specify a valid server group name."
                             return
                         } else {
-                            $objStatus.Status = "Failed"
+                            $objStatus.Status = "Warning"
                             $objStatus.Details = "The server group '$($group.name)' does not exist in the '$Region' region. Please specify a valid server group name."
                             return $objStatus
                         }
@@ -300,7 +300,7 @@ Function Enable-HPECOMMetricsConfiguration {
                     Write-Warning "No valid server groups specified. Please specify valid server group names available in the '$Region' region."
                     return
                 } else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "No valid server groups specified. Please specify valid server group names available in the '$Region' region."
                     return $objStatus
                 }
@@ -349,12 +349,12 @@ Function Enable-HPECOMMetricsConfiguration {
             }
             
         } catch {
-            if ($WhatIf) {
+            if (-not $WhatIf) {
                 if ($EnableUtilizationAlerting){
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to enable COM metrics configuration and utilization alerting in '$Region' region" }
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to enable COM metrics configuration and utilization alerting in '$Region' region!" }
                 }
                 else {
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to enable COM metrics configuration in '$Region' region" }
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to enable COM metrics configuration in '$Region' region!" }
                 }
                 $objStatus.Status = "Failed"
                 $objStatus.Exception = $Global:HPECOMInvokeReturnData
@@ -472,12 +472,12 @@ Function Disable-HPECOMMetricsConfiguration {
             if ($WhatIf) {
 
                 $ErrorMessage = "Unable to retrieve metrics configuration for region '$Region'. Please check your configuration and try again."
-                Write-Warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
 
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Metric configuration cannot be found in the region!"
                 return $objStatus
             }
@@ -526,12 +526,12 @@ Function Disable-HPECOMMetricsConfiguration {
                 if (-not $WhatIf) {
                     if ($UtilizationAlertsOnly) {
                         $objStatus.Status = "Failed"
-                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to disable COM utilization alerting configuration" }
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to disable COM utilization alerting configuration!" }
                         $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                     }
                     else {
                         $objStatus.Status = "Failed"
-                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to disable COM metrics configuration" }
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to disable COM metrics configuration!" }
                         $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                     }
                 }
@@ -546,7 +546,6 @@ Function Disable-HPECOMMetricsConfiguration {
                 else {
                     Write-Error "Failed to disable COM metrics configuration!"
                 }
-                return
             }
 
             $DisableMetricsConfigurationStatus = Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.objStatus.SDE"    
@@ -616,8 +615,8 @@ Export-ModuleMember -Function 'Get-HPECOMMetricsConfiguration', 'Enable-HPECOMMe
 # SIG # Begin signature block
 # MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDzxeKv9ZOemvUQ
-# rE465KVJt+W+yA5Opa1qnr+yMEDiWaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCJdVPUgIYe2pd3
+# KthGFfo4E09ZDS/SBk6lOIysLqhFoKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -718,23 +717,23 @@ Export-ModuleMember -Function 'Get-HPECOMMetricsConfiguration', 'Enable-HPECOMMe
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgzTHroITsTT/vzjgy9lWOD5HO+bRwnudb1EdCPn8NU3UwDQYJKoZIhvcNAQEB
-# BQAEggIAjT0t0lE5UB79ATrvpsxa7Nwv1SDGmeKUMPMJk6liXSAkR6HU+k9LEuJ3
-# W8l8KzA7S7KHqB12z1MKDOvHWUVl4xVFDBPNhVGzU4xWsmMjBIipH3jCa+0qZgSM
-# bX07CcaOopHX6HwBOmJR++3HhCoy6nZdsNjnN6+IZ6cMVe+rS8DdkjtDKfnrjcLp
-# lv1Qj2RObYKTdYBU2YZKwpMqtaiPXxL9qOSCqjRi6y9drjdpVcqHTskK7pN0Z5JE
-# lAvxzca8q+cVbskPwPRveeqwhZqOUXJY1v4UEt2UhnGqWiOblhEsbNsr+DbrIJ8H
-# 6Zmp5rU4NLwtrz2vFSrVcqqjkiKQO8SvbbU7Cs5mTXW5DEy+G+rs11KmX4Y31Xk2
-# Q9IfZSLjqTOEdvzuzrIgE76fz1l1QpJndFyWmZGeMQPSaGdk+ZjN7UKAeggCmEA7
-# Dw/DbiLawwbs4ITPPdgJATDhTMHETr0C2NKI6TKrIJHAmG+Bxtx/53cqVCx4fY8b
-# xkbp19J9eGTdQDgfygojT9Y4QkzrAvA9itp3tEITgWohUdpli5VhqUuL+GbgSmCP
-# fW/VM1YtkeWCSeZa6FHDz2wOTp06F/ZZg2gydF0r5D03MSLPZurzJqBl0A6n0FaX
-# mTdTupSFgHMgTmfT0Zu2r6rBDgcdIdPoCKOy3K2P4QBF6wNs5aihghjoMIIY5AYK
+# IgQg6aUmysg4kkwT8TZNBwebb1QLl2ryjfiVTOcux0zb2YUwDQYJKoZIhvcNAQEB
+# BQAEggIAkzhILxL4fv7pvZ9GEzZMVnK9qT1fvAqH6olPWVfNJUH5d7tXNPDHy7hf
+# nAbwUnIV+nKlPPHslmTdevL0g/64WP8Xr9zOQ30t+s4hNnT2KdPomgDB+78TdKe9
+# jj944D+KAy+G4LNZnzuUQa8CaTKZeE3NNKxp2a+tXkxWsHCSj+ktubGn6N26BYtr
+# FF6mtBcb/3bmcb5AIu9vD+JDc5MzFQdVVHQEzYsjP08Izvj/Bl2s4DZy4dfZ4VsC
+# iitWm8qsAX76eorwuVsUmog/VGBc+hh8jO4LfVfQYCVB9uqPDZ5RPANo+IjrKHrB
+# BNlNfhGGGV2SuZocdW8Xh4rMObWbpBb5VV3OMSAGWfiIvO2qjhYPjGevGnyKm30C
+# QZphaWZWo+BUpAHyx0dBULxUJdNsNm/8YKLLWrbe/n+Ck0rkuGqpMfm5cqIbWg/M
+# 4by4NPDJEzx56rZdGyslb+4GhaF0emL4QHYe/fNEFarhqYsJHtFpUtuoNWk8F7vO
+# Gch3dKMd8cFbQgVpfZ8QNVKV7r4vqq4HEy7Af66ypnzitpVxFpkMNEEWdjAr3HvS
+# nb30RT7E9SObnu7a3TkjiMB21yMNock7peuiYJOe3JGHuK2LKyFfJoU00CvpMxt+
+# XAYKX8l/JCjbCzvk5dUS6daWPFGEUAnA46vUWoQFdCGZwMgmNhShghjoMIIY5AYK
 # KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwoatcUY3WPLOmeEFdzksS8Rweh+Ig1zCByWJ+
-# Kq+OZhjzEYF8ZvKga2n35Xa8cBUqAhQn37ky4BDVxKrIvPJG/i0HdwT0ixgPMjAy
-# NjAxMzAxMDQ4NDlaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
+# AQEwQTANBglghkgBZQMEAgIFAAQwWL4e9R4wCUqTh5ZRzC7pQ9qQBnhibH/22f3Z
+# qP8AVmpurDn2ka+CUqTCDsZ+xc4HAhQVsbw6eSmq+dLos6YSnJ34iUUiIxgPMjAy
+# NjAzMTcxNDI4NDVaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
 # b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
 # dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
 # oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
@@ -842,8 +841,8 @@ Export-ModuleMember -Function 'Get-HPECOMMetricsConfiguration', 'Enable-HPECOMMe
 # ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
 # IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
 # BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjYwMTMwMTA0ODQ5WjA/BgkqhkiG9w0BCQQxMgQwOXbsZ1/NGFTi5GC9d/Ui
-# 0tMFG7XV8ByrvulHOLEARY/EhvVsYVofTDe62K3bRGX8MIIBegYLKoZIhvcNAQkQ
+# DxcNMjYwMzE3MTQyODQ1WjA/BgkqhkiG9w0BCQQxMgQw6G2ArI5SfidS3ffDHXPy
+# EkIaeBlTsdpD4b7jQfiywNm3PFHHqo3xzSbuutYwP2aEMIIBegYLKoZIhvcNAQkQ
 # AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
 # hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
 # ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
@@ -852,15 +851,15 @@ Export-ModuleMember -Function 'Get-HPECOMMetricsConfiguration', 'Enable-HPECOMMe
 # IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
 # VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
 # aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgAr5qvvPjdbJoY5IaU9jvE0DwepjZUPjBPWfH46n605YDA/Lo+pjWB4KnofGyqv
-# cJZqGdZhHXDnc+SkAZFIsppRkkJJMErA+NZwdIDG+ui7/VEePoWENWMiPbWmwSR6
-# WIUcgC5hYyNIhPwmbNXsZiVCxAq0/V6xqhU04RKG6qvjZkVaNXRNEhhL5fuN6iQu
-# OrFYN/oTJV3jgZ+BTI5B6NN1gIlFWNcPWY0krEzmblALBygUP3HiXq3ylLFBLY/M
-# Hob7HYSPhtzaXaDAuj5Gom4gggoycTRJeUF/LV5L+9sEDjXRsoKQGzLx3gkmD2Lw
-# mAHh8HbGvULSXvISn3+c7KqFLbebfA49Gjo5cc9jx31hj1mj3rTJ7bMJHhLplr56
-# hKZnc5Cvo80+0Kv/myz5qD3f2VFU97kI3M5C4RhQEsgVaCEXHFbH8qC8I7Dhem3O
-# H2DXg6bIrGgJ+/pGMbDyi9uSXUrdUQiaTF6eIMUgIxutopSZTQPh3BPWVSwOGqS4
-# wk9ZvwUjyv1fDtiCewojHu8mvBj9P3byrUKhxG9rL5XqWKZOQFELTwyrOl02yKJ3
-# 0FIbhp6boJE9w0moi/EHqmL+8A7yg91vr8CHs9VcAgoTjhMi1J2e9egpHvj1ayVp
-# DvujHU1FCrnetg9Gw7Fanjmk5KAXlPKljLUs4HRu7JyvCA==
+# AgC1uzdDVNgbj8OMdtohzMqlfgbvZOq448e6lnPfquinyshEVWYntcmxX+2Po8FS
+# SAMHBCmkfGD33lPmPsLbfo4QyhjtIFG8kYB3EG5CBrZVblxChqN6CxbQLPMqe5WQ
+# q2/e/pBZEfZcFt2apw0As1YkQUhKBx6CeZ9LxyUuad3WrDNCaQsbRZJTKnhL7YC4
+# c1imKRgj+APliJ+KKMla//UrMVVsqKlTbbnmti3+a+ApaqnzODqA5Ou+inFlVROl
+# YkIqg9ifxjM5LxGt77eQ4OhG0ZkeVAPT6+4Agx6QpIj95d3amEBEZ2SwQC2eT6Xq
+# Driq4wdGOcllsGCR4ijis+MyaM5TTGRrurQ4Bahj+27Yuy4EKedlaYPGvPJpB6my
+# 3XBfDVNbHmFNbXQZBMBF+ipQYXnoqhdKXZZRCX7xXT7kDdniDst/wz7ekEATdmtj
+# a19VOj+Hsx5l5X9u/JfOorSveI3MLiXlGd3FmEfwX30hiQFuno1DpTRAWafY5LVb
+# f+qUZZ3NkK0gUgvRXKsjneD/tJqiDJQgdwN6teYc7Qs7nj1+Kl331JPEV9hM07WI
+# e1yxnJ/ersMa/gnfsn78xYwk45y6HO/8ENAlFydSW1TQY4jXX+Q8HNA5YeqAqvpJ
+# 93BRCl/+5iOm263+XjpNyGDYDIB7Jlb5olinYY5gl7x8sw==
 # SIG # End signature block

@@ -1,4 +1,4 @@
-#------------------- FUNCTIONS FOR COMPUTE OPS MANAGEMENT SETTINGS -----------------------------------------------------------------------------------------------------------------------------------------------
+﻿#------------------- FUNCTIONS FOR COMPUTE OPS MANAGEMENT SETTINGS -----------------------------------------------------------------------------------------------------------------------------------------------
 
 using module .\Constants.psm1
 
@@ -21,7 +21,30 @@ Function Get-HPECOMSetting {
     Optional parameter that can be used to specify the name of a setting to display.
 
     .PARAMETER Category 
-    Optional parameter that can be used to specify a category of server settings to display.
+    Optional parameter that can be used to specify a category of settings to display.
+    
+    Valid values:
+    - Server settings: 'Bios', 'Os', 'Firmware', 'ExternalStorage', 'IloSecuritySettings', 'IloSettings', 'Storage'
+    - OneView VM appliance settings: 'OneViewApplianceSettingsVM', 'OneViewServerProfileTemplatesVM', 'OneViewSoftwareVM'
+    - OneView Synergy appliance settings: 'OneViewApplianceSettingsSynergy', 'OneViewServerProfileTemplatesSynergy', 'OneViewSoftwareSynergy'
+    - Both VM and Synergy: 'OneViewApplianceSettings'
+
+    Note: 'OneViewApplianceSettings' returns all settings whose API category is 'OVE_APPLIANCE_SETTINGS_ANY', which applies to both
+    VM and Synergy OneView appliances. Use 'OneViewApplianceSettingsVM' to return only settings sourced from VM appliances, or
+    'OneViewApplianceSettingsSynergy' to return Synergy-specific settings (API category 'OVE_APPLIANCE_SETTINGS_SYNERGY').
+
+    .PARAMETER ShowVolumes
+    Optional switch parameter available when -Name is specified for a Storage-category setting. When present, returns the volume details contained within that storage setting instead of the top-level object.
+
+    .PARAMETER ShowSection
+    Optional parameter available when -Name is specified for a OneView appliance setting (OneViewApplianceSettings or OneViewApplianceSettingsSynergy category).
+    Drills into one specific configuration section of the setting and returns its properties.
+
+    Valid values: 'Security', 'Notifications', 'Proxy', 'RemoteSupport', 'SNMP', 'TimeAndLocale', 'Updates', 'GlobalSettings'
+
+    Note: Not all sections are present in every setting — a VM OneView appliance setting may include different sections than a Synergy OneView appliance setting,
+    depending on what was configured in OneView. Run the command without -ShowSection first to see the summary table, which displays X/Y counts for each section
+    (a '-' means the section is not configured). If the requested section is not configured, a warning is emitted and nothing is returned.
 
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -46,8 +69,38 @@ Function Get-HPECOMSetting {
 
     Return the volumes associated with the server internal storage setting named 'RAID-FOR_AI' located in the central EU region.
 
+    .EXAMPLE
+    Get-HPECOMSetting -Region eu-central -Name OV_Settings_v1 -ShowSection Security
+
+    Return the Security configuration section of the OneView appliance setting named 'OV_Settings_v1' located in the central EU region.
+
+    .EXAMPLE
+    Get-HPECOMSetting -Region eu-central -Name OV_Settings_v1 -ShowSection Notifications
+
+    Return the Notifications configuration section of the OneView appliance setting named 'OV_Settings_v1' located in the central EU region.
+
     .INPUTS
     None. You cannot pipe objects to this Cmdlet.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A collection of server setting objects for the specified region. The object type depends on the setting category:
+        * COM.Settings - Mixed or unrecognized categories
+        * COM.Settings.BIOS - BIOS settings
+        * COM.Settings.FIRMWARE - Firmware server settings
+        * COM.Settings.STORAGE - Internal storage settings
+        * COM.Settings.OS - OS installation settings
+        * COM.Settings.EXTERNAL_STORAGE - External storage settings
+        * COM.Settings.ILO_SETTINGS - iLO settings
+        * COM.Settings.ILO_SECURITY_SETTINGS - iLO security settings
+        * COM.Settings.OVE_APPLIANCE_SETTINGS_VM - OneView VM appliance settings
+        * COM.Settings.OVE_APPLIANCE_SETTINGS_SYNERGY - OneView Synergy appliance settings
+        * COM.Settings.OVE_SERVER_TEMPLATES_VM - OneView VM server profile template settings
+        * COM.Settings.OVE_SERVER_TEMPLATES_SYNERGY - OneView Synergy server profile template settings
+        * COM.Settings.OVE_SOFTWARE_VM - OneView VM appliance software settings
+        * COM.Settings.OVE_SOFTWARE_SYNERGY - OneView Synergy appliance software settings
+        When -ShowVolumes is specified, returns COM.Settings.STORAGE.volumes objects.
+        When -ShowSection is specified, returns section-specific objects (e.g., COM.Settings.OVE_APPLIANCE_SETTINGS.Security).
 
    #>
     [CmdletBinding(DefaultParameterSetName = 'default')]
@@ -77,11 +130,13 @@ Function Get-HPECOMSetting {
 
         [Parameter(ParameterSetName = 'default')]
         [Parameter(Mandatory, ParameterSetName = 'ShowVolumes')]
+        [Parameter(Mandatory, ParameterSetName = 'ShowSection')]
         [String]$Name,
 
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $categories = @('Bios', 'Os', 'Firmware', 'ExternalStorage', 'IloSecuritySettings', 'IloSettings', 'Storage')
+                $categories = @('Bios', 'Os', 'Firmware', 'ExternalStorage', 'IloSecuritySettings', 'IloSettings', 'Storage',
+                                'OneViewApplianceSettings', 'OneViewApplianceSettingsVM', 'OneViewApplianceSettingsSynergy', 'OneViewServerProfileTemplatesVM', 'OneViewServerProfileTemplatesSynergy', 'OneViewSoftwareVM', 'OneViewSoftwareSynergy')
                 
                 $filteredCategories = $categories | Where-Object { $_ -like "$wordToComplete*" }
 
@@ -91,7 +146,8 @@ Function Get-HPECOMSetting {
 
             })]
         [ValidateScript({
-                $validOptions = @('Bios', 'Os', 'Firmware', 'ExternalStorage', 'IloSecuritySettings', 'IloSettings', 'Storage')
+                $validOptions = @('Bios', 'Os', 'Firmware', 'ExternalStorage', 'IloSecuritySettings', 'IloSettings', 'Storage',
+                                  'OneViewApplianceSettings', 'OneViewApplianceSettingsVM', 'OneViewApplianceSettingsSynergy', 'OneViewServerProfileTemplatesVM', 'OneViewServerProfileTemplatesSynergy', 'OneViewSoftwareVM', 'OneViewSoftwareSynergy')
                 
                 if ($validOptions -contains $_) {
                     $True
@@ -105,6 +161,10 @@ Function Get-HPECOMSetting {
 
         [Parameter(ParameterSetName = 'ShowVolumes')]
         [Switch]$ShowVolumes,
+
+        [Parameter(Mandatory, ParameterSetName = 'ShowSection')]
+        [ValidateSet('Security','Notifications','Proxy','RemoteSupport','SNMP','TimeAndLocale','Updates','GlobalSettings')]
+        [String]$ShowSection,
         
         [Switch]$WhatIf
        
@@ -131,7 +191,7 @@ Function Get-HPECOMSetting {
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
            
         if ($Name) {
-            $Uri = (Get-COMSettingsUri) + "?filter=name eq '$name'"
+            $Uri = Get-COMSettingsUri
 
         }
         elseif ($Category) {
@@ -161,6 +221,30 @@ Function Get-HPECOMSetting {
                 Storage { 
                     $Uri = (Get-COMSettingsUri) + "?filter=category eq 'STORAGE'"
                 }
+                # OneView appliance settings (both VM and Synergy source appliances)
+                OneViewApplianceSettings {
+                    $Uri = (Get-COMSettingsUri) + "?filter=category eq 'OVE_APPLIANCE_SETTINGS_ANY'"
+                }
+                # OneView VM appliance settings only (filtered post-fetch by appliance type)
+                OneViewApplianceSettingsVM {
+                    $Uri = (Get-COMSettingsUri) + "?filter=category eq 'OVE_APPLIANCE_SETTINGS_ANY'"
+                }
+                OneViewServerProfileTemplatesVM {
+                    $Uri = (Get-COMSettingsUri) + "?filter=category eq 'OVE_SERVER_TEMPLATES_VM'"
+                }
+                OneViewSoftwareVM {
+                    $Uri = (Get-COMSettingsUri) + "?filter=category eq 'OVE_SOFTWARE_VM'"
+                }
+                # OneView Synergy appliance settings
+                OneViewApplianceSettingsSynergy {
+                    $Uri = (Get-COMSettingsUri) + "?filter=category eq 'OVE_APPLIANCE_SETTINGS_SYNERGY'"
+                }
+                OneViewServerProfileTemplatesSynergy {
+                    $Uri = (Get-COMSettingsUri) + "?filter=category eq 'OVE_SERVER_TEMPLATES_SYNERGY'"
+                }
+                OneViewSoftwareSynergy {
+                    $Uri = (Get-COMSettingsUri) + "?filter=category eq 'OVE_SOFTWARE_SYNERGY'"
+                }
 
             }
         }
@@ -188,10 +272,10 @@ Function Get-HPECOMSetting {
             $CollectionList | Add-Member -type NoteProperty -name region -value $Region
             
             if ($Name) {
-                $CollectionList = $CollectionList | Where-Object name -eq $Name
+                $CollectionList = $CollectionList | Where-Object { $_.name -ieq $Name }
             }
 
-            $allFirmware = $allbios = $allstorage = $allos = $allIlosettings = $allExternalStorage = $true
+            $allFirmware = $allbios = $allstorage = $allos = $allIlosettings = $allExternalStorage = $allOveTemplatesVM = $allOveTemplatesSynergy = $allOveSoftwareVM = $allOveSoftwareSynergy = $allOveApplianceVM = $allOveApplianceSynergy = $true
 
             foreach ($setting in $CollectionList) {
                 
@@ -255,8 +339,43 @@ Function Get-HPECOMSetting {
                 
                 if ("ILO_SETTINGS" -ne $setting.Category) {
                     $allIlosettings = $false
+                }
+
+                if ("OVE_SERVER_TEMPLATES_VM" -ne $setting.Category) {
+                    $allOveTemplatesVM = $false
+                }
+
+                if ("OVE_SERVER_TEMPLATES_SYNERGY" -ne $setting.Category) {
+                    $allOveTemplatesSynergy = $false
+                }
+
+                if ("OVE_SOFTWARE_VM" -ne $setting.Category) {
+                    $allOveSoftwareVM = $false
+                }
+
+                if ("OVE_SOFTWARE_SYNERGY" -ne $setting.Category) {
+                    $allOveSoftwareSynergy = $false
+                }
+
+                if ("OVE_APPLIANCE_SETTINGS_VM" -ne $setting.Category -and "OVE_APPLIANCE_SETTINGS_ANY" -ne $setting.Category) {
+                    $allOveApplianceVM = $false
+                }
+
+                if ("OVE_APPLIANCE_SETTINGS_SYNERGY" -ne $setting.Category) {
+                    $allOveApplianceSynergy = $false
                 }                
             }         
+
+            # Override VM/Synergy detection based on the Category parameter.
+            # OVE_APPLIANCE_SETTINGS_ANY items pass both the VM and Synergy item-level checks,
+            # so use the explicit Category parameter to resolve the ambiguity.
+            if ($Category -eq 'OneViewApplianceSettingsSynergy') {
+                $allOveApplianceVM      = $false
+                $allOveApplianceSynergy = $true
+            }
+            elseif ($Category -eq 'OneViewApplianceSettings' -or $Category -eq 'OneViewApplianceSettingsVM') {
+                $allOveApplianceSynergy = $false
+            }
 
 
             if ($allstorage) { 
@@ -288,6 +407,161 @@ Function Get-HPECOMSetting {
                 
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings.FIRMWARE"    
             }
+            elseif ($allOveTemplatesVM -or $allOveTemplatesSynergy) {
+
+                try { $AllAppliances = Get-HPECOMAppliance -Region $Region -Verbose:$false } catch {}
+
+                foreach ($_item in $CollectionList) {
+
+                    $_applianceId = $_item.data[0].applianceId
+                    $_applianceName = ($AllAppliances | Where-Object id -eq $_applianceId | Select-Object -First 1).name
+                    if (-not $_applianceName) { $_applianceName = $_applianceId }
+
+                    $_item | Add-Member -Type NoteProperty -Name applianceName -Value $_applianceName -Force
+
+                    try { $_AllTemplates = Get-HPECOMOneViewServerProfileTemplate -Region $Region -ApplianceName $_applianceName -Verbose:$false } catch {}
+
+                    $_templateNames = $_item.data[0].templates | ForEach-Object {
+                        $_uri = $_.uri
+                        $_t = $_AllTemplates | Where-Object uri -eq $_uri | Select-Object -First 1
+                        if ($_t) { $_t.name } else { $_uri }
+                    }
+                    $_item | Add-Member -Type NoteProperty -Name serverProfileTemplateNames -Value ($_templateNames -join ', ') -Force
+                }
+
+                if ($allOveTemplatesVM) {
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings.OVE_SERVER_TEMPLATES_VM"
+                }
+                else {
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings.OVE_SERVER_TEMPLATES_SYNERGY"
+                }
+            }
+            elseif ($allOveSoftwareVM -or $allOveSoftwareSynergy) {
+
+                try { $AllBundles = Get-HPECOMApplianceFirmwareBundle -Region $Region -Verbose:$false } catch {}
+
+                $_applianceTypeLabel = if ($allOveSoftwareVM) { 'VM' } else { 'Synergy' }
+
+                foreach ($_item in $CollectionList) {
+
+                    $_bundleId = $_item.applianceFirmwareId
+                    $_bundle = $AllBundles | Where-Object id -eq $_bundleId | Select-Object -First 1
+                    $_version = if ($_bundle) { $_bundle.applianceVersion } else { $_bundleId }
+
+                    $_item | Add-Member -Type NoteProperty -Name applianceVersion -Value $_version      -Force
+                    $_item | Add-Member -Type NoteProperty -Name applianceType    -Value $_applianceTypeLabel -Force
+                }
+
+                if ($allOveSoftwareVM) {
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings.OVE_SOFTWARE_VM"
+                }
+                else {
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings.OVE_SOFTWARE_SYNERGY"
+                }
+            }
+            elseif ($allOveApplianceVM -or $allOveApplianceSynergy) {
+
+                # Always fetch appliances for name resolution.
+                # OVE_APPLIANCE_SETTINGS_ANY is used by both VM and Synergy appliances — the enrichment
+                # path (VM vs Synergy) is determined by the collection-wide flag ($allOveApplianceVM),
+                # not by the individual appliance type, so that ALL OVE_APPLIANCE_SETTINGS_ANY items
+                # receive the full VM-style enrichment (security/notifications/... counts) regardless
+                # of whether their source appliance is type VM or SYNERGY.
+                try { $AllAppliances = Get-HPECOMAppliance -Region $Region -Verbose:$false } catch {}
+
+                # When -Category OneViewApplianceSettingsVM, keep only items sourced from VM-type appliances.
+                if ($Category -eq 'OneViewApplianceSettingsVM') {
+                    $_vmIds = ($AllAppliances | Where-Object applianceType -eq 'VM').id
+                    $CollectionList = @($CollectionList | Where-Object { $_.sourceApplianceId -in $_vmIds })
+                }
+
+                foreach ($_item in $CollectionList) {
+
+                    if ($allOveApplianceVM) {
+                        # Resolve sourceApplianceId -> applianceName
+                        $_applianceId   = $_item.sourceApplianceId
+                        $_applianceName = ($AllAppliances | Where-Object id -eq $_applianceId | Select-Object -First 1).name
+                        if (-not $_applianceName) { $_applianceName = $_applianceId }
+                        $_item | Add-Member -Type NoteProperty -Name applianceName -Value $_applianceName -Force
+
+                        $_def = $_item.settings.DEFAULT
+
+                        # Security — handle both old and new OneView API formats
+                        $_sec = $_def.security
+                        if ($null -ne $_sec) {
+                            # New format properties
+                            $_secPropsNew = @('allowSshAccess','enforceComplexPasswordEnabled','enableServiceAccess','certValidationConfig','auditLogForwarding','productImprovement')
+                            # Old format properties
+                            $_secPropsOld = @('allowLocalLogin','emergencyLocalLoginEnabled','twoFactorAuthenticationEnabled','strictTwoFactorAuthentication','userGroups','directories')
+                            $_secAll = $_secPropsNew + $_secPropsOld
+                            $_secCount = ($_secAll | Where-Object { $null -ne $_sec.$_ }).Count
+                            $_secValue = "$_secCount/$($_secAll.Count)"
+                        } else { $_secValue = "-" }
+                        $_item | Add-Member -Type NoteProperty -Name securitySelected -Value $_secValue -Force
+
+                        # Notifications (2 sub-settings)
+                        $_notif = $_def.notifications
+                        if ($null -ne $_notif) {
+                            $_notifProps = @('smtpServer','alertEmailFilters')
+                            $_notifCount = ($_notifProps | Where-Object { $null -ne $_notif.$_ }).Count
+                            $_notifValue = "$_notifCount/2"
+                        } else { $_notifValue = "-" }
+                        $_item | Add-Member -Type NoteProperty -Name notificationsSelected -Value $_notifValue -Force
+
+                        # Proxy (1 sub-setting)
+                        $_proxy = $_def.proxy
+                        $_item | Add-Member -Type NoteProperty -Name proxySelected -Value $(if ($null -ne $_proxy) { "1/1" } else { "-" }) -Force
+
+                        # Remote Support (2 sub-settings: configuration + schedule)
+                        $_rs = $_def.remoteSupport
+                        if ($null -ne $_rs) {
+                            $_rsProps = @('configuration','schedule')
+                            $_rsCount = ($_rsProps | Where-Object { $null -ne $_rs.$_ }).Count
+                            $_rsValue = "$_rsCount/2"
+                        } else { $_rsValue = "-" }
+                        $_item | Add-Member -Type NoteProperty -Name remoteSupportSelected -Value $_rsValue -Force
+
+                        # SNMP (1 sub-setting)
+                        $_snmp = $_def.snmp
+                        $_item | Add-Member -Type NoteProperty -Name snmpSelected -Value $(if ($null -ne $_snmp) { "1/1" } else { "-" }) -Force
+
+                        # Time and locale (2 sub-settings: locale + timeSource)
+                        $_tal = $_def.timeAndLocale
+                        if ($null -ne $_tal) {
+                            $_talProps = @('locale','timeSource')
+                            $_talCount = ($_talProps | Where-Object { $null -ne $_tal.$_ }).Count
+                            $_talValue = "$_talCount/2"
+                        } else { $_talValue = "-" }
+                        $_item | Add-Member -Type NoteProperty -Name timeLocaleSelected -Value $_talValue -Force
+
+                        # Updates (1 sub-setting)
+                        $_upd = $_def.updates
+                        $_item | Add-Member -Type NoteProperty -Name updatesSelected -Value $(if ($null -ne $_upd) { "1/1" } else { "-" }) -Force
+
+                        # Global settings (4 sub-settings)
+                        $_gs = $_def.globalSettings
+                        if ($null -ne $_gs) {
+                            $_gsProps = @('serverManagementProcessorNtpSource','profileBIOSConsistency','storageSettings','uiSettings')
+                            $_gsCount = ($_gsProps | Where-Object { $null -ne $_gs.$_ }).Count
+                            $_gsValue = "$_gsCount/4"
+                        } else { $_gsValue = "-" }
+                        $_item | Add-Member -Type NoteProperty -Name globalSettingsSelected -Value $_gsValue -Force
+                    }
+                    else {
+                        # Synergy: detect which global settings are present
+                        $_globalSettings = $_item.settings.DEFAULT.globalSettings
+                        $_item | Add-Member -Type NoteProperty -Name interconnectSettingsIncluded        -Value ($null -ne $_globalSettings.interconnectManagerNtpSource) -Force
+                        $_item | Add-Member -Type NoteProperty -Name logicalInterconnectSettingsIncluded -Value ($null -ne $_globalSettings.reservedVlanRange)             -Force
+                    }
+                }
+
+                if ($allOveApplianceVM) {
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings.OVE_APPLIANCE_SETTINGS_VM"
+                }
+                else {
+                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings.OVE_APPLIANCE_SETTINGS_SYNERGY"
+                }
+            }
             else {
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings"    
                 
@@ -298,6 +572,54 @@ Function Get-HPECOMSetting {
                 $CollectionList = $CollectionList.volumes | Sort-Object { $_.raidType }    
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.Settings.STORAGE.volumes"
                 
+            }
+
+            if ($ShowSection) {
+
+                $_sectionMap = @{
+                    'Security'       = 'security'
+                    'Notifications'  = 'notifications'
+                    'Proxy'          = 'proxy'
+                    'RemoteSupport'  = 'remoteSupport'
+                    'SNMP'           = 'snmp'
+                    'TimeAndLocale'  = 'timeAndLocale'
+                    'Updates'        = 'updates'
+                    'GlobalSettings' = 'globalSettings'
+                }
+                $_sectionKey = $_sectionMap[$ShowSection]
+
+                if ($ShowSection -eq 'Security') {
+                    # Detect schema variant per item:
+                    # - Synergy/ANY OneView (allowSshAccess present) -> Security
+                    # - VM OneView (allowLocalLogin present)         -> Security.VM
+                    $_result = $CollectionList | ForEach-Object {
+                        $_sec = $_.settings.DEFAULT.security
+                        if ($null -eq $_sec) {
+                            Write-Warning "Setting '$($_.name)' does not have a '$ShowSection' section configured."
+                            return
+                        }
+                        if ($null -ne $_sec.allowSshAccess) {
+                            Invoke-RepackageObjectWithType -RawObject $_sec -ObjectName 'COM.Settings.OVE_APPLIANCE_SETTINGS.Security'
+                        }
+                        else {
+                            Invoke-RepackageObjectWithType -RawObject $_sec -ObjectName 'COM.Settings.OVE_APPLIANCE_SETTINGS.Security.VM'
+                        }
+                    }
+                    return $_result
+                }
+
+                $_extracted = @($CollectionList | ForEach-Object {
+                    $_sec = $_.settings.DEFAULT.$_sectionKey
+                    if ($null -eq $_sec) {
+                        Write-Warning "Setting '$($_.name)' does not have a '$ShowSection' section configured."
+                        return
+                    }
+                    $_sec
+                })
+
+                if (-not $_extracted) { return }
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $_extracted -ObjectName "COM.Settings.OVE_APPLIANCE_SETTINGS.$ShowSection"
+                return $ReturnData
             }
 
             $ReturnData = $ReturnData | Sort-Object { $_.name }
@@ -334,7 +656,7 @@ Function New-HPECOMSettingServerBios {
     valid values, and platform-specific availability, please refer to the HPE iLO BIOS documentation links above. Parameter availability varies by server generation 
     and model. Use Get-Help New-HPECOMSettingServerBios -Parameter <ParameterName> to view individual parameter details, or use tab completion to discover available parameters.
 
-    Note: If a parameter is incompatible with your iLO generation or server platform, 'Invoke-HPECOMGroupBiosConfiguration' will return an error message stating "Apply BIOS settings failed…".
+    Note: If a parameter is incompatible with your iLO generation or server platform, 'Invoke-HPECOMGroupServerBiosConfiguration' will return an error message stating "Apply BIOS settings failed…".
     To get more detailed information about the parameters that caused these errors, access the iLO Redfish API using a GET request to /redfish/v1/Systems/1/Bios/ and inspect the @Redfish.Settings.Messages property.
 
     Note: If one or more unsupported parameters are selected, the other BIOS settings will still be applied successfully. Unsupported parameters will be ignored without affecting the application of the other settings.
@@ -584,19 +906,10 @@ Function New-HPECOMSettingServerBios {
 
         # Enter a message to be displayed on POST screen during system startup. This feature limits POST screen messaging to 62 characters, special characters are also accepted.
         [ValidateScript({
-                if ($_.Length -le 62) {
-                    $True
-                }
-                if ($_ -match '^[a-zA-Z0-9]+$') {
-                    $true
-                } 
-                elseif ($_.Length -gt 62) {
+                if ($_.Length -gt 62) {
                     throw "The POST screen message cannot have more than 62 characters!"
-
                 }
-                elseif ($_ -notmatch '^[a-zA-Z0-9]+$') {
-                    throw "The POST screen message cannot contain special characters!"
-                }
+                return $true
             })]
         [string]$CustomPostMessage,
         
@@ -4320,7 +4633,7 @@ Function New-HPECOMSettingServerBios {
     
             if ($WhatIf) {
                 $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -5035,7 +5348,7 @@ Function Set-HPECOMSettingServerBios {
     valid values, and platform-specific availability, please refer to the HPE iLO BIOS documentation links above. Parameter availability varies by server generation 
     and model. Use Get-Help Set-HPECOMSettingServerBios -Parameter <ParameterName> to view individual parameter details, or use tab completion to discover available parameters.
 
-    Note: If a parameter is incompatible with your iLO generation or server platform, 'Invoke-HPECOMGroupBiosConfiguration' will return an error message stating "Apply BIOS settings failed…".
+    Note: If a parameter is incompatible with your iLO generation or server platform, 'Invoke-HPECOMGroupServerBiosConfiguration' will return an error message stating "Apply BIOS settings failed…".
     To get more detailed information about the parameters that caused these errors, access the iLO Redfish API using a GET request to /redfish/v1/Systems/1/Bios/ and inspect the @Redfish.Settings.Messages property.
 
     Note: If one or more unsupported parameters are selected, the other BIOS settings will still be applied successfully. Unsupported parameters will be ignored without affecting the application of the other settings.
@@ -5295,19 +5608,10 @@ Function Set-HPECOMSettingServerBios {
 
         # Enter a message to be displayed on POST screen during system startup. This feature limits POST screen messaging to 62 characters, special characters are also accepted.
         [ValidateScript({
-                if ($_.Length -le 62) {
-                    $True
-                }
-                if ($_ -match '^[a-zA-Z0-9]+$') {
-                    $true
-                } 
-                elseif ($_.Length -gt 62) {
+                if ($_.Length -gt 62) {
                     throw "The POST screen message cannot have more than 62 characters!"
-
                 }
-                elseif ($_ -notmatch '^[a-zA-Z0-9]+$') {
-                    throw "The POST screen message cannot contain special characters!"
-                }
+                return $true
             })]
         [string]$CustomPostMessage,
         
@@ -9037,12 +9341,12 @@ Function Set-HPECOMSettingServerBios {
             if ($WhatIf) {
 
                 $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Setting cannot be found in the region!"
             }
         }
@@ -9855,13 +10159,13 @@ Function New-HPECOMSettingServerInternalStorageVolume {
 
     By default, this feature is set to 'Not managed', which means that Compute Ops Management does not set any value for the feature. When this feature is not managed through Compute Ops Management, the default value set by the controller is used.
 
-    .PARAMETER WhatIf 
-    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+    .PARAMETER WhatIf
+    Displays the volume object that would be returned without outputting it. Use this to preview the volume configuration before passing it to 'New-HPECOMSettingServerInternalStorage' or 'Set-HPECOMSettingServerInternalStorage'.
 
     .EXAMPLE
-    $volume1 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID5 -DriveTechnology NVME_SSD -IOPerformanceMode -ReadCachePolicy OFF -WriteCachePolicy WRITE_THROUGH -SizeinGB 100 -DrivesNumber 3 -SpareDriveNumber 2
+    $volume1 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID5 -DriveTechnology NVME_SSD -IOPerformanceMode ENABLED -ReadCachePolicy OFF -WriteCachePolicy WRITE_THROUGH -SizeinGB 100 -DrivesNumber 3 -SpareDriveNumber 2
     $volume2 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID1 -DriveTechnology SAS_HDD
-    New-HPECOMSettingServerInternalStorage -Region eu-central -Name "RAID_CONF_FOR_AI_SERVERS" -Description "My server setting for the AI servers" -Volume $volume1,$volume2 
+    New-HPECOMSettingServerInternalStorage -Region eu-central -Name "RAID_CONF_FOR_AI_SERVERS" -Description "My server setting for the AI servers" -Volumes $volume1,$volume2 
 
     This example demonstrates how to create two internal storage volumes. The first volume is a RAID5 configuration with NVMe SSD drives, I/O performance mode enabled, and a size of 100GB. 
     The second volume is a RAID1 configuration with SAS HDD drives. Finally, the volumes are used to create a server setting named 'RAID_CONF_FOR_AI_SERVERS' in the central European region. 
@@ -9930,7 +10234,7 @@ Function New-HPECOMSettingServerInternalStorageVolume {
 
         [ArgumentCompleter({
             param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-            $RAIDs = @('READ_AHEAD', 'ADAPTIVE_READ_AHEAD', 'OFF')
+            $RAIDs = @('PROTECTED_WRITE_BACK', 'UNPROTECTED_WRITE_BACK', 'WRITE_THROUGH', 'OFF')
             $filteredRAIDs = $RAIDs | Where-Object { $_ -like "$wordToComplete*" }
             return $filteredRAIDs | ForEach-Object {
                 [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
@@ -9954,6 +10258,11 @@ Function New-HPECOMSettingServerInternalStorageVolume {
        
     ) 
     Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
         # Initialize the volume object
         $volume = [PSCustomObject]@{
             raidType           = $RAID
@@ -9969,9 +10278,10 @@ Function New-HPECOMSettingServerInternalStorageVolume {
 
     Process {
 
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
         if ($RAID -eq "RAID0" -and $SpareDriveNumber -gt 0) {
-            Write-Error "RAID0 does not support spare drives!"
-            return
+            throw "RAID0 does not support spare drives. Please remove the -SpareDriveNumber parameter or set it to 0."
         }
 
         if ($PSBoundParameters.ContainsKey('SizeinGB')) {
@@ -9991,10 +10301,10 @@ Function New-HPECOMSettingServerInternalStorageVolume {
             elseif ($RAID -eq "RAID10") {
                 $volume.driveCount = 4
             }
-            elseif ($RAID -eq "RAID1Triple") {
+            elseif ($RAID -eq "RAID1_TRIPLE") {
                 $volume.driveCount = 3
             }
-            elseif ($RAID -eq "RAID10Triple") {
+            elseif ($RAID -eq "RAID10_TRIPLE") {
                 $volume.driveCount = 6
             }
             elseif ($RAID -eq "RAID5") {
@@ -10040,7 +10350,7 @@ Function New-HPECOMSettingServerInternalStorageVolume {
         }
 
         if ($WhatIf) {
-            Write-Host "WhatIf: Would create volume object with properties:"
+            Write-Warning "WhatIf: Volume object that would be created with the specified parameters:"
             $volume | Format-List
             return
         }
@@ -10163,6 +10473,7 @@ Function New-HPECOMSettingServerInternalStorage {
         $Uri = Get-COMSettingsUri
 
         $VolumesObject = [System.Collections.ArrayList]::new()
+        $NewServerSettingInternalStorageStatus = [System.Collections.ArrayList]::new()
 
     }
 
@@ -10170,7 +10481,10 @@ Function New-HPECOMSettingServerInternalStorage {
 
         "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
 
-        [void] $VolumesObject.add($Volumes)
+        # Handle both pipeline (one object at a time) and parameter (array passed directly)
+        foreach ($vol in @($Volumes)) {
+            [void] $VolumesObject.add($vol)
+        }
 
     
     }
@@ -10201,7 +10515,7 @@ Function New-HPECOMSettingServerInternalStorage {
     
             if ($WhatIf) {
                 $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 Return
             }
             else {
@@ -10217,7 +10531,7 @@ Function New-HPECOMSettingServerInternalStorage {
 
             $Settings = @{ 
                 DEFAULT = @{
-                    volumes = @($VolumesObject | ForEach-Object { $_ })
+                    volumes = $VolumesObject
                 }
             }
 
@@ -10258,9 +10572,11 @@ Function New-HPECOMSettingServerInternalStorage {
             } 
         }
 
-        if (-not $WhatIf ) {
+        if (-not $WhatIf) { [void] $NewServerSettingInternalStorageStatus.add($objStatus) }
 
-            $NewServerSettingInternalStorageStatus = Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.objStatus.NSDE"    
+        if ($NewServerSettingInternalStorageStatus.Count -gt 0) {
+
+            $NewServerSettingInternalStorageStatus = Invoke-RepackageObjectWithType -RawObject $NewServerSettingInternalStorageStatus -ObjectName "COM.objStatus.NSDE"    
             Return $NewServerSettingInternalStorageStatus
         
         }
@@ -10307,7 +10623,7 @@ Function Set-HPECOMSettingServerInternalStorage {
     This example updates the description of the internal storage server setting "RAID1" in the "eu-central" region, describing it as "Local storage settings using RAID1 and entire disk for OS".
 
     .EXAMPLE
-    $volume1 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID5 -DriveTechnology NVME_SSD -IOPerformanceMode -ReadCachePolicy OFF -WriteCachePolicy WRITE_THROUGH -SizeinGB 100 -DrivesNumber 3 -SpareDriveNumber 2 
+    $volume1 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID5 -DriveTechnology NVME_SSD -IOPerformanceMode ENABLED -ReadCachePolicy OFF -WriteCachePolicy WRITE_THROUGH -SizeinGB 100 -DrivesNumber 3 -SpareDriveNumber 2 
     $volume2 = New-HPECOMSettingServerInternalStorageVolume -RAID RAID1 -DriveTechnology SAS_HDD 
     Set-HPECOMSettingServerInternalStorage -Region eu-central -Name "AI_SERVER_RAID1&5" -Volumes $volume1, $volume2 
 
@@ -10420,7 +10736,7 @@ Function Set-HPECOMSettingServerInternalStorage {
             if ($WhatIf) {
 
                 $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             
             }
@@ -10497,7 +10813,7 @@ Function Set-HPECOMSettingServerInternalStorage {
             } 
         }
 
-        [void] $SetServerSettingInternalStorageStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $SetServerSettingInternalStorageStatus.add($objStatus) }
 
     
     }
@@ -10505,7 +10821,7 @@ Function Set-HPECOMSettingServerInternalStorage {
     End {
        
 
-        if (-not $WhatIf ) {
+        if ($SetServerSettingInternalStorageStatus.Count -gt 0) {
 
             $SetServerSettingInternalStorageStatus = Invoke-RepackageObjectWithType -RawObject $SetServerSettingInternalStorageStatus -ObjectName "COM.objStatus.NSDE"    
             Return $SetServerSettingInternalStorageStatus
@@ -10627,7 +10943,7 @@ Function New-HPECOMSettingServerOSImage {
         [Parameter (Mandatory)]
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Values = @('MICROSOFT_WINDOWS', 'VMWARE_ESXI', 'RHEL', 'SUSE_LINUX', 'CUSTOM')
+                $Values = @('MICROSOFT_WINDOWS', 'VMWARE_ESXI', 'RHEL', 'SUSE_LINUX', 'UBUNTU_LINUX', 'CUSTOM')
                 $FilteredValues = $Values | Where-Object { $_ -like "$wordToComplete*" }
                 return $FilteredValues | ForEach-Object {
                     [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
@@ -10702,7 +11018,7 @@ Function New-HPECOMSettingServerOSImage {
     
             if ($WhatIf) {
                 $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -10919,13 +11235,13 @@ Function Set-HPECOMSettingServerOSImage {
         
         [ArgumentCompleter({
                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $RAIDs = @('MICROSOFT_WINDOWS', 'VMWARE_ESXI', 'RHEL', 'SUSE_LINUX', 'CUSTOM')
+                $RAIDs = @('MICROSOFT_WINDOWS', 'VMWARE_ESXI', 'RHEL', 'SUSE_LINUX', 'UBUNTU_LINUX', 'CUSTOM')
                 $filteredRAIDs = $RAIDs | Where-Object { $_ -like "$wordToComplete*" }
                 return $filteredRAIDs | ForEach-Object {
                     [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
                 }
             })]
-        [ValidateSet ('MICROSOFT_WINDOWS', 'VMWARE_ESXI', 'RHEL', 'SUSE_LINUX', 'CUSTOM')]
+        [ValidateSet ('MICROSOFT_WINDOWS', 'VMWARE_ESXI', 'RHEL', 'SUSE_LINUX', 'UBUNTU_LINUX', 'CUSTOM')]
         [String]$OperatingSystem,
         
         [ValidateScript({
@@ -10996,7 +11312,7 @@ Function Set-HPECOMSettingServerOSImage {
             if ($WhatIf) {
 
                 $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             
             }
@@ -11144,25 +11460,25 @@ Function New-HPECOMSettingServerFirmware {
     Specifies a description for the firmware server setting.
 
     .PARAMETER Gen10FirmwareBaselineReleaseVersion
-    Specifies the name of a baseline SPP or hotfix/patch baseline for Gen10/Gen10+ servers. 
+    Specifies the release version of a firmware baseline for Gen10/Gen10+ servers (e.g., '2024.04.00.01'). Accepts both SPP base and hotfix/patch bundle versions.
     
     .PARAMETER Gen11FirmwareBaselineReleaseVersion
-    Specifies the name of a baseline SPP or hotfix/patch baseline for Gen11 servers.
+    Specifies the release version of a firmware baseline for Gen11 servers (e.g., '2025.11.01.00'). Accepts both SPP base and hotfix/patch bundle versions.
 
     .PARAMETER Gen12FirmwareBaselineReleaseVersion
-    Specifies the name of a baseline SPP or hotfix/patch baseline for Gen12 servers.
+    Specifies the release version of a firmware baseline for Gen12 servers (e.g., '2025.11.01.00'). Accepts both SPP base and hotfix/patch bundle versions.
 
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM. 
    
     .EXAMPLE
-    $Gen10_Firmware_Baseline = Get-HPECOMFirmwareBaseline -Region eu-central -Generation 10 | Select-Object -first 1 | ForEach-Object releaseversion
-    $Gen11_Firmware_Baseline = Get-HPECOMFirmwareBaseline -Region eu-central -Generation 11 | Select-Object -first 1 | ForEach-Object releaseversion
-    $Gen12_Firmware_Baseline = Get-HPECOMFirmwareBaseline -Region eu-central -Generation 12 | Select-Object -first 1 | ForEach-Object releaseversion
+    $Gen10_Firmware_Baseline = Get-HPECOMFirmwareBaseline -Region eu-central -LatestVersion -IsActive -Generation 10 | Select-Object -ExpandProperty releaseVersion
+    $Gen11_Firmware_Baseline = Get-HPECOMFirmwareBaseline -Region eu-central -LatestVersion -IsActive -Generation 11 | Select-Object -ExpandProperty releaseVersion
+    $Gen12_Firmware_Baseline = Get-HPECOMFirmwareBaseline -Region eu-central -LatestVersion -IsActive -Generation 12 | Select-Object -ExpandProperty releaseVersion
 
     New-HPECOMSettingServerFirmware -Region eu-central -Name Latest_Firmware_Bundle -Description "Server setting to update servers to latest firmware baseline" -Gen10FirmwareBaselineReleaseVersion $Gen10_Firmware_Baseline -Gen11FirmwareBaselineReleaseVersion $Gen11_Firmware_Baseline -Gen12FirmwareBaselineReleaseVersion $Gen12_Firmware_Baseline
 
-    Create a new firmware server setting using dynamically retrieved firmware baseline release versions for Gen10/Gen10+, Gen11, and Gen12 servers.
+    Create a new firmware server setting using the latest active firmware baseline release versions for Gen10/Gen10+, Gen11, and Gen12 servers.
 
     .EXAMPLE
     New-HPECOMSettingServerFirmware -Region us-west -Name SPP-2024.04.00.01 -Description "Server setting to update servers to 2024-04-00-01 firmware baseline" -Gen10FirmwareBaselineReleaseVersion 2024.04.00.01 -Gen11FirmwareBaselineReleaseVersion 2024.04.00.01 -Gen12FirmwareBaselineReleaseVersion 2024.04.00.01
@@ -11219,17 +11535,20 @@ Function New-HPECOMSettingServerFirmware {
         [Parameter (Mandatory, ParameterSetName = 'Gen10Baseline')]
         [Parameter (ParameterSetName = 'Together')]
         [Alias('Gen10FirmwareBundleReleaseVersion')]
-        [String]$Gen10FirmwareBaselineReleaseVersion,
+        [ValidateCount(1, 1)]
+        [String[]]$Gen10FirmwareBaselineReleaseVersion,
 
         [Parameter (Mandatory, ParameterSetName = 'Gen11Baseline')]
         [Parameter (ParameterSetName = 'Together')]
         [Alias('Gen11FirmwareBundleReleaseVersion')]
-        [String]$Gen11FirmwareBaselineReleaseVersion,
+        [ValidateCount(1, 1)]
+        [String[]]$Gen11FirmwareBaselineReleaseVersion,
 
         [Parameter (Mandatory, ParameterSetName = 'Gen12Baseline')]
         [Parameter (ParameterSetName = 'Together')]
         [Alias('Gen12FirmwareBundleReleaseVersion')]
-        [String]$Gen12FirmwareBaselineReleaseVersion,
+        [ValidateCount(1, 1)]
+        [String[]]$Gen12FirmwareBaselineReleaseVersion,
         
         [Switch]$WhatIf
        
@@ -11274,7 +11593,7 @@ Function New-HPECOMSettingServerFirmware {
     
             if ($WhatIf) {
                 $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -11287,16 +11606,22 @@ Function New-HPECOMSettingServerFirmware {
 
             # Build payload - retrieve firmware baseline IDs for all provided generations
 
+            # Validate that at least one generation baseline was provided
+            if (-not $Gen10FirmwareBaselineReleaseVersion -and -not $Gen11FirmwareBaselineReleaseVersion -and -not $Gen12FirmwareBaselineReleaseVersion) {
+                $ErrorRecord = New-ErrorRecord MissingFirmwareBaseline InvalidArgument -TargetObject 'Gen*FirmwareBaselineReleaseVersion' -Message "At least one firmware baseline release version must be specified (-Gen10FirmwareBaselineReleaseVersion, -Gen11FirmwareBaselineReleaseVersion, or -Gen12FirmwareBaselineReleaseVersion)." -TargetType 'String'
+                $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+            }
+
             $Settings = @{}
             $MissingBaselines = @()
 
             try {
                 # Retrieve Gen10 baseline ID if specified
                 if ($Gen10FirmwareBaselineReleaseVersion) {
-                    $Gen10FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen10FirmwareBaselineReleaseVersion -Generation 10).id
+                    $Gen10FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen10FirmwareBaselineReleaseVersion[0] -Generation 10 | Select-Object -First 1).id
                     
                     if (-not $Gen10FirmwareBaselineID) {
-                        $MissingBaselines += "Gen10: $Gen10FirmwareBaselineReleaseVersion"
+                        $MissingBaselines += "Gen10: $($Gen10FirmwareBaselineReleaseVersion[0])"
                     }
                     else {
                         $Settings.GEN10 = @{ id = $Gen10FirmwareBaselineID }
@@ -11305,10 +11630,10 @@ Function New-HPECOMSettingServerFirmware {
 
                 # Retrieve Gen11 baseline ID if specified
                 if ($Gen11FirmwareBaselineReleaseVersion) {
-                    $Gen11FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen11FirmwareBaselineReleaseVersion -Generation 11).id
+                    $Gen11FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen11FirmwareBaselineReleaseVersion[0] -Generation 11 | Select-Object -First 1).id
                     
                     if (-not $Gen11FirmwareBaselineID) {
-                        $MissingBaselines += "Gen11: $Gen11FirmwareBaselineReleaseVersion"
+                        $MissingBaselines += "Gen11: $($Gen11FirmwareBaselineReleaseVersion[0])"
                     }
                     else {
                         $Settings.GEN11 = @{ id = $Gen11FirmwareBaselineID }
@@ -11317,10 +11642,10 @@ Function New-HPECOMSettingServerFirmware {
 
                 # Retrieve Gen12 baseline ID if specified
                 if ($Gen12FirmwareBaselineReleaseVersion) {
-                    $Gen12FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen12FirmwareBaselineReleaseVersion -Generation 12).id
+                    $Gen12FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen12FirmwareBaselineReleaseVersion[0] -Generation 12 | Select-Object -First 1).id
                     
                     if (-not $Gen12FirmwareBaselineID) {
-                        $MissingBaselines += "Gen12: $Gen12FirmwareBaselineReleaseVersion"
+                        $MissingBaselines += "Gen12: $($Gen12FirmwareBaselineReleaseVersion[0])"
                     }
                     else {
                         $Settings.GEN12 = @{ id = $Gen12FirmwareBaselineID }
@@ -11463,13 +11788,13 @@ Function Set-HPECOMSettingServerFirmware {
         A custom status object or array of objects containing the following PsCustomObject keys:
         * Name - The name of the firmware server setting attempted to be updated
         * Region - The name of the region
-        * Status - Status of the modification attempt (Failed for HTTP error return; Complete if creation is successful; Warning if no action is needed)
+        * Status - Status of the modification attempt (Failed for HTTP error return; Complete if update is successful; Warning if no action is needed)
         * Details - More information about the status
         * Exception - Information about any exceptions generated during the operation
 
     #>
     
-    [CmdletBinding(DefaultParameterSetName = 'EntireDisk')]
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
     Param( 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
@@ -11516,6 +11841,7 @@ Function Set-HPECOMSettingServerFirmware {
         [Switch]$WhatIf
        
     ) 
+
     Begin {
 
         $Caller = (Get-PSCallStack)[1].Command
@@ -11558,12 +11884,12 @@ Function Set-HPECOMSettingServerFirmware {
             if ($WhatIf) {
 
                 $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Setting cannot be found in the region!"
             }
         }
@@ -11599,7 +11925,7 @@ Function Set-HPECOMSettingServerFirmware {
             elseif ($PSBoundParameters.ContainsKey('Gen10FirmwareBaselineReleaseVersion')) {
                 
                 try {
-                    $Gen10FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen10FirmwareBaselineReleaseVersion -Generation 10).id
+                    $Gen10FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen10FirmwareBaselineReleaseVersion -Generation 10 | Select-Object -First 1).id
                 }
                 catch {
                     $PSCmdlet.ThrowTerminatingError($_)
@@ -11608,8 +11934,6 @@ Function Set-HPECOMSettingServerFirmware {
     
                 if (-not $Gen10FirmwareBaselineID) {
     
-                    # Must return a message if SN/Name not found
-                    
                     $ErrorMessage = "Firmware baseline '{0}' cannot be found in the Compute Ops Management instance!" -f $Gen10FirmwareBaselineReleaseVersion
                     $ErrorRecord = New-ErrorRecord FirmwareBaselineNotFoundInCOM ObjectNotFound -TargetObject 'Firmware-baselines' -Message $ErrorMessage -TargetType $Gen10FirmwareBaselineReleaseVersion.GetType().Name
                 
@@ -11630,7 +11954,7 @@ Function Set-HPECOMSettingServerFirmware {
             elseif ($PSBoundParameters.ContainsKey('Gen11FirmwareBaselineReleaseVersion')) {
 
                 try {
-                    $Gen11FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen11FirmwareBaselineReleaseVersion -Generation 11).id
+                    $Gen11FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen11FirmwareBaselineReleaseVersion -Generation 11 | Select-Object -First 1).id
                 }
                 catch {
                     $PSCmdlet.ThrowTerminatingError($_)
@@ -11639,8 +11963,6 @@ Function Set-HPECOMSettingServerFirmware {
     
                 if (-not $Gen11FirmwareBaselineID) {
     
-                    # Must return a message if SN/Name not found
-                    
                     $ErrorMessage = "Firmware baseline '{0}' cannot be found in the Compute Ops Management instance!" -f $Gen11FirmwareBaselineReleaseVersion
                     $ErrorRecord = New-ErrorRecord FirmwareBaselineNotFoundInCOM ObjectNotFound -TargetObject 'Firmware-baselines' -Message $ErrorMessage -TargetType $Gen11FirmwareBaselineReleaseVersion.GetType().Name
                 
@@ -11648,41 +11970,39 @@ Function Set-HPECOMSettingServerFirmware {
                 }
             }
 
+            if (-not $PSBoundParameters.ContainsKey('Gen12FirmwareBaselineReleaseVersion') ) {
+                
+                if ($SettingResource.settings.GEN12.id) {
 
-            if ($Gen10FirmwareBaselineReleaseVersion -and -not $Gen11FirmwareBaselineReleaseVersion) {
+                    $Gen12FirmwareBaselineID = $SettingResource.settings.GEN12.id
+                    $Gen12FirmwareBaselineReleaseVersion = $True
 
-                $Settings = @{ 
-                    GEN10 = @{
-                        id = $Gen10FirmwareBaselineID
+                }
+            }
+            elseif ($PSBoundParameters.ContainsKey('Gen12FirmwareBaselineReleaseVersion')) {
+
+                try {
+                    $Gen12FirmwareBaselineID = (Get-HPECOMFirmwareBaseline -Region $Region -IsActive -ReleaseVersion $Gen12FirmwareBaselineReleaseVersion -Generation 12 | Select-Object -First 1).id
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                    
+                }
     
-                    }
+                if (-not $Gen12FirmwareBaselineID) {
+    
+                    $ErrorMessage = "Firmware baseline '{0}' cannot be found in the Compute Ops Management instance!" -f $Gen12FirmwareBaselineReleaseVersion
+                    $ErrorRecord = New-ErrorRecord FirmwareBaselineNotFoundInCOM ObjectNotFound -TargetObject 'Firmware-baselines' -Message $ErrorMessage -TargetType $Gen12FirmwareBaselineReleaseVersion.GetType().Name
+                
+                    $PSCmdlet.ThrowTerminatingError($ErrorRecord)
                 }
             }
 
-            elseif ($Gen10FirmwareBaselineReleaseVersion -and $Gen11FirmwareBaselineReleaseVersion) {
-                
-                $Settings = @{ 
-                    GEN10 = @{
-                        id = $Gen10FirmwareBaselineID
-    
-                    }
-                    GEN11 = @{
-                        id = $Gen11FirmwareBaselineID
-    
-                    }
-                }
-            }
-
-            elseif ($Gen11FirmwareBaselineReleaseVersion -and -not $Gen10FirmwareBaselineReleaseVersion ) {
-                
-                $Settings = @{ 
-                    GEN11 = @{
-                        id = $Gen11FirmwareBaselineID
-    
-                    }
-                }
-
-            }  
+            # Build settings payload — only include generations that have a resolved ID
+            $Settings = @{}
+            if ($Gen10FirmwareBaselineReleaseVersion -and $Gen10FirmwareBaselineID) { $Settings.GEN10 = @{ id = $Gen10FirmwareBaselineID } }
+            if ($Gen11FirmwareBaselineReleaseVersion -and $Gen11FirmwareBaselineID) { $Settings.GEN11 = @{ id = $Gen11FirmwareBaselineID } }
+            if ($Gen12FirmwareBaselineReleaseVersion -and $Gen12FirmwareBaselineID) { $Settings.GEN12 = @{ id = $Gen12FirmwareBaselineID } }
 
 
             $payload = @{ 
@@ -11789,14 +12109,14 @@ Function New-HPECOMSettingServerExternalStorage {
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
    
     .EXAMPLE
-    New-HPECOMSettingServerOSImage -Region  us-west -Name OS-ESX -Description "My ESX OS image SS" -OperatingSystem VMWARE_ESXI -OSImageURL "https://domain.com/esx.iso" 
+    New-HPECOMSettingServerExternalStorage -Region us-west -Name "ExternalStorage_ESXi" -Description "External storage for VMware ESXi hosts" -HostOSType VMWARE_ESXI
 
-    This command creates a new OS image configuration server setting named 'OS-ESX' using a single image containing OS and unattended installation file from the URL 'https://domain.com/esx8.iso' in the 'us-west' region.
+    This command creates a new external storage server setting named 'ExternalStorage_ESXi' for VMware ESXi hosts in the 'us-west' region.
 
     .EXAMPLE
-    New-HPECOMSettingServerOSImage -Region us-west -Name OS-ESX -Description "My ESX 8 OS image configuration" -OperatingSystem VMWARE_ESXI -OSImageURL "https://domain.com/esx8.iso" -UnattendedInstallationFileImageUrl "https://domain.com/esx_ks.iso" 
-    
-    This command creates a new OS image configuration server setting named 'OS-ESX' using a separate image for OS from the URL 'https://domain.com/esx8.iso' and for the unattended file from the URL 'https://domain.com/esx_ks.iso'.
+    New-HPECOMSettingServerExternalStorage -Region eu-central -Name "ExternalStorage_RHEL" -Description "External storage for Red Hat Linux hosts" -HostOSType RHE_LINUX
+
+    This command creates a new external storage server setting named 'ExternalStorage_RHEL' for Red Hat Enterprise Linux hosts in the 'eu-central' region.
 
     .INPUTS
     Pipeline input is not supported.
@@ -11867,7 +12187,7 @@ Function New-HPECOMSettingServerExternalStorage {
         "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
         $Uri = Get-COMSettingsUri
-        $NewServerSettingFirmwareStatus = [System.Collections.ArrayList]::new()
+        $NewServerSettingExternalStorageStatus = [System.Collections.ArrayList]::new()
         
     }
     
@@ -11900,7 +12220,7 @@ Function New-HPECOMSettingServerExternalStorage {
     
             if ($WhatIf) {
                 $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -11936,12 +12256,12 @@ Function New-HPECOMSettingServerExternalStorage {
         
                     "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
     
-                    "[{0}] Firmware server setting '{1}' successfully created in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+                    "[{0}] External storage server setting '{1}' successfully created in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
                         
                     $objStatus.Status = "Complete"
-                    $objStatus.Details = "Firmware server setting successfully created in $Region region"
-    
-    
+                    $objStatus.Details = "External storage server setting successfully created in $Region region"
+
+
                 }
             }
             catch {
@@ -11949,7 +12269,7 @@ Function New-HPECOMSettingServerExternalStorage {
                 if (-not $WhatIf) {
     
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Firmware server setting cannot be created!" }
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "External storage server setting cannot be created!" }
                     $objStatus.Exception = $Global:HPECOMInvokeReturnData 
     
                 }
@@ -11957,7 +12277,7 @@ Function New-HPECOMSettingServerExternalStorage {
         }
         
 
-        [void] $NewServerSettingFirmwareStatus.add($objStatus)
+        [void] $NewServerSettingExternalStorageStatus.add($objStatus)
 
     
     }
@@ -11967,13 +12287,14 @@ Function New-HPECOMSettingServerExternalStorage {
 
         if (-not $WhatIf ) {
 
-            $NewServerSettingFirmwareStatus = Invoke-RepackageObjectWithType -RawObject $NewServerSettingFirmwareStatus -ObjectName "COM.objStatus.NSDE"
-            Return $NewServerSettingFirmwareStatus
+            $NewServerSettingExternalStorageStatus = Invoke-RepackageObjectWithType -RawObject $NewServerSettingExternalStorageStatus -ObjectName "COM.objStatus.NSDE"
+            Return $NewServerSettingExternalStorageStatus
         
         }
 
     }
 }
+
 Function Set-HPECOMSettingServerExternalStorage {
     <#
     .SYNOPSIS
@@ -12126,12 +12447,12 @@ Function Set-HPECOMSettingServerExternalStorage {
             if ($WhatIf) {
 
                 $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Setting cannot be found in the region!"
             }
         }
@@ -12208,17 +12529,15 @@ Function Set-HPECOMSettingServerExternalStorage {
             } 
         }
 
-        [void] $SetServerSettingStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $SetServerSettingStatus.add($objStatus)
+        }
 
-        
-
-    
     }
     
     End {
-       
 
-        if (-not $WhatIf ) {
+        if ($SetServerSettingStatus.Count -gt 0) {
 
             $SetServerSettingStatus = Invoke-RepackageObjectWithType -RawObject $SetServerSettingStatus -ObjectName "COM.objStatus.NSDE"
             Return $SetServerSettingStatus
@@ -12266,9 +12585,6 @@ Specifies the minimum password length (0-39).
 
 .PARAMETER AccountServicePasswordComplexity
 Enforces password complexity (Enabled, Disabled).
-
-.PARAMETER PasswordComplexity
-Specifies password complexity for network (Enabled, Disabled).
 
 .PARAMETER AnonymousData
 Controls anonymous data access (Enabled, Disabled).
@@ -12509,7 +12825,7 @@ Use these variables as parameter values for -SNMPv3User1AuthenticationPassphrase
 
 New-HPECOMSettingiLOSettings -Region eu-central -Name "ILO_config_for_Gen12" -Description "iLO Settings for Gen12 servers" `
  -AccountServiceAuthenticationFailureBeforeDelay 1FailureCausesNoDelay -AccountServiceAuthenticationFailureDelayTimeInSeconds 10 -AccountServiceAuthenticationFailureLogging Disabled `
- -AccountServicePasswordMinimumLength 13 -AccountServicePasswordComplexity Enabled -PasswordComplexity Enabled -AnonymousData Enabled -IPMIDCMIOverLAN Disabled -IPMIDCMIOverLANPort 342 -RemoteConsole Enabled `
+ -AccountServicePasswordMinimumLength 13 -AccountServicePasswordComplexity Enabled -AnonymousData Enabled -IPMIDCMIOverLAN Disabled -IPMIDCMIOverLANPort 342 -RemoteConsole Enabled `
  -RemoteConsolePort 339 -SSH Enabled -SSHPort 23 -SNMP Enabled -SNMPPort 162 -SNMPTrapPort 163  -VirtualMedia Enabled -VirtualMediaPort 350 -VirtualSerialPortLogOverCLI Enabled -WebServerSSL Enabled -WebServerSSLPort 443 `
  -DownloadableVirtualSerialPortLog Enabled -IdleConnectionTimeoutinMinutes 15 -iLORIBCLInterface Enabled -iLOROMSetupUtility Enabled -iLOWebInterface Enabled `
  -iLORemoteConsoleThumbnail Enabled -iLOHostAuthRequired Enabled -iLORBSULoginRequired Enabled -SerialCommandLineInterfaceSpeed 19200 -SerialCommandLineInterfaceStatus 'Enabled - no authentication required' -ShowiLOIPDuringPOST Enabled `
@@ -12631,19 +12947,6 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
     [ValidateSet ('Enabled', 'Disabled')]
     [Parameter(ParameterSetName = 'Default')]
     [String]$AccountServicePasswordComplexity,
-
-        # NETWORK
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Values = @('Enabled', 'Disabled')
-                $FilteredValues = $Values | Where-Object { $_ -like "$wordToComplete*" }
-                return $FilteredValues | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-    [ValidateSet ('Enabled', 'Disabled')]
-    [Parameter(ParameterSetName = 'Default')]
-    [String]$PasswordComplexity,
 
         # NETWORK
         # Anonymous data—This setting controls the following:
@@ -13465,7 +13768,7 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
         }
     
         try {
-            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category IloSettings
+            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category IloSettings | Select-Object -First 1
 
         }
         catch {
@@ -13479,7 +13782,7 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
     
             if ($WhatIf) {
                 $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -14086,9 +14389,7 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
             }
 
             # $SNMPv3InformRetry
-            if ($SNMPv3InformRetry) {
-                $SNMPService['SNMPv3InformRetryAttempt'] = $SNMPv3InformRetry
-            }
+            $SNMPService['SNMPv3InformRetryAttempt'] = $SNMPv3InformRetry
 
             # $SNMPv3InformRetryInterval
             if ($SNMPv3InformRetryInterval) {
@@ -14377,9 +14678,6 @@ Specifies the minimum password length (0-39).
 .PARAMETER AccountServicePasswordComplexity
 Enforces password complexity (Enabled, Disabled).
 
-.PARAMETER PasswordComplexity
-Specifies password complexity for network (Enabled, Disabled).
-
 .PARAMETER AnonymousData
 Controls anonymous data access (Enabled, Disabled).
 
@@ -14619,7 +14917,7 @@ Use these variables as parameter values for -SNMPv3User1AuthenticationPassphrase
 
 Set-HPECOMSettingiLOSettings -Region eu-central -Name "ILO_config_for_Gen12" -NewName "ILOconfigforGen12" -Description "This is a new description" `
  -AccountServiceAuthenticationFailureBeforeDelay 1FailureCausesNoDelay -AccountServiceAuthenticationFailureDelayTimeInSeconds 10 -AccountServiceAuthenticationFailureLogging Disabled `
- -AccountServicePasswordMinimumLength 13 -AccountServicePasswordComplexity Enabled -PasswordComplexity Enabled -AnonymousData Enabled -IPMIDCMIOverLAN Disabled -IPMIDCMIOverLANPort 342 -RemoteConsole Enabled `
+ -AccountServicePasswordMinimumLength 13 -AccountServicePasswordComplexity Enabled -AnonymousData Enabled -IPMIDCMIOverLAN Disabled -IPMIDCMIOverLANPort 342 -RemoteConsole Enabled `
  -RemoteConsolePort 339 -SSH Enabled -SSHPort 23 -SNMP Enabled -SNMPPort 162 -SNMPTrapPort 163  -VirtualMedia Enabled -VirtualMediaPort 350 -VirtualSerialPortLogOverCLI Enabled -WebServerSSL Enabled -WebServerSSLPort 443 `
  -DownloadableVirtualSerialPortLog Enabled -IdleConnectionTimeoutinMinutes 15 -iLORIBCLInterface Enabled -iLOROMSetupUtility Enabled -iLOWebInterface Enabled `
  -iLORemoteConsoleThumbnail Enabled -iLOHostAuthRequired Enabled -iLORBSULoginRequired Enabled -SerialCommandLineInterfaceSpeed 19200 -SerialCommandLineInterfaceStatus 'Enabled - no authentication required' -ShowiLOIPDuringPOST Enabled `
@@ -14641,10 +14939,10 @@ This example updates the iLO settings configuration named "ILO_config_for_Gen12"
 It removes SNMPv3 user 2, SNMP alert destination 3, and the third SNMP read community by setting their values to empty strings. All other settings remain unchanged.
 
 .EXAMPLE
-Get-HPECOMSetting -Region eu-central -Name "ILO_config_for_Gen12" | Set-HPECOMSettingiLOSettings -VirtualMedia Disabled -PasswordComplexity Enabled -AcceptThirdPartyFirmwareUpdates Disabled
+Get-HPECOMSetting -Region eu-central -Name "ILO_config_for_Gen12" | Set-HPECOMSettingiLOSettings -VirtualMedia Disabled -AcceptThirdPartyFirmwareUpdates Disabled
 
 This example demonstrates how to update multiple properties of the iLO settings configuration named "ILO_config_for_Gen12" in the "eu-central" region. 
-It disables virtual media, enables password complexity, and disables acceptance of third-party firmware updates.
+It disables virtual media and disables acceptance of third-party firmware updates.
 
 .INPUTS
 System.Collections.ArrayList
@@ -14758,18 +15056,6 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
     [Parameter(ParameterSetName = 'Default')]
     [String]$AccountServicePasswordComplexity,
 
-        # NETWORK
-        [ArgumentCompleter({
-                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-                $Values = @('Enabled', 'Disabled')
-                $FilteredValues = $Values | Where-Object { $_ -like "$wordToComplete*" }
-                return $FilteredValues | ForEach-Object {
-                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-                }
-            })]
-    [ValidateSet ('Enabled', 'Disabled')]
-    [Parameter(ParameterSetName = 'Default')]
-    [String]$PasswordComplexity,
 
         # NETWORK
         # Anonymous data—This setting controls the following:
@@ -14798,8 +15084,8 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
             })]
     [ValidateSet ('Enabled', 'Disabled')]
     [Parameter(ParameterSetName = 'Default')]
-    [String]$IPMIDCMIOverLAN = "Disabled",
-                
+    [String]$IPMIDCMIOverLAN,
+
     [Parameter(ParameterSetName = 'Default')]
     [String]$IPMIDCMIOverLANPort = "623",
 
@@ -15608,7 +15894,7 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
     
             if ($WhatIf) {
                 $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -16644,7 +16930,7 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
                     # Build SNMPv3User1 object with all relevant properties
                     $SNMPv3User1 = @{
                         "SecurityName"    = $SNMPv3User1UserName
-                        "AuthProtocol"    = $SNMPv3User1AuthenticationProtocol
+                        "AuthProtocol"    = if ($PSBoundParameters.ContainsKey('SNMPv3User1AuthenticationProtocol')) { $SNMPv3User1AuthenticationProtocol } elseif ($SNMPService['SNMPv3Users'].Count -gt 0 -and $SNMPService['SNMPv3Users'][0].AuthProtocol) { $SNMPService['SNMPv3Users'][0].AuthProtocol } else { $SNMPv3User1AuthenticationProtocol }
                         "PrivacyProtocol" = "AES"
                     }
                     # EngineID
@@ -16671,7 +16957,7 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
                         "SecurityName" = ""
                     }
 
-                    If ($SNMPService['SNMPv3Users'].Count -gt 1) {
+                    If ($SNMPService['SNMPv3Users'].Count -gt 0) {
                         $SNMPService['SNMPv3Users'][0] = $SNMPv3User1
                     }
                     else {
@@ -16686,7 +16972,7 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
                     # Build SNMPv3User2 object with all relevant properties
                     $SNMPv3User2 = @{
                         "SecurityName"    = $SNMPv3User2UserName
-                        "AuthProtocol"    = $SNMPv3User2AuthenticationProtocol
+                        "AuthProtocol"    = if ($PSBoundParameters.ContainsKey('SNMPv3User2AuthenticationProtocol')) { $SNMPv3User2AuthenticationProtocol } elseif ($SNMPService['SNMPv3Users'].Count -gt 1 -and $SNMPService['SNMPv3Users'][1].AuthProtocol) { $SNMPService['SNMPv3Users'][1].AuthProtocol } else { $SNMPv3User2AuthenticationProtocol }
                         "PrivacyProtocol" = "AES"
                     }
                     # EngineID
@@ -16995,175 +17281,6 @@ If you specify SNMPv3 user or SNMP alert destination parameters, all required re
     }
 }
 
-#Region NOT IMPLEMENTED YET
-# Function New-HPECOMSettingOneViewApplianceSettings {
-#     <#
-#     .SYNOPSIS
-#     Configure a OneView appliance settings.
-
-#     .DESCRIPTION
-#     This Cmdlet creates a new setting for OneView appliances settings
-    
-#     Appliance settings allow you to create a set of common configuration preferences that you can easily apply to one or more appliances in a Compute Ops Management group.
-    
-#     .PARAMETER Region 
-#     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
-#     This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
-
-#     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
-
-#     .PARAMETER Name
-#     Specifies the name of the external storage server setting.
-
-#     .PARAMETER Description
-#     Specifies a description of the external storage server setting.
-
-#     .PARAMETER HostOSType
-#     Specifies the OS installed on the server. 
-
-#     "UNKNOWN" "AIX" "APPLE" "CITRIX_HYPERVISOR" "HP_UX" "IBM_VIO_SERVER" "INFORM" "NETAPP" "OE_LINUX_UEK" "OPENVMS" "ORACLE_VM" "RHE_LINUX" "RHE_VIRTUALIZATION" "SOLARIS" "SUSE_LINUX" "SUSE_VIRTUALIZATION" "UBUNTU" "VMWARE_ESXI" "WINDOWS_SERVER"
-    
-#     .PARAMETER WhatIf 
-#     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
-   
-#     .EXAMPLE
-#     New-HPECOMSettingServerOSImage -Region  us-west -Name OS-ESX -Description "My ESX OS image SS" -OperatingSystem VMWARE_ESXI -OSImageURL "https://domain.com/esx.iso" 
-
-#     This command creates a new OS image configuration server setting named 'OS-ESX' using a single image containing OS and unattended installation file from the URL 'https://domain.com/esx8.iso' in the 'us-west' region.
-
-#     .EXAMPLE
-#     New-HPECOMSettingServerOSImage -Region us-west -Name OS-ESX -Description "My ESX 8 OS image configuration" -OperatingSystem VMWARE_ESXI -OSImageURL "https://domain.com/esx8.iso" -UnattendedInstallationFileImageUrl "https://domain.com/esx_ks.iso" 
-    
-#     This command creates a new OS image configuration server setting named 'OS-ESX' using a separate image for OS from the URL 'https://domain.com/esx8.iso' and for the unattended file from the URL 'https://domain.com/esx_ks.iso'.
-
-#     .INPUTS
-#     Pipeline input is not supported.
-    
-#     .OUTPUTS
-#     System.Collections.ArrayList
-#         A custom status object or array of objects containing the following PsCustomObject keys:
-#         * Name - The name of the external storage server setting attempted to be created
-#         * Region - The name of the region
-#         * Status - Status of the creation attempt (Failed for HTTP error return; Complete if creation is successful; Warning if no action is needed)
-#         * Details - More information about the status 
-#         * Exception: Information about any exceptions generated during the operation.
-
-    
-#    #>
-#     [CmdletBinding(DefaultParameterSetName = 'Together')]
-#     Param( 
-#         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
-#         [ArgumentCompleter({
-#                 param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
-#                 # Filter region based on $Global:HPECOMRegions global variable and create completions
-#                 $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-#                     [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
-#                 }
-#             })]
-#         [String]$Region,
-
-#         [Parameter (Mandatory)]
-#         [ValidateScript({ $_.Length -le 100 })]
-#         [String]$Name,  
-        
-#         [ValidateScript({ $_.Length -le 1000 })]
-#         [String]$Description,    
-        
-
-        
-#         [Switch]$WhatIf
-       
-#     ) 
-#     Begin {
-        
-#         $Caller = (Get-PSCallStack)[1].Command
-
-#         "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-
-#         $Uri = Get-COMSettingsUri
-#         $NewServerSettingFirmwareStatus = [System.Collections.ArrayList]::new()
-        
-#     }
-    
-#     Process {
-        
-#         "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-
-#         # Build object for the output
-#         $objStatus = [pscustomobject]@{
-  
-#             Name      = $Name
-#             Region    = $Region                            
-#             Status    = $Null
-#             Details   = $Null
-#             Exception = $Null
-#         }
-    
-        
-#         # Build payload
-#         $Settings = @{ 
-#             DEFAULT = @{
-#                 externalStorageHostOs = $HostOSType
-
-#             }
-#         }
-
-#         $payload = @{ 
-#             name           = $Name
-#             category       = "EXTERNAL_STORAGE"
-#             description    = $Description
-#             settings       = $Settings                  
-#         }
-
-#         $payload = ConvertTo-Json $payload -Depth 10 
-
-#         try {
-
-#             $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
-
-#             if (-not $WhatIf ) {
-    
-#                 "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
-
-#                 "[{0}] Firmware server setting '{1}' successfully created in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
-                    
-#                 $objStatus.Status = "Complete"
-#                 $objStatus.Details = "Firmware server setting successfully created in $Region region"
-
-
-#             }
-#         }
-#         catch {
-
-#             if (-not $WhatIf) {
-
-#                 $objStatus.Status = "Failed"
-#                 $objStatus.Details = "Firmware server setting cannot be created!"
-#                 $objStatus.Exception = $Global:HPECOMInvokeReturnData 
-
-#             }
-#         } 
-
-#         [void] $NewServerSettingFirmwareStatus.add($objStatus)
-
-        
-
-    
-#     }
-    
-#     End {
-       
-
-#         if (-not $WhatIf ) {
-
-#             Return $NewServerSettingFirmwareStatus
-        
-#         }
-
-#     }
-# }
-#EndRegion
-
 Function Remove-HPECOMSetting {
     <#
     .SYNOPSIS
@@ -17182,7 +17299,7 @@ Function Remove-HPECOMSetting {
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Force
-    Switch parameter to force the removal. 
+    Forces removal of a server setting even when it is currently assigned to one or more groups or policies. Without this switch, the API will reject the deletion if the setting is in use.
     
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -17195,7 +17312,7 @@ Function Remove-HPECOMSetting {
     .EXAMPLE
     Get-HPECOMSetting -Region eu-central -Name RAID-1 | Remove-HPECOMSetting 
 
-    Remove server setting 'RAID-1' from the western central EU region. 
+    Remove server setting 'RAID-1' from the central EU region. 
 
     .EXAMPLE 
     Get-HPECOMSetting -Region us-west | Where-Object {$_.name -eq 'RAID1' -or $_.name -eq 'RAID5'} | Remove-HPECOMSetting
@@ -17223,7 +17340,7 @@ Function Remove-HPECOMSetting {
     
    #>
 
-    [CmdletBinding(DefaultParameterSetName = 'Default')]
+    [CmdletBinding()]
     Param( 
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
@@ -17300,12 +17417,12 @@ Function Remove-HPECOMSetting {
 
                 $ErrorMessage = "Server setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
        
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Server setting cannot be found in the region!"
 
             }
@@ -17315,12 +17432,12 @@ Function Remove-HPECOMSetting {
             if ($WhatIf) {
 
                 $ErrorMessage = "Server setting '{0}': This resource is an HPE pre-defined setting and cannot be removed from the Compute Ops Management instance!" -f $Name       
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "This server setting is an HPE pre-defined setting that cannot be removed from the Compute Ops Management instance!"
             }
         }
@@ -17344,7 +17461,7 @@ Function Remove-HPECOMSetting {
                     
                     "[{0}] Server setting removal raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
 
-                    "[{0}] Server setting '{1}' successfully deleted from '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+                    "[{0}] Server setting '{1}' successfully deleted from '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
                     
                     $objStatus.Status = "Complete"
                     $objStatus.Details = "Server setting successfully deleted from $Region region"
@@ -17362,13 +17479,15 @@ Function Remove-HPECOMSetting {
             }           
 
         }
-        [void] $RemoveSettingstatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $RemoveSettingstatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($RemoveSettingstatus.Count -gt 0) {
 
             $RemoveSettingstatus = Invoke-RepackageObjectWithType -RawObject $RemoveSettingstatus -ObjectName "COM.objStatus.NSDE"
             Return $RemoveSettingstatus
@@ -17378,6 +17497,3246 @@ Function Remove-HPECOMSetting {
     }
 }
 
+Function New-HPECOMSettingOneViewSynergyAppliance {
+    <#
+    .SYNOPSIS
+    Configure a OneView Synergy appliance setting.
+
+    .DESCRIPTION
+    This Cmdlet creates a new OneView Synergy appliance setting for managing Synergy Composer configurations.
+    OneView appliance settings enable you to apply consistent appliance configurations to servers in a group.
+    
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the OneView Synergy appliance setting.
+
+    .PARAMETER Description
+    Specifies a description for the OneView Synergy appliance setting.
+
+    .PARAMETER SourceAppliance
+    Specifies the name or IP address of the source OneView Synergy appliance. 
+    This should match an appliance from Get-HPECOMAppliance with Type = 'SynergyComposer'.
+
+    .PARAMETER SynergyInterconnectSettings
+    Switch parameter to include Synergy interconnect settings from the source appliance.
+    When specified, the NTP server configuration (synchronize with OneView) will be retrieved from the source appliance.
+
+    .PARAMETER SynergyLogicalInterconnectSettings
+    Switch parameter to include Synergy logical interconnect settings from the source appliance.
+    When specified, the reserved VLAN range configuration will be retrieved from the source appliance.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM. 
+   
+    .EXAMPLE
+    New-HPECOMSettingOneViewSynergyAppliance -Region eu-central -Name Composer_settings -Description "Synergy Composer settings" -SourceAppliance composer.lj.lab -SynergyInterconnectSettings
+
+    Creates a new OneView Synergy appliance setting by copying the Synergy interconnect NTP configuration from the source appliance.
+
+    .EXAMPLE
+    New-HPECOMSettingOneViewSynergyAppliance -Region eu-central -Name Composer_settings -Description "Synergy Composer settings" -SourceAppliance composer.lj.lab -SynergyLogicalInterconnectSettings
+
+    Creates a new OneView Synergy appliance setting by copying the Synergy logical interconnect VLAN range configuration from the source appliance.
+
+    .EXAMPLE
+    New-HPECOMSettingOneViewSynergyAppliance -Region eu-central -Name Composer_settings -Description "Synergy Composer settings" -SourceAppliance composer.lj.lab -SynergyInterconnectSettings -SynergyLogicalInterconnectSettings
+
+    Creates a new OneView Synergy appliance setting by copying both Synergy interconnect NTP and logical interconnect VLAN range configurations from the source appliance.
+       
+    .INPUTS
+    Pipeline input is not supported.
+    
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:
+        * Name - The name of the OneView Synergy appliance setting attempted to be created
+        * Region - The name of the region
+        * Status - Status of the creation attempt (Failed for HTTP error return; Complete if creation is successful; Warning if no action is needed)
+        * Details - More information about the status 
+        * Exception: Information about any exceptions generated during the operation.
+    
+   #>
+    [CmdletBinding()]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $Global:HPECOMRegions global variable and create completions
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory)]
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$Name,  
+        
+        [ValidateScript({ $_.Length -le 1000 })]
+        [String]$Description,    
+        
+        [Parameter (Mandatory)]
+        [String]$SourceAppliance,
+
+        [Switch]$SynergyInterconnectSettings,
+
+        [Switch]$SynergyLogicalInterconnectSettings,
+        
+        [Switch]$WhatIf
+       
+    ) 
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = Get-COMSettingsUri
+        $NewSettingStatus = [System.Collections.ArrayList]::new()
+        
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+  
+            Name      = $Name
+            Region    = $Region                            
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        # Pre-validation 0: At least one settings parameter must be provided
+        if (-not $SynergyInterconnectSettings -and -not $SynergyLogicalInterconnectSettings) {
+            
+            $ErrorMessage = "At least one of -SynergyInterconnectSettings or -SynergyLogicalInterconnectSettings must be specified!"
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = $ErrorMessage
+                [void] $NewSettingStatus.add($objStatus)
+                return
+            }
+        }
+    
+        # Pre-validation 1: Check if setting already exists
+        try {
+            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category OneViewApplianceSettingsSynergy
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($SettingResource) {
+
+            $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Setting already exists in the region! No action needed."
+            }
+
+        }
+        else {
+
+            # Pre-validation 2: Verify source appliance exists and is Synergy Composer
+            try {
+                $Appliance = Get-HPECOMAppliance -Region $Region -Name $SourceAppliance -Type SynergyComposer -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if (-not $Appliance) {
+
+                $ErrorMessage = "Source appliance '{0}' cannot be found or is not a Synergy Composer in the '{1}' region!" -f $SourceAppliance, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Source appliance cannot be found or is not a Synergy Composer in the region!"
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Pre-validation 3: Check for multiple appliances with same name
+            if ($Appliance.Count -gt 1) {
+                
+                $ErrorMessage = "Multiple appliances found with name '{0}' in the '{1}' region! Please specify a unique appliance name or IP address." -f $SourceAppliance, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Multiple appliances found with the same name! Please specify a unique appliance name or IP address."
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            "[{0}] Using source appliance ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Appliance.id | Write-Verbose
+
+            # Retrieve settings from source appliance
+            try {
+                $ApplianceSettings = Get-HPECOMAppliance -Region $Region -Name $SourceAppliance -ShowSettings -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if (-not $ApplianceSettings) {
+                $ErrorMessage = "Cannot retrieve settings from source appliance '{0}' in the '{1}' region!" -f $SourceAppliance, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Cannot retrieve settings from source appliance!"
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Build globalSettings based on provided switches and retrieve values from source appliance
+            $globalSettings = @{}
+
+            if ($SynergyInterconnectSettings) {
+                $GlobalSettingsData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'globalSettings' }
+                
+                if ($GlobalSettingsData -and $GlobalSettingsData.settingsValue.interconnectManagerNtpSource) {
+                    $NtpSource = $GlobalSettingsData.settingsValue.interconnectManagerNtpSource
+                    "[{0}] Retrieved Synergy interconnect NTP setting from source appliance: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $NtpSource | Write-Verbose
+                    $globalSettings.interconnectManagerNtpSource = $NtpSource
+                }
+                else {
+                    "[{0}] Warning: Synergy interconnect NTP setting not found in source appliance, using default: APPLIANCE" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    $globalSettings.interconnectManagerNtpSource = "APPLIANCE"
+                }
+            }
+
+            if ($SynergyLogicalInterconnectSettings) {
+                $GlobalSettingsData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'globalSettings' }
+                
+                if ($GlobalSettingsData -and $GlobalSettingsData.settingsValue.reservedVlanRange) {
+                    $VlanRange = $GlobalSettingsData.settingsValue.reservedVlanRange
+                    "[{0}] Retrieved Synergy logical interconnect VLAN range from source appliance: Start={1}, Length={2}, Range={3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $VlanRange.start, $VlanRange.length, $VlanRange.vlanRange | Write-Verbose
+                    
+                    $globalSettings.reservedVlanRange = @{
+                        start     = $VlanRange.start
+                        length    = $VlanRange.length
+                        vlanRange = $VlanRange.vlanRange
+                    }
+                }
+                else {
+                    $ErrorMessage = "Synergy logical interconnect VLAN range not found in source appliance '{0}'!" -f $SourceAppliance
+                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                    
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                        return
+                    }
+                    else {
+                        $objStatus.Status = "Warning"
+                        $objStatus.Details = "Synergy logical interconnect VLAN range not found in source appliance!"
+                        [void] $NewSettingStatus.add($objStatus)
+                        return
+                    }
+                }
+            }
+
+            # Build payload
+            $Settings = @{ 
+                DEFAULT = @{
+                    globalSettings        = $globalSettings
+                    sourceApplianceId     = $Appliance.id
+                    allowSensitiveInfoUse = $true
+                }
+            }
+
+            $payload = @{ 
+                name        = $Name
+                category    = "OVE_APPLIANCE_SETTINGS_SYNERGY"
+                description = $Description
+                settings    = $Settings                  
+            }
+
+            $payload = ConvertTo-Json $payload -Depth 10 
+
+            try {
+
+                $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+
+                if (-not $WhatIf ) {
+        
+                    "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+
+                    "[{0}] OneView Synergy appliance setting '{1}' successfully created in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+                        
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "OneView Synergy appliance setting successfully created in $Region region"
+
+
+                }
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "OneView Synergy appliance setting cannot be created!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+
+                }
+            } 
+
+        }
+                
+
+        if (-not $WhatIf) {
+            [void] $NewSettingStatus.add($objStatus)
+        }
+
+    
+    }
+    
+    End {
+       
+
+        if ($NewSettingStatus.Count -gt 0) {
+
+            $NewSettingStatus = Invoke-RepackageObjectWithType -RawObject $NewSettingStatus -ObjectName "COM.objStatus.NSDE"
+            Return $NewSettingStatus
+        
+        }
+
+    }
+}
+
+Function New-HPECOMSettingOneViewAppliance {
+    <#
+    .SYNOPSIS
+    Configure a OneView VM appliance setting.
+
+    .DESCRIPTION
+    This Cmdlet creates a new OneView VM appliance setting for managing OneView VM configurations.
+    OneView appliance settings enable you to apply consistent appliance configurations including notifications, 
+    proxy, SNMP, time and locale, updates, security, remote support, and global settings.
+    
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the OneView VM appliance setting.
+
+    .PARAMETER Description
+    Specifies a description for the OneView VM appliance setting.
+
+    .PARAMETER SourceAppliance
+    Specifies the name or IP address of the source OneView VM appliance. 
+    This should match an appliance from Get-HPECOMAppliance with Type = 'VM'.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM. 
+   
+    .EXAMPLE
+    New-HPECOMSettingOneViewAppliance -Region eu-central -Name OneView_VM_Settings -Description "OneView VM settings" -SourceAppliance oneview.lj.lab
+
+    Creates a new OneView VM appliance setting by copying all configuration settings from the source OneView VM appliance.
+       
+    .INPUTS
+    Pipeline input is not supported.
+    
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:
+        * Name - The name of the OneView VM appliance setting attempted to be created
+        * Region - The name of the region
+        * Status - Status of the creation attempt (Failed for HTTP error return; Complete if creation is successful; Warning if no action is needed)
+        * Details - More information about the status 
+        * Exception: Information about any exceptions generated during the operation.
+    
+   #>
+    [CmdletBinding()]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $Global:HPECOMRegions global variable and create completions
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory)]
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$Name,  
+        
+        [ValidateScript({ $_.Length -le 1000 })]
+        [String]$Description,    
+        
+        [Parameter (Mandatory)]
+        [String]$SourceAppliance,
+
+        # Security settings (9 options)
+        [Switch]$SecurityTwoFactorAuthentication,
+        [Switch]$SecurityLocalLogin,
+        [Switch]$SecurityServiceConsoleAccess,
+        [Switch]$SecurityEnforceComplexPasswords,
+        [Switch]$SecuritySSHAccess,
+        [Switch]$SecurityDirectories,
+        [Switch]$SecurityCertificateValidation,
+        [Switch]$SecurityAuditLogForwarding,
+        [Switch]$SecurityProductImprovement,
+
+        # Notifications settings (2 options)
+        [Switch]$NotificationsEmailDestination,
+        [Switch]$NotificationsAlertEmailFilters,
+
+        # Proxy settings (1 option)
+        [Switch]$ProxySettings,
+
+        # Remote support settings (2 options)
+        [Switch]$RemoteSupportGeneralSettings,
+        [Switch]$RemoteSupportDefaultSchedule,
+
+        # SNMP settings (1 option)
+        [Switch]$SnmpSettings,
+
+        # Time and locale settings (2 options)
+        [Switch]$TimeAndLocaleTimeSettings,
+        [Switch]$TimeAndLocaleLanguage,
+
+        # Updates settings (1 option)
+        [Switch]$UpdatesSettings,
+
+        # Global settings (4 options)
+        [Switch]$GlobalServerHardwareSettings,
+        [Switch]$GlobalServerProfileSettings,
+        [Switch]$GlobalStorageSettings,
+        [Switch]$GlobalUserInterfaceSettings,
+        
+        [Switch]$WhatIf
+       
+    ) 
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = Get-COMSettingsUri
+        $NewSettingStatus = [System.Collections.ArrayList]::new()
+        
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+  
+            Name      = $Name
+            Region    = $Region                            
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+    
+        # Pre-validation 1: Check if setting already exists
+        try {
+            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category OneViewApplianceSettings
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($SettingResource) {
+
+            $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Setting already exists in the region! No action needed."
+            }
+
+        }
+        else {
+
+            # Pre-validation 2: Verify source appliance exists and is VM
+            try {
+                $Appliance = Get-HPECOMAppliance -Region $Region -Name $SourceAppliance -Type OneViewVM -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if (-not $Appliance) {
+
+                $ErrorMessage = "Source appliance '{0}' cannot be found or is not a OneView VM in the '{1}' region!" -f $SourceAppliance, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Source appliance cannot be found or is not a OneView VM in the region!"
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Pre-validation 3: Check for multiple appliances with same name
+            if ($Appliance.Count -gt 1) {
+                
+                $ErrorMessage = "Multiple appliances found with name '{0}' in the '{1}' region! Please specify a unique appliance name or IP address." -f $SourceAppliance, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Multiple appliances found with the same name! Please specify a unique appliance name or IP address."
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            "[{0}] Using source appliance ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Appliance.id | Write-Verbose
+
+            # Retrieve settings from source appliance
+            try {
+                $ApplianceSettings = Get-HPECOMAppliance -Region $Region -Name $SourceAppliance -ShowSettings -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if (-not $ApplianceSettings) {
+                $ErrorMessage = "Cannot retrieve settings from source appliance '{0}' in the '{1}' region!" -f $SourceAppliance, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Cannot retrieve settings from source appliance!"
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Build settings array based on specified parameters
+            # If no parameters specified, include all settings
+            $AnyParameterSpecified = $SecurityTwoFactorAuthentication -or $SecurityLocalLogin -or $SecurityServiceConsoleAccess -or 
+                                      $SecurityEnforceComplexPasswords -or $SecuritySSHAccess -or $SecurityDirectories -or 
+                                      $SecurityCertificateValidation -or $SecurityAuditLogForwarding -or $SecurityProductImprovement -or
+                                      $NotificationsEmailDestination -or $NotificationsAlertEmailFilters -or
+                                      $ProxySettings -or
+                                      $RemoteSupportGeneralSettings -or $RemoteSupportDefaultSchedule -or
+                                      $SnmpSettings -or
+                                      $TimeAndLocaleTimeSettings -or $TimeAndLocaleLanguage -or
+                                      $UpdatesSettings -or
+                                      $GlobalServerHardwareSettings -or $GlobalServerProfileSettings -or 
+                                      $GlobalStorageSettings -or $GlobalUserInterfaceSettings
+
+            $settingsArray = @()
+            $warnings = @()
+
+            # Security settings
+            if (-not $AnyParameterSpecified -or $SecurityTwoFactorAuthentication -or $SecurityLocalLogin -or $SecurityServiceConsoleAccess -or 
+                $SecurityEnforceComplexPasswords -or $SecuritySSHAccess -or $SecurityDirectories -or 
+                $SecurityCertificateValidation -or $SecurityAuditLogForwarding -or $SecurityProductImprovement) {
+                
+                $settingData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'security' }
+                
+                if ($settingData -and $settingData.settingsValue) {
+                    "[{0}] Retrieved 'security' settings from source appliance" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    # If specific sub-options selected, we still include the full security settings
+                    # The granular selection is informational - the API accepts the complete settingsValue
+                    $settingsArray += @{
+                        settingsType  = 'security'
+                        settingsValue = $settingData.settingsValue
+                    }
+                    
+                    # Check for specific requested settings and warn if not available
+                    if ($SecurityTwoFactorAuthentication -and -not $settingData.settingsValue.twoFactorAuthenticationEnabled) {
+                        $warnings += "Two-factor Authentication setting not found in source appliance"
+                    }
+                    if ($SecurityDirectories -and -not $settingData.settingsValue.directories) {
+                        $warnings += "Directories setting not found in source appliance"
+                    }
+                    if ($SecurityCertificateValidation -and -not $settingData.settingsValue.certValidationConfig) {
+                        $warnings += "Certificate Validation setting not found in source appliance"
+                    }
+                    if ($SecurityAuditLogForwarding -and -not $settingData.settingsValue.auditLogForwarding) {
+                        $warnings += "Audit Log Forwarding setting not found in source appliance"
+                    }
+                }
+                elseif ($AnyParameterSpecified) {
+                    $warnings += "'security' settings not found in source appliance"
+                }
+            }
+
+            # Notifications settings
+            if (-not $AnyParameterSpecified -or $NotificationsEmailDestination -or $NotificationsAlertEmailFilters) {
+                $settingData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'notifications' }
+                
+                if ($settingData -and $settingData.settingsValue) {
+                    "[{0}] Retrieved 'notifications' settings from source appliance" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    $settingsArray += @{
+                        settingsType  = 'notifications'
+                        settingsValue = $settingData.settingsValue
+                    }
+                }
+                elseif ($AnyParameterSpecified) {
+                    $warnings += "'notifications' settings not found in source appliance"
+                }
+            }
+
+            # Proxy settings
+            if (-not $AnyParameterSpecified -or $ProxySettings) {
+                $settingData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'proxy' }
+                
+                if ($settingData -and $settingData.settingsValue) {
+                    "[{0}] Retrieved 'proxy' settings from source appliance" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    $settingsArray += @{
+                        settingsType  = 'proxy'
+                        settingsValue = $settingData.settingsValue
+                    }
+                }
+                elseif ($AnyParameterSpecified) {
+                    $warnings += "'proxy' settings not found in source appliance"
+                }
+            }
+
+            # Remote Support settings
+            if (-not $AnyParameterSpecified -or $RemoteSupportGeneralSettings -or $RemoteSupportDefaultSchedule) {
+                $settingData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'remoteSupport' }
+                
+                if ($settingData -and $settingData.settingsValue) {
+                    "[{0}] Retrieved 'remoteSupport' settings from source appliance" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    $settingsArray += @{
+                        settingsType  = 'remoteSupport'
+                        settingsValue = $settingData.settingsValue
+                    }
+                    
+                    if ($RemoteSupportGeneralSettings -and -not $settingData.settingsValue.configuration) {
+                        $warnings += "Remote Support General Settings not found in source appliance"
+                    }
+                    if ($RemoteSupportDefaultSchedule -and -not $settingData.settingsValue.schedule) {
+                        $warnings += "Remote Support Default Schedule not found in source appliance"
+                    }
+                }
+                elseif ($AnyParameterSpecified) {
+                    $warnings += "'remoteSupport' settings not found in source appliance"
+                }
+            }
+
+            # SNMP settings
+            if (-not $AnyParameterSpecified -or $SnmpSettings) {
+                $settingData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'snmp' }
+                
+                if ($settingData -and $settingData.settingsValue) {
+                    "[{0}] Retrieved 'snmp' settings from source appliance" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    $settingsArray += @{
+                        settingsType  = 'snmp'
+                        settingsValue = $settingData.settingsValue
+                    }
+                }
+                elseif ($AnyParameterSpecified) {
+                    $warnings += "'snmp' settings not found in source appliance"
+                }
+            }
+
+            # Time and Locale settings
+            if (-not $AnyParameterSpecified -or $TimeAndLocaleTimeSettings -or $TimeAndLocaleLanguage) {
+                $settingData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'timeAndLocale' }
+                
+                if ($settingData -and $settingData.settingsValue) {
+                    "[{0}] Retrieved 'timeAndLocale' settings from source appliance" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    $settingsArray += @{
+                        settingsType  = 'timeAndLocale'
+                        settingsValue = $settingData.settingsValue
+                    }
+                    
+                    if ($TimeAndLocaleTimeSettings -and -not $settingData.settingsValue.ntpServers) {
+                        $warnings += "Time Settings/NTP Servers not found in source appliance"
+                    }
+                    if ($TimeAndLocaleLanguage -and -not $settingData.settingsValue.locale) {
+                        $warnings += "Language/Locale setting not found in source appliance"
+                    }
+                }
+                elseif ($AnyParameterSpecified) {
+                    $warnings += "'timeAndLocale' settings not found in source appliance"
+                }
+            }
+
+            # Updates settings
+            if (-not $AnyParameterSpecified -or $UpdatesSettings) {
+                $settingData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'updates' }
+                
+                if ($settingData -and $settingData.settingsValue) {
+                    "[{0}] Retrieved 'updates' settings from source appliance" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    $settingsArray += @{
+                        settingsType  = 'updates'
+                        settingsValue = $settingData.settingsValue
+                    }
+                }
+                elseif ($AnyParameterSpecified) {
+                    $warnings += "'updates' settings not found in source appliance"
+                }
+            }
+
+            # Global settings
+            if (-not $AnyParameterSpecified -or $GlobalServerHardwareSettings -or $GlobalServerProfileSettings -or 
+                $GlobalStorageSettings -or $GlobalUserInterfaceSettings) {
+                
+                $settingData = $ApplianceSettings | Where-Object { $_.settingsType -eq 'globalSettings' }
+                
+                if ($settingData -and $settingData.settingsValue) {
+                    "[{0}] Retrieved 'globalSettings' from source appliance" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    
+                    $settingsArray += @{
+                        settingsType  = 'globalSettings'
+                        settingsValue = $settingData.settingsValue
+                    }
+                    
+                    if ($GlobalServerHardwareSettings -and -not $settingData.settingsValue.serverManagementProcessorNtpSource) {
+                        $warnings += "Server Hardware Settings not found in source appliance"
+                    }
+                    if ($GlobalServerProfileSettings -and -not $settingData.settingsValue.profileBIOSConsistency) {
+                        $warnings += "Server Profile Settings not found in source appliance"
+                    }
+                    if ($GlobalStorageSettings -and -not $settingData.settingsValue.storageSettings) {
+                        $warnings += "Storage Settings not found in source appliance"
+                    }
+                    if ($GlobalUserInterfaceSettings -and -not $settingData.settingsValue.uiSettings) {
+                        $warnings += "User Interface Settings not found in source appliance"
+                    }
+                }
+                elseif ($AnyParameterSpecified) {
+                    $warnings += "'globalSettings' not found in source appliance"
+                }
+            }
+
+            # Display warnings for missing settings
+            if ($warnings.Count -gt 0) {
+                foreach ($warning in $warnings) {
+                    "[{0}] WARNING: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $warning | Write-Verbose
+                    Write-Warning $warning
+                }
+            }
+
+            if ($settingsArray.Count -eq 0) {
+                $ErrorMessage = "No valid settings retrieved from source appliance '{0}'!" -f $SourceAppliance
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+    
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "No valid settings retrieved from source appliance!"
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Build payload
+            $payload = @{ 
+                name         = $Name
+                category     = "OVE_APPLIANCE_SETTINGS_VM"
+                description  = $Description
+                applianceId  = $Appliance.id
+                settings     = $settingsArray              
+            }
+
+            $payload = ConvertTo-Json $payload -Depth 20 
+
+            try {
+
+                $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+
+                if (-not $WhatIf ) {
+        
+                    "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+
+                    "[{0}] OneView VM appliance setting '{1}' successfully created in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+                        
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "OneView VM appliance setting successfully created in $Region region"
+
+                }
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "OneView VM appliance setting cannot be created!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+
+                }
+            } 
+
+        }
+                
+        if (-not $WhatIf) {
+            [void] $NewSettingStatus.add($objStatus)
+        }
+    
+    }
+    
+    End {
+       
+        if ($NewSettingStatus.Count -gt 0) {
+
+            $NewSettingStatus = Invoke-RepackageObjectWithType -RawObject $NewSettingStatus -ObjectName "COM.objStatus.NSDE"
+            Return $NewSettingStatus
+        
+        }
+
+    }
+}
+
+Function Set-HPECOMSettingOneViewSynergyAppliance {
+    <#
+    .SYNOPSIS
+    Updates a OneView Synergy appliance setting in a specified region.
+
+    .DESCRIPTION
+    This cmdlet modifies an existing OneView Synergy appliance setting resource within a designated Compute Ops Management (COM) region.
+    You can update the setting name, description, source appliance, and which settings to copy from the source appliance.
+    If certain parameters are not specified, the cmdlet retains their existing values and only updates the provided parameters.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central').
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the OneView Synergy appliance setting to update.
+
+    .PARAMETER NewName
+    Specifies a new name for the OneView Synergy appliance setting.
+
+    .PARAMETER Description
+    Provides a new description for the OneView Synergy appliance setting.
+
+    .PARAMETER SourceAppliance
+    Specifies the source OneView Synergy Composer appliance from which to copy settings.
+    This can be the appliance name or IP address as shown in Get-HPECOMAppliance output.
+
+    .PARAMETER SynergyInterconnectSettings
+    When specified, copies the interconnect NTP configuration from the source appliance.
+    This includes the NTP source setting (APPLIANCE or EXTERNAL).
+
+    .PARAMETER SynergyLogicalInterconnectSettings
+    When specified, copies the logical interconnect VLAN range configuration from the source appliance.
+    This includes the reserved VLAN range (start, length, and vlanRange).
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewSynergyAppliance -Region eu-central -Name "Synergy Appliance Setting" -NewName "Synergy Config v2"
+
+    Updates the name of the OneView Synergy appliance setting from 'Synergy Appliance Setting' to 'Synergy Config v2' in the 'eu-central' region.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewSynergyAppliance -Region eu-central -Name "Synergy Appliance Setting" -Description "Updated Synergy configuration"
+
+    Updates the description of the OneView Synergy appliance setting named 'Synergy Appliance Setting' in the 'eu-central' region.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewSynergyAppliance -Region eu-central -Name "Synergy Appliance Setting" -SourceAppliance composer2.lj.lab -SynergyInterconnectSettings -SynergyLogicalInterconnectSettings
+
+    Updates the OneView Synergy appliance setting to copy both interconnect and logical interconnect settings from a new source appliance 'composer2.lj.lab'.
+
+    .EXAMPLE
+    Get-HPECOMSetting -Region eu-central -Name "Synergy Appliance Setting" | Set-HPECOMSettingOneViewSynergyAppliance -Description "Production Synergy settings"
+
+    Uses pipeline input to update the description for the setting named 'Synergy Appliance Setting' retrieved from the 'eu-central' region.
+
+    .INPUTS
+    System.Collections.ArrayList
+        List of OneView Synergy appliance settings from 'Get-HPECOMSetting -Category OneViewApplianceSettingsSynergy'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:
+        * Name - The name of the OneView Synergy appliance setting attempted to be updated
+        * Region - The name of the region
+        * Status - Status of the modification attempt (Failed for HTTP error return; Complete if update is successful; Warning if no action is needed)
+        * Details - More information about the status
+        * Exception - Information about any exceptions generated during the operation
+
+    #>
+    
+    [CmdletBinding()]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $Global:HPECOMRegions global variable and create completions
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$Name,  
+
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$NewName,
+        
+        [ValidateScript({ $_.Length -le 1000 })]
+        [String]$Description,    
+        
+        [String]$SourceAppliance,
+
+        [Switch]$SynergyInterconnectSettings,
+
+        [Switch]$SynergyLogicalInterconnectSettings,
+
+        [Switch]$WhatIf
+       
+    ) 
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = Get-COMSettingsUri
+        $SetSettingStatus = [System.Collections.ArrayList]::new()
+        
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+  
+            Name      = $Name
+            Region    = $Region                            
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+    
+        # Pre-validation 1: Check if setting exists
+        try {
+            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category OneViewApplianceSettingsSynergy
+            $SettingID = $SettingResource.id
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $SettingResource) {
+            
+            # Must return a message if not found
+            $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Setting cannot be found in the region!"
+            }
+        }
+        else {
+
+            $Uri = (Get-COMSettingsUri) + "/" + $SettingID
+
+            # Pre-validation 2: Check if NewName already exists
+            if ($NewName) {
+                try {
+                    $ExistingNewNameSetting = Get-HPECOMSetting -Region $Region -Name $NewName -Category OneViewApplianceSettingsSynergy
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+
+                if ($ExistingNewNameSetting) {
+                    $ErrorMessage = "A OneView Synergy appliance setting named '{0}' already exists in the '{1}' region!" -f $NewName, $Region
+                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                        return
+                    }
+                    else {
+                        $objStatus.Status = "Warning"
+                        $objStatus.Details = $ErrorMessage
+                    }
+                }
+            }
+
+            # Conditionally add properties
+            if ($NewName) {
+                $Name = $NewName
+            }
+
+            if (-not $PSBoundParameters.ContainsKey('Description')) {
+                if ($SettingResource.description) {
+                    $Description = $SettingResource.description
+                }
+                else {
+                    $Description = $Null
+                }
+            }
+
+            # Build payload - only name, description and settings (category is immutable)
+            $payload = @{ 
+                name        = $Name
+                description = $Description
+                settings    = $SettingResource.settings
+            }
+
+            # Check if we need to retrieve new settings from source appliance
+            if ($PSBoundParameters.ContainsKey('SourceAppliance') -or $PSBoundParameters.ContainsKey('SynergyInterconnectSettings') -or $PSBoundParameters.ContainsKey('SynergyLogicalInterconnectSettings')) {
+                
+                # Determine the source appliance to use
+                $ApplianceToQuery = if ($PSBoundParameters.ContainsKey('SourceAppliance')) { 
+                    $SourceAppliance 
+                } 
+                else {
+                    # Extract source appliance from existing setting
+                    $ExistingSourceApplianceId = $SettingResource.settings.DEFAULT.sourceApplianceId
+                    if ($ExistingSourceApplianceId) {
+                        try {
+                            $ExistingAppliance = Get-HPECOMAppliance -Region $Region | Where-Object { $_.id -eq $ExistingSourceApplianceId }
+                            if ($ExistingAppliance) {
+                                $ExistingAppliance.name
+                            }
+                        }
+                        catch {
+                            $null
+                        }
+                    }
+                }
+
+                if ($ApplianceToQuery) {
+                    
+                    # Pre-validation 2: Verify source appliance exists
+                    try {
+                        $Appliance = Get-HPECOMAppliance -Region $Region -Name $ApplianceToQuery -Type SynergyComposer
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                    }
+        
+                    if (-not $Appliance) {
+        
+                        # Must return a message if appliance not found
+                        $ErrorMessage = "Source appliance '{0}' cannot be found in the region or is not a Synergy Composer!" -f $ApplianceToQuery
+                        "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                        if ($WhatIf) {
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                            return
+                        }
+                        else {
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = $ErrorMessage
+                        }
+                    }
+                    elseif (($Appliance | Measure-Object).Count -gt 1) {
+                        
+                        $ErrorMessage = "Multiple appliances found with name '{0}'! Please use a unique identifier or IP address." -f $ApplianceToQuery
+                        "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                        if ($WhatIf) {
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                            return
+                        }
+                        else {
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = $ErrorMessage
+                        }
+                    }
+                    else {
+
+                        # Retrieve settings from source appliance
+                        "[{0}] Using source appliance ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Appliance.id | Write-Verbose
+
+                        try {
+                            $ApplianceSettings = Get-HPECOMAppliance -Region $Region -Name $ApplianceToQuery -ShowSettings
+                        }
+                        catch {
+                            $PSCmdlet.ThrowTerminatingError($_)
+                        }
+
+                        if ($ApplianceSettings) {
+                            
+                            # Extract the globalSettings from the appliance settings
+                            $globalSettingsObj = $ApplianceSettings | Where-Object { $_.settingsType -eq 'globalSettings' }
+                            
+                            if ($globalSettingsObj -and $globalSettingsObj.settingsValue) {
+
+                                # Build globalSettings based on provided switches (or use existing if switches not specified)
+                                $globalSettings = @{}
+                                
+                                # Determine which settings to include
+                                $IncludeInterconnect = if ($PSBoundParameters.ContainsKey('SynergyInterconnectSettings')) { 
+                                    $SynergyInterconnectSettings.IsPresent 
+                                } 
+                                else { 
+                                    # Check if existing setting has this configuration
+                                    $null -ne $SettingResource.settings.DEFAULT.globalSettings.interconnectManagerNtpSource
+                                }
+
+                                $IncludeLogicalInterconnect = if ($PSBoundParameters.ContainsKey('SynergyLogicalInterconnectSettings')) { 
+                                    $SynergyLogicalInterconnectSettings.IsPresent 
+                                } 
+                                else { 
+                                    # Check if existing setting has this configuration
+                                    $null -ne $SettingResource.settings.DEFAULT.globalSettings.reservedVlanRange
+                                }
+
+                                if ($IncludeInterconnect) {
+                                    if ($globalSettingsObj.settingsValue.interconnectManagerNtpSource) {
+                                        $globalSettings['interconnectManagerNtpSource'] = $globalSettingsObj.settingsValue.interconnectManagerNtpSource
+                                        "[{0}] Including interconnect NTP source: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $globalSettingsObj.settingsValue.interconnectManagerNtpSource | Write-Verbose
+                                    }
+                                }
+
+                                if ($IncludeLogicalInterconnect) {
+                                    if ($globalSettingsObj.settingsValue.reservedVlanRange) {
+                                        $globalSettings['reservedVlanRange'] = @{
+                                            start     = $globalSettingsObj.settingsValue.reservedVlanRange.start
+                                            length    = $globalSettingsObj.settingsValue.reservedVlanRange.length
+                                            vlanRange = $globalSettingsObj.settingsValue.reservedVlanRange.vlanRange
+                                        }
+                                        "[{0}] Including reserved VLAN range: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $globalSettingsObj.settingsValue.reservedVlanRange.vlanRange | Write-Verbose
+                                    }
+                                }
+
+                                # Build the settings object with retrieved values
+                                $payload['settings'] = @{ 
+                                    DEFAULT = @{
+                                        globalSettings        = $globalSettings
+                                        sourceApplianceId     = $Appliance.id
+                                        allowSensitiveInfoUse = $true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            # Only proceed with API call if status hasn't been set to Failed
+            if (-not $objStatus.Status) {
+                
+                $payload = ConvertTo-Json $payload -Depth 10 
+
+                try {
+
+                    $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method PATCH -body $payload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+
+                    if (-not $WhatIf ) {
+        
+                        "[{0}] Setting update raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+
+                        "[{0}] OneView Synergy appliance setting '{1}' successfully updated in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+                        
+                        $objStatus.Status = "Complete"
+                        $objStatus.Details = "OneView Synergy appliance setting successfully updated in $Region region"
+                    }
+                }
+                catch {
+
+                    if (-not $WhatIf) {
+
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "OneView Synergy appliance setting cannot be updated!" }
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+                    }
+                }
+            }
+        }
+
+        [void] $SetSettingStatus.add($objStatus)
+
+    }
+
+    End {
+
+        if (-not $WhatIf ) {
+
+            $SetSettingStatus = Invoke-RepackageObjectWithType -RawObject $SetSettingStatus -ObjectName "COM.objStatus.NSDE"
+            Return $SetSettingStatus
+        
+        }
+
+    }
+}
+
+Function Set-HPECOMSettingOneViewAppliance {
+    <#
+    .SYNOPSIS
+    Updates a OneView VM appliance setting in a specified region.
+
+    .DESCRIPTION
+    This cmdlet modifies an existing OneView VM appliance setting resource within a designated Compute Ops Management (COM) region.
+    You can update the setting name, description, and which settings categories to copy from the source appliance.
+    Settings are always sourced from the appliance that was used when the setting was originally created (the source appliance cannot be changed).
+    If certain parameters are not specified, the cmdlet retains their existing values and only updates the provided parameters.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central').
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the OneView VM appliance setting to update.
+
+    .PARAMETER NewName
+    Specifies a new name for the OneView VM appliance setting.
+
+    .PARAMETER Description
+    Provides a new description for the OneView VM appliance setting.
+
+    .PARAMETER SecurityTwoFactorAuthentication
+    When specified, copies the Two-Factor Authentication security setting from the source appliance.
+
+    .PARAMETER SecurityLocalLogin
+    When specified, copies the Local Login security setting from the source appliance.
+
+    .PARAMETER SecurityServiceConsoleAccess
+    When specified, copies the Service Console Access security setting from the source appliance.
+
+    .PARAMETER SecurityEnforceComplexPasswords
+    When specified, copies the Enforce Complex Passwords security setting from the source appliance.
+
+    .PARAMETER SecuritySSHAccess
+    When specified, copies the SSH Access security setting from the source appliance.
+
+    .PARAMETER SecurityDirectories
+    When specified, copies the Directories security setting from the source appliance.
+
+    .PARAMETER SecurityCertificateValidation
+    When specified, copies the Certificate Validation security setting from the source appliance.
+
+    .PARAMETER SecurityAuditLogForwarding
+    When specified, copies the Audit Log Forwarding security setting from the source appliance.
+
+    .PARAMETER SecurityProductImprovement
+    When specified, copies the Product Improvement security setting from the source appliance.
+
+    .PARAMETER NotificationsEmailDestination
+    When specified, copies the Email Destination notifications setting from the source appliance.
+
+    .PARAMETER NotificationsAlertEmailFilters
+    When specified, copies the Alert Email Filters notifications setting from the source appliance.
+
+    .PARAMETER ProxySettings
+    When specified, copies the proxy settings from the source appliance.
+
+    .PARAMETER RemoteSupportGeneralSettings
+    When specified, copies the Remote Support general settings from the source appliance.
+
+    .PARAMETER RemoteSupportDefaultSchedule
+    When specified, copies the Remote Support default schedule from the source appliance.
+
+    .PARAMETER SnmpSettings
+    When specified, copies the SNMP settings from the source appliance.
+
+    .PARAMETER TimeAndLocaleTimeSettings
+    When specified, copies the Time Settings (NTP) from the source appliance.
+
+    .PARAMETER TimeAndLocaleLanguage
+    When specified, copies the Language/Locale setting from the source appliance.
+
+    .PARAMETER UpdatesSettings
+    When specified, copies the Updates settings from the source appliance.
+
+    .PARAMETER GlobalServerHardwareSettings
+    When specified, copies the Server Hardware global settings from the source appliance.
+
+    .PARAMETER GlobalServerProfileSettings
+    When specified, copies the Server Profile global settings from the source appliance.
+
+    .PARAMETER GlobalStorageSettings
+    When specified, copies the Storage global settings from the source appliance.
+
+    .PARAMETER GlobalUserInterfaceSettings
+    When specified, copies the User Interface global settings from the source appliance.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewAppliance -Region eu-central -Name "OneView Appliance Setting" -NewName "OneView Config v2"
+
+    Updates the name of the OneView VM appliance setting from 'OneView Appliance Setting' to 'OneView Config v2' in the 'eu-central' region.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewAppliance -Region eu-central -Name "OneView Appliance Setting" -Description "Updated OneView configuration"
+
+    Updates the description of the OneView VM appliance setting named 'OneView Appliance Setting' in the 'eu-central' region.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewAppliance -Region eu-central -Name "OneView Appliance Setting" -SecurityTwoFactorAuthentication -SecurityLocalLogin
+
+    Updates the OneView VM appliance setting to copy the Two-Factor Authentication and Local Login security settings from the original source appliance.
+
+    .EXAMPLE
+    Get-HPECOMSetting -Region eu-central -Name "OneView Appliance Setting" | Set-HPECOMSettingOneViewAppliance -Description "Production OneView settings"
+
+    Uses pipeline input to update the description for the setting named 'OneView Appliance Setting' retrieved from the 'eu-central' region.
+
+    .INPUTS
+    System.Collections.ArrayList
+        List of OneView appliance settings from 'Get-HPECOMSetting -Category OneViewApplianceSettings'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:
+        * Name - The name of the OneView VM appliance setting attempted to be updated
+        * Region - The name of the region
+        * Status - Status of the modification attempt (Failed for HTTP error return; Complete if update is successful; Warning if no action is needed)
+        * Details - More information about the status
+        * Exception - Information about any exceptions generated during the operation
+
+    #>
+
+    [CmdletBinding()]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $Global:HPECOMRegions global variable and create completions
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$Name,  
+
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$NewName,
+        
+        [ValidateScript({ $_.Length -le 1000 })]
+        [String]$Description,    
+        
+        # Security settings (9 options)
+        [Switch]$SecurityTwoFactorAuthentication,
+        [Switch]$SecurityLocalLogin,
+        [Switch]$SecurityServiceConsoleAccess,
+        [Switch]$SecurityEnforceComplexPasswords,
+        [Switch]$SecuritySSHAccess,
+        [Switch]$SecurityDirectories,
+        [Switch]$SecurityCertificateValidation,
+        [Switch]$SecurityAuditLogForwarding,
+        [Switch]$SecurityProductImprovement,
+
+        # Notifications settings (2 options)
+        [Switch]$NotificationsEmailDestination,
+        [Switch]$NotificationsAlertEmailFilters,
+
+        # Proxy settings (1 option)
+        [Switch]$ProxySettings,
+
+        # Remote support settings (2 options)
+        [Switch]$RemoteSupportGeneralSettings,
+        [Switch]$RemoteSupportDefaultSchedule,
+
+        # SNMP settings (1 option)
+        [Switch]$SnmpSettings,
+
+        # Time and locale settings (2 options)
+        [Switch]$TimeAndLocaleTimeSettings,
+        [Switch]$TimeAndLocaleLanguage,
+
+        # Updates settings (1 option)
+        [Switch]$UpdatesSettings,
+
+        # Global settings (4 options)
+        [Switch]$GlobalServerHardwareSettings,
+        [Switch]$GlobalServerProfileSettings,
+        [Switch]$GlobalStorageSettings,
+        [Switch]$GlobalUserInterfaceSettings,
+
+        [Switch]$WhatIf
+       
+    ) 
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = Get-COMSettingsUri
+        $SetSettingStatus = [System.Collections.ArrayList]::new()
+        
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+  
+            Name      = $Name
+            Region    = $Region                            
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+    
+        # Pre-validation 1: Check if setting exists
+        try {
+            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category OneViewApplianceSettings
+            $SettingID = $SettingResource.id
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $SettingResource) {
+            
+            $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Setting cannot be found in the region!"
+            }
+        }
+        else {
+
+            $Uri = (Get-COMSettingsUri) + "/" + $SettingID
+
+            # Pre-validation 2: Check if NewName already exists
+            if ($NewName) {
+                try {
+                    $ExistingNewNameSetting = Get-HPECOMSetting -Region $Region -Name $NewName -Category OneViewApplianceSettings
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+
+                if ($ExistingNewNameSetting) {
+                    $ErrorMessage = "A OneView VM appliance setting named '{0}' already exists in the '{1}' region!" -f $NewName, $Region
+                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                        return
+                    }
+                    else {
+                        $objStatus.Status = "Warning"
+                        $objStatus.Details = $ErrorMessage
+                    }
+                }
+            }
+
+            # Conditionally update name
+            if ($NewName) {
+                $Name = $NewName
+            }
+
+            if (-not $PSBoundParameters.ContainsKey('Description')) {
+                if ($SettingResource.description) {
+                    $Description = $SettingResource.description
+                }
+                else {
+                    $Description = $Null
+                }
+            }
+
+            # Build payload - only send fields being changed (merge-patch semantics)
+            $payload = @{ 
+                name        = $Name
+                description = $Description
+            }
+
+            # Determine if any settings-related switches were provided
+            $AnySettingSwitch = $SecurityTwoFactorAuthentication -or $SecurityLocalLogin -or $SecurityServiceConsoleAccess -or 
+                                 $SecurityEnforceComplexPasswords -or $SecuritySSHAccess -or $SecurityDirectories -or 
+                                 $SecurityCertificateValidation -or $SecurityAuditLogForwarding -or $SecurityProductImprovement -or
+                                 $NotificationsEmailDestination -or $NotificationsAlertEmailFilters -or
+                                 $ProxySettings -or
+                                 $RemoteSupportGeneralSettings -or $RemoteSupportDefaultSchedule -or
+                                 $SnmpSettings -or
+                                 $TimeAndLocaleTimeSettings -or $TimeAndLocaleLanguage -or
+                                 $UpdatesSettings -or
+                                 $GlobalServerHardwareSettings -or $GlobalServerProfileSettings -or 
+                                 $GlobalStorageSettings -or $GlobalUserInterfaceSettings
+
+            # Check if we need to retrieve new settings from source appliance
+            if ($AnySettingSwitch) {
+                
+                # Always auto-resolve the source appliance from the existing setting (sourceApplianceId cannot be changed)
+                $ExistingApplianceId = $SettingResource.settings.DEFAULT.sourceApplianceId
+                $ApplianceToQuery = if ($ExistingApplianceId) {
+                    try {
+                        $ExistingAppliance = Get-HPECOMAppliance -Region $Region | Where-Object { $_.id -eq $ExistingApplianceId }
+                        if ($ExistingAppliance) { $ExistingAppliance.name }
+                    }
+                    catch { $null }
+                }
+
+                if ($ApplianceToQuery) {
+                    
+                    # Pre-validation 3: Verify source appliance exists and is OneView VM
+                    try {
+                        $Appliance = Get-HPECOMAppliance -Region $Region -Name $ApplianceToQuery -Type OneViewVM
+                    }
+                    catch {
+                        $PSCmdlet.ThrowTerminatingError($_)
+                    }
+        
+                    if (-not $Appliance) {
+        
+                        $ErrorMessage = "Source appliance '{0}' cannot be found in the region or is not a OneView VM!" -f $ApplianceToQuery
+                        "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                        if ($WhatIf) {
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                            return
+                        }
+                        else {
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = $ErrorMessage
+                        }
+                    }
+                    elseif (($Appliance | Measure-Object).Count -gt 1) {
+                        
+                        $ErrorMessage = "Multiple appliances found with name '{0}'! Please use a unique identifier or IP address." -f $ApplianceToQuery
+                        "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                        if ($WhatIf) {
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                            return
+                        }
+                        else {
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = $ErrorMessage
+                        }
+                    }
+                    else {
+
+                        "[{0}] Using source appliance ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Appliance.id | Write-Verbose
+
+                        try {
+                            $ApplianceSettings = Get-HPECOMAppliance -Region $Region -Name $ApplianceToQuery -ShowSettings
+                        }
+                        catch {
+                            $PSCmdlet.ThrowTerminatingError($_)
+                        }
+
+                        if ($ApplianceSettings) {
+
+                            # Determine which settingsTypes to update from the source appliance
+                            $typesToUpdate = [System.Collections.Generic.List[string]]::new()
+
+                            if (-not $AnySettingSwitch) {
+                                # No specific switches = update all types from source
+                                foreach ($s in $ApplianceSettings) {
+                                    $typesToUpdate.Add($s.settingsType)
+                                }
+                            }
+                            else {
+                                if ($SecurityTwoFactorAuthentication -or $SecurityLocalLogin -or $SecurityServiceConsoleAccess -or 
+                                    $SecurityEnforceComplexPasswords -or $SecuritySSHAccess -or $SecurityDirectories -or 
+                                    $SecurityCertificateValidation -or $SecurityAuditLogForwarding -or $SecurityProductImprovement) {
+                                    $typesToUpdate.Add('security')
+                                }
+                                if ($NotificationsEmailDestination -or $NotificationsAlertEmailFilters) {
+                                    $typesToUpdate.Add('notifications')
+                                }
+                                if ($ProxySettings) {
+                                    $typesToUpdate.Add('proxy')
+                                }
+                                if ($RemoteSupportGeneralSettings -or $RemoteSupportDefaultSchedule) {
+                                    $typesToUpdate.Add('remoteSupport')
+                                }
+                                if ($SnmpSettings) {
+                                    $typesToUpdate.Add('snmp')
+                                }
+                                if ($TimeAndLocaleTimeSettings -or $TimeAndLocaleLanguage) {
+                                    $typesToUpdate.Add('timeAndLocale')
+                                }
+                                if ($UpdatesSettings) {
+                                    $typesToUpdate.Add('updates')
+                                }
+                                if ($GlobalServerHardwareSettings -or $GlobalServerProfileSettings -or 
+                                    $GlobalStorageSettings -or $GlobalUserInterfaceSettings) {
+                                    $typesToUpdate.Add('globalSettings')
+                                }
+                            }
+
+                            # Build settings.DEFAULT object from source appliance for the requested types only
+                            # PATCH expects { settings: { DEFAULT: { typeName: settingsValue, ... } } }
+                            $settingsDefault = @{}
+
+                            foreach ($t in $typesToUpdate) {
+                                $sourceEntry = $ApplianceSettings | Where-Object { $_.settingsType -eq $t }
+                                if ($sourceEntry -and $sourceEntry.settingsValue) {
+                                    "[{0}] Updating '{1}' settings from source appliance" -f $MyInvocation.InvocationName.ToString().ToUpper(), $t | Write-Verbose
+                                    $settingsDefault[$t] = $sourceEntry.settingsValue
+                                }
+                            }
+
+                            # When specific security switches are requested, build a minimal security object
+                            # containing only the sub-fields that correspond to the requested switches.
+                            # Sending the full security object risks 0500153 schema mismatch because the API
+                            # validates every sent field against the live appliance state.
+                            # When no switches are set (copy-all mode), the full object is sent as-is.
+                            #
+                            # IMPORTANT: The API enforces that these 7 fields form an interdependent group —
+                            # if any ONE is sent, ALL must be sent (including null-valued ones):
+                            #   defaultLoginDomain, directories, userGroups,
+                            #   allowLocalLogin, emergencyLocalLoginEnabled,
+                            #   twoFactorAuthenticationEnabled, strictTwoFactorAuthentication
+                            $secGroupFields = @('defaultLoginDomain','directories','userGroups',
+                                                'allowLocalLogin','emergencyLocalLoginEnabled',
+                                                'twoFactorAuthenticationEnabled','strictTwoFactorAuthentication')
+
+                            if ($AnySettingSwitch -and $settingsDefault.ContainsKey('security')) {
+                                $fullSec  = $settingsDefault['security']
+                                $minSec   = [PSCustomObject]@{}
+                                $needGroup = $false
+
+                                # Track whether any group-touching switch is set
+                                if ($SecurityTwoFactorAuthentication -or $SecurityLocalLogin -or $SecurityDirectories) {
+                                    $needGroup = $true
+                                }
+
+                                # Add the full interdependent group if any group switch requested.
+                                # directories / userGroups must be arrays — use @() when null so the API
+                                # considers them "selected" (a present non-null value satisfies the constraint).
+                                $arrayGroupFields = @('directories', 'userGroups')
+                                if ($needGroup) {
+                                    foreach ($gf in $secGroupFields) {
+                                        $val = $fullSec.$gf
+                                        if ($null -eq $val -and $gf -in $arrayGroupFields) { $val = @() }
+                                        Add-Member -InputObject $minSec -NotePropertyName $gf -NotePropertyValue $val -Force
+                                    }
+                                }
+
+                                # Add independent fields only if their specific switch was set
+                                if ($SecurityServiceConsoleAccess -and $null -ne $fullSec.enableServiceAccess) {
+                                    Add-Member -InputObject $minSec -NotePropertyName 'enableServiceAccess' -NotePropertyValue $fullSec.enableServiceAccess -Force
+                                }
+                                if ($SecurityEnforceComplexPasswords -and $null -ne $fullSec.enforceComplexPasswordEnabled) {
+                                    Add-Member -InputObject $minSec -NotePropertyName 'enforceComplexPasswordEnabled' -NotePropertyValue $fullSec.enforceComplexPasswordEnabled -Force
+                                }
+                                if ($SecuritySSHAccess -and $null -ne $fullSec.allowSshAccess) {
+                                    Add-Member -InputObject $minSec -NotePropertyName 'allowSshAccess' -NotePropertyValue $fullSec.allowSshAccess -Force
+                                }
+                                if ($SecurityCertificateValidation) {
+                                    if ($fullSec.certValidationConfig) { Add-Member -InputObject $minSec -NotePropertyName 'certValidationConfig' -NotePropertyValue $fullSec.certValidationConfig -Force }
+                                    if ($fullSec.loginCertificates)    { Add-Member -InputObject $minSec -NotePropertyName 'loginCertificates'    -NotePropertyValue $fullSec.loginCertificates -Force }
+                                }
+                                if ($SecurityAuditLogForwarding -and $null -ne $fullSec.auditLogForwarding) {
+                                    Add-Member -InputObject $minSec -NotePropertyName 'auditLogForwarding' -NotePropertyValue $fullSec.auditLogForwarding -Force
+                                }
+                                if ($SecurityProductImprovement -and $null -ne $fullSec.productImprovement) {
+                                    Add-Member -InputObject $minSec -NotePropertyName 'productImprovement' -NotePropertyValue $fullSec.productImprovement -Force
+                                }
+
+                                $settingsDefault['security'] = $minSec
+                                "[{0}] Built minimal security payload for requested switches (group fields included: {1})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $needGroup | Write-Verbose
+                            }
+
+                            # Recursively convert known array fields returned as strings or key-value objects by the API.
+                            # String values  → wrapped as @(string)
+                            # PSCustomObject → each property becomes its own object in the array: @({key=val}, {key=val}, ...)
+                            $arrayFieldNames = @('validationOids', 'subjectPatterns', 'subjectAlternateNamePatterns')
+                            $fixArrayFields = {
+                                param([object]$obj, [scriptblock]$self, [string[]]$fields)
+                                if ($null -eq $obj -or $null -eq $obj.PSObject) { return }
+                                foreach ($prop in @($obj.PSObject.Properties)) {
+                                    if ($prop.Name -in $fields) {
+                                        if ($prop.Value -is [PSCustomObject]) {
+                                            # Dict of key→value pairs: convert each entry to its own object in the array
+                                            $newArr = @($prop.Value.PSObject.Properties | ForEach-Object { [PSCustomObject]@{ $_.Name = $_.Value } })
+                                            Add-Member -InputObject $obj -NotePropertyName $prop.Name -NotePropertyValue $newArr -Force
+                                            "[{0}] Converted '{1}' from object to array of objects (count: {2})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $prop.Name, $newArr.Count | Write-Verbose
+                                        }
+                                        elseif ($prop.Value -is [string]) {
+                                            # Plain string — wrap in array
+                                            $newArr = @($prop.Value)
+                                            Add-Member -InputObject $obj -NotePropertyName $prop.Name -NotePropertyValue $newArr -Force
+                                            "[{0}] Converted '{1}' from string to array" -f $MyInvocation.InvocationName.ToString().ToUpper(), $prop.Name | Write-Verbose
+                                        }
+                                    }
+                                    elseif ($prop.Value -is [PSCustomObject]) {
+                                        & $self $prop.Value $self $fields
+                                    }
+                                    elseif ($prop.Value -is [array]) {
+                                        foreach ($item in $prop.Value) {
+                                            if ($item -is [PSCustomObject]) {
+                                                & $self $item $self $fields
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if ($settingsDefault.ContainsKey('security')) {
+                                & $fixArrayFields $settingsDefault['security'] $fixArrayFields $arrayFieldNames
+
+                                # Remove null-valued properties only in copy-all mode — the API validates settings
+                                # exactly against live appliance data, and unexpected null fields cause 0500153.
+                                # In selective mode we already built a precise minimal object; stripping nulls
+                                # would remove required group fields (directories, userGroups) and cause 0500198.
+                                if (-not $AnySettingSwitch) {
+                                    $stripNulls = {
+                                        param([object]$obj, [scriptblock]$self)
+                                        if ($null -eq $obj -or $null -eq $obj.PSObject) { return }
+                                        $nullProps = @($obj.PSObject.Properties | Where-Object { $null -eq $_.Value } | Select-Object -ExpandProperty Name)
+                                        foreach ($n in $nullProps) {
+                                            $obj.PSObject.Properties.Remove($n)
+                                            "[{0}] Removed null property '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $n | Write-Verbose
+                                        }
+                                        foreach ($prop in @($obj.PSObject.Properties)) {
+                                            if ($prop.Value -is [PSCustomObject]) { & $self $prop.Value $self }
+                                            elseif ($prop.Value -is [array]) {
+                                                foreach ($item in $prop.Value) {
+                                                    if ($item -is [PSCustomObject]) { & $self $item $self }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    & $stripNulls $settingsDefault['security'] $stripNulls
+                                }
+                            }
+
+                            if ($settingsDefault.Count -gt 0) {
+                                # sourceApplianceId cannot be changed once set — preserve existing value if present
+                                $existingSourceId = $SettingResource.settings.DEFAULT.sourceApplianceId
+                                $settingsDefault['sourceApplianceId']     = if ($existingSourceId) { $existingSourceId } else { $Appliance.id }
+                                $settingsDefault['allowSensitiveInfoUse'] = $true
+                                $payload['settings'] = @{ DEFAULT = $settingsDefault }
+                            }
+                        }
+                    }
+                }
+            }
+
+            # Only proceed with API call if status hasn't been set (validation passed)
+            if (-not $objStatus.Status) {
+                
+                $payload = ConvertTo-Json $payload -Depth 20 
+
+                try {
+
+                    $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method PATCH -body $payload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+
+                    if (-not $WhatIf ) {
+        
+                        "[{0}] Setting update raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+
+                        "[{0}] OneView VM appliance setting '{1}' successfully updated in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+                        
+                        $objStatus.Status = "Complete"
+                        $objStatus.Details = "OneView VM appliance setting successfully updated in $Region region"
+                    }
+                }
+                catch {
+
+                    if (-not $WhatIf) {
+
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "OneView VM appliance setting cannot be updated!" }
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+                    }
+                }
+            }
+        }
+
+        [void] $SetSettingStatus.add($objStatus)
+
+    }
+
+    End {
+
+        if (-not $WhatIf ) {
+
+            $SetSettingStatus = Invoke-RepackageObjectWithType -RawObject $SetSettingStatus -ObjectName "COM.objStatus.NSDE"
+            Return $SetSettingStatus
+        
+        }
+
+    }
+}
+
+Function New-HPECOMSettingOneViewServerProfileTemplate {
+    <#
+    .SYNOPSIS
+    Create a OneView server profile template setting referencing one or more server profile templates from a OneView VM or Synergy Composer appliance.
+
+    .DESCRIPTION
+    This cmdlet creates a new OneView server profile template setting in Compute Ops Management.
+    The setting references one or more server profile templates from a specific OneView VM or Synergy Composer appliance, enabling those templates to be used in group configurations.
+    The appliance type (VM or Synergy Composer) is detected automatically from the specified source appliance name and determines the setting category created.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the OneView server profile template setting to create.
+
+    .PARAMETER Description
+    Specifies a description for the OneView server profile template setting.
+
+    .PARAMETER SourceAppliance
+    Specifies the name or IP address of the source OneView appliance from which the server profile templates are retrieved.
+    This should match an appliance from 'Get-HPECOMAppliance' with Type = 'VM' (OneView VM) or 'SynergyComposer' (Synergy Composer).
+    The appliance type is detected automatically and determines whether a VM or Synergy server profile template setting is created.
+
+    .PARAMETER ServerProfileTemplateNames
+    Specifies one or more server profile template names to include in the setting.
+    Each name must match a template available on the specified source appliance.
+    Use 'Get-HPECOMOneViewServerProfileTemplate -Region <Region> -ApplianceName <Appliance>' to see available templates.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    New-HPECOMSettingOneViewServerProfileTemplate -Region eu-central -Name "OV_Templates" -SourceAppliance oneview.lj.lab -ServerProfileTemplateNames "ESXi_BFS_EG_100G"
+
+    Creates a new OneView VM server profile template setting referencing a single server profile template from the 'oneview.lj.lab' VM appliance.
+
+    .EXAMPLE
+    New-HPECOMSettingOneViewServerProfileTemplate -Region eu-central -Name "OV_Templates" -Description "ESXi production templates" -SourceAppliance oneview.lj.lab -ServerProfileTemplateNames "ESXi_BFS_EG_100G", "RHEL_BFLD_EG_100G"
+
+    Creates a new OneView VM server profile template setting referencing two server profile templates from the 'oneview.lj.lab' VM appliance.
+
+    .EXAMPLE
+    New-HPECOMSettingOneViewServerProfileTemplate -Region eu-central -Name "Synergy_Templates" -SourceAppliance composer.lj.lab -ServerProfileTemplateNames "ESXi_Synergy_BFS"
+
+    Creates a new OneView Synergy server profile template setting referencing a single server profile template from the 'composer.lj.lab' Synergy Composer appliance.
+
+    .INPUTS
+    Pipeline input is not supported.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:
+        * Name      - The name of the OneView server profile template setting attempted to be created
+        * Region    - The name of the region
+        * Status    - Status of the creation attempt (Complete, Warning, or Failed)
+        * Details   - More information about the status
+        * Exception - Information about any exceptions generated during the operation
+    #>
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter(Mandatory)]
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$Name,
+
+        [ValidateScript({ $_.Length -le 1000 })]
+        [String]$Description,
+
+        [Parameter(Mandatory)]
+        [String]$SourceAppliance,
+
+        [Parameter(Mandatory)]
+        [String[]]$ServerProfileTemplateNames,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = Get-COMSettingsUri
+        $NewSettingStatus = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | Out-String) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            Name      = $Name
+            Region    = $Region
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        # Pre-validation 1: Verify source appliance exists and determine its type (VM or SYNERGY)
+        try {
+            $Appliance = Get-HPECOMAppliance -Region $Region -Name $SourceAppliance -Verbose:$false
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $Appliance) {
+
+            $ErrorMessage = "Source appliance '{0}' cannot be found in the '{1}' region!" -f $SourceAppliance, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Source appliance cannot be found in the region!"
+                [void] $NewSettingStatus.add($objStatus)
+                return
+            }
+        }
+
+        # Pre-validation 2: Check for multiple appliances with the same name
+        if ($Appliance.Count -gt 1) {
+
+            $ErrorMessage = "Multiple appliances found with name '{0}' in the '{1}' region! Please specify a unique appliance name or IP address." -f $SourceAppliance, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Multiple appliances found with the same name! Please specify a unique appliance name or IP address."
+                [void] $NewSettingStatus.add($objStatus)
+                return
+            }
+        }
+
+        # Pre-validation 3: Ensure the appliance type is VM or SYNERGY
+        if ($Appliance.applianceType -notin @('VM', 'SYNERGY')) {
+
+            $ErrorMessage = "Source appliance '{0}' has unsupported type '{1}' in the '{2}' region! Only OneView VM and Synergy Composer appliances are supported." -f $SourceAppliance, $Appliance.applianceType, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Source appliance type is not supported! Only OneView VM and Synergy Composer appliances are supported."
+                [void] $NewSettingStatus.add($objStatus)
+                return
+            }
+        }
+
+        # Determine API category and Get-HPECOMSetting category from the appliance type
+        if ($Appliance.applianceType -eq 'VM') {
+            $ApiCategory     = "OVE_SERVER_TEMPLATES_VM"
+            $SettingCategory = "OneViewServerProfileTemplatesVM"
+            $TypeLabel       = "OneView VM"
+        }
+        else {
+            $ApiCategory     = "OVE_SERVER_TEMPLATES_SYNERGY"
+            $SettingCategory = "OneViewServerProfileTemplatesSynergy"
+            $TypeLabel       = "OneView Synergy"
+        }
+
+        "[{0}] Source appliance '{1}' detected as type '{2}' (API category: {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SourceAppliance, $Appliance.applianceType, $ApiCategory | Write-Verbose
+
+        # Pre-validation 4: Check if a setting with this name already exists in the same category
+        try {
+            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category $SettingCategory -Verbose:$false
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($SettingResource) {
+
+            $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Setting already exists in the region! No action needed."
+            }
+
+        }
+        else {
+
+            "[{0}] Using source appliance '{1}' with ID: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SourceAppliance, $Appliance.id | Write-Verbose
+
+            # Pre-validation 5: Look up each requested server profile template
+            $templateUris      = [System.Collections.ArrayList]::new()
+            $notFoundTemplates = [System.Collections.ArrayList]::new()
+
+            foreach ($tmplName in $ServerProfileTemplateNames) {
+
+                try {
+                    $Template = Get-HPECOMOneViewServerProfileTemplate -Region $Region -Name $tmplName -ApplianceName $SourceAppliance -Verbose:$false
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+
+                if ($Template) {
+                    "[{0}] Found template '{1}' with URI: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $tmplName, $Template.uri | Write-Verbose
+                    [void] $templateUris.Add(@{ uri = $Template.uri })
+                }
+                else {
+                    "[{0}] Template '{1}' not found on appliance '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $tmplName, $SourceAppliance | Write-Verbose
+                    [void] $notFoundTemplates.Add($tmplName)
+                }
+            }
+
+            if ($notFoundTemplates.Count -gt 0) {
+
+                $ErrorMessage = "The following server profile template(s) cannot be found on appliance '{0}' in the '{1}' region: {2}" -f $SourceAppliance, $Region, ($notFoundTemplates -join ', ')
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "One or more server profile templates cannot be found on the source appliance! Templates not found: $($notFoundTemplates -join ', ')"
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Build payload
+            $payload = @{
+                name        = $Name
+                description = $Description
+                category    = $ApiCategory
+                settings    = @{
+                    DEFAULT = @{
+                        data                  = @(
+                            @{
+                                applianceId = $Appliance.id
+                                templates   = $templateUris.ToArray()
+                            }
+                        )
+                        allowSensitiveInfoUse = $true
+                    }
+                }
+            }
+
+            $payload = ConvertTo-Json $payload -Depth 10
+
+            try {
+
+                $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                if (-not $WhatIf) {
+
+                    "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+                    "[{0}] {1} server profile template setting '{2}' successfully created in '{3}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $TypeLabel, $Name, $Region | Write-Verbose
+
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "$TypeLabel server profile template setting successfully created in $Region region"
+                }
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "$TypeLabel server profile template setting cannot be created!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                }
+            }
+        }
+
+        if (-not $WhatIf) {
+            [void] $NewSettingStatus.add($objStatus)
+        }
+
+    }
+
+    End {
+
+        if ($NewSettingStatus.Count -gt 0) {
+
+            $NewSettingStatus = Invoke-RepackageObjectWithType -RawObject $NewSettingStatus -ObjectName "COM.objStatus.NSDE"
+            Return $NewSettingStatus
+        }
+    }
+}
+
+Function Set-HPECOMSettingOneViewServerProfileTemplate {
+    <#
+    .SYNOPSIS
+    Updates a OneView server profile template setting in a specified region.
+
+    .DESCRIPTION
+    This cmdlet modifies an existing OneView server profile template setting in Compute Ops Management.
+    You can update the setting name, description, and/or the server profile templates referenced by the setting.
+    When updating templates, both -SourceAppliance and -ServerProfileTemplateNames must be provided together, and the new source appliance must be of the same type (VM or Synergy Composer) as the one used when the setting was originally created.
+    If certain parameters are not specified, the cmdlet retains their existing values and only updates the provided parameters.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the OneView server profile template setting to update.
+
+    .PARAMETER NewName
+    Specifies a new name for the OneView server profile template setting.
+
+    .PARAMETER Description
+    Specifies a new description for the OneView server profile template setting.
+
+    .PARAMETER SourceAppliance
+    Specifies the name or IP address of the source OneView appliance from which the server profile templates are retrieved.
+    Must be of the same appliance type (VM or Synergy Composer) as the one used when the setting was originally created.
+    Must be used together with -ServerProfileTemplateNames.
+
+    .PARAMETER ServerProfileTemplateNames
+    Specifies one or more server profile template names to include in the updated setting.
+    Each name must match a template available on the specified source appliance.
+    Must be used together with -SourceAppliance.
+    Use 'Get-HPECOMOneViewServerProfileTemplate -Region <Region> -ApplianceName <Appliance>' to see available templates.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewServerProfileTemplate -Region eu-central -Name "OV_Templates" -NewName "OV_Templates_v2"
+
+    Renames the OneView server profile template setting from 'OV_Templates' to 'OV_Templates_v2' in the 'eu-central' region.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewServerProfileTemplate -Region eu-central -Name "OV_Templates" -Description "Updated template list"
+
+    Updates the description of the OneView server profile template setting named 'OV_Templates' in the 'eu-central' region.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewServerProfileTemplate -Region eu-central -Name "OV_Templates" -SourceAppliance oneview.lj.lab -ServerProfileTemplateNames "ESXi_BFS_EG_100G", "RHEL_BFLD_EG_100G"
+
+    Updates the referenced server profile templates in 'OV_Templates' using templates from the 'oneview.lj.lab' VM appliance.
+
+    .EXAMPLE
+    Get-HPECOMSetting -Region eu-central -Name "OV_Templates" | Set-HPECOMSettingOneViewServerProfileTemplate -Description "Production templates"
+
+    Uses pipeline input to update the description for the setting named 'OV_Templates' in the 'eu-central' region.
+
+    .INPUTS
+    System.Collections.ArrayList
+        List of OneView server profile template settings from 'Get-HPECOMSetting -Category OneViewServerProfileTemplatesVM' or 'Get-HPECOMSetting -Category OneViewServerProfileTemplatesSynergy'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:
+        * Name      - The name of the OneView server profile template setting attempted to be updated
+        * Region    - The name of the region
+        * Status    - Status of the modification attempt (Complete, Warning, or Failed)
+        * Details   - More information about the status
+        * Exception - Information about any exceptions generated during the operation
+    #>
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$Name,
+
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$NewName,
+
+        [ValidateScript({ $_.Length -le 1000 })]
+        [String]$Description,
+
+        [String]$SourceAppliance,
+
+        [String[]]$ServerProfileTemplateNames,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $SetSettingStatus = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | Out-String) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            Name      = $Name
+            Region    = $Region
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        # Pre-validation 0: SourceAppliance and ServerProfileTemplateNames must be used together
+        if (($PSBoundParameters.ContainsKey('SourceAppliance') -and -not $PSBoundParameters.ContainsKey('ServerProfileTemplateNames')) -or
+            ($PSBoundParameters.ContainsKey('ServerProfileTemplateNames') -and -not $PSBoundParameters.ContainsKey('SourceAppliance'))) {
+
+            $ErrorMessage = "Parameters '-SourceAppliance' and '-ServerProfileTemplateNames' must be used together."
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = $ErrorMessage
+                [void] $SetSettingStatus.add($objStatus)
+                return
+            }
+        }
+
+        # Pre-validation 1: Find existing setting — try VM category first, then Synergy.
+        # Always derive type from the returned object's 'category' property to guard against
+        # unreliable API category filters that may return results across categories.
+        try {
+            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category OneViewServerProfileTemplatesVM -Verbose:$false
+            if (-not $SettingResource) {
+                $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category OneViewServerProfileTemplatesSynergy -Verbose:$false
+            }
+            if ($SettingResource) {
+                switch ($SettingResource.category) {
+                    'OVE_SERVER_TEMPLATES_VM' {
+                        $SettingCategory = "OneViewServerProfileTemplatesVM"
+                        $ApiCategory     = "OVE_SERVER_TEMPLATES_VM"
+                        $TypeLabel       = "OneView VM"
+                    }
+                    'OVE_SERVER_TEMPLATES_SYNERGY' {
+                        $SettingCategory = "OneViewServerProfileTemplatesSynergy"
+                        $ApiCategory     = "OVE_SERVER_TEMPLATES_SYNERGY"
+                        $TypeLabel       = "OneView Synergy"
+                    }
+                    default {
+                        # Not an OVE_SERVER_TEMPLATES setting — treat as not found
+                        $SettingResource = $null
+                    }
+                }
+            }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $SettingResource) {
+
+            $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Setting cannot be found in the region!"
+                [void] $SetSettingStatus.add($objStatus)
+                return
+            }
+        }
+
+        $SettingID = $SettingResource.id
+        $Uri       = (Get-COMSettingsUri) + "/" + $SettingID
+
+        "[{0}] Found {1} setting '{2}' with ID: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $TypeLabel, $Name, $SettingID | Write-Verbose
+
+        # Pre-validation 2: Check if NewName already exists in the same category
+        if ($NewName) {
+            try {
+                $ExistingNewNameSetting = Get-HPECOMSetting -Region $Region -Name $NewName -Category $SettingCategory -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if ($ExistingNewNameSetting) {
+                $ErrorMessage = "A $TypeLabel server profile template setting named '{0}' already exists in the '{1}' region!" -f $NewName, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = $ErrorMessage
+                    [void] $SetSettingStatus.add($objStatus)
+                    return
+                }
+            }
+        }
+
+        # Resolve updated name and description
+        $UpdatedName        = if ($NewName) { $NewName } else { $Name }
+        $UpdatedDescription = if ($PSBoundParameters.ContainsKey('Description')) { $Description }
+                              elseif ($SettingResource.description) { $SettingResource.description }
+                              else { $null }
+
+        # Build base payload
+        $payload = @{
+            name        = $UpdatedName
+            description = $UpdatedDescription
+        }
+
+        # If SourceAppliance+ServerProfileTemplateNames provided, validate and build new settings data
+        if ($PSBoundParameters.ContainsKey('SourceAppliance')) {
+
+            # Pre-validation 3: Verify source appliance exists
+            try {
+                $Appliance = Get-HPECOMAppliance -Region $Region -Name $SourceAppliance -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if (-not $Appliance) {
+
+                $ErrorMessage = "Source appliance '{0}' cannot be found in the '{1}' region!" -f $SourceAppliance, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Source appliance cannot be found in the region!"
+                    [void] $SetSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Pre-validation 4: Reject ambiguous appliance name
+            if ($Appliance.Count -gt 1) {
+
+                $ErrorMessage = "Multiple appliances found with name '{0}' in the '{1}' region! Please specify a unique appliance name or IP address." -f $SourceAppliance, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Multiple appliances found with the same name! Please specify a unique appliance name or IP address."
+                    [void] $SetSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Pre-validation 5: New appliance must be the same type as the existing setting
+            $RequiredApplianceType = if ($ApiCategory -eq 'OVE_SERVER_TEMPLATES_VM') { 'VM' } else { 'SYNERGY' }
+            if ($Appliance.applianceType -ne $RequiredApplianceType) {
+
+                $ErrorMessage = "Source appliance '{0}' is of type '{1}' but the existing setting is a {2} type setting. The appliance type cannot be changed." -f $SourceAppliance, $Appliance.applianceType, $TypeLabel
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Source appliance type does not match the existing setting type. The appliance type cannot be changed."
+                    [void] $SetSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            "[{0}] Using source appliance '{1}' with ID: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SourceAppliance, $Appliance.id | Write-Verbose
+
+            # Pre-validation 6: Look up each requested server profile template
+            $templateUris      = [System.Collections.ArrayList]::new()
+            $notFoundTemplates = [System.Collections.ArrayList]::new()
+
+            foreach ($tmplName in $ServerProfileTemplateNames) {
+
+                try {
+                    $Template = Get-HPECOMOneViewServerProfileTemplate -Region $Region -Name $tmplName -ApplianceName $SourceAppliance -Verbose:$false
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+
+                if ($Template) {
+                    "[{0}] Found template '{1}' with URI: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $tmplName, $Template.uri | Write-Verbose
+                    [void] $templateUris.Add(@{ uri = $Template.uri })
+                }
+                else {
+                    "[{0}] Template '{1}' not found on appliance '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $tmplName, $SourceAppliance | Write-Verbose
+                    [void] $notFoundTemplates.Add($tmplName)
+                }
+            }
+
+            if ($notFoundTemplates.Count -gt 0) {
+
+                $ErrorMessage = "The following server profile template(s) cannot be found on appliance '{0}' in the '{1}' region: {2}" -f $SourceAppliance, $Region, ($notFoundTemplates -join ', ')
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "One or more server profile templates cannot be found on the source appliance! Templates not found: $($notFoundTemplates -join ', ')"
+                    [void] $SetSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            $payload['settings'] = @{
+                DEFAULT = @{
+                    data                  = @(
+                        @{
+                            applianceId = $Appliance.id
+                            templates   = $templateUris.ToArray()
+                        }
+                    )
+                    allowSensitiveInfoUse = $true
+                }
+            }
+        }
+
+        # Only proceed with API call if no validation error was set
+        if (-not $objStatus.Status) {
+
+            $payload = ConvertTo-Json $payload -Depth 10
+
+            try {
+
+                $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method PATCH -body $payload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                if (-not $WhatIf) {
+
+                    "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+                    "[{0}] {1} server profile template setting '{2}' successfully updated in '{3}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $TypeLabel, $UpdatedName, $Region | Write-Verbose
+
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "$TypeLabel server profile template setting successfully updated in $Region region"
+                }
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "$TypeLabel server profile template setting cannot be updated!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                }
+            }
+        }
+
+        [void] $SetSettingStatus.add($objStatus)
+
+    }
+
+    End {
+
+        if (-not $WhatIf) {
+
+            $SetSettingStatus = Invoke-RepackageObjectWithType -RawObject $SetSettingStatus -ObjectName "COM.objStatus.NSDE"
+            Return $SetSettingStatus
+        }
+    }
+}
+
+Function New-HPECOMSettingOneViewApplianceSoftware {
+    <#
+    .SYNOPSIS
+    Create a OneView appliance software setting referencing a firmware bundle for a OneView VM or Synergy Composer appliance.
+
+    .DESCRIPTION
+    This cmdlet creates a new OneView appliance software setting in Compute Ops Management.
+    The setting references a specific appliance firmware bundle (identified by version) and enables that bundle to be used to update OneView appliances through group configurations.
+    The appliance type (VM or Synergy Composer) is determined automatically from the firmware bundle. When a version matches bundles for both appliance types, use -ApplianceType to select the correct one.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the OneView appliance software setting to create.
+
+    .PARAMETER Description
+    Specifies a description for the OneView appliance software setting.
+
+    .PARAMETER FirmwareBundleVersion
+    Specifies the version of the appliance firmware bundle to reference in the setting (e.g., '8.9', '10.00.00').
+    Use 'Get-HPECOMApplianceFirmwareBundle -Region <Region>' to see available bundle versions.
+    When the version matches bundles for both VM and Synergy appliance types, use -ApplianceType to disambiguate.
+
+    .PARAMETER ApplianceType
+    Optional parameter to disambiguate when the specified -FirmwareBundleVersion matches bundles for both VM and Synergy appliance types.
+    Valid values: 'VM', 'Synergy'.
+    When only one bundle matches the specified version, this parameter is not required.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    New-HPECOMSettingOneViewApplianceSoftware -Region eu-central -Name "OV_Software" -FirmwareBundleVersion "8.9"
+
+    Creates a new OneView appliance software setting referencing the firmware bundle for version '8.9'. The appliance type is determined automatically from the bundle.
+
+    .EXAMPLE
+    New-HPECOMSettingOneViewApplianceSoftware -Region eu-central -Name "OV_Software" -Description "OV Bundle for VMs" -FirmwareBundleVersion "8.9" -ApplianceType VM
+
+    Creates a new OneView VM appliance software setting referencing the VM firmware bundle for version '8.9'.
+
+    .EXAMPLE
+    New-HPECOMSettingOneViewApplianceSoftware -Region eu-central -Name "Synergy_Software" -FirmwareBundleVersion "10.00.00" -ApplianceType Synergy
+
+    Creates a new OneView Synergy appliance software setting referencing the Synergy firmware bundle for version '10.00.00'.
+
+    .EXAMPLE
+    Get-HPECOMApplianceFirmwareBundle -Region eu-central -Version "8.9" -Type VM | New-HPECOMSettingOneViewApplianceSoftware -Name "OV_Software"
+
+    Pipes a firmware bundle object directly into the cmdlet. The region, version, and appliance type are bound automatically from the bundle object.
+
+    .INPUTS
+    System.Management.Automation.PSCustomObject
+        Firmware bundle objects from 'Get-HPECOMApplianceFirmwareBundle'. The 'region', 'applianceVersion', and 'applianceType' properties are bound automatically.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:
+        * Name      - The name of the OneView appliance software setting attempted to be created
+        * Region    - The name of the region
+        * Status    - Status of the creation attempt (Complete, Warning, or Failed)
+        * Details   - More information about the status
+        * Exception - Information about any exceptions generated during the operation
+    #>
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter(Mandatory)]
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$Name,
+
+        [ValidateScript({ $_.Length -le 1000 })]
+        [String]$Description,
+
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [Alias('applianceVersion')]
+        [String]$FirmwareBundleVersion,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        [ValidateSet('VM', 'Synergy')]
+        [String]$ApplianceType,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = Get-COMSettingsUri
+        $NewSettingStatus = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | Out-String) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            Name      = $Name
+            Region    = $Region
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        # Pre-validation 1: Look up the firmware bundle by version (and optionally type)
+        try {
+            $Bundles = Get-HPECOMApplianceFirmwareBundle -Region $Region -Version $FirmwareBundleVersion -Verbose:$false
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $Bundles) {
+
+            $ErrorMessage = "No appliance firmware bundle matching version '{0}' was found in the '{1}' region!" -f $FirmwareBundleVersion, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "No appliance firmware bundle matching the specified version was found in the region!"
+                [void] $NewSettingStatus.add($objStatus)
+                return
+            }
+        }
+
+        # If -ApplianceType specified, filter to that type
+        if ($ApplianceType) {
+            $Bundles = @($Bundles | Where-Object applianceType -eq $ApplianceType)
+
+            if (-not $Bundles) {
+
+                $ErrorMessage = "No appliance firmware bundle matching version '{0}' and type '{1}' was found in the '{2}' region!" -f $FirmwareBundleVersion, $ApplianceType, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "No appliance firmware bundle matching the specified version and type was found in the region!"
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+        }
+
+        # Pre-validation 2: Require -ApplianceType when version matches multiple bundle types
+        if ($Bundles.Count -gt 1) {
+            $distinctTypes = @($Bundles | Select-Object -ExpandProperty applianceType -Unique)
+            if ($distinctTypes.Count -gt 1) {
+
+                $ErrorMessage = "Version '{0}' matches firmware bundles for multiple appliance types ({1}) in the '{2}' region. Use -ApplianceType to specify which bundle to use." -f $FirmwareBundleVersion, ($distinctTypes -join ', '), $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "Version matches multiple appliance types. Use -ApplianceType ('VM' or 'Synergy') to disambiguate."
+                    [void] $NewSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Same type but multiple bundles (e.g. minor version variants) — use the first match
+            $Bundles = $Bundles | Select-Object -First 1
+        }
+
+        $FirmwareBundle = $Bundles
+
+        # Derive API category and labels from the bundle's appliance type
+        if ($FirmwareBundle.applianceType -eq 'VM') {
+            $ApiCategory     = "OVE_SOFTWARE_VM"
+            $SettingCategory = "OneViewSoftwareVM"
+            $TypeLabel       = "OneView VM"
+        }
+        else {
+            $ApiCategory     = "OVE_SOFTWARE_SYNERGY"
+            $SettingCategory = "OneViewSoftwareSynergy"
+            $TypeLabel       = "OneView Synergy"
+        }
+
+        "[{0}] Resolved firmware bundle ID '{1}' for type '{2}' version '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $FirmwareBundle.id, $FirmwareBundle.applianceType, $FirmwareBundle.applianceVersion | Write-Verbose
+
+        # Pre-validation 3: Check if a setting with this name already exists in the same category
+        try {
+            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category $SettingCategory -Verbose:$false
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($SettingResource) {
+
+            $ErrorMessage = "Setting '{0}': Resource is already present in the '{1}' region! No action needed." -f $Name, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Setting already exists in the region! No action needed."
+            }
+        }
+        else {
+
+            # Build payload
+            $payload = @{
+                name        = $Name
+                description = $Description
+                category    = $ApiCategory
+                settings    = @{
+                    DEFAULT = @{
+                        applianceFirmwareId = $FirmwareBundle.id
+                    }
+                }
+            }
+
+            $payload = ConvertTo-Json $payload -Depth 10
+
+            try {
+
+                $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                if (-not $WhatIf) {
+
+                    "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+                    "[{0}] {1} appliance software setting '{2}' successfully created in '{3}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $TypeLabel, $Name, $Region | Write-Verbose
+
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "$TypeLabel appliance software setting successfully created in $Region region"
+                }
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "$TypeLabel appliance software setting cannot be created!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                }
+            }
+        }
+
+        if (-not $WhatIf) {
+            [void] $NewSettingStatus.add($objStatus)
+        }
+
+    }
+
+    End {
+
+        if ($NewSettingStatus.Count -gt 0) {
+
+            $NewSettingStatus = Invoke-RepackageObjectWithType -RawObject $NewSettingStatus -ObjectName "COM.objStatus.NSDE"
+            Return $NewSettingStatus
+        }
+    }
+}
+
+Function Set-HPECOMSettingOneViewApplianceSoftware {
+    <#
+    .SYNOPSIS
+    Updates a OneView appliance software setting in a specified region.
+
+    .DESCRIPTION
+    This cmdlet modifies an existing OneView appliance software setting in Compute Ops Management.
+    You can update the setting name, description, and/or the firmware bundle referenced by the setting.
+    The appliance type (VM or Synergy Composer) is determined automatically from the existing setting and cannot be changed.
+    If certain parameters are not specified, the cmdlet retains their existing values and only updates the provided parameters.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the OneView appliance software setting to update.
+
+    .PARAMETER NewName
+    Specifies a new name for the OneView appliance software setting.
+
+    .PARAMETER Description
+    Specifies a new description for the OneView appliance software setting.
+
+    .PARAMETER FirmwareBundleVersion
+    Specifies the version of the new appliance firmware bundle to reference in the setting (e.g., '9.40.00', '10.00.00').
+    The bundle must match the appliance type of the existing setting (VM or Synergy Composer), which is determined automatically.
+    Use 'Get-HPECOMApplianceFirmwareBundle -Region <Region>' to see available bundle versions.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewApplianceSoftware -Region eu-central -Name "OV_Software" -NewName "OV_Software_v2"
+
+    Renames the OneView appliance software setting from 'OV_Software' to 'OV_Software_v2' in the 'eu-central' region.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewApplianceSoftware -Region eu-central -Name "OV_Software" -Description "Updated OV bundle description"
+
+    Updates the description of the OneView appliance software setting named 'OV_Software' in the 'eu-central' region.
+
+    .EXAMPLE
+    Set-HPECOMSettingOneViewApplianceSoftware -Region eu-central -Name "OV_Software" -FirmwareBundleVersion "9.40.00"
+
+    Updates the firmware bundle referenced by 'OV_Software' to the bundle for version '9.40.00'. 
+
+    .EXAMPLE
+    Get-HPECOMSetting -Region eu-central -Name "OV_Software" | Set-HPECOMSettingOneViewApplianceSoftware -Description "Production OV bundle"
+
+    Uses pipeline input to update the description for the setting named 'OV_Software' in the 'eu-central' region.
+
+    .INPUTS
+    System.Collections.ArrayList
+        List of OneView appliance software settings from 'Get-HPECOMSetting -Category OneViewSoftwareVM' or 'Get-HPECOMSetting -Category OneViewSoftwareSynergy'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:
+        * Name      - The name of the OneView appliance software setting attempted to be updated
+        * Region    - The name of the region
+        * Status    - Status of the modification attempt (Complete, Warning, or Failed)
+        * Details   - More information about the status
+        * Exception - Information about any exceptions generated during the operation
+    #>
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$Name,
+
+        [ValidateScript({ $_.Length -le 100 })]
+        [String]$NewName,
+
+        [ValidateScript({ $_.Length -le 1000 })]
+        [String]$Description,
+
+        [String]$FirmwareBundleVersion,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $SetSettingStatus = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | Out-String) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            Name      = $Name
+            Region    = $Region
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        # Pre-validation 1: Find existing setting — try VM category first, then Synergy.
+        # Always derive type from the returned object's 'category' property to guard against
+        # unreliable API category filters that may return results across categories.
+        try {
+            $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category OneViewSoftwareVM -Verbose:$false
+            if (-not $SettingResource) {
+                $SettingResource = Get-HPECOMSetting -Region $Region -Name $Name -Category OneViewSoftwareSynergy -Verbose:$false
+            }
+            if ($SettingResource) {
+                switch ($SettingResource.category) {
+                    'OVE_SOFTWARE_VM' {
+                        $SettingCategory    = "OneViewSoftwareVM"
+                        $RequiredBundleType = "VM"
+                        $TypeLabel          = "OneView VM"
+                    }
+                    'OVE_SOFTWARE_SYNERGY' {
+                        $SettingCategory    = "OneViewSoftwareSynergy"
+                        $RequiredBundleType = "Synergy"
+                        $TypeLabel          = "OneView Synergy"
+                    }
+                    default {
+                        # Not an OVE_SOFTWARE setting — treat as not found
+                        $SettingResource = $null
+                    }
+                }
+            }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $SettingResource) {
+
+            $ErrorMessage = "Setting '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Failed"
+                $objStatus.Details = "Setting cannot be found in the region!"
+                [void] $SetSettingStatus.add($objStatus)
+                return
+            }
+        }
+
+        $SettingID = $SettingResource.id
+        $Uri       = (Get-COMSettingsUri) + "/" + $SettingID
+
+        "[{0}] Found {1} appliance software setting '{2}' with ID: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $TypeLabel, $Name, $SettingID | Write-Verbose
+
+        # Pre-validation 2: Check if NewName already exists in the same category
+        if ($NewName) {
+            try {
+                $ExistingNewNameSetting = Get-HPECOMSetting -Region $Region -Name $NewName -Category $SettingCategory -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if ($ExistingNewNameSetting) {
+                $ErrorMessage = "A $TypeLabel appliance software setting named '{0}' already exists in the '{1}' region!" -f $NewName, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = $ErrorMessage
+                    [void] $SetSettingStatus.add($objStatus)
+                    return
+                }
+            }
+        }
+
+        # Resolve updated name and description
+        $UpdatedName        = if ($NewName) { $NewName } else { $Name }
+        $UpdatedDescription = if ($PSBoundParameters.ContainsKey('Description')) { $Description }
+                              elseif ($SettingResource.description) { $SettingResource.description }
+                              else { $null }
+
+        # Build base payload
+        $payload = @{
+            name        = $UpdatedName
+            description = $UpdatedDescription
+        }
+
+        # If FirmwareBundleVersion provided, look up and validate the bundle
+        if ($PSBoundParameters.ContainsKey('FirmwareBundleVersion')) {
+
+            # Pre-validation 3: Look up the firmware bundle by version
+            try {
+                $Bundles = Get-HPECOMApplianceFirmwareBundle -Region $Region -Version $FirmwareBundleVersion -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if (-not $Bundles) {
+
+                $ErrorMessage = "No appliance firmware bundle matching version '{0}' was found in the '{1}' region!" -f $FirmwareBundleVersion, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "No appliance firmware bundle matching the specified version was found in the region!"
+                    [void] $SetSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Pre-validation 3b: Filter to the type required by the existing setting
+            $Bundles = @($Bundles | Where-Object applianceType -eq $RequiredBundleType)
+
+            if (-not $Bundles) {
+
+                $ErrorMessage = "No appliance firmware bundle matching version '{0}' and type '{1}' was found in the '{2}' region!" -f $FirmwareBundleVersion, $RequiredBundleType, $Region
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "No appliance firmware bundle matching the specified version and the setting's appliance type ($RequiredBundleType) was found in the region!"
+                    [void] $SetSettingStatus.add($objStatus)
+                    return
+                }
+            }
+
+            # Multiple bundles of the same type — use first match
+            $FirmwareBundle = $Bundles | Select-Object -First 1
+
+            "[{0}] Using firmware bundle ID '{1}' (type: {2}, version: {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $FirmwareBundle.id, $FirmwareBundle.applianceType, $FirmwareBundle.applianceVersion | Write-Verbose
+
+            $payload['settings'] = @{
+                DEFAULT = @{
+                    applianceFirmwareId = $FirmwareBundle.id
+                }
+            }
+        }
+
+        # Only proceed with API call if no validation error was set
+        if (-not $objStatus.Status) {
+
+            $payload = ConvertTo-Json $payload -Depth 10
+
+            try {
+
+                $_resp = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method PATCH -body $payload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                if (-not $WhatIf) {
+
+                    "[{0}] Response returned: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_resp | Write-Verbose
+                    "[{0}] {1} appliance software setting '{2}' successfully updated in '{3}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $TypeLabel, $UpdatedName, $Region | Write-Verbose
+
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "$TypeLabel appliance software setting successfully updated in $Region region"
+                }
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "$TypeLabel appliance software setting cannot be updated!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                }
+            }
+        }
+
+        [void] $SetSettingStatus.add($objStatus)
+
+    }
+
+    End {
+
+        if (-not $WhatIf) {
+
+            $SetSettingStatus = Invoke-RepackageObjectWithType -RawObject $SetSettingStatus -ObjectName "COM.objStatus.NSDE"
+            Return $SetSettingStatus
+        }
+    }
+}
 
 # Private functions (not exported)
 function New-ErrorRecord {
@@ -17564,7 +20923,6 @@ function Invoke-RepackageObjectWithType {
 }
 
 
-
 # Export only public functions and aliases
 Export-ModuleMember -Function `
     "Get-HPECOMAppliance", `
@@ -17584,17 +20942,24 @@ Export-ModuleMember -Function `
     "Set-HPECOMSettingServerExternalStorage", `
     "New-HPECOMSettingiLOSettings", `
     "Set-HPECOMSettingiLOSettings", `
+    "New-HPECOMSettingOneViewAppliance", `
+    "New-HPECOMSettingOneViewSynergyAppliance", `
+    "New-HPECOMSettingOneViewServerProfileTemplate", `
+    "New-HPECOMSettingOneViewApplianceSoftware", `
+    "Set-HPECOMSettingOneViewAppliance", `
+    "Set-HPECOMSettingOneViewSynergyAppliance", `
+    "Set-HPECOMSettingOneViewServerProfileTemplate", `
+    "Set-HPECOMSettingOneViewApplianceSoftware", `
     "Remove-HPECOMSetting" `
     -Alias *
 
 
 
-
 # SIG # Begin signature block
-# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDJw+/k573p/5FF
-# 1YILtut7i5Fnr7kbU80eKgolp2GOPKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDVVVC/B9lW8AJr
+# BKhcsL4Q8A211imyKsJ4Zk+nvfjoCqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -17690,147 +21055,154 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgpYLMFZfgf356M0Ulq7ttmu5nrxaPXpTVGGG2xvwBMd8wDQYJKoZIhvcNAQEB
-# BQAEggIAWP2F84TPyBTast3GebaO5IZ4vBWwmWDENdyL27ChgH5SGM9/iJzvc+8u
-# vakssHzc+2Mz+xNgz6y9bai3lCJkqq3SfcQlqO4Vda/aI83jSzpjY1TPZjeiAE3J
-# gsxm+pgFQcgk8tRGKXos4caGOrJ9zNY9szA5sB9IY+iwatocNYoXixvkYBPzf0Ls
-# 2AJwL+uFfnWe77P73cz5M8/t8QPDg2g63wYjJt0M85LoYJ9xI+p5zoH/BwR2Mjbq
-# uCuhIUNC2MkLZVShhmAFJZwlQJJGvcxvf9IAYzmL2XQd68WSb2UK1pFz0Xj5TOpo
-# b3RciAFbpy9fub2T7dmlZe1MzZrAUBz2MBsu1bz+4minhpXtR0/pFTfWLSDig2bg
-# ITw2YZTmUMSmjd2AdwOyPSepvkL+Mm7MAJb920y0b5SSTvq+LAmWTfJ9umdWFhkc
-# cR6s39CxwCo+eiELNlc2HiHssNoFscjci4JPOiWJiYaKlyRU5Gx/KNpjAxddXXPE
-# gc8QNpDa3ZIKmIfqnXoC8C2MSAiscC/mEyrx8yNuNCkaHXoclLFTAg+neeAqTwOw
-# I0u7i3lkIQc5jjL65/3uljioZVke1t/OR6WMKdaCze8o3m8uetJ+w7nW2S6vFGxu
-# Zz/n0bqdKx8Mwt2M99tDaRgBatHeohzc130pZfQ1LR4f/lc5mg+hgheXMIIXkwYK
-# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMCzBueT/lAAYYb3btdA1IWghbqVMN9zVmNqHLSgLOFp1
-# 3aNazmX3OOJ6X/gZjxP/MQIQazj/wImAVuVAfSNJ8B3KPhgPMjAyNjAyMDIwOTQw
-# MTVaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
-# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
-# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
-# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
-# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
-# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
-# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
-# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
-# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
-# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
-# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
-# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
-# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
-# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
-# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
-# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
-# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
-# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
-# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
-# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
-# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
-# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
-# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
-# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
-# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
-# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
-# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
-# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
-# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
-# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
-# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
-# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
-# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
-# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
-# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
-# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
-# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
-# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
-# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
-# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
-# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
-# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
-# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
-# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
-# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
-# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
-# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
-# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
-# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
-# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
-# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
-# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
-# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
-# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
-# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
-# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
-# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
-# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
-# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
-# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
-# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
-# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
-# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
-# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
-# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
-# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
-# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
-# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
-# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
-# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
-# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
-# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
-# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
-# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
-# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
-# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
-# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
-# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
-# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
-# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
-# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
-# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
-# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
-# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
-# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
-# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
-# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
-# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
-# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
-# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
-# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
-# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
-# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
-# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
-# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
-# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMjAy
-# MDk0MDE1WjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
-# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwOwVMLWWtNzAOYV6CMZuDJwBI
-# viKRWyQsbaHk2R2uv9n3cdiRdLOxSqN7hS3zIfLXMA0GCSqGSIb3DQEBAQUABIIC
-# ALx4zfGOwwO8w8QQME9HYineqNJM5owqupu5+k1z1fnirT2x8wrG4tUuSECPWmST
-# bR5N5SK09WOhjm9f0EmLjiv7RHvZt7iaAd3P2vILdM+B9Fn+wnKALNNj8oBTshRP
-# t5BLqk7PvuPi9jpqcBq5RCUsSU95NWF1UPiF2O2q4xmjC3x9tfXNNTna3haHCebU
-# 3RkAI1ZmRqGuqgq9Ryvr/NWR1+iQrb5IKU5Jwd+D/hgb137qgabPoBXn7xfXpayt
-# yLFwFf4MypjIC8Ar8VILeTiqHXLy/CvIVsxfcEZkUDs+GgidYHQvAGSDXRaNL3xr
-# IloRA27sh1d4FFxmh13OgM/gcl+CT3OHg662GWi+A1eqDjBPxUh0LvNZ0CQ4Y6f3
-# rXLljDyC1Bv5/KWvyaYFipRI5p8Rp2MmY1Jl1Oi21+5+imdnAF/Ll1bCPTuy5Maf
-# y3r0XRnHfdQMNgy0J3NQDH7AVJtWc4EpdH2l8yqF22ic/O4WpdwrTK3qNcWviN/i
-# i+sQgqs5DZbiaOofS11HEO0+YQxbVfKSSFy2rdWHeM8A1ApOJ9T26Bog0kxBeaF9
-# QDzvDbqlPdOihmLzjzkDCnnmuy5WKEq7WKOiVYVgah4WDY5+UQVhIJsWJR7GbmDp
-# zJcA2/AxshUAD/URXgARBPyzcq+9w7k9LoKR8mbghfPV
+# IgQgZRQj1kOdyiZEzendz4U+7QDVEor7NM3I1evkzxkURw4wDQYJKoZIhvcNAQEB
+# BQAEggIADNRIv0XzintWvPc4cU9IOD8GI6HBjBJK9Mk/bTxRMI96LYzrrbhFvzaN
+# 6HgatTgpajwLB7ozVtLy8gV6Qf+GswqjPBXOgcHd+PW9QGxCTzKsu6Ongvy8NhNo
+# HbEJh+lJM4KFCF+OVXS8GEYFRCLZy0U/T2nY57DSB9gVUA1Zn4cRedNUzzTBb3fM
+# kpQc7YlMHu88hM0/wCaRw/kM/z/dy4oAwd53chWx9VgF5JiwVEJGYe3tpKsPTlLv
+# bVhzhvzW2depnT7vQgaCppfTzgHEN/NFSPA2ffQRrvs4MbI6iPNlHGsDvZyHz+jY
+# mMlvwXlLBvT4w9fWFGi0WBefixmA6v8XozDbOd1lgIMn1QsJ6pzxHfJmbSFwfqjC
+# 1FoDYJirkLfUfhDWtLnvsiKfJ9eWgrO2wkO+UCFyQP721oJQob507c5kaY32olEu
+# QjVPaBddgMDQ1Z/8Gw4iRCUKzyKIykKY9Nxubk1uwoj/rxLGAIhkhAtqw/17z1++
+# KiBC4vavNBVZEYS4V26N1urmvFMTj4JYqRHIzxG868FzRrmY6MCJ4Y6ZxPvLISSP
+# AIasIpvMvzXp0FB9ZKMO6IyUM21Xm+Q/vB8usHmpk2kAOisqEcETm33oBVxlo+/o
+# 4oiZO4ky+HiPteZdBTwN+2bLjembH8pEMzQQcbBCVuPfExXXhMShghjpMIIY5QYK
+# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwVqg1WJw52IMAiDYWnl00clcuxHdyhoIhids1
+# 03p1ySVcsRNx6EC5SKPM/hBGxRXkAhUAowlRbG7Y2dUnXggsSmoQTZCepCAYDzIw
+# MjYwMzE3MTQzMTM3WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
+# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
+# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
+# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
+# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
+# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
+# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
+# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
+# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
+# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
+# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
+# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
+# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
+# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
+# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
+# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
+# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
+# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
+# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
+# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
+# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
+# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
+# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
+# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
+# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
+# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
+# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
+# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
+# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
+# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
+# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
+# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
+# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
+# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
+# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
+# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
+# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
+# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
+# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
+# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
+# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
+# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
+# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
+# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
+# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
+# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
+# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
+# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
+# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
+# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
+# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
+# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
+# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
+# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
+# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
+# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
+# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
+# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
+# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
+# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
+# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
+# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
+# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
+# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
+# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
+# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
+# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
+# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
+# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
+# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
+# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
+# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
+# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
+# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
+# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
+# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
+# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
+# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
+# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
+# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
+# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
+# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
+# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
+# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
+# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
+# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
+# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
+# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
+# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
+# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
+# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
+# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
+# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
+# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
+# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
+# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
+# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
+# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
+# MQ8XDTI2MDMxNzE0MzEzN1owPwYJKoZIhvcNAQkEMTIEMHFMzClSRzt6Nf3HnFRK
+# 5sLA1e5+lulazZHiPX/+qz8N7P+HPu4OdNpEeKy4yFwaszCCAXoGCyqGSIb3DQEJ
+# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
+# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
+# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
+# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
+# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
+# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
+# ggIALw9quNo/Tp7M8nhsfSgbs8Azrxtd8EG2L6mOjArY+LIsqpeaH7rVHCf9DHF1
+# bHFyAGcPcfgVqKh7F9IGxJyMGjq4c8Ms/yWsJ96rxFgMbCEyQlPXbJ9j5IeZF4BY
+# C2B0jlGSeuNDzRH/IwJsam5YGlODoUHxK2aGLhUkACrfGIBGomiKNnFBE9BZbcXo
+# uG0fSGYlne3RWxCeIUNJReI2ht2Yzn1uaav8uO15vitZqGtBUegW5+zsF3p5Idhc
+# JCh3JcrV9DNxhLpsWEjdGhbK95g06yb6cK1EO29WTykSe4ewLI4OjNGG63R1M5u+
+# 9SFJ7Gm8snWww1TCv4Hcfqcl0/E2cOnW00JWn2sIZPw/temZ3CybSNW59qe6Umkv
+# RlncI0J8QVig3ylpfhlHDdMprOo4Bb92XqgI2hKsz7Q/BK+IvPvqCAGqR637nw/Z
+# e2jA4AR+HPIB0poPdD3G58Y89z+VG1ohnyN6k2iADKjphh1YwFlHbjLesJv0w7Lv
+# vCZntbNMOtiaBrqUIleoCMxBdoCuOnVELXNKq2a5FKVa65S6WU/7hbPepap4fdnV
+# 3gqrMqRJnZ0qdY5N947YM0svxzPaVaj22ZHQjhFtu25S5T1iinpIrTnE93R02z6V
+# VExq7ipsshddfGdk+0hCUMXtUchGuC/EioLjwQFxBQ89Sro=
 # SIG # End signature block

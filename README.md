@@ -8,7 +8,7 @@ This library is actively maintained with continuous updates to support new HPE G
 
 | Version | Downloads | Status | PowerShell |
 |---------|-----------|--------|------------|
-| 1.0.22 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
+| 1.0.23 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
 
 
 ## Table of Contents
@@ -23,6 +23,7 @@ This library is actively maintained with continuous updates to support new HPE G
 - [Installation](#how-to-install-the-module)
 - [Upgrade](#how-to-upgrade-the-module)
 - [How to Connect to HPE GreenLake and Compute Ops Management](#how-to-connect-to-hpe-greenlake-and-compute-ops-management)
+  - [Global Variables Reference](#global-variables-reference)
 - [Support](#support)
 - [Troubleshooting](#common-issues-and-solutions)
 - [Disclaimer](#disclaimer)
@@ -153,7 +154,7 @@ Get-Command -Module HPECOMCmdlets
 
 - **Workspace Type Compatibility**:
 
-  - **Enhanced workspaces (IAMv2):** Fully supported since v1.0.22 
+  - **Enhanced workspaces (IAMv2):** Fully supported since v1.0.23 
     - ✅ Complete feature set including new organization management, user groups, and scope-based access control (SBAC)
     - ✅ Advanced identity features: domains, SSO connections, authentication policies
     - ✅ Modern user and role management with improved security
@@ -163,7 +164,7 @@ Get-Command -Module HPECOMCmdlets
     - ✅ Core functionality remains fully operational
     - ⚠️ Some SAML SSO domain functions are deprecated (migration guidance provided)
     - ⚠️ Limited access to newer IAMv2-specific features (user groups, advanced SBAC, etc.)
-    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.22.md#migration-guide) in release notes for updating deprecated functions 
+    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.23.md#migration-guide) in release notes for updating deprecated functions 
 
 ## Best Practices & Performance Considerations
 
@@ -444,6 +445,35 @@ $Global:HPEGreenLakeSession.oauth2TokenCreation
 ```
 
 > **💡 Tip**: For detailed session properties and structure, use `Get-Help Connect-HPEGL -Full` and review the OUTPUTS section.
+
+### Global Variables Reference
+
+The module automatically maintains the following global variables throughout your session:
+
+| Variable | Purpose | When Available |
+|----------|---------|----------------|
+| `$Global:HPEGreenLakeSession` | All authentication tokens & session state | After `Connect-HPEGL` |
+| `$Global:HPEGLSchemaMetadata` | Countries (247) & Timezones (~100) | Module import |
+| `$Global:HPESupportedLanguages` | Language options for user preferences | Module import |
+| `$Global:HPECOMRegions` | Available COM regions | After workspace connection |
+| `$Global:HPECOMjobtemplatesUris` | Job template mappings | After first COM operation |
+| `$Global:HPECOMInvokeReturnData` | Last API response (for debugging) | After any API call |
+| `$Global:HPECOMLastJobResult` | Last job cmdlet result (for post-execution inspection) | After any job cmdlet |
+| `$Global:HPECOMCmdletsModuleVersion` | Installed module version | Module import |
+
+**`$Global:HPECOMLastJobResult`** is particularly useful when a job cmdlet output is truncated at the console — the full result (untruncated `message`, `jobUri`, `details`, etc.) is always accessible afterward:
+
+```powershell
+# Run a job cmdlet (output may be truncated in the console)
+Invoke-HPECOMServerFirmwareDownload -Region eu-central -Name myserver -FirmwareBaselineReleaseVersion "2025.11.01.00"
+
+# Inspect the full result at any time after
+$Global:HPECOMLastJobResult.message
+$Global:HPECOMLastJobResult.jobUri
+$Global:HPECOMLastJobResult | Format-List
+```
+
+All session-scoped variables (`HPEGreenLakeSession`, `HPECOMInvokeReturnData`, `HPECOMLastJobResult`, etc.) are automatically cleared when you run `Disconnect-HPEGL`.
 
 ### Regional COM Instance Support
 
@@ -840,7 +870,7 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 
 🔗 [PowerShell Gallery](https://www.powershellgallery.com/packages/HPECOMCmdlets)
 
-* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.222en_us)
+* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.232en_us)
 * [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 

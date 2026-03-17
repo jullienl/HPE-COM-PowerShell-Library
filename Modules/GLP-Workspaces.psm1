@@ -170,22 +170,19 @@ Function Get-HPEGLWorkspace {
 
                 "[{0}] Error: No workspace found! Please execute New-HPEGLWorkspace first to create the initial workspace." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-                Write-Warning "Error: No workspace found! Please execute New-HPEGLWorkspace first to create the initial workspace."
-                return
+                Write-Error -Message "Error: No workspace found! Please execute New-HPEGLWorkspace first to create the initial workspace." -ErrorAction Stop
             }
             elseif ($Global:HPEGreenLakeSession.workspacesCount -ge 1) {
                 
                 "[{0}] Error: No workspace connection found! Please execute Connect-HPEGLWorkspace first to establish a connection to a workspace." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-                Write-Warning "Error: No workspace connection found! Please execute Connect-HPEGLWorkspace first to establish a connection to a workspace."
-                return
+                Write-Error -Message "Error: No workspace connection found! Please execute Connect-HPEGLWorkspace first to establish a connection to a workspace." -ErrorAction Stop
             }
             else {
         
                 "[{0}] Error: No session found! Please execute Connect-HPEGL first to establish a session." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-                Write-Warning "Error: No session found! Please execute Connect-HPEGL first to establish a session."
-                return
+                Write-Error -Message "Error: No session found! Please execute Connect-HPEGL first to establish a session." -ErrorAction Stop
             }
 
 
@@ -597,7 +594,7 @@ Function New-HPEGLWorkspace {
 
             if ($WhatIf) {
                 $ErrorMessage = "Workspace '{0}': Resource already exists in HPE GreenLake! No action needed." -f $Name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -681,7 +678,7 @@ Function New-HPEGLWorkspace {
             }
         }
 
-        [void] $WorkspaceCreationStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $WorkspaceCreationStatus.add($objStatus) }
 
     }
 
@@ -696,7 +693,9 @@ Function New-HPEGLWorkspace {
             else {
                 $Global:HPEGreenLakeSession.workspacesCount++
             }
+        }
 
+        if ($WorkspaceCreationStatus.Count -gt 0) {
             $WorkspaceCreationStatus = Invoke-RepackageObjectWithType -RawObject $WorkspaceCreationStatus -ObjectName "ObjStatus.NSDE" 
             Return $WorkspaceCreationStatus
         }
@@ -979,19 +978,19 @@ Function Set-HPEGLWorkspace {
 
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = ($Response | ForEach-Object message)
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Workspace cannot be modified!" }
                 $objStatus.Exception = $Global:HPECOMInvokeReturnData 
             }
         }    
 
-        [void] $SetWorkspaceStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $SetWorkspaceStatus.add($objStatus) }
         
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($SetWorkspaceStatus.Count -gt 0) {
 
             $SetWorkspaceStatus = Invoke-RepackageObjectWithType -RawObject $SetWorkspaceStatus -ObjectName "ObjStatus.NSDE" 
             Return $SetWorkspaceStatus
@@ -1031,6 +1030,14 @@ Function Remove-HPEGLWorkspace {
     .PARAMETER NotifyAllWorkspaceUsersByEmail
     Sends an email notification to all users associated with the workspace informing them about its deletion.
 
+    .PARAMETER ValidatePrerequisites
+    Validates that the workspace meets all prerequisites for deletion without actually performing the deletion. When specified, the cmdlet checks:
+    - All devices have been removed from the workspace
+    - All device subscriptions are unclaimed
+    - All service instances have been unprovisioned
+    
+    Returns a validation result object indicating whether the workspace can be safely deleted and lists any blocking resources that must be removed first.
+
     .PARAMETER WhatIf
     Displays the raw REST API call that would be executed without actually performing the deletion. This is useful for understanding the underlying 
     API interaction with HPE GreenLake platform.
@@ -1044,6 +1051,11 @@ Function Remove-HPEGLWorkspace {
     Remove-HPEGLWorkspace -Force -NotifyAllWorkspaceUsersByEmail
     
     Immediately deletes the currently connected workspace without confirmation and sends email notifications to all associated users.
+
+    .EXAMPLE
+    Remove-HPEGLWorkspace -ValidatePrerequisites
+    
+    Validates that the workspace can be deleted by checking for any remaining devices, subscriptions, or services. Does not perform the actual deletion.
 
     .EXAMPLE
     Remove-HPEGLWorkspace -WhatIf
@@ -1066,12 +1078,17 @@ Function Remove-HPEGLWorkspace {
 
     #>
 
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = "Delete")]
     Param(
 
+        [Parameter(ParameterSetName = "Delete")]
         [Switch]$Force,
 
+        [Parameter(ParameterSetName = "Delete")]
         [Switch]$NotifyAllWorkspaceUsersByEmail,
+
+        [Parameter(ParameterSetName = "Validate")]
+        [Switch]$ValidatePrerequisites,
 
         [Switch]$WhatIf
     )
@@ -1099,7 +1116,7 @@ Function Remove-HPEGLWorkspace {
 
             if ($WhatIf) {
                 $ErrorMessage = "No workspace connection found! Make sure you are connected to a workspace before attempting to delete it." 
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {                
@@ -1108,6 +1125,100 @@ Function Remove-HPEGLWorkspace {
                 [void]$DeleteStatus.Add($objStatus)
                 return
             }
+        }
+
+        # Validate prerequisites if requested
+        if ($ValidatePrerequisites) {
+            "[{0}] Validating workspace deletion prerequisites..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            
+            $validationResult = [pscustomobject]@{
+                WorkspaceName         = $Global:HPEGreenLakeSession.workspace
+                CanBeDeleted          = $true
+                BlockingResources     = [System.Collections.ArrayList]::new()
+                DeviceCount           = 0
+                SubscriptionCount     = 0
+                ProvisionedServiceCount = 0
+                ValidationTime        = Get-Date
+            }
+            
+            # Check for devices (including compute ready for iLO connection)
+            try {
+                "[{0}] Checking for devices in workspace..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $devices = Get-HPEGLDevice -ShowComputeReadyForCOMIloConnection -WhatIf:$WhatIf -ErrorAction Stop
+                
+                if ($devices) {
+                    $validationResult.DeviceCount = $devices.Count
+                    $validationResult.CanBeDeleted = $false
+                    [void]$validationResult.BlockingResources.Add("$($devices.Count) device(s) still in workspace. Remove with Remove-HPEGLDeviceFromService or move to another workspace.")
+                    "[{0}] Found {1} device(s) in workspace - blocking deletion" -f $MyInvocation.InvocationName.ToString().ToUpper(), $devices.Count | Write-Verbose
+                }
+                else {
+                    "[{0}] No devices found in workspace" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                }
+            }
+            catch {
+                "[{0}] Error checking devices: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+            }
+            
+            # Check for subscriptions
+            try {
+                "[{0}] Checking for subscriptions in workspace..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $subscriptions = Get-HPEGLSubscription -WhatIf:$WhatIf -ErrorAction Stop
+                
+                if ($subscriptions) {
+                    $validationResult.SubscriptionCount = $subscriptions.Count
+                    $validationResult.CanBeDeleted = $false
+                    [void]$validationResult.BlockingResources.Add("$($subscriptions.Count) subscription(s) still claimed. Remove with Remove-HPEGLSubscription.")
+                    "[{0}] Found {1} subscription(s) in workspace - blocking deletion" -f $MyInvocation.InvocationName.ToString().ToUpper(), $subscriptions.Count | Write-Verbose
+                }
+                else {
+                    "[{0}] No subscriptions found in workspace" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                }
+            }
+            catch {
+                "[{0}] Error checking subscriptions: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+            }
+            
+            # Check for provisioned services
+            try {
+                "[{0}] Checking for provisioned services in workspace..." -f $MyInvocation.InvocationName.ToString().ToUPPER() | Write-Verbose
+                $services = Get-HPEGLService -ShowProvisioned -WhatIf:$WhatIf -ErrorAction Stop
+                
+                if ($services) {
+                    $validationResult.ProvisionedServiceCount = $services.Count
+                    $validationResult.CanBeDeleted = $false
+                    $serviceNames = ($services | Select-Object -ExpandProperty name) -join ', '
+                    [void]$validationResult.BlockingResources.Add("$($services.Count) provisioned service(s): $serviceNames. Remove with Remove-HPEGLService.")
+                    "[{0}] Found {1} provisioned service(s) in workspace - blocking deletion" -f $MyInvocation.InvocationName.ToString().ToUpper(), $services.Count | Write-Verbose
+                }
+                else {
+                    "[{0}] No provisioned services found in workspace" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                }
+            }
+            catch {
+                "[{0}] Error checking services: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+            }
+            
+            # Add organization warning if this is the last workspace
+            if ($isLastWorkspaceInOrg) {
+                [void]$validationResult.BlockingResources.Add("WARNING: This is the LAST workspace in organization '$organizationName'. Deleting this workspace will also DELETE the organization!")
+            }
+            
+            if ($validationResult.CanBeDeleted) {
+                "[{0}] Workspace can be safely deleted" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+            }
+            else {
+                "[{0}] Workspace CANNOT be deleted - {1} blocking resource(s) found" -f $MyInvocation.InvocationName.ToString().ToUpper(), $validationResult.BlockingResources.Count | Write-Verbose
+            }
+            
+            # With -WhatIf: API requests were displayed, don't return object
+            if ($WhatIf) {
+                return
+            }
+            
+            # Format object for output and return (skip deletion logic)
+            $validationResult = Invoke-RepackageObjectWithType -RawObject $validationResult -ObjectName "Workspace.DeletionValidationResult"
+            return $validationResult
         }
 
         # Check if this workspace is part of an organization and if it's the last workspace
@@ -1143,8 +1254,8 @@ Function Remove-HPEGLWorkspace {
             $Uri = $uriBase
         }
 
-        $shouldDelete = $Force
-        if (-not $Force) {
+        $shouldDelete = $Force -or $WhatIf
+        if (-not $Force -and -not $WhatIf) {
             # Build the warning message
             $warningMessage = "This action will permanently and irrecoverably delete all data associated with workspace '{0}' from HPE GreenLake and will automatically terminate your and all other sessions within the workspace." -f $Global:HPEGreenLakeSession.workspace
             
@@ -1190,7 +1301,7 @@ Function Remove-HPEGLWorkspace {
         else {
             "[{0}] User cancelled the deletion of the workspace '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Global:HPEGreenLakeSession.workspace | Write-Verbose
             if ($WhatIf) {
-                Write-warning "Operation cancelled by the user!"
+                Write-Warning "Operation cancelled by the user!"
                 return
             }
             else {
@@ -1199,11 +1310,11 @@ Function Remove-HPEGLWorkspace {
             }
         }
 
-        [void]$DeleteStatus.Add($objStatus)
+        if (-not $WhatIf) { [void]$DeleteStatus.Add($objStatus) }
     }
 
     End {
-        if (-not $WhatIf) {
+        if ($DeleteStatus.Count -gt 0) {
             $DeleteStatus = Invoke-RepackageObjectWithType -RawObject $DeleteStatus -ObjectName "ObjStatus.NSDE"
             return $DeleteStatus
         }
@@ -1390,7 +1501,7 @@ Function New-HPEGLDomain {
 
             if ($WhatIf) {
                 $ErrorMessage = "Domain '{0}' is already claimed in the workspace." -f $name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {                
@@ -1430,7 +1541,7 @@ Function New-HPEGLDomain {
 
                     if ($WhatIf) {
                         $ErrorMessage = "Domain '{0}' is already claimed by another organization." -f $Name
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -1450,13 +1561,13 @@ Function New-HPEGLDomain {
             }
         }
 
-        [void] $AddDomainStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $AddDomainStatus.add($objStatus) }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($AddDomainStatus.Count -gt 0) {
 
             $AddDomainStatus = Invoke-RepackageObjectWithType -RawObject $AddDomainStatus -ObjectName "ObjStatus.NSDDE" 
             Return $AddDomainStatus
@@ -1550,13 +1661,13 @@ Function Test-HPEGLDomain {
 
             if ($WhatIf) {
                 $ErrorMessage = "Domain '{0}' cannot be found in the workspace." -f $name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {                
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "cannot be found in the workspace." 
-                [void] $AddDomainStatus.add($objStatus)
+                [void] $TestDomainStatus.add($objStatus)
                 return
             }
         }
@@ -1571,7 +1682,7 @@ Function Test-HPEGLDomain {
             if ($Response.lifeCycleState -eq "PENDING") {
                 
                 "[{0}] Domain '{1}' verification is still pending." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
-                $objStatus.Status = "Pending"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Domain verification is still pending. Please verify that the DNS TXT record has been correctly added to your DNS provider and allow sufficient time (up to 72 hours) for DNS propagation to complete."
             }
             elseif ($Response.lifeCycleState -eq "VERIFIED") {
@@ -1593,12 +1704,12 @@ Function Test-HPEGLDomain {
             }
         }
 
-        [void] $TestDomainStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $TestDomainStatus.add($objStatus) }
 
     }
     end {
 
-        if (-not $WhatIf) {
+        if ($TestDomainStatus.Count -gt 0) {
 
             $TestDomainStatus = Invoke-RepackageObjectWithType -RawObject $TestDomainStatus -ObjectName "ObjStatus.NSDE" 
             Return $TestDomainStatus
@@ -1708,11 +1819,11 @@ Function Remove-HPEGLDomain {
 
             if ($WhatIf) {
                 $ErrorMessage = "Domain '{0}' not found in the workspace!" -f $name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {                
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Domain not found in the workspace!"
             }
         }
@@ -1752,13 +1863,13 @@ Function Remove-HPEGLDomain {
             }
         }
 
-        [void] $DeleteStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $DeleteStatus.add($objStatus) }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($DeleteStatus.Count -gt 0) {
 
             $DeleteStatus = Invoke-RepackageObjectWithType -RawObject $DeleteStatus -ObjectName "ObjStatus.NSDE" 
             Return $DeleteStatus
@@ -2413,7 +2524,7 @@ Function New-HPEGLSSOConnection {
     
                     if ($WhatIf) {
                         $ErrorMessage = "The IdP Metadata URL cannot be validated! Please check the URL."
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -2522,8 +2633,8 @@ Function New-HPEGLSSOConnection {
                         "[{0}] Metadata file validation failed!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
                         if ($WhatIf) {
-                            $ErrorMessage = "Metadata file validation failed! Message: {0}" -f $errorResponse.message
-                            Write-warning $ErrorMessage
+                            $ErrorMessage = "Metadata file validation failed! Message: {0}." -f $errorResponse.message
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             return
                         }
                         else {
@@ -2543,8 +2654,8 @@ Function New-HPEGLSSOConnection {
 
                 # Must return a message if Metadata file is not found
                 if ($WhatIf) {
-                    $ErrorMessage = "Metadata XML file cannot be found at '{0}'" -f $MetadataSource
-                    Write-warning $ErrorMessage
+                    $ErrorMessage = "Metadata XML file cannot be found at '{0}'." -f $MetadataSource
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
@@ -2761,7 +2872,7 @@ Function New-HPEGLSSOConnection {
                     "[{0}] SSO connection '{1}' with the same Entity ID already exists in this or another organization." -f $MyInvocation.InvocationName.ToString().ToUpper(), $EntityID | Write-Verbose
                     if ($WhatIf) {
                         $ErrorMessage = "SSO connection '{0}' with the same Entity ID already exists in this or another organization." -f $Name
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -2781,13 +2892,13 @@ Function New-HPEGLSSOConnection {
             }
         }
 
-        [void] $AddSSOConnectionStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $AddSSOConnectionStatus.add($objStatus) }
     
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($AddSSOConnectionStatus.Count -gt 0) {
 
             if ($RecoveryAccountSecurePassword) {
                 $AddSSOConnectionStatus = Invoke-RepackageObjectWithType -RawObject $AddSSOConnectionStatus -ObjectName "ObjStatus.NRSDE" 
@@ -2987,7 +3098,7 @@ Function Set-HPEGLSSOConnection {
 
             if ($WhatIf) {
                 $ErrorMessage = "SSO connection '{0}' not found in the workspace!" -f $Name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {                
@@ -3052,7 +3163,7 @@ Function Set-HPEGLSSOConnection {
         
                         if ($WhatIf) {
                             $ErrorMessage = "The IdP Metadata URL cannot be validated! Please check the URL."
-                            Write-warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             return
                         }
                         else {
@@ -3158,8 +3269,8 @@ Function Set-HPEGLSSOConnection {
                             "[{0}] Metadata file validation failed!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
                             if ($WhatIf) {
-                                $ErrorMessage = "Metadata file validation failed! Message: {0}" -f $errorResponse.message
-                                Write-warning $ErrorMessage
+                                $ErrorMessage = "Metadata file validation failed! Message: {0}." -f $errorResponse.message
+                                Write-Warning "$ErrorMessage Cannot display API request."
                                 return
                             }
                             else {
@@ -3178,8 +3289,8 @@ Function Set-HPEGLSSOConnection {
                     "[{0}] MetadataSource file not found!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
                     if ($WhatIf) {
-                        $ErrorMessage = "Metadata XML file cannot be found at '{0}'" -f $MetadataSource
-                        Write-warning $ErrorMessage
+                        $ErrorMessage = "Metadata XML file cannot be found at '{0}'." -f $MetadataSource
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -3436,13 +3547,13 @@ Function Set-HPEGLSSOConnection {
             }
         }
 
-        [void] $SetSSOConnectionStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $SetSSOConnectionStatus.add($objStatus) }
     
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($SetSSOConnectionStatus.Count -gt 0) {
 
             $SetSSOConnectionStatus = Invoke-RepackageObjectWithType -RawObject $SetSSOConnectionStatus -ObjectName "ObjStatus.NSDE" 
             Return $SetSSOConnectionStatus
@@ -3530,11 +3641,11 @@ Function Remove-HPEGLSSOConnection {
 
             if ($WhatIf) {
                 $ErrorMessage = "SSO connection '{0}' not found in the workspace!" -f $name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {                
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "SSO connection not found in the workspace!" 
                 [void]$DeleteStatus.Add($objStatus)
             }
@@ -3566,7 +3677,7 @@ Function Remove-HPEGLSSOConnection {
     }
     end {
 
-        if (-not $WhatIf) {
+        if ($DeleteStatus.Count -gt 0) {
 
             $DeleteStatus = Invoke-RepackageObjectWithType -RawObject $DeleteStatus -ObjectName "ObjStatus.NSDE" 
             Return $DeleteStatus
@@ -3855,7 +3966,7 @@ Function New-HPEGLSSOAuthenticationPolicy {
 
                 if ($WhatIf) {
                     $ErrorMessage = "SSO Authentication policy '{0}' already exists in the workspace for this domain!" -f $VerifiedDomainName
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
@@ -3897,7 +4008,7 @@ Function New-HPEGLSSOAuthenticationPolicy {
     
                     if ($WhatIf) {
                         $ErrorMessage = "Domain '{0}' not found in the workspace!" -f $VerifiedDomainName
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -3913,7 +4024,7 @@ Function New-HPEGLSSOAuthenticationPolicy {
     
                     if ($WhatIf) {
                         $ErrorMessage = "Domain '{0}' is not verified! Please verify the domain by adding the DNS TXT record to your DNS provider and running the 'Test-HPEGLDomain' cmdlet to complete the verification process." -f $VerifiedDomainName
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -3947,7 +4058,7 @@ Function New-HPEGLSSOAuthenticationPolicy {
     
                     if ($WhatIf) {
                         $ErrorMessage = "SSO connection '{0}' not found in the workspace!" -f $SSOConnectionName
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -3980,7 +4091,7 @@ Function New-HPEGLSSOAuthenticationPolicy {
                 
                 if ($WhatIf) {
                     $ErrorMessage = "A recovery account is required because no existing recovery user was found. Please provide the RecoveryAccountSecurePassword parameter to create the recovery account when adding this SSO authentication policy."
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {                
@@ -4181,11 +4292,11 @@ Function New-HPEGLSSOAuthenticationPolicy {
             }
         }
             
-        [void] $AddAuthPolicyStatus.Add($objStatus)
+        if (-not $WhatIf) { [void] $AddAuthPolicyStatus.Add($objStatus) }
     }
     end {
 
-        if (-not $WhatIf) {
+        if ($AddAuthPolicyStatus.Count -gt 0) {
 
             if ($RecoveryAccountSecurePassword) {
                 $AddAuthPolicyStatus = Invoke-RepackageObjectWithType -RawObject $AddAuthPolicyStatus -ObjectName "ObjStatus.NRSDE" 
@@ -4280,7 +4391,7 @@ Function Remove-HPEGLSSOAuthenticationPolicy {
 
             if ($WhatIf) {
                 $ErrorMessage = "Authentication policy '{0}' not found in the workspace!" -f $name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {                
@@ -4318,7 +4429,7 @@ Function Remove-HPEGLSSOAuthenticationPolicy {
 
     end {
 
-        if (-not $WhatIf) {
+        if ($DeleteStatus.Count -gt 0) {
 
             $DeleteStatus = Invoke-RepackageObjectWithType -RawObject $DeleteStatus -ObjectName "ObjStatus.NSDE" 
             Return $DeleteStatus
@@ -4433,7 +4544,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
         if (-not $SSOConnection -and -not $AuthorizationMethod) {
             if ($WhatIf) {
                 $ErrorMessage = "No update parameters provided. Please specify either -SSOConnection or -AuthorizationMethod parameter."
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -4458,7 +4569,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
         if (-not $ExistingPolicy) {
             if ($WhatIf) {
                 $ErrorMessage = "Authentication policy '{0}' not found in the workspace!" -f $Name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -4471,7 +4582,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
         elseif ($ExistingPolicy.policyType -eq "USER_RECOVERY") {
             if ($WhatIf) {
                 $ErrorMessage = "Authentication policy '{0}' is a User Recovery policy and cannot be modified!" -f $Name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -4494,7 +4605,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
                 if ($ExistingPolicy.action.type -eq "EXTERNAL") {
                     if ($WhatIf) {
                         $ErrorMessage = "Authentication policy '{0}' is using external SSO authentication (EXTERNAL type) and cannot be associated with an SSO connection." -f $Name
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -4516,7 +4627,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
                 if (-not $SSOConnectionObj) {
                     if ($WhatIf) {
                         $ErrorMessage = "SSO connection '{0}' not found in the workspace!" -f $SSOConnection
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -4532,7 +4643,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
 
                     if ($WhatIf) {
                         $ErrorMessage = "SSO connection '{0}' is already associated with the authentication policy." -f $SSOConnection
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -4575,7 +4686,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
                         }
                     }
 
-                    [void] $SetAuthenticationPolicyStatus.Add($objStatus)
+                    if (-not $WhatIf) { [void] $SetAuthenticationPolicyStatus.Add($objStatus) }
                 }
             }
 
@@ -4592,7 +4703,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
                         if (-not $UserRemovalPolicy) {
                             if ($WhatIf) {
                                 $ErrorMessage = "Changing authorization method in '{0}' from 'AuthorizationMode' to 'AuthenticationOnlyMode' requires specifying the UserRemovalPolicy parameter." -f $Name
-                                Write-warning $ErrorMessage
+                                Write-Warning "$ErrorMessage Cannot display API request."
                                 return
                             }
                             else {
@@ -4631,7 +4742,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
                         if (-not $UserRemovalPolicy) {
                             if ($WhatIf) {
                                 $ErrorMessage = "Changing authorization method in '{0}' from 'AuthenticationOnlyMode' to 'AuthorizationMode' requires specifying the UserRemovalPolicy parameter." -f $Name
-                                Write-warning $ErrorMessage
+                                Write-Warning "$ErrorMessage Cannot display API request."
                                 return
                             }
                             else {
@@ -4692,7 +4803,7 @@ Function Set-HPEGLSSOAuthenticationPolicy {
                     "[{0}] No authorization method change detected." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                     if ($WhatIf) {
                         $ErrorMessage = "No authorization method change detected in '{0}'." -f $Name
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -4703,14 +4814,14 @@ Function Set-HPEGLSSOAuthenticationPolicy {
                     }
                 }
 
-                [void] $SetAuthenticationPolicyStatus.add($objStatus)
+                if (-not $WhatIf) { [void] $SetAuthenticationPolicyStatus.add($objStatus) }
             }
         }
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($SetAuthenticationPolicyStatus.Count -gt 0) {
 
             $SetAuthenticationPolicyStatus = Invoke-RepackageObjectWithType -RawObject $SetAuthenticationPolicyStatus -ObjectName "ObjStatus.NSDE" 
             Return $SetAuthenticationPolicyStatus
@@ -4952,7 +5063,7 @@ Function Get-HPEGLWorkspaceSAMLSSODomain {
                     "[{0}] SAML SSO Domain '{1}' cannot be found!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName | Write-Verbose
         
                     $ErrorMessage = "SAML SSO Domain '{0}': Resource cannot be found in the workspace!" -f $DomainName
-                    Write-Warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
@@ -5165,8 +5276,8 @@ Function New-HPEGLWorkspaceSAMLSSODomain {
             if ($_ -match "Error status Code: 412") {
 
                 if ($WhatIf) {
-                    $ErrorMessage = "Domain {0} already claimed by the user for the workspace" -f $DomainName
-                    Write-warning $ErrorMessage
+                    $ErrorMessage = "Domain {0} already claimed by the user for the workspace." -f $DomainName
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
@@ -5184,8 +5295,8 @@ Function New-HPEGLWorkspaceSAMLSSODomain {
             "[{0}] SAML SSO domain '{1}' is not valid!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DomainName | Write-Verbose
 
             if ($WhatIf) {
-                $ErrorMessage = "SAML SSO domain '{0}' is not valid! Error: {1}" -f $DomainName, $ValidateDomain.message
-                Write-warning $ErrorMessage
+                $ErrorMessage = "SAML SSO domain '{0}' is not valid! Error: {1}." -f $DomainName, $ValidateDomain.message
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -5243,8 +5354,8 @@ Function New-HPEGLWorkspaceSAMLSSODomain {
 
                 # Must return a message if Metadata file is not found
                 if ($WhatIf) {
-                    $ErrorMessage = "Metadata XML file cannot be found at '{0}'" -f $MetadataSource
-                    Write-warning $ErrorMessage
+                    $ErrorMessage = "Metadata XML file cannot be found at '{0}'." -f $MetadataSource
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
@@ -5290,8 +5401,8 @@ Function New-HPEGLWorkspaceSAMLSSODomain {
                     "[{0}] Metadata is not valid!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
         
                     if ($WhatIf) {
-                        $ErrorMessage = "Metadata is not valid! Message: {1} - Error code: {2}" -f $ValidateMetadata.message, $ValidateMetadata.error_code
-                        Write-warning $ErrorMessage
+                        $ErrorMessage = "Metadata is not valid! Message: {1} - Error code: {2}." -f $ValidateMetadata.message, $ValidateMetadata.error_code
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -5503,13 +5614,13 @@ Function New-HPEGLWorkspaceSAMLSSODomain {
             }
         }
 
-        [void] $AddSAMLSSODomainStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $AddSAMLSSODomainStatus.add($objStatus) }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($AddSAMLSSODomainStatus.Count -gt 0) {
 
             $AddSAMLSSODomainStatus = Invoke-RepackageObjectWithType -RawObject $AddSAMLSSODomainStatus -ObjectName "ObjStatus.NRSDE" 
             Return $AddSAMLSSODomainStatus
@@ -5672,7 +5783,7 @@ Function Set-HPEGLWorkspaceSAMLSSODomain {
 
                 if ($WhatIf) {
                     $ErrorMessage = "SAML SSO domain '{0}': Resource cannot be found in the workspace!" -f $Object.Name
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
 
@@ -5828,7 +5939,7 @@ Function Set-HPEGLWorkspaceSAMLSSODomain {
 
                         $Object.Status = "Failed"
                         $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "SAML SSO domain cannot be updated!" }
-                        $Object.Exception = $_.Exception.message 
+                        $Object.Exception = $Global:HPECOMInvokeReturnData 
                     }
                 }
             }
@@ -5935,7 +6046,7 @@ Function Remove-HPEGLWorkspaceSAMLSSODomain {
         
             if ($WhatIf) {
                 $ErrorMessage = "SAML SSO domain '{0}': Resource cannot be found in the workspace!" -f $DomainName
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -6043,7 +6154,7 @@ Function Remove-HPEGLWorkspaceSAMLSSODomain {
             }   
         } 
 
-        [void] $RemoveSAMLSSODomainStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $RemoveSAMLSSODomainStatus.add($objStatus) }
 
 
 
@@ -6052,7 +6163,7 @@ Function Remove-HPEGLWorkspaceSAMLSSODomain {
     end {
 
 
-        if (-not $WhatIf) {
+        if ($RemoveSAMLSSODomainStatus.Count -gt 0) {
 
             $RemoveSAMLSSODomainStatus = Invoke-RepackageObjectWithType -RawObject $RemoveSAMLSSODomainStatus -ObjectName "ObjStatus.NSDE" 
             Return $RemoveSAMLSSODomainStatus
@@ -6153,7 +6264,7 @@ Function Send-HPEGLWorkspaceSAMLSSODomainNotifications {
         
             if ($WhatIf) {
                 $ErrorMessage = "SAML SSO domain '{0}': Resource cannot be found in the workspace!" -f $DomainName
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -6190,7 +6301,7 @@ Function Send-HPEGLWorkspaceSAMLSSODomainNotifications {
             }   
         } 
 
-        [void] $SAMLSSODomainNotificationStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $SAMLSSODomainNotificationStatus.add($objStatus) }
 
 
 
@@ -6198,7 +6309,7 @@ Function Send-HPEGLWorkspaceSAMLSSODomainNotifications {
 
     end {
 
-        if (-not $WhatIf) {
+        if ($SAMLSSODomainNotificationStatus.Count -gt 0) {
 
             $SAMLSSODomainNotificationStatus = Invoke-RepackageObjectWithType -RawObject $SAMLSSODomainNotificationStatus -ObjectName "ObjStatus.NSDE" 
             Return $SAMLSSODomainNotificationStatus
@@ -6272,8 +6383,8 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # SIG # Begin signature block
 # MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCA0aFEJl3472p7q
-# RjjVO9XH15+27Z2WkS5wGIJAhdmKI6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAGq8W7uN0jYE1I
+# z8EQM6oCwME3WU//x94FQ2qGkKdjyaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -6374,23 +6485,23 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgyFsfqzMueYBBTjWa025CWuy8nnlFwxAfmaB6qRaPFrMwDQYJKoZIhvcNAQEB
-# BQAEggIAKwAdZniBAN60JXRKPmN6qxm7ZDqBF8nDsDzr2Cqy0cIShrYN83+JrrMv
-# 2jF5DttfAcg9/EsFj+0OI440QJFeDps6zfrK0Ro0ZdM/lw7DSVPy/KrXk4bL2Gpn
-# Ul+oh+7sTUetJCmRJVzFBL9+kvLWgJl08IQdi/uLc989NKeS0t5ZsDBnSVjEKtI5
-# EtQWK5ENvRJWh/5dw1ntA8i6scqJrVrGBaAePxnstIXR2PmlrBk2q1HAYhgCzK4W
-# Gkx/zw86sNyuTMagFAre/IAdCZ0kAe3S8llgQ4zy1yo9nVVfAumhVZ7AAZvN0NIR
-# wffHDW98LC6VcQ0R8poBAYBIxlUeU8B6DRoPjeow6DZadlbNwh9iCUkxEyvih2En
-# lK6ogR4S491UR5IPv+/2ktErMH7ucAtrWjMv/sgBZMOepx4tKtpQ/VT8iMsdZJvq
-# Q6CS74ChY95Y+QuB3Dv4cyersJ2ZGGEL6PYP04PBXySYcuybJf+9row4RP97aXA7
-# hZfIgCrtw5W9ddJH81wX6tNLy87mkXE0n7F/2Thcdrus8c8piPxZzXwdvvhDsZOr
-# x8kVH6JDwDYFKaZ3Md/BM4qhgZ6E+6oCURW8mpdfYKdDqzB9jgU7gm3tarlENxQs
-# 9vwtOPnRFOcT4ARlssWT1ZpYCDKZobIZJVZ8ynowyZcblzpzYYGhghjpMIIY5QYK
+# IgQgTxMBX2FkmbJqdHlF/mryXifteUQsN1xeU7jIAwa6tGcwDQYJKoZIhvcNAQEB
+# BQAEggIASSqxLdy1mYbC5VLLvI5Im5XbtDcnTA1/xMqf4Pw4SWVMerByAE/XcOj4
+# OTewVFUECQixNen0fD9QfyTi649YY9ARLKTNm0+UcjL0iFdeckrvWTLMQ7QemJ7Y
+# KHsaRcmJ+55bONOlQAsAY6rGYvbiB5XC42A2T/flxzjKYpmt8nWSkktP6HEPm5Ik
+# cnufE24cHu68Jgrk4hkZ+fRoYXXpZDGWDEehUn45EkBMePeKPDL4FFwSuBdOW9fR
+# 5Yag42QAsLpDP4N1zp4lmdh/14Hur3uJiVkbF4K5XBACLp7w2wUNPn8TT3qeqWvp
+# F3RhTR0yWT/fi3KoMnk56Eqo2Xa2TtBYd6t1j6XaERo2zmjfrAUBmgJD1HTcIM3F
+# Vi5vo7pImpzyEbwI1t0XZlY7Y6iN7ti+gTYVjtOmXYMSe4fq9/wS4NmG1jXSzpZW
+# W2iOjq6yqSAnXuilAke0/kejJtXBNpLRAt3WwyHpY0LbCuqSJpiXFbJv69edduAs
+# XNdd7o+y3h1jmwG1lKuDPzlxFTF9bOyYNwkJ2u29+s5ptCvyaMJsT1o2X6myodIT
+# p0OdmHHn19/aabshKZyNnxYvrz0BOxXXFX0kVplY8f+KqNyZEibLQtmicbMnXwo6
+# 9lZxkQaueEJRsPKxHzwQQd8JdC+lvXNwqacNyBAkLA+mn5+fKY2hghjpMIIY5QYK
 # KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwkWLPckBT7LYet1hzZsh9f/H/8qe6n0uQ/f0P
-# GRo2/rh66ON0LwZQ/SKCD7XbRyFgAhUAmOPDGkI7rI6ELaHcTTAhZskKUSgYDzIw
-# MjYwMTMwMTA1NTMyWqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# AQEwQTANBglghkgBZQMEAgIFAAQwoeUJhxCqO04SAUMnzKhcRU+h7sMEhe/TpSst
+# SVwuiAQpqL1UcrwDUSLK72zOTnZ5AhUAjBYRULhCxZJePvnCCauhELt6Z9gYDzIw
+# MjYwMzE3MTQzOTMyWqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
 # WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
 # Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
 # yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
@@ -6498,8 +6609,8 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
 # ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
 # AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI2MDEzMDEwNTUzMlowPwYJKoZIhvcNAQkEMTIEMBkyhiPDCShD5wErD2kb
-# jm+3tNUUUNhf677z9DT9s2/z+4RvaA1NWfWf6LpGtbOBbTCCAXoGCyqGSIb3DQEJ
+# MQ8XDTI2MDMxNzE0MzkzMlowPwYJKoZIhvcNAQkEMTIEMPvEhL2HcaOA0SE5kG/l
+# MgRLqe97AvhFtmVZ9+gDn4Kh3tRih/IXjPexlUuuWNApdDCCAXoGCyqGSIb3DQEJ
 # EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
 # eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
 # U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
@@ -6508,15 +6619,15 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
 # UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
 # dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAVH4q0Wrj/UbtcxCo+oQ2lpRs3cqbmbqGE3pa5oXJzLqm1E7S3tizuSKJKZM2
-# hmGAv8PyegcH3+XkDqjs0jM38vVMx/tvVEKUmp4CODMtceT1N4T24ctJJBYcw4Mt
-# pXcX/rsbYnBIuja+hYoRYN2RPGnxz5+7KFA8bcTX19lLZ7Sfn1b5lQPnoDZXPznM
-# G40xPVCO1xmyIH7olukQuE74R1sPJHAIoPwpqf4quEq8RSuresDP5XKsScKpr625
-# AMT5rhMWvWj+rh7RhamxdrwNoksu9/o0bKh+bJru33D7nWai3+ic0uM9hUUM+wRL
-# KMbYe/SxVxCRmKnI2cn26PF5O6QNp3oW6ccwdUf1aX3NjtDn/6NN8yDPj5/BXDVi
-# mU177pj7CFUWcqiAKMBmCgvgC4lAl8TOEnQ7jx/yMQ0tFgUaaYRCDrdgLsye9vKp
-# GooIqDOuLr5aAeS8fxx1XDS8lnTumcEGw2l6YthlpeGahI6qkaE/LNM7gLSEEVNF
-# 3nXC+Jnpip1VMwcAbsU2IZj+vqMLjLkQ76Wflvrd/ZDJjuOxZ6zh8+mSEYWOyHoa
-# qOZwjSyDOfuvpQ2fevWTB1xHeNIZ2lWA3PkqDsf5hk40e0K9y1ld0tWr/N4o06L8
-# kDn4GfaBaP2donczSOdTFdI9Qa9MQzgVxDX9nXJ50CAkNGA=
+# ggIAgQKiuhriI7hc1ZwwyCQA3uGYKkdW1PFUR1ktRjPUIQAsDUvm8/65nGlR8u13
+# d+tOGhEa/7bkz4jSB85uzJHY4cRJgCmxq3NG+EpXgl6xDQNtmMGQhJ27ICzDT7bJ
+# mhhMFj1aFF7Wy9MWmtgNGg9NPqB69ChPOQowHBY2DjgXszQXlxA7J0u2E0cVXo0z
+# aHDZVOssHln4rB2ifiUfy5bisPHiXPKjAdbW9mJ2KL5GAnY6mEut5vgQNuYS24ct
+# 6tpsXNpa4uWmjGXeJFZS3uQk6cQk2cLg3UQz0YBOf07utglT3i3qVY2gu2BeIkMf
+# oMNes6KdL9cd4laTzaAdl9g74hEsO6ZIo4OIgI41E66p7OCbkN1PntOzDPxnc7OZ
+# wmcEuLFTOBZ7MkRbGt0WnYK996CSg4nXXFawcgKAb4Df8DVzD76DkwaeBg7opX1K
+# 5SOIuPYOEBUzVeIzruQxicpyweA6emNUWqvbHjs5U5LJ37GiLPlX++vnMgV6v5zG
+# c8g//KQwmAaZ0uIDS7yS/cKDupy1e+WU7dNJ3DcyLJXheeTH014v1nacPMop6irD
+# Hs9BLWp6s6297QEKzK5XKKr/0AE1ASPspz2XxioFw3yfum5U2vcWRBR6IfMnqViC
+# twh9aMRGvHfN7dKHQh4NTkSaYNCQzkl5iqZvvECHJvT0CWo=
 # SIG # End signature block

@@ -127,6 +127,10 @@ Function Get-HPEGLDevice {
     System.Collections.ArrayList
         List of device(s) from 'Get-HPECOMServer'.
 
+    .OUTPUTS
+    HPE.GreenLake.Device[]
+        A typed array of device objects, or HPE.GreenLake.Device.Tags[] when -ShowTags is used.
+
     #>
 
     [CmdletBinding(DefaultParameterSetName = 'NotArchived')]
@@ -138,11 +142,6 @@ Function Get-HPEGLDevice {
         [Alias ('SerialNumber')]
         [String]$Name, 
         
-        # [Parameter (ParameterSetName = 'Archived', ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        # [Parameter (ParameterSetName = 'NotArchived', ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        # [ValidateNotNullOrEmpty()]
-        # [String]$SerialNumber,  
-
         [Parameter (ParameterSetName = 'Archived')]
         [Parameter (ParameterSetName = 'NotArchived')]
         [ValidateNotNullOrEmpty()]
@@ -201,8 +200,6 @@ Function Get-HPEGLDevice {
         $Caller = (Get-PSCallStack)[1].Command
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
-    
-        # $SerialNumbersList = [System.Collections.ArrayList]::new()
 
     }
 
@@ -212,12 +209,9 @@ Function Get-HPEGLDevice {
 
 
         # Set URI
-        if ($Name) {       
-
-            # $Uri = (Get-COMServersUri) + "?filter=name eq '$Name'"   # Filter that supports only serial numbers
-            # $DevicesUri = Get-DevicesUri
-            $Uri = (Get-DevicesUri) + "?filter=(secondaryName eq '$Name' or deviceName eq '$Name' or serialNumber eq '$Name')"   # Filter that supports both serial numbers and server names
-            # Added the parentheses to fix issue when other filters are added with and
+        if ($Name) {
+            # Filter supports serial numbers, iLO names and server names; parentheses required when additional filters are appended with 'and'
+            $Uri = (Get-DevicesUri) + "?filter=(secondaryName eq '$Name' or deviceName eq '$Name' or serialNumber eq '$Name')"
         }
         else {
 
@@ -307,152 +301,100 @@ Function Get-HPEGLDevice {
             $PSCmdlet.ThrowTerminatingError($_)
         }
            
-        $ReturnData = @()       
-
         if ($Null -ne $AllCollection) {     
 
             $CollectionList = $AllCollection 
 
-            write-Verbose ("[{0}] Enriching device data with additional properties..." -f $MyInvocation.InvocationName.ToString().ToUpper())
+            Write-Verbose ("[{0}] Enriching device data with additional properties..." -f $MyInvocation.InvocationName.ToString().ToUpper())
 
-            # Add serverName to object
-            $CollectionList | ForEach-Object { 
-                if ($_.secondaryName) {
-                    $_ | Add-Member -Type NoteProperty -Name serverName -Value $_.secondaryName -Force
-                }
-                else {
-                    $_ | Add-Member -Type NoteProperty -Name serverName -Value $_.serialNumber -Force
-                }
+            # Build a hashtable for O(1) UI-Doorway lookups by resource_id
+            $UIDoorwayIndex = @{}
+            foreach ($d in $AllCollectionUIDoorWay) {
+                if ($d.resource_id) { $UIDoorwayIndex[$d.resource_id] = $d }
             }
 
-            # Add iLOName to object
-            $CollectionList | ForEach-Object { 
-                if ($_.deviceName) {
-                    $_ | Add-Member -Type NoteProperty -Name iLOName -Value $_.deviceName -Force
-                }
-            }
+            # Single enrichment pass — all properties set from one hashtable lookup per device
+            foreach ($device in $CollectionList) {
 
-            
-            # Add location details to object
-            $CollectionList | ForEach-Object {
-                $ServerID = $_.id
-                if ($ServerID) {
-                    $MatchedServerID = $AllCollectionUIDoorWay | Where-Object { $_.resource_id -eq $ServerID }
-                    if ($MatchedServerID -and $MatchedServerID.location_name) {
-                        if (-not $_.PSObject.Properties.Match('location') -or $null -eq $_.location) {
-                            $_ | Add-Member -Type NoteProperty -Name location -Value ([PSCustomObject]@{}) -Force
-                        }
-                        if ($null -ne $_.location) {
-                            $_.location | Add-Member -Type NoteProperty -Name name -Value $MatchedServerID.location_name -Force
-                            $_.location | Add-Member -Type NoteProperty -Name streetAddress -Value $MatchedServerID.streetAddress -Force
-                            $_.location | Add-Member -Type NoteProperty -Name country -Value $MatchedServerID.country -Force
-                            $_.location | Add-Member -Type NoteProperty -Name city -Value $MatchedServerID.city -Force
-                            $_.location | Add-Member -Type NoteProperty -Name postalCode -Value $MatchedServerID.postalCode -Force
-                            $_.location | Add-Member -Type NoteProperty -Name state -Value $MatchedServerID.state -Force
-                        }
+                # serverName
+                $device | Add-Member -Type NoteProperty -Name serverName -Value $(if ($device.secondaryName) { $device.secondaryName } else { $device.serialNumber }) -Force
+
+                # iLOName
+                if ($device.deviceName) {
+                    $device | Add-Member -Type NoteProperty -Name iLOName -Value $device.deviceName -Force
+                }
+
+                $ui = if ($device.id) { $UIDoorwayIndex[$device.id] } else { $null }
+
+                # location
+                if ($ui -and $ui.location_name) {
+                    if (-not $device.PSObject.Properties.Match('location') -or $null -eq $device.location) {
+                        $device | Add-Member -Type NoteProperty -Name location -Value ([PSCustomObject]@{}) -Force
+                    }
+                    $device.location | Add-Member -Type NoteProperty -Name name          -Value $ui.location_name  -Force
+                    $device.location | Add-Member -Type NoteProperty -Name streetAddress -Value $ui.streetAddress   -Force
+                    $device.location | Add-Member -Type NoteProperty -Name country       -Value $ui.country        -Force
+                    $device.location | Add-Member -Type NoteProperty -Name city          -Value $ui.city           -Force
+                    $device.location | Add-Member -Type NoteProperty -Name postalCode    -Value $ui.postalCode     -Force
+                    $device.location | Add-Member -Type NoteProperty -Name state         -Value $ui.state          -Force
+                }
+
+                # application
+                if ($ui -and $ui.application_name) {
+                    if (-not $device.PSObject.Properties.Match('application') -or $null -eq $device.application) {
+                        $device | Add-Member -Type NoteProperty -Name application -Value ([PSCustomObject]@{}) -Force
+                    }
+                    $device.application | Add-Member -Type NoteProperty -Name name   -Value $ui.application_name -Force
+                    $device.application | Add-Member -Type NoteProperty -Name region -Value $device.region        -Force
+                }
+
+                # warranty
+                if ($ui -and $ui.support_state) {
+                    if (-not $device.PSObject.Properties.Match('warranty') -or $null -eq $device.warranty) {
+                        $device | Add-Member -Type NoteProperty -Name warranty -Value ([PSCustomObject]@{}) -Force
+                    }
+                    if ($ui.support_level) {
+                        $device.warranty | Add-Member -Type NoteProperty -Name supportLevel -Value $ui.support_level -Force
+                    }
+                    $device.warranty | Add-Member -Type NoteProperty -Name supportState -Value $ui.support_state -Force
+                    if ($ui.support_end_date) {
+                        $endTime = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$ui.support_end_date).DateTime
+                        $device.warranty | Add-Member -Type NoteProperty -Name endTime -Value $endTime -Force
+                    }
+                    else {
+                        $device.warranty | Add-Member -Type NoteProperty -Name endTime -Value $ui.support_end_date -Force
                     }
                 }
-            }
 
-            # Add application details to object
-            $CollectionList | ForEach-Object {
-                $ServerID = $_.id
-                if ($ServerID) {
-                    $MatchedServerID = $AllCollectionUIDoorWay | Where-Object { $_.resource_id -eq $ServerID }
-                    if ($MatchedServerID -and $MatchedServerID.application_name) {
-                        if (-not $_.PSObject.Properties.Match('application') -or $null -eq $_.application) {
-                            $_ | Add-Member -Type NoteProperty -Name application -Value ([PSCustomObject]@{}) -Force
-                        }
-                        if ($null -ne $_.application) {
-                            $_.application | Add-Member -Type NoteProperty -Name name -Value $MatchedServerID.application_name -Force
-                            $_.application | Add-Member -Type NoteProperty -Name region -Value $_.region -Force
-                        }
+                # subscription
+                if ($ui -and $ui.subscriptions -and $ui.subscriptions.Count -gt 0) {
+                    if (-not $device.PSObject.Properties.Match('subscription') -or $null -eq $device.subscription) {
+                        $device | Add-Member -Type NoteProperty -Name subscription -Value ([PSCustomObject]@{}) -Force
                     }
-                }
-            }
-
-
-            # Add warranty details to object
-            $CollectionList | ForEach-Object {
-                $ServerID = $_.id
-                if ($ServerID) {
-                    $MatchedServerID = $AllCollectionUIDoorWay | Where-Object { $_.resource_id -eq $ServerID }
-                    if ($MatchedServerID -and $MatchedServerID.support_state) {
-                        if (-not $_.PSObject.Properties.Match('warranty') -or $null -eq $_.warranty) {
-                            $_ | Add-Member -Type NoteProperty -Name warranty -Value ([PSCustomObject]@{}) -Force
-                        }
-                        if ($null -ne $_.warranty) {
-                            if ($MatchedServerID.support_level) {
-                                $_.warranty | Add-Member -Type NoteProperty -Name supportLevel -Value $MatchedServerID.support_level -Force
-                            }
-                            if ($MatchedServerID.support_state) {
-                                $_.warranty | Add-Member -Type NoteProperty -Name supportState -Value $MatchedServerID.support_state -Force
-                            }
-                            if ($MatchedServerID.support_end_date) {
-                                # Convert milliseconds since epoch to DateTime
-                                $endTime = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$MatchedServerID.support_end_date).DateTime
-                                $_.warranty | Add-Member -Type NoteProperty -Name endTime -Value $endTime -Force
-                            }
-                            else {
-                                $_.warranty | Add-Member -Type NoteProperty -Name endTime -Value $MatchedServerID.support_end_date -Force
-                            }
-                        }
+                    $device.subscription | Add-Member -Type NoteProperty -Name key   -Value $ui.subscriptions[0].key  -Force
+                    $device.subscription | Add-Member -Type NoteProperty -Name tier  -Value $ui.subscriptions[0].tier -Force
+                    if ($ui.subscriptions[0].end_date) {
+                        $endTime = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$ui.subscriptions[0].end_date).DateTime
+                        $device.subscription | Add-Member -Type NoteProperty -Name endTime -Value $endTime -Force
                     }
-                }
-            }
-                    
-            # Add subscription details to object
-            $CollectionList | ForEach-Object {
-                $ServerID = $_.id
-                if ($ServerID) {
-                    $MatchedServerID = $AllCollectionUIDoorWay | Where-Object { $_.resource_id -eq $ServerID }
-                    if ($MatchedServerID -and $MatchedServerID.subscriptions -and $MatchedServerID.subscriptions.Count -gt 0) {
-                        if (-not $_.PSObject.Properties.Match('subscription') -or $null -eq $_.subscription) {
-                            $_ | Add-Member -Type NoteProperty -Name subscription -Value ([PSCustomObject]@{}) -Force
-                        }
-                        if ($null -ne $_.subscription) {
-                            $_.subscription | Add-Member -Type NoteProperty -Name key -Value $MatchedServerID.subscriptions[0].key -Force
-                            $_.subscription | Add-Member -Type NoteProperty -Name tier -Value $MatchedServerID.subscriptions[0].tier -Force
-                            if ($MatchedServerID.subscriptions[0].end_date) {
-                                # Convert milliseconds since epoch to DateTime
-                                $endTime = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$MatchedServerID.subscriptions[0].end_date).DateTime
-                                $_.subscription | Add-Member -Type NoteProperty -Name endTime -Value $endTime -Force
-                            }
-                            else {
-                                $_.subscription | Add-Member -Type NoteProperty -Name endTime -Value $MatchedServerID.subscriptions[0].end_date -Force
-                            }
-                            $_.subscription | Add-Member -Type NoteProperty -Name quantity -Value $MatchedServerID.subscriptions[0].quantity -Force
-                            $_.subscription | Add-Member -Type NoteProperty -Name available_quantity -Value $MatchedServerID.subscriptions[0].available_quantity -Force
-                        }
+                    else {
+                        $device.subscription | Add-Member -Type NoteProperty -Name endTime -Value $ui.subscriptions[0].end_date -Force
                     }
+                    $device.subscription | Add-Member -Type NoteProperty -Name quantity           -Value $ui.subscriptions[0].quantity           -Force
+                    $device.subscription | Add-Member -Type NoteProperty -Name available_quantity -Value $ui.subscriptions[0].available_quantity -Force
                 }
-            }
 
-
-            # Add service delivery contact details to object 
-            $CollectionList | ForEach-Object { 
-                $_ | Add-Member -Type NoteProperty -Name serviceDelivery -Value $null -Force
+                # serviceDelivery
+                $device | Add-Member -Type NoteProperty -Name serviceDelivery -Value ([PSCustomObject]@{
+                        name  = $(if ($ui) { $ui.contact_name } else { $null })
+                        email = $(if ($ui) { $ui.contact_id }   else { $null })
+                    }) -Force
             }
-            $CollectionList | ForEach-Object {
-                $ServerID = $_.id
-                if ($ServerID) {
-                    $MatchedServerID = $AllCollectionUIDoorWay | Where-Object { $_.resource_id -eq $ServerID }
-                    if ($MatchedServerID) {
-                        $_.serviceDelivery = [PSCustomObject]@{
-                            name  = $MatchedServerID.contact_name
-                            email = $MatchedServerID.contact_id
-                        }
-                    }
-                }
-            }
-
 
             # iLOIPAddress cannot be added to object as not present
 
 
             if ($ShowRequireAssignment) {
-
-                # test that application.id is available
 
                 $CollectionList = $CollectionList | Where-Object { $_.assignedState -eq "UNASSIGNED" }
 
@@ -460,13 +402,13 @@ Function Get-HPEGLDevice {
 
             if ($ShowRequireSubscription) {
 
-                $CollectionList = $CollectionList | Where-Object { $_.subscription.Count -eq 0 }
+                $CollectionList = $CollectionList | Where-Object { -not $_.subscription.key }
 
             }   
 
             if ($ShowComputeReadyForCOMIloConnection) {
 
-                $CollectionList = $CollectionList | Where-Object { $_.application.name -eq "Compute Ops Management" -and $_.subscription.id }
+                $CollectionList = $CollectionList | Where-Object { $_.application.name -eq "Compute Ops Management" -and $_.subscription.key }
 
             }                   
 
@@ -712,6 +654,7 @@ Function Add-HPEGLDeviceCompute {
 
         $Uri = Get-DevicesAddUri
 
+        $InputList = [System.Collections.ArrayList]::new()
         $ObjectStatusList = [System.Collections.ArrayList]::new()
         $DevicesToAddList = [System.Collections.ArrayList]::new()
 
@@ -734,8 +677,9 @@ Function Add-HPEGLDeviceCompute {
         }
 
        
-        # Add tracking object to the list of object status list
-        [void]$ObjectStatusList.Add($objStatus)
+        # Add tracking object to the input list (always) and output list (only when not WhatIf)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) { [void]$ObjectStatusList.Add($objStatus) }
 
     }
 
@@ -751,7 +695,7 @@ Function Add-HPEGLDeviceCompute {
         }
 
         
-        foreach ($DeviceToAdd in $ObjectStatusList) {
+        foreach ($DeviceToAdd in $InputList) {
             
             
             $ErrorFoundInTags = $False
@@ -767,7 +711,7 @@ Function Add-HPEGLDeviceCompute {
                 
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource already present in the workspace!" -f $DeviceToAdd.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
             } 
@@ -781,7 +725,7 @@ Function Add-HPEGLDeviceCompute {
 
                     if ($splittedtags.Length -gt 25) {
                         
-                        $DeviceToAdd.Status = "Failed"
+                        $DeviceToAdd.Status = "Warning"
                         $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Too many tags defined ! A maximum of 25 tags per resource is supported!" }
                         $DeviceToAdd.TagsAdded = $Null
                         $ErrorFoundInTags = $True
@@ -789,7 +733,7 @@ Function Add-HPEGLDeviceCompute {
 
                         if ($WhatIf) {
                             $ErrorMessage = "Device '{0}': Resource is defined with too many tags! A maximum of 25 tags per resource is supported!" -f $DeviceToAdd.SerialNumber
-                            Write-warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             continue
                         }
                     }
@@ -803,58 +747,56 @@ Function Add-HPEGLDeviceCompute {
                         foreach ($tag in $splittedtags) {
     
                             # Check tag format, if format is not <tagname>=<value>, return error
-                            if ($tag -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+$') {
+                            if ($tag -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]*$') {
                                 
                                 $splittedtagName = $tag.TrimEnd().TrimStart()
     
-                                $DeviceToAdd.Status = "Failed"
+                                $DeviceToAdd.Status = "Warning"
                                 $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Tag format '$splittedtagName' not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" }
                                 $DeviceToAdd.TagsAdded = $Null
                                 $ErrorFoundInTags = $True
     
                                 if ($WhatIf) {
                                     $ErrorMessage = "Device '{0}': Tag '{1}' format not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" -f $DeviceToAdd.SerialNumber, $splittedtagName
-                                    Write-warning $ErrorMessage
+                                    Write-Warning "$ErrorMessage Cannot display API request."
                                     break
                                 }
                             }
                             else {
     
-                                $tagname = $tag.split('=')[0]
-        
-                                # Remove space at the begining and at the end of the string if any
-                                $tagname = $tagname.TrimEnd().TrimStart()
+                                # Split only at the first '=' to preserve values containing '='
+                                $eqIndex = $tag.IndexOf('=')
+                                $tagname = $tag.Substring(0, $eqIndex).Trim()
+
         
                                 if ($tagname.Length -gt 128) {
         
-                                    $DeviceToAdd.Status = "Failed"
+                                    $DeviceToAdd.Status = "Warning"
                                     $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Tag name '$tagname' is over 128 characters! Tag names can have a maximum of 128 characters!" }
                                     $DeviceToAdd.TagsAdded = $Null
                                     $ErrorFoundInTags = $True
         
                                     if ($WhatIf) {
                                         $ErrorMessage = "Device '{0}': Tag name '{1}' is over 128 characters! Tag names can have a maximum of 128 characters!" -f $DeviceToAdd.SerialNumber, $tagname
-                                        Write-warning $ErrorMessage
+                                        Write-Warning "$ErrorMessage Cannot display API request."
                                         break
                                     }
                                 }
                                 else {
                                     
-                                    $tagvalue = $tag.split('=')[1]
-                                    
-                                    # Remove space at the begining and at the end of the string if any
-                                    $tagvalue = $tagvalue.TrimEnd().TrimStart()
+                                    $tagvalue = $tag.Substring($eqIndex + 1).Trim()
+
             
                                     if ($tagvalue.Length -gt 256) {
             
-                                        $DeviceToAdd.Status = "Failed"
+                                        $DeviceToAdd.Status = "Warning"
                                         $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Tag value '$tagvalue' is over 256 characters! Tag values can have a maximum of 256 characters!" }
                                         $DeviceToAdd.TagsAdded = $Null
                                         $ErrorFoundInTags = $True
             
                                         if ($WhatIf) {
                                             $ErrorMessage = "Device '{0}': Tag value '{1}' is over 256 characters! Tag values can have a maximum of 256 characters!" -f $DeviceToAdd.SerialNumber, $tagvalue
-                                            Write-warning $ErrorMessage
+                                            Write-Warning "$ErrorMessage Cannot display API request."
                                             break
                                         }
                                     }
@@ -968,8 +910,8 @@ Function Add-HPEGLDeviceCompute {
 
                             $DeviceToAdd.Status = "Failed"
                             $DeviceToAdd.TagsAdded = $Null
-                            $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Device cannot be added to the HPE GreenLake workspace!" }
-                            $DeviceToAdd.Exception = $_.Exception.message 
+                            $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = if ($_.Exception.Message) { $_.Exception.Message } else { "Device cannot be added to the HPE GreenLake workspace!" } }
+                            $DeviceToAdd.Exception = $Global:HPECOMInvokeReturnData
 
                         }
                     }
@@ -979,10 +921,9 @@ Function Add-HPEGLDeviceCompute {
     
         
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
-            $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "Device.Add.SPTSDE"    
-            Return $ObjectStatusList
+            Return Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "Device.Add.SPTSDE"
         }
 
     }
@@ -1037,10 +978,11 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     [WARNING]:  Using this parameter is not secure and is not recommended. This switch is only intended to be used against known hosts using a self-signed certificate for testing purposes. Use at your own risk.
 
     .PARAMETER IloProxyServer
-    (Optional) Enables iLO web proxy. Specifies the hostname or IP address of the web proxy server.
+    (Optional) Enables iLO web proxy or Secure Gateway connectivity. Specifies the hostname or IP address of the web proxy server or Compute Ops Management Secure Gateway appliance.
+    To connect an iLO through a Secure Gateway, provide the Secure Gateway appliance name and use port 8080 with -IloProxyPort.
     
     .PARAMETER IloProxyPort
-    (Optional) Specifies the iLO web proxy port number. The range of valid port values in iLO is from 1 to 65535.
+    (Optional) Specifies the iLO web proxy or Secure Gateway port number. The range of valid port values in iLO is from 1 to 65535. Use port 8080 when connecting through a Compute Ops Management Secure Gateway.
     
     .PARAMETER IloProxyUserName
     (Optional) Specifies the iLO web proxy username, if applicable.
@@ -1082,6 +1024,13 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     .PARAMETER DisconnectiLOfromOneView
     If present, this switch parameter disconnects a system managed by HPE OneView in order to connect it to Compute Ops Management. If absent, the connection to Compute Ops Management will fail if the system is already managed by HPE OneView.
     
+    .PARAMETER Force
+    If present, this switch parameter forces reconnection of the iLO to Compute Ops Management even when the iLO is already connected. 
+    The cmdlet will first disconnect the iLO from the current COM connection (via the iLO Redfish DisableCloudConnect action), then reconnect it using the specified parameters.
+    This is useful when migrating an iLO connection in either direction:
+    - Direct -> Secure Gateway: combine with -IloProxyServer and -IloProxyPort to route the reconnection through the Secure Gateway.
+    - Secure Gateway -> Direct: combine with -RemoveExistingiLOProxySettings to clear the proxy before reconnecting directly.
+    
     .EXAMPLE
     $iLO_credential = Get-Credential 
     Connect-HPEGLDeviceComputeiLOtoCOM -IloIP "192.168.0.21" -IloCredential $iLO_credential -SkipCertificateValidation
@@ -1092,6 +1041,15 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     Connect-HPEGLDeviceComputeiLOtoCOM -IloIP "192.168.1.151" -IloCredential $iLO_credential -IloProxyServer "web-proxy.domain.com" -IloProxyPort 8080
 
     Connect the iLO at 192.168.1.151 of compute device "123456789012" to the currently assigned Compute Ops Management instance through a web proxy.
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential 
+    $SecureGatewayName = Get-HPECOMAppliance -Region eu-central -Type SecureGateway | Select-Object -First 1 -ExpandProperty name
+    $COM_Activation_Key = New-HPECOMServerActivationKey -Region eu-central -SecureGateway $SecureGatewayName
+    Connect-HPEGLDeviceComputeiLOtoCOM -IloIP "192.168.0.21" -IloCredential $iLO_credential -ActivationKeyFromCOM $COM_Activation_Key -IloProxyServer $SecureGatewayName -IloProxyPort 8080 -SkipCertificateValidation
+
+    Connect the iLO at 192.168.0.21 to the Compute Ops Management instance in the eu-central region through a Compute Ops Management Secure Gateway.
+    The activation key is generated for the Secure Gateway, and the iLO is configured to route its connection through that Secure Gateway on port 8080.
 
     .EXAMPLE
     $iLO_secureString_Proxy_Password = Read-Host -Prompt "Enter the proxy password" -AsSecureString
@@ -1111,7 +1069,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         192.188.2.152
 
     .EXAMPLE
-    $iLOs =  .\iLOs-List-To-Connect-To-COM.csv -Delimiter ","
+    $iLOs = Import-Csv .\iLOs-List-To-Connect-To-COM.csv -Delimiter ","
 
     # Retrieve the first available Compute Ops Management subscription key that is valid and with available quantitiy 
     $Subscription_Key = Get-HPEGLSubscription -ShowWithAvailableQuantity -ShowValid -FilterBySubscriptionType Server | Select-Object -First 1 -ExpandProperty key
@@ -1143,7 +1101,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
        192.168.0.3, demo, password
 
     .EXAMPLE
-    $iLOs =  .\iLOs-List-To-Connect-To-COM.csv -Delimiter ","
+    $iLOs = Import-Csv .\iLOs-List-To-Connect-To-COM.csv -Delimiter ","
 
     # Retrieve the first available Compute Ops Management subscription key that is valid and with available quantitiy 
     $Subscription_Key = Get-HPEGLSubscription -ShowWithAvailableQuantity -ShowValid -FilterBySubscriptionType Server | Select-Object -First 1 -ExpandProperty key
@@ -1175,10 +1133,10 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
        192.168.0.3, demo, password
 
     .EXAMPLE
-    $iLOs =  .\iLOs-List-To-Connect-To-COM.csv -Delimiter ","
+    $iLOs = Import-Csv .\iLOs-List-To-Connect-To-COM.csv -Delimiter ","
 
     # Retrieve the name of the first available Compute Ops Management Secure Gateway in the central european region
-    $SecureGatewayName = Get-HPECOMAppliance -Region eu-central -Type SecureGateway | select -first 1 -ExpandProperty name
+    $SecureGatewayName = Get-HPECOMAppliance -Region eu-central -Type SecureGateway | Select-Object -First 1 -ExpandProperty name
     
     # Generate an activation key for the Compute Ops Management Secure Gateway in the central european region 
     $COM_Activation_Key = New-HPECOMServerActivationKey -Region eu-central -SecureGateway $SecureGatewayName  
@@ -1215,6 +1173,44 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     If the iLO has an existing proxy configuration causing connection issues, it will be removed. 
     If cached proxy errors persist after removal (due to iLO firmware limitation), the iLO will be automatically reset to clear the network stack, 
     then reconnected and the COM connection completed. This provides a fully automated solution for proxy-related connection issues.
+   
+
+    .EXAMPLE
+    # Migration: Direct connection -> Secure Gateway connection 
+    
+    # Get iLO credentials interactively
+    $iLO_credential = Get-Credential 
+
+    # Retrieve the name of the first available Compute Ops Management Secure Gateway in the central european region
+    $SecureGatewayName = Get-HPECOMAppliance -Region eu-central -Type SecureGateway | Select-Object -First 1 -ExpandProperty name
+
+    # Generate a COM activation key tied to the Secure Gateway
+    $COM_Activation_Key = New-HPECOMServerActivationKey -Region eu-central -SecureGateway $SecureGatewayName
+
+    # Reconnect all servers using a Direct connection to a Secure Gateway connection in a single operation
+    Get-HPECOMServer -Region eu-central -ConnectionType Direct | Connect-HPEGLDeviceComputeiLOtoCOM -IloCredential $iLO_credential -ActivationKeyFromCOM $COM_Activation_Key -IloProxyServer $SecureGatewayName -IloProxyPort 8080 -Force -SkipCertificateValidation
+
+    Migrates all servers in the eu-central region from a Direct connection to a Secure Gateway connection in a single command.
+    -Force disconnects each iLO from its current Direct connection and reconnects it through the Secure Gateway. 
+    -IloProxyServer and -IloProxyPort configure the Secure Gateway as the iLO proxy.
+    Because the device service assignment is never removed, group memberships, server settings and policies in COM are fully preserved throughout the migration.
+
+    .EXAMPLE
+    # Migration: Secure Gateway connection -> Direct connection 
+
+    # Get iLO credentials interactively
+    $iLO_credential = Get-Credential
+
+    # Generate a COM activation key (not tied to any Secure Gateway) 
+    $COM_Activation_Key = New-HPECOMServerActivationKey -Region eu-central
+
+    # Reconnect all servers using a Secure Gateway connection to a Direct connection in a single operation
+    Get-HPECOMServer -Region eu-central -ConnectionType 'Secure Gateway' | Connect-HPEGLDeviceComputeiLOtoCOM -IloCredential $iLO_credential -ActivationKeyFromCOM $COM_Activation_Key -IloProxyServer web_proxy.domain.com -IloProxyPort 8088 -Force -SkipCertificateValidation
+    
+    Migrates all servers in the eu-central region from a Secure Gateway connection to a Direct connection in a single command.
+    -Force disconnects each iLO from the Secure Gateway and reconnects it directly to COM. 
+    -IloProxyServer / -IloProxyPort replace the Secure Gateway proxy with a standard corporate web proxy — use this when iLO still needs a proxy to reach COM over the internet. If iLO has unrestricted internet access, use -RemoveExistingiLOProxySettings instead to clear the proxy entirely.
+    Because the device service assignment is never removed, group memberships, server settings and policies in COM are fully preserved throughout the migration.
 
     .INPUTS
     System.Collections.ArrayList
@@ -1244,7 +1240,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                 if ([Net.IPAddress]::TryParse($_, [ref]$ip)) { return $true }
                 try { [Net.Dns]::GetHostEntry($_) | Out-Null; return $true } catch { throw "Invalid IP or hostname: $_" }
             })]
-        [Alias ('IP')]
+        [Alias ('IP', 'iLOIPAddress')]
         [string]$IloIP,
 
         [Parameter (Mandatory)]
@@ -1277,6 +1273,8 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         [Switch]$ResetiLOIfProxyErrorPersists,
 
         [Switch]$DisconnectiLOfromOneView,
+
+        [Switch]$Force,
 
         [Parameter (Mandatory = $false)]
         [ValidateRange(1, 30)]
@@ -1361,7 +1359,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         "[{0}] PING iLO '{1}' test result: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $IsILOAccessible.status | Write-Verbose
 
         if ($IsILOAccessible.Status -ne "Success") {
-            $objStatus.Status = "Failed"
+            $objStatus.Status = "Warning"
             $objStatus.Details = "iLO is not reachable. Please ensure your are connected to the iLO network."
             [void] $iLOConnectionStatus.add($objStatus)
             return       
@@ -1397,7 +1395,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             
             $XAuthToken = (($response.RawContent -split "[`r`n]" | select-string -Pattern 'X-Auth-Token' ) -split " ")[1]
 
-            "[{0}] {1}: Received status code response: '{2}' - Description: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $response.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
+            "[{0}] {1}: Received status code response: '{2}' - Description: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $response.StatusCode, $response.StatusDescription | Write-verbose
             "[{0}] {1}: Raw response: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, ($response | ConvertFrom-Json | ConvertTo-Json -Depth 10) | Write-Verbose
 
             if (-not $XAuthToken) {
@@ -1531,6 +1529,9 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             }             
             if ($NetworkProtocol.Oem.Hpe.WebProxyConfiguration.ProxyServer -ne "") {
                 $ProxySettings = "Enabled"
+                $ExistingProxyServer = $NetworkProtocol.Oem.Hpe.WebProxyConfiguration.ProxyServer
+                $ExistingProxyPort   = $NetworkProtocol.Oem.Hpe.WebProxyConfiguration.ProxyPort
+                "[{0}] {1}: Existing iLO proxy settings detected - ProxyServer: '{2}', ProxyPort: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP, $ExistingProxyServer, $ExistingProxyPort | Write-Verbose
             }
             else {
                 $ProxySettings = "Disabled"
@@ -1561,12 +1562,12 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             # COM activation key is not supported if iLO5 lower than v3.09 and if iLO6 lower than v1.64.
             if ($iLOGeneration -eq "iLO 5" -and [decimal]$iLOFWVersion -lt [decimal]3.09) {
                 
-                $objStatus.iLOConnectionStatus = "Failed"
+                $objStatus.iLOConnectionStatus = "Warning"
                 $objStatus.iLOConnectionDetails = "Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v3.09. Please run the cmdlet without the 'ActivationKeyfromCOM' parameter."
                 
                 "[{0}] {1} [{2}] The iLO {3} firmware version {4} is NOT compatible with the COM activation key ! iLO cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v3.09" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $iLOGeneration, $iLOFWVersion | Write-Verbose
                 
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 [void]$iLOConnectionStatus.add($objStatus) 
                 return
 
@@ -1574,12 +1575,12 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             elseif ($iLOGeneration -eq "iLO 6" -and [decimal]$iLOFWVersion -lt [decimal]1.64) {
 
                 
-                $objStatus.iLOConnectionStatus = "Failed"
+                $objStatus.iLOConnectionStatus = "Warning"
                 $objStatus.iLOConnectionDetails = "Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v1.64. Please run the cmdlet without the 'ActivationKeyfromCOM' parameter."
 
                 "[{0}] {1} [{2}] The iLO {3} firmware version {4} is NOT compatible with the COM activation key ! iLO cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v1.64" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $iLOGeneration, $iLOFWVersion | Write-Verbose
 
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 [void]$iLOConnectionStatus.add($objStatus)
                 return
             }
@@ -1601,7 +1602,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             
             if ( -not $device) {
                 # Must return a message if device is not found
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Device cannot be found in the HPE GreenLake workspace"
                 [void] $iLOConnectionStatus.add($objStatus)
                 return
@@ -1609,7 +1610,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             }
             elseif (-not $device.region) {
                 # Must return a message if device is not assigned to COM
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Device is not assigned to any service instance!"
                 [void] $iLOConnectionStatus.add($objStatus)
                 return
@@ -1617,7 +1618,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             }
             elseif (-not $device.subscription.key) {
                 # Must return a message if device has no subscription
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Device has not been attached to any subscription!"
                 [void] $iLOConnectionStatus.add($objStatus)
                 return
@@ -1672,7 +1673,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                     "[{0}] {1} [{2}] Response: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $msg | Write-Verbose
     
                     if ($msg -match "Success") {
-                        "[{0}] {1} [{2}] iLO proxy server settings removed successfully!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                        "[{0}] {1} [{2}] iLO proxy server settings removed successfully! (was: ProxyServer='{3}', ProxyPort='{4}')" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $ExistingProxyServer, $ExistingProxyPort | Write-Verbose
                         $objStatus.ProxySettingsStatus = "Complete"
                         $objStatus.ProxySettingsDetails = "iLO proxy server settings removed successfully!"
                         
@@ -1691,10 +1692,12 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                             }
                             
                             $CurrentProxyServer = $NetworkProtocolCheck.Oem.Hpe.WebProxyConfiguration.ProxyServer
-                            "[{0}] {1} [{2}] Verified proxy settings - ProxyServer: '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CurrentProxyServer | Write-Verbose
                             
                             if ($CurrentProxyServer) {
                                 "[{0}] {1} [{2}] Warning: Proxy server still configured as '{3}' - proxy removal may not have fully applied!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CurrentProxyServer | Write-Verbose
+                            }
+                            else {
+                                "[{0}] {1} [{2}] Proxy removal verified - proxy server is no longer configured" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
                             }
                         }
                         catch {
@@ -2160,9 +2163,62 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                 $CloudConnectStatus = (Invoke-RestMethod @CloudConnectStatusParams).Oem.Hpe.CloudConnect.CloudConnectStatus
                 "[{0}] {1} [{2}] Status of the iLO connection to COM: {3}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CloudConnectStatus | Write-Verbose
 
+                # If -Force specified and iLO is already connected, disconnect first to allow reconnection
+                if ($Force -and $CloudConnectStatus -eq "Connected") {
+
+                    "[{0}] {1} [{2}] -Force specified: disconnecting iLO from COM to force reconnection..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+
+                    try {
+                        $DisableCloudConnectURI = "/redfish/v1/Managers/1/Actions/Oem/Hpe/HpeiLO.DisableCloudConnect/"
+                        $DisableCloudConnectUrl = $iLObaseURL + $DisableCloudConnectURI
+                        $DisableCloudConnectBody = @{} | ConvertTo-Json
+
+                        $DisableParams = @{
+                            Method      = 'POST'
+                            Uri         = $DisableCloudConnectUrl
+                            Headers     = $Headers
+                            Body        = $DisableCloudConnectBody
+                            ErrorAction = 'Stop'
+                        }
+                        if ($SkipCertificateValidation) {
+                            $DisableParams.SkipCertificateCheck = $true
+                        }
+
+                        $null = Invoke-RestMethod @DisableParams
+                        "[{0}] {1} [{2}] DisableCloudConnect sent. Polling until iLO disconnects from COM..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+
+                        # Poll until disconnected (up to ~30 seconds)
+                        $disconnectCounter = 0
+                        do {
+                            Start-Sleep -Seconds 3
+                            $disconnectCounter++
+                            $CloudConnectStatus = (Invoke-RestMethod @CloudConnectStatusParams).Oem.Hpe.CloudConnect.CloudConnectStatus
+                            "[{0}] {1} [{2}] CloudConnect status after force-disconnect: '{3}' (check {4}/10)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CloudConnectStatus, $disconnectCounter | Write-Verbose
+                        } while ($CloudConnectStatus -eq "Connected" -and $disconnectCounter -le 10)
+
+                        if ($CloudConnectStatus -ne "Connected") {
+                            "[{0}] {1} [{2}] iLO successfully disconnected from COM. Waiting 10 seconds for iLO network stack to stabilize before reconnecting..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                            Start-Sleep -Seconds 10
+                        }
+                        else {
+                            "[{0}] {1} [{2}] iLO could not be disconnected from COM within the polling window. Proceeding with reconnection attempt anyway..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                        }
+                    }
+                    catch {
+                        "[{0}] {1} [{2}] Error during Force disconnect: {3}. Re-checking CloudConnect status..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $_.Exception.Message | Write-Verbose
+                        try {
+                            $CloudConnectStatus = (Invoke-RestMethod @CloudConnectStatusParams).Oem.Hpe.CloudConnect.CloudConnectStatus
+                        }
+                        catch {
+                            $CloudConnectStatus = "NotConnected"
+                        }
+                    }
+                }
+
                 if ($CloudConnectStatus -ne "Connected") {
 
                     $iLOConnectiontoCOMResponse = $null
+                    $PollingLoopResetDone = $false  # Guard to prevent infinite reset loops inside the polling loop
                 
                     do {
                         try {
@@ -2193,11 +2249,110 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                                 
                                 "[{0}] {1} [{2}] Connection to COM status: '{3}' - FailReason: '{4}' - WebConnectivity: '{5}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CloudConnectStatus, $FailReason, $WebConnectivity | Write-Verbose
                             
-                                # Check for actual errors (not "NotTested", not success indicators like "Already_Connected", and not "DisabledByCOM")
+                                # Check for actual errors (not "NotTested", not "Initializing" which is transient after a reset, not success indicators like "Already_Connected", and not "DisabledByCOM")
                                 # DisabledByCOM means the device IS connected but disabled by COM (administrative state, not a connection failure)
-                                if ($FailReason -and $FailReason -ne "NotTested" -and $FailReason -notmatch "Already|Connected|DisabledByCOM") {
+                                # Initializing means the iLO is still starting up its network stack — treat as transient, not a failure
+                                if ($FailReason -and $FailReason -ne "NotTested" -and $FailReason -ne "Initializing" -and $FailReason -notmatch "Already|Connected|DisabledByCOM") {
                                     Clear-SpinnerOutput
                                     "[{0}] {1} [{2}] Error detected - FailReason: '{3}', WebConnectivity: '{4}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $FailReason, $WebConnectivity | Write-Verbose
+                                    
+                                    # When -ResetiLOIfProxyErrorPersists is set and a ProxyOrFirewall error surfaces during connection monitoring,
+                                    # perform an iLO reset to clear the cached network state. The one-shot guard prevents infinite reset loops.
+                                    if ($FailReason -match "ProxyOrFirewall" -and $ResetiLOIfProxyErrorPersists -and -not $PollingLoopResetDone) {
+                                        $PollingLoopResetDone = $true
+                                        "[{0}] {1} [{2}] ProxyOrFirewall error detected during connection monitoring. Performing iLO reset to clear cached network state..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                        
+                                        try {
+                                            $ResetURI = "/redfish/v1/Managers/1/Actions/Manager.Reset/"
+                                            $ResetUrl = $iLObaseURL + $ResetURI
+                                            $ResetBody = @{ ResetType = "ForceRestart" } | ConvertTo-Json
+                                            
+                                            if ($SkipCertificateValidation) {
+                                                $null = Invoke-RestMethod -Method POST -Uri $ResetUrl -Headers $Headers -Body $ResetBody -ErrorAction Stop -SkipCertificateCheck
+                                            }
+                                            else {
+                                                $null = Invoke-RestMethod -Method POST -Uri $ResetUrl -Headers $Headers -Body $ResetBody -ErrorAction Stop
+                                            }
+                                            
+                                            "[{0}] {1} [{2}] iLO reset initiated. Waiting 60 seconds for iLO to restart and clear cached network state..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                            Start-Sleep -Seconds 60
+                                            
+                                            "[{0}] {1} [{2}] Attempting to reconnect to iLO after reset..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                            
+                                            $MaxReconnectAttempts = 6
+                                            $ReconnectInterval = 10
+                                            $ReconnectSuccess = $false
+                                            
+                                            for ($attempt = 1; $attempt -le $MaxReconnectAttempts; $attempt++) {
+                                                try {
+                                                    $Ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($iLOCredential.Password)
+                                                    $iLOPasswordPlainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($Ptr)
+                                                    
+                                                    $ReconnectBody = [System.Collections.Hashtable]@{
+                                                        UserName = $iLOCredential.UserName
+                                                        Password = $iLOPasswordPlainText
+                                                    } | ConvertTo-Json
+                                                    
+                                                    $SessionURI = "/redfish/v1/SessionService/Sessions/"
+                                                    $SessionUrl = $iLObaseURL + $SessionURI
+                                                    
+                                                    if ($SkipCertificateValidation) {
+                                                        $SessionResponse = Invoke-WebRequest -Method POST -Uri $SessionUrl -Body $ReconnectBody -ContentType "application/json" -ErrorAction Stop -SkipCertificateCheck
+                                                    }
+                                                    else {
+                                                        $SessionResponse = Invoke-WebRequest -Method POST -Uri $SessionUrl -Body $ReconnectBody -ContentType "application/json" -ErrorAction Stop
+                                                    }
+                                                    
+                                                    $NewXAuthToken = (($SessionResponse.RawContent -split "`r`n" | select-string -Pattern 'X-Auth-Token') -split " ")[1]
+                                                    $Headers['X-Auth-Token'] = $NewXAuthToken
+                                                    
+                                                    "[{0}] {1} [{2}] iLO session re-established after reset (attempt {3}/{4})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $attempt, $MaxReconnectAttempts | Write-Verbose
+                                                    $ReconnectSuccess = $true
+                                                    
+                                                    $iLOPasswordPlainText = $null
+                                                    [GC]::Collect()
+                                                    break
+                                                }
+                                                catch {
+                                                    if ($attempt -lt $MaxReconnectAttempts) {
+                                                        "[{0}] {1} [{2}] iLO not ready yet (attempt {3}/{4}). Waiting {5} seconds before retry..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $attempt, $MaxReconnectAttempts, $ReconnectInterval | Write-Verbose
+                                                        Start-Sleep -Seconds $ReconnectInterval
+                                                    }
+                                                    else {
+                                                        "[{0}] {1} [{2}] Warning: Failed to reconnect to iLO after {3} attempts: {4}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $MaxReconnectAttempts, $_.Exception.Message | Write-Verbose
+                                                        "[{0}] {1} [{2}] iLO may be taking longer than expected to restart. Please verify iLO is accessible and retry the connection." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Warning
+                                                    }
+                                                }
+                                            }
+                                            
+                                            if (-not $ReconnectSuccess) {
+                                                $objStatus.iLOConnectionStatus = "Failed"
+                                                $objStatus.iLOConnectionDetails = "iLO reset completed to clear proxy error, but could not re-establish iLO session. Please verify iLO is accessible and retry."
+                                                $objStatus.Status = "Failed"
+                                                [void] $iLOConnectionStatus.add($objStatus)
+                                                return
+                                            }
+                                            
+                                            # Re-issue EnableCloudConnect to retry the connection with the now-cleared iLO network state
+                                            "[{0}] {1} [{2}] Re-issuing EnableCloudConnect POST after iLO reset to retry connection..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
+                                            $iLOConnectiontoCOMResponse = Invoke-RestMethod @PostParams
+                                            Start-Sleep -Seconds 2
+                                            
+                                            # Refresh CloudConnect status so the do-while condition evaluates correctly when we continue
+                                            $RefreshInfo = Invoke-RestMethod @CloudConnectStatusParams
+                                            $CloudConnectStatus = $RefreshInfo.Oem.Hpe.CloudConnect.CloudConnectStatus
+                                            $FailReason = $RefreshInfo.Oem.Hpe.CloudConnect.FailReason
+                                            $WebConnectivity = $RefreshInfo.Oem.Hpe.CloudConnect.ExtendedStatusInfo.WebConnectivity
+                                            "[{0}] {1} [{2}] Post-reset CloudConnect state before resuming monitoring: Status='{3}', FailReason='{4}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CloudConnectStatus, $FailReason | Write-Verbose
+                                            
+                                            $subcounter = 0
+                                            continue  # Resume the inner polling loop to monitor the new connection attempt
+                                        }
+                                        catch {
+                                            "[{0}] {1} [{2}] Warning: iLO reset failed: {3}. Falling through to standard error handler..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $_.Exception.Message | Write-Verbose
+                                            # Fall through to standard error path below
+                                        }
+                                    }
                                     
                                     # Format user-friendly error message
                                     $errorDetail = switch -Regex ($FailReason) {
@@ -2229,7 +2384,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                                 "[{0}] {1} [{2}] Waiting for iLO to connect to COM... (check {3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $subcounter | Write-Verbose
                                 Start-Sleep -Seconds 4
                             
-                            } while ($CloudConnectStatus -eq "ConnectionInProgress" -and $subcounter -le ([Math]::Ceiling($ConnectionMonitoringTimeoutSeconds / 4))) # Dynamic timeout based on parameter 
+                            } while (($CloudConnectStatus -eq "ConnectionInProgress" -or $FailReason -eq "Initializing") -and $subcounter -le ([Math]::Ceiling($ConnectionMonitoringTimeoutSeconds / 4))) # Dynamic timeout based on parameter 
 
                             # After monitoring loop completes, check FailReason one more time
                             if ($CloudConnectStatus -eq "NotConnected") {
@@ -2275,8 +2430,8 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                         catch {
                             "[{0}] Catch triggered! {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ | Write-Verbose
                         
-                            # Check if the error message indicates "Connection in progress"
-                            if ($_ -match "Connection in progress" -and $counter -le $MaxConnectionAttempts -and $_ -notmatch "COMActivationDenied") {
+                            # Check if the error message indicates "Connection in progress" (including COMActivationDenied when a connection attempt is already in-flight)
+                            if ($_ -match "Connection in progress" -and $counter -le $MaxConnectionAttempts) {
                                 "[{0}] {1} [{2}] Connection in progress, retrying (attempt {3})..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $counter | Write-Verbose
                                 Start-Sleep -Seconds $ConnectionRetryDelaySeconds
                             } 
@@ -2306,7 +2461,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                             $ViewsBody = @{
                                 Select = @(
                                     @{
-                                        From = "/Managers/1/"
+                                        From       = "/Managers/1/"
                                         Properties = @(
                                             "Oem.Hpe.CloudConnect as CloudConnect",
                                             "Oem.Hpe.FailReason as FailReason"
@@ -2316,10 +2471,10 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                             } | ConvertTo-Json -Depth 5
 
                             $ViewsParams = @{
-                                Method  = 'POST'
-                                Uri     = ($iLObaseURL + "/redfish/v1/Views/")
-                                Headers = $Headers
-                                Body    = $ViewsBody
+                                Method      = 'POST'
+                                Uri         = ($iLObaseURL + "/redfish/v1/Views/")
+                                Headers     = $Headers
+                                Body        = $ViewsBody
                                 ContentType = 'application/json'
                             }
                             if ($SkipCertificateValidation) {
@@ -2443,8 +2598,14 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                 }
                 else {
                     "[{0}] {1} [{2}] iLO already connected to Compute Ops Management!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber | Write-Verbose
-                    $objStatus.iLOConnectionStatus = "Complete"
-                    $objStatus.iLOConnectionDetails = "iLO is already connected to the Compute Ops Management instance!"
+                    if ($Force) {
+                        $objStatus.iLOConnectionStatus = "Warning"
+                        $objStatus.iLOConnectionDetails = "iLO is already connected to the Compute Ops Management instance and could not be force-disconnected. Use -Verbose for details."
+                    }
+                    else {
+                        $objStatus.iLOConnectionStatus = "Complete"
+                        $objStatus.iLOConnectionDetails = "iLO is already connected to the Compute Ops Management instance!"
+                    }
                 }
             }
             catch {
@@ -2464,13 +2625,16 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         else {
             "[{0}] {1} [{2}] iLO is not supported by HPE GreenLake! Skipping server..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP, $SerialNumber | Write-Verbose
             
-            $objStatus.OnboardingStatus = "Error" 
-            $objStatus.OnboardingDetails = "Only iLO5, iLO6 and iLO7 are supported by HPE GreenLake"
+            $objStatus.Status = "Warning" 
+            $objStatus.Details = "Only iLO5, iLO6 and iLO7 are supported by HPE GreenLake."
         }   
 
         # Final status determination
         if ($objStatus.PSobject.Properties.value -contains "Failed") {
             $objStatus.Status = "Failed"
+        }
+        elseif ($objStatus.PSobject.Properties.value -contains "Warning") {
+            $objStatus.Status = "Warning"
         }
         else {
             $objStatus.Status = "Complete"
@@ -2483,8 +2647,9 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
 
     end {
 
-        $iLOConnectionStatus = Invoke-RepackageObjectWithType -RawObject $iLOConnectionStatus -ObjectName "Device.Connect.iLO"    
-        Return $iLOConnectionStatus
+        if ($iLOConnectionStatus.Count -gt 0) {
+            Return Invoke-RepackageObjectWithType -RawObject $iLOConnectionStatus -ObjectName "Device.Connect.iLO"
+        }
     }
         
 }
@@ -2626,6 +2791,7 @@ Function Add-HPEGLDeviceStorage {
 
         $Uri = Get-DevicesAddUri
 
+        $InputList = [System.Collections.ArrayList]::new()
         $ObjectStatusList = [System.Collections.ArrayList]::new()
         $DevicesToAddList = [System.Collections.ArrayList]::new()
 
@@ -2648,8 +2814,9 @@ Function Add-HPEGLDeviceStorage {
         }
 
        
-        # Add tracking object to the list of object status list
-        [void]$ObjectStatusList.Add($objStatus)
+        # Add tracking object to the input list (always) and output list (only when not WhatIf)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) { [void]$ObjectStatusList.Add($objStatus) }
 
     }
 
@@ -2665,7 +2832,7 @@ Function Add-HPEGLDeviceStorage {
         }
 
         
-        foreach ($DeviceToAdd in $ObjectStatusList) {
+        foreach ($DeviceToAdd in $InputList) {
             
             
             $ErrorFoundInTags = $False
@@ -2681,7 +2848,7 @@ Function Add-HPEGLDeviceStorage {
                 
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource already present in the workspace!" -f $DeviceToAdd.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
             } 
@@ -2695,7 +2862,7 @@ Function Add-HPEGLDeviceStorage {
 
                     if ($splittedtags.Length -gt 25) {
                         
-                        $DeviceToAdd.Status = "Failed"
+                        $DeviceToAdd.Status = "Warning"
                         $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Too many tags defined ! A maximum of 25 tags per resource is supported!" }
                         $DeviceToAdd.TagsAdded = $Null
                         $ErrorFoundInTags = $True
@@ -2703,7 +2870,7 @@ Function Add-HPEGLDeviceStorage {
 
                         if ($WhatIf) {
                             $ErrorMessage = "Device '{0}': Resource is defined with too many tags! A maximum of 25 tags per resource is supported!" -f $DeviceToAdd.SerialNumber
-                            Write-warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             continue
                         }
                     }
@@ -2717,58 +2884,58 @@ Function Add-HPEGLDeviceStorage {
                         foreach ($tag in $splittedtags) {
     
                             # Check tag format, if format is not <tagname>=<value>, return error
-                            if ($tag -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+$') {
+                            if ($tag -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]*$') {
                                 
                                 $splittedtagName = $tag.TrimEnd().TrimStart()
     
-                                $DeviceToAdd.Status = "Failed"
+                                $DeviceToAdd.Status = "Warning"
                                 $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Tag format '$splittedtagName' not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" }
                                 $DeviceToAdd.TagsAdded = $Null
                                 $ErrorFoundInTags = $True
     
                                 if ($WhatIf) {
-                                    $ErrorMessage = "Device '{0}': Tag '{1}' format not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" -f $DeviceToAdd.SerialNumber, $splittedtagName                                   
-                                    Write-warning $ErrorMessage
+                                    $ErrorMessage = "Device '{0}': Tag '{1}' format not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" -f $DeviceToAdd.SerialNumber, $splittedtagName
+                                    Write-Warning "$ErrorMessage Cannot display API request."
                                     break
                                 }
                             }
                             else {
     
-                                $tagname = $tag.split('=')[0]
-        
-                                # Remove space at the begining and at the end of the string if any
-                                $tagname = $tagname.TrimEnd().TrimStart()
+                                # Split only at the first '=' to preserve values containing '='
+                                $eqIndex = $tag.IndexOf('=')
+                                $tagname = $tag.Substring(0, $eqIndex).Trim()
+
         
                                 if ($tagname.Length -gt 128) {
         
-                                    $DeviceToAdd.Status = "Failed"
+                                    $DeviceToAdd.Status = "Warning"
                                     $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Tag name '$tagname' is over 128 characters! Tag names can have a maximum of 128 characters!" }
                                     $DeviceToAdd.TagsAdded = $Null
                                     $ErrorFoundInTags = $True
                                     
                                     if ($WhatIf) {
                                         $ErrorMessage = "Device '{0}': Tag name '{1}' is over 128 characters! Tag names can have a maximum of 128 characters!" -f $DeviceToAdd.SerialNumber, $tagname
-                                        Write-warning $ErrorMessage
+                                        Write-Warning "$ErrorMessage Cannot display API request."
                                         break
                                     }
                                 }
                                 else {
                                     
-                                    $tagvalue = $tag.split('=')[1]
+                                    $tagvalue = $tag.Substring($eqIndex + 1).Trim()
                                     
-                                    # Remove space at the begining and at the end of the string if any
-                                    $tagvalue = $tagvalue.TrimEnd().TrimStart()
+
+
             
                                     if ($tagvalue.Length -gt 256) {
             
-                                        $DeviceToAdd.Status = "Failed"
+                                        $DeviceToAdd.Status = "Warning"
                                         $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Tag value '$tagvalue' is over 256 characters! Tag values can have a maximum of 256 characters!" }
                                         $DeviceToAdd.TagsAdded = $Null
                                         $ErrorFoundInTags = $True
             
                                         if ($WhatIf) {
                                             $ErrorMessage = "Device '{0}': Tag value '{1}' is over 256 characters! Tag values can have a maximum of 256 characters!" -f $DeviceToAdd.SerialNumber, $tagvalue
-                                            Write-warning $ErrorMessage
+                                            Write-Warning "$ErrorMessage Cannot display API request."
                                             break
                                         }
                                     }
@@ -2883,8 +3050,8 @@ Function Add-HPEGLDeviceStorage {
 
                             $DeviceToAdd.Status = "Failed"
                             $DeviceToAdd.TagsAdded = $Null
-                            $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Device cannot be added to the HPE GreenLake workspace!" }
-                            $DeviceToAdd.Exception = $_.Exception.message 
+                            $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = if ($_.Exception.Message) { $_.Exception.Message } else { "Device cannot be added to the HPE GreenLake workspace!" } }
+                            $DeviceToAdd.Exception = $Global:HPECOMInvokeReturnData
 
                         }
                     }
@@ -2894,11 +3061,11 @@ Function Add-HPEGLDeviceStorage {
     
         
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
-            $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "Device.Add.SPTSDE"    
-            Return $ObjectStatusList
+            Return Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "Device.Add.SPTSDE"
         }
+
 
     }
 }
@@ -3048,6 +3215,7 @@ Function Add-HPEGLDeviceNetwork {
         $Uri = Get-DevicesAddUri
 
         $ObjectStatusList = [System.Collections.ArrayList]::new()
+        $InputList = [System.Collections.ArrayList]::new()
         $DevicesToAddList = [System.Collections.ArrayList]::new()
 
     }
@@ -3069,8 +3237,9 @@ Function Add-HPEGLDeviceNetwork {
         }
 
             
-        # Add tracking object to the list of object status list
-        [void]$ObjectStatusList.Add($objStatus)
+        # Add tracking object to the input list (always) and output list (only when not WhatIf)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) { [void]$ObjectStatusList.Add($objStatus) }
 
 
 
@@ -3088,7 +3257,7 @@ Function Add-HPEGLDeviceNetwork {
         }
 
         
-        foreach ($DeviceToAdd in $ObjectStatusList) {
+        foreach ($DeviceToAdd in $InputList) {
             
             
             $ErrorFoundInTags = $False
@@ -3104,7 +3273,7 @@ Function Add-HPEGLDeviceNetwork {
                 
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource already present in the workspace!" -f $DeviceToAdd.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
             } 
@@ -3118,7 +3287,7 @@ Function Add-HPEGLDeviceNetwork {
 
                     if ($splittedtags.Length -gt 25) {
                         
-                        $DeviceToAdd.Status = "Failed"
+                        $DeviceToAdd.Status = "Warning"
                         $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Too many tags defined ! A maximum of 25 tags per resource is supported!" }
                         $DeviceToAdd.TagsAdded = $Null
                         $ErrorFoundInTags = $True
@@ -3126,7 +3295,7 @@ Function Add-HPEGLDeviceNetwork {
 
                         if ($WhatIf) {
                             $ErrorMessage = "Device '{0}': Resource is defined with too many tags! A maximum of 25 tags per resource is supported!" -f $DeviceToAdd.SerialNumber
-                            Write-warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             continue
                         }
                     }
@@ -3140,58 +3309,58 @@ Function Add-HPEGLDeviceNetwork {
                         foreach ($tag in $splittedtags) {
     
                             # Check tag format, if format is not <tagname>=<value>, return error
-                            if ($tag -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+$') {
+                            if ($tag -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]*$') {
                                 
                                 $splittedtagName = $tag.TrimEnd().TrimStart()
     
-                                $DeviceToAdd.Status = "Failed"
+                                $DeviceToAdd.Status = "Warning"
                                 $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Tag format '$splittedtagName' not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" }
                                 $DeviceToAdd.TagsAdded = $Null
                                 $ErrorFoundInTags = $True
     
                                 if ($WhatIf) {
                                     $ErrorMessage = "Device '{0}': Tag '{1}' format not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" -f $DeviceToAdd.SerialNumber, $splittedtagName
-                                    Write-warning $ErrorMessage
+                                    Write-Warning "$ErrorMessage Cannot display API request."
                                     break
                                 }
                             }
                             else {
     
-                                $tagname = $tag.split('=')[0]
-        
-                                # Remove space at the begining and at the end of the string if any
-                                $tagname = $tagname.TrimEnd().TrimStart()
+                                # Split only at the first '=' to preserve values containing '='
+                                $eqIndex = $tag.IndexOf('=')
+                                $tagname = $tag.Substring(0, $eqIndex).Trim()
+
         
                                 if ($tagname.Length -gt 128) {
         
-                                    $DeviceToAdd.Status = "Failed"
+                                    $DeviceToAdd.Status = "Warning"
                                     $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Tag name '$tagname' is over 128 characters! Tag names can have a maximum of 128 characters!" }
                                     $DeviceToAdd.TagsAdded = $Null
                                     $ErrorFoundInTags = $True
         
                                     if ($WhatIf) {
                                         $ErrorMessage = "Device '{0}': Tag name '{1}' is over 128 characters! Tag names can have a maximum of 128 characters!" -f $DeviceToAdd.SerialNumber, $tagname
-                                        Write-warning $ErrorMessage
+                                        Write-Warning "$ErrorMessage Cannot display API request."
                                         break
                                     }
                                 }
                                 else {
                                     
-                                    $tagvalue = $tag.split('=')[1]
+                                    $tagvalue = $tag.Substring($eqIndex + 1).Trim()
                                     
-                                    # Remove space at the begining and at the end of the string if any
-                                    $tagvalue = $tagvalue.TrimEnd().TrimStart()
+
+
             
                                     if ($tagvalue.Length -gt 256) {
             
-                                        $DeviceToAdd.Status = "Failed"
+                                        $DeviceToAdd.Status = "Warning"
                                         $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Tag value '$tagvalue' is over 256 characters! Tag values can have a maximum of 256 characters!" }
                                         $DeviceToAdd.TagsAdded = $Null
                                         $ErrorFoundInTags = $True
             
                                         if ($WhatIf) {
                                             $ErrorMessage = "Device '{0}': Tag value '{1}' is over 256 characters! Tag values can have a maximum of 256 characters!" -f $DeviceToAdd.SerialNumber, $tagvalue
-                                            Write-warning $ErrorMessage
+                                            Write-Warning "$ErrorMessage Cannot display API request."
                                             break
                                         }
                                     }
@@ -3306,8 +3475,8 @@ Function Add-HPEGLDeviceNetwork {
 
                             $DeviceToAdd.Status = "Failed"
                             $DeviceToAdd.TagsAdded = $Null
-                            $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = "Device cannot be added to the HPE GreenLake workspace!" }
-                            $DeviceToAdd.Exception = $_.Exception.message 
+                            $DeviceToAdd.Details = [PSCustomObject]@{TagsAdded = 0; Error = if ($_.Exception.Message) { $_.Exception.Message } else { "Device cannot be added to the HPE GreenLake workspace!" } }
+                            $DeviceToAdd.Exception = $Global:HPECOMInvokeReturnData
 
                         }
                     }
@@ -3317,11 +3486,11 @@ Function Add-HPEGLDeviceNetwork {
     
         
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
-            $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "Device.Add.SMTSDE"    
-            Return $ObjectStatusList
+            Return Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "Device.Add.SMTSDE"
         }
+
 
     }
 } 
@@ -3390,6 +3559,7 @@ Function Disable-HPEGLDevice {
         $Uri = Get-DevicesUIDoorwayUri  
 
         $ArchivedDevicesStatus = [System.Collections.ArrayList]::new()
+        $InputList = [System.Collections.ArrayList]::new()
         $DevicesToArchivedList = [System.Collections.ArrayList]::new()
 
 
@@ -3412,8 +3582,9 @@ Function Disable-HPEGLDevice {
         }
 
       
-        # Add tracking object to the list of object status list
-        [void]$ArchivedDevicesStatus.Add($objStatus)     
+        # Add tracking object to the input list (always) and output list (only when not WhatIf)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) { [void]$ArchivedDevicesStatus.Add($objStatus) }
 
    
     }
@@ -3430,30 +3601,30 @@ Function Disable-HPEGLDevice {
         }
 
 
-        "[{0}] Devices to archive: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ArchivedDevicesStatus.SerialNumber | Write-Verbose
+        "[{0}] Devices to archive: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InputList.SerialNumber | Write-Verbose
 
-        foreach ($DeviceToArchive in $ArchivedDevicesStatus) {
+        foreach ($DeviceToArchive in $InputList) {
 
             $Device = $Devices | Where-Object serialnumber -eq $DeviceToArchive.SerialNumber
 
             if ( -not $Device) {
                 
-                $DeviceToArchive.Status = "Failed"
-                $DeviceToArchive.Details = "Device cannot be found in the workspace!"
-                
                 # Must return a message if device not found
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $DeviceToArchive.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $DeviceToArchive.Status = "Warning"
+                $DeviceToArchive.Details = "Device cannot be found in the workspace!"
 
             }
             elseif ( $Device.archived ) {
                 # Must return a message if device already archived
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource is already disabled (archived)!" -f $DeviceToArchive.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
                 else {
@@ -3510,8 +3681,11 @@ Function Disable-HPEGLDevice {
 
                     foreach ($DeviceToArchive in $ArchivedDevicesStatus) {
                     
-                        $DeviceToArchive.Status = "Complete"
-                        $DeviceToArchive.Details = "Device successfully disabled (archived)"
+                        $ArchivedDevice = $DevicesToArchivedList | Where-Object serial_number -eq $DeviceToArchive.SerialNumber
+                        if ($ArchivedDevice) {
+                            $DeviceToArchive.Status = "Complete"
+                            $DeviceToArchive.Details = "Device successfully disabled (archived)"
+                        }
                     }
                 }
             }
@@ -3521,20 +3695,22 @@ Function Disable-HPEGLDevice {
                     
                     foreach ($DeviceToArchive in $ArchivedDevicesStatus) {
 
-                        $DeviceToArchive.Status = "Failed"
-                        $DeviceToArchive.Details = "Device could not be disabled (archived)!"
-                        $DeviceToArchive.Exception = $_.Exception.message
+                        $ArchivedDevice = $DevicesToArchivedList | Where-Object serial_number -eq $DeviceToArchive.SerialNumber
 
+                        if ($ArchivedDevice) {
+                            $DeviceToArchive.Status = "Failed"
+                            $DeviceToArchive.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Device could not be disabled (archived)!" }
+                            $DeviceToArchive.Exception = $Global:HPECOMInvokeReturnData
+                        }
                     }
                 }
             }
         }
 
 
-        if (-not $WhatIf) {
+        if ($ArchivedDevicesStatus.Count -gt 0) {
 
-            $ArchivedDevicesStatus = Invoke-RepackageObjectWithType -RawObject $ArchivedDevicesStatus -ObjectName "ObjStatus.SSDE"  
-            Return $ArchivedDevicesStatus
+            Return Invoke-RepackageObjectWithType -RawObject $ArchivedDevicesStatus -ObjectName "ObjStatus.SSDE"
         }
     }
 }
@@ -3603,6 +3779,7 @@ Function Enable-HPEGLDevice {
         $Uri = Get-DevicesUIDoorwayUri
 
         $UnarchivedDevicesStatus = [System.Collections.ArrayList]::new()
+        $InputList = [System.Collections.ArrayList]::new()
         $DevicesToUnarchivedList = [System.Collections.ArrayList]::new()
 
         
@@ -3625,8 +3802,9 @@ Function Enable-HPEGLDevice {
 
       
 
-        # Add tracking object to the list of object status list
-        [void]$UnarchivedDevicesStatus.Add($objStatus)     
+        # Add tracking object to the input list (always) and output list (only when not WhatIf)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) { [void]$UnarchivedDevicesStatus.Add($objStatus) }
 
 
 
@@ -3644,23 +3822,23 @@ Function Enable-HPEGLDevice {
         }
 
 
-        "[{0}] Devices to unarchive: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($UnarchivedDevicesStatus.SerialNumber | out-string) | Write-Verbose
+        "[{0}] Devices to unarchive: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InputList.SerialNumber | out-string) | Write-Verbose
 
-        foreach ($DeviceToUnarchive in $UnarchivedDevicesStatus) {
+        foreach ($DeviceToUnarchive in $InputList) {
 
             $Device = $Devices | Where-Object serialnumber -eq $DeviceToUnarchive.SerialNumber
 
             if ( -not $Device) {
                 
-                $DeviceToUnarchive.Status = "Failed"
-                $DeviceToUnarchive.Details = "Device cannot be found in the workspace!"
-                
                 # Must return a message if device not found
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $DeviceToUnarchive.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $DeviceToUnarchive.Status = "Warning"
+                $DeviceToUnarchive.Details = "Device cannot be found in the workspace!"
                  
             }
             elseif (-not $device.archived ) {
@@ -3668,7 +3846,7 @@ Function Enable-HPEGLDevice {
             
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource is already enabled (unarchived)!" -f $DeviceToUnarchive.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
                 else {
@@ -3722,8 +3900,11 @@ Function Enable-HPEGLDevice {
 
                     foreach ($DeviceToUnarchive in $UnarchivedDevicesStatus) {
                     
-                        $DeviceToUnarchive.Status = "Complete"
-                        $DeviceToUnarchive.Details = "Device successfully enabled (unarchived)"
+                        $UnarchivedDevice = $DevicesToUnarchivedList | Where-Object serial_number -eq $DeviceToUnarchive.SerialNumber
+                        if ($UnarchivedDevice) {
+                            $DeviceToUnarchive.Status = "Complete"
+                            $DeviceToUnarchive.Details = "Device successfully enabled (unarchived)"
+                        }
                     }
                 }
             }
@@ -3733,20 +3914,22 @@ Function Enable-HPEGLDevice {
                     
                     foreach ($DeviceToUnarchive in $UnarchivedDevicesStatus) {
 
-                        $DeviceToUnarchive.Status = "Failed"
-                        $DeviceToUnarchive.Details = "Device could not be enabled (unarchived)!"
-                        $DeviceToUnarchive.Exception = $_.Exception.message
+                        $UnarchivedDevice = $DevicesToUnarchivedList | Where-Object serial_number -eq $DeviceToUnarchive.SerialNumber
 
+                        if ($UnarchivedDevice) {
+                            $DeviceToUnarchive.Status = "Failed"
+                            $DeviceToUnarchive.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Device could not be enabled (unarchived)!" }
+                            $DeviceToUnarchive.Exception = $Global:HPECOMInvokeReturnData
+                        }
                     }
                 }
             }
         }
 
 
-        if (-not $WhatIf) {
+        if ($UnarchivedDevicesStatus.Count -gt 0) {
 
-            $UnarchivedDevicesStatus = Invoke-RepackageObjectWithType -RawObject $UnarchivedDevicesStatus -ObjectName "ObjStatus.SSDE"  
-            Return $UnarchivedDevicesStatus
+            Return Invoke-RepackageObjectWithType -RawObject $UnarchivedDevicesStatus -ObjectName "ObjStatus.SSDE"
         }
 
 
@@ -3875,6 +4058,7 @@ System.Collections.ArrayList
         $AddTagsDevicesStatus = [System.Collections.ArrayList]::new()
         
         $DevicesWithTagsToAddList = [System.Collections.ArrayList]::new()
+        $InputList = [System.Collections.ArrayList]::new()
         $ObjectStatusList = [System.Collections.ArrayList]::new()
 
 
@@ -3901,7 +4085,10 @@ System.Collections.ArrayList
         
       
         # Add tracking object to the list of object status list
-        [void]$ObjectStatusList.Add($objStatus)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) {
+            [void]$ObjectStatusList.Add($objStatus)
+        }
 
     }
 
@@ -3917,27 +4104,29 @@ System.Collections.ArrayList
         }
 
 
-        "[{0}] List of devices where to add tags: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ObjectStatusList.serialnumber | Write-Verbose
+        "[{0}] List of devices where to add tags: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InputList.serialnumber | Write-Verbose
 
-        foreach ($DeviceToAddTags in $ObjectStatusList) {
+        foreach ($DeviceToAddTags in $InputList) {
 
             $Device = $Devices | Where-Object serialNumber -eq $DeviceToAddTags.SerialNumber
 
             if ( -not $Device) {
                 # Must return a message if device not found
-                $DeviceToAddTags.Status = "Failed"
+                $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $DeviceToAddTags.SerialNumber
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    continue
+                }
+
+                $DeviceToAddTags.Status = "Warning"
                 $DeviceToAddTags.Details = [PSCustomObject]@{
                     TagsAdded      = 0; 
                     TagsDeleted    = 0; 
                     TagsUnmodified = 0; 
                     Error          = "Device cannot be found in the HPE GreenLake workspace!" 
-                }               
-
-                if ($WhatIf) {
-                    $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $DeviceToAddTags.SerialNumber
-                    Write-warning $ErrorMessage
-                    continue
                 }
+                Add-Member -InputObject $DeviceToAddTags -MemberType NoteProperty -Name _PreValidationFailed -Value $True -Force
             } 
             else {
 
@@ -3946,20 +4135,21 @@ System.Collections.ArrayList
                 $splittedtags = $DeviceToAddTags.TagsAdded.split(",")
 
                 if ($splittedtags.Length -gt 25) {
-                    
-                    $DeviceToAddTags.Status = "Failed"
+                    $ErrorMessage = "Device '{0}': Resource is defined with too many tags! A maximum of 25 tags per resource is supported!" -f $DeviceToAddTags.SerialNumber
+                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                        continue
+                    }
+
+                    $DeviceToAddTags.Status = "Warning"
                     $DeviceToAddTags.Details = [PSCustomObject]@{
                         TagsAdded      = 0; 
                         TagsDeleted    = 0; 
                         TagsUnmodified = 0; 
                         Error          = "Too many tags defined ! A maximum of 25 tags per resource is supported!" 
-                    }               
-
-                    if ($WhatIf) {
-                        $ErrorMessage = "Device '{0}': Resource is defined with too many tags! A maximum of 25 tags per resource is supported!" -f $DeviceToAddTags.SerialNumber
-                        Write-warning $ErrorMessage
-                        continue
                     }
+                    Add-Member -InputObject $DeviceToAddTags -MemberType NoteProperty -Name _PreValidationFailed -Value $True -Force
                 }
                 else {
 
@@ -3967,6 +4157,7 @@ System.Collections.ArrayList
                     $TagsList = [System.Collections.ArrayList]::new()
                     # Object for the payload
                     $TagsArray = @{}
+                    $tagValidationFailed = $false
                             
                     foreach ($tag in $splittedtags) {
 
@@ -3974,20 +4165,22 @@ System.Collections.ArrayList
                         if ($tag -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+\=[\p{L}\p{Nd}_ .:+\-@]+$') {
                             
                             $splittedtagName = $tag.TrimEnd().TrimStart()
+                            $ErrorMessage = "Device '{0}': Tag '{1}' format not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" -f $DeviceToAddTags.SerialNumber, $splittedtagName
+                            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                            if ($WhatIf) {
+                                Write-Warning "$ErrorMessage Cannot display API request."
+                                $tagValidationFailed = $true
+                                break
+                            }
 
-                            $DeviceToAddTags.Status = "Failed"
+                            $DeviceToAddTags.Status = "Warning"
                             $DeviceToAddTags.Details = [PSCustomObject]@{
                                 TagsAdded      = 0; 
                                 TagsDeleted    = 0; 
                                 TagsUnmodified = 0; 
                                 Error          = "Tag format '$splittedtagName' not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" 
-                            }               
-
-                            if ($WhatIf) {
-                                $ErrorMessage = "Device '{0}': Tag '{1}' format not supported! Expected format is <tagname>=<value>, <tagname>=<value>!" -f $DeviceToAddTags.SerialNumber, $splittedtagName
-                                Write-warning $ErrorMessage
-                                break
                             }
+                            Add-Member -InputObject $DeviceToAddTags -MemberType NoteProperty -Name _PreValidationFailed -Value $True -Force
                         }
                         else {
 
@@ -3997,15 +4190,17 @@ System.Collections.ArrayList
                             $tagname = $tagname.TrimEnd().TrimStart()
     
                             if ($tagname.Length -gt 128) {
-    
-                                $DeviceToAddTags.Status = "Failed"
-                                $DeviceToAddTags.Details = [PSCustomObject]@{TagsAdded = 0; TagsDeleted = 0; TagsUnmodified = 0; Error = "Tag name '$tagname' is over 128 characters! Tag names can have a maximum of 128 characters!" }               
-    
+                                $ErrorMessage = "Device '{0}': Tag name '{1}' is over 128 characters! Tag names can have a maximum of 128 characters!" -f $DeviceToAddTags.SerialNumber, $tagname
+                                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
                                 if ($WhatIf) {
-                                    $ErrorMessage = "Device '{0}': Tag name '{1}' is over 128 characters! Tag names can have a maximum of 128 characters!" -f $DeviceToAddTags.SerialNumber, $tagname
-                                    Write-warning $ErrorMessage
+                                    Write-Warning "$ErrorMessage Cannot display API request."
+                                    $tagValidationFailed = $true
                                     break
                                 }
+
+                                $DeviceToAddTags.Status = "Warning"
+                                $DeviceToAddTags.Details = [PSCustomObject]@{TagsAdded = 0; TagsDeleted = 0; TagsUnmodified = 0; Error = "Tag name '$tagname' is over 128 characters! Tag names can have a maximum of 128 characters!" }
+                                Add-Member -InputObject $DeviceToAddTags -MemberType NoteProperty -Name _PreValidationFailed -Value $True -Force
                             }
                             else {
                                 
@@ -4015,27 +4210,30 @@ System.Collections.ArrayList
                                 $tagvalue = $tagvalue.TrimEnd().TrimStart()
         
                                 if ($tagvalue.Length -gt 256) {
-        
-                                    $DeviceToAddTags.Status = "Failed"
-                                    $DeviceToAddTags.Details = [PSCustomObject]@{TagsAdded = 0; TagsDeleted = 0; TagsUnmodified = 0; Error = "Tag value '$tagvalue' is over 256 characters! Tag values can have a maximum of 256 characters!" }     
-
-        
+                                    $ErrorMessage = "Device '{0}': Tag value '{1}' is over 256 characters! Tag values can have a maximum of 256 characters!" -f $DeviceToAddTags.SerialNumber, $tagvalue
+                                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
                                     if ($WhatIf) {
-                                        $ErrorMessage = "Device '{0}': Tag value '{1}' is over 256 characters! Tag values can have a maximum of 256 characters!" -f $DeviceToAddTags.SerialNumber, $tagvalue
-                                        Write-warning $ErrorMessage
+                                        Write-Warning "$ErrorMessage Cannot display API request."
+                                        $tagValidationFailed = $true
                                         break
                                     }
+
+                                    $DeviceToAddTags.Status = "Warning"
+                                    $DeviceToAddTags.Details = [PSCustomObject]@{TagsAdded = 0; TagsDeleted = 0; TagsUnmodified = 0; Error = "Tag value '$tagvalue' is over 256 characters! Tag values can have a maximum of 256 characters!" }
+                                    Add-Member -InputObject $DeviceToAddTags -MemberType NoteProperty -Name _PreValidationFailed -Value $True -Force
                                 }
                                 else {
 
-                                    $TagsList += [PSCustomObject]@{
-                                        name  = $tagname
-                                        value = $tagvalue 
-                                    }
+                                    [void]$TagsList.Add([PSCustomObject]@{
+                                            name  = $tagname
+                                            value = $tagvalue 
+                                        })
                                 }
                             }
                         }
                     } 
+
+                    if ($WhatIf -and $tagValidationFailed) { continue }
                 }
 
                 # Remove all tags from the tracking object as we will create a new tag status based on device state
@@ -4119,8 +4317,8 @@ System.Collections.ArrayList
         "[{0}] List of objects in `$ObjectStatusList: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList | Out-String) | Write-Verbose
        
         
-        # Removing objects where status is failed (condition when device is not found or tags are not supported)
-        $ObjectStatusListForFoundDevices = $ObjectStatusList | Where-Object { $_.Status -ne "Failed" }
+        # Removing objects where pre-validation failed (condition when device is not found or tags are not supported)
+        $ObjectStatusListForFoundDevices = $ObjectStatusList | Where-Object { -not $_._PreValidationFailed }
         
         "[{0}] List of objects where status is not failed in `$ObjectStatusList: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusListforFoundDevices | Out-String) | Write-Verbose
         
@@ -4217,7 +4415,7 @@ System.Collections.ArrayList
                     }
                     else {
                         foreach ($object in $Group.Group) {
-                            Write-Warning "Device '$($object.SerialNumber)' has no action required, the tag configuration already exists."
+                            Write-Warning "Device '$($object.SerialNumber)' has no action required, the tag configuration already exists. Cannot display API request."
                         }
                     }
                 }
@@ -4232,16 +4430,16 @@ System.Collections.ArrayList
                         $object.TagsAdded = $null
                         $object.TagsDeleted = $null
                         $object.TagsUnmodified = $null
-                        $object.Details = [PSCustomObject]@{TagsAdded = 0; TagsDeleted = 0; TagsUnmodified = 0; Error = "Device tagging error!" }
-                        $object.Exception = $_.Exception.message 
+                        $object.Details = [PSCustomObject]@{TagsAdded = 0; TagsDeleted = 0; TagsUnmodified = 0; Error = if ($_.Exception.Message) { $_.Exception.Message } else { "Device tagging error!" } }
+                        $object.Exception = $Global:HPECOMInvokeReturnData
                         [void] $AddTagsDevicesStatus.add($object)
                     }
                 }
             }
         }
     
-        # Getting objects where status is failed (condition when device is not found or tags are not supported )
-        $ObjectStatusListOfDevicesNotFound = $ObjectStatusList | Where-Object { $_.Status -eq "Failed" } 
+        # Getting objects where pre-validation failed (condition when device is not found or tags are not supported)
+        $ObjectStatusListOfDevicesNotFound = $ObjectStatusList | Where-Object { $_._PreValidationFailed }
 
 
         "[{0}] List of objects with failed status: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusListOfDevicesNotFound | Out-String) | Write-Verbose
@@ -4251,15 +4449,18 @@ System.Collections.ArrayList
                 $Object.TagsAdded = $null
                 $Object.TagsDeleted = $null
                 $Object.TagsUnmodified = $null
+                # Remove the internal tracking property before adding to output
+                if ($Object.PSObject.Properties['_PreValidationFailed']) {
+                    $Object.PSObject.Properties.Remove('_PreValidationFailed')
+                }
                 [void] $AddTagsDevicesStatus.add($Object)
             }
         }
 
 
-        if (-not $WhatIf) {
+        if ($AddTagsDevicesStatus.Count -gt 0) {
 
-            $AddTagsDevicesStatus = Invoke-RepackageObjectWithType -RawObject $AddTagsDevicesStatus -ObjectName "Device.Tag.STTTSDE"  
-            Return $AddTagsDevicesStatus
+            Return Invoke-RepackageObjectWithType -RawObject $AddTagsDevicesStatus -ObjectName "Device.Tag.STTTSDE"
         }
     }
 }
@@ -4370,6 +4571,7 @@ System.Collections.ArrayList
         $RemoveTagsDevicesStatus = [System.Collections.ArrayList]::new()
         
         $DevicesWithTagsToRemoveList = [System.Collections.ArrayList]::new()
+        $InputList = [System.Collections.ArrayList]::new()
         $ObjectStatusList = [System.Collections.ArrayList]::new()
 
 
@@ -4394,7 +4596,10 @@ System.Collections.ArrayList
         }
 
         # Add tracking object to the list of object status list
-        [void]$ObjectStatusList.Add($objStatus)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) {
+            [void]$ObjectStatusList.Add($objStatus)
+        }
 
     }
 
@@ -4411,25 +4616,27 @@ System.Collections.ArrayList
         }
 
 
-        "[{0}] List of devices where to remove tags: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ObjectStatusList.serialnumber | Write-Verbose
+        "[{0}] List of devices where to remove tags: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $InputList.serialnumber | Write-Verbose
 
-        foreach ($DeviceToRemoveTags in $ObjectStatusList) {
+        foreach ($DeviceToRemoveTags in $InputList) {
 
             $Device = $Devices | Where-Object serialNumber -eq $DeviceToRemoveTags.SerialNumber
 
             if ( -not $Device) {
                 # Must return a message if device not found
-                $DeviceToRemoveTags.Status = "Failed"
+                $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $DeviceToRemoveTags.SerialNumber
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    continue
+                }
+
+                $DeviceToRemoveTags.Status = "Warning"
                 $DeviceToRemoveTags.TagsDeleted = $null
                 $DeviceToRemoveTags.TagsNotFound = $null
                 $DeviceToRemoveTags.Exception = $null
                 $DeviceToRemoveTags.Details = [PSCustomObject]@{TagsDeleted = 0; TagsNotFound = 0; Error = "Device cannot be found in the workspace!" }
-
-                if ($WhatIf) {
-                    $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $DeviceToRemoveTags.SerialNumber
-                    Write-warning $ErrorMessage
-                    continue
-                }
+                Add-Member -InputObject $DeviceToRemoveTags -MemberType NoteProperty -Name _PreValidationFailed -Value $True -Force
             } 
             else {
 
@@ -4482,6 +4689,7 @@ System.Collections.ArrayList
                         # Parse comma-separated tag names
                         $splittedtags = $DeviceToRemoveTags.TagsDeleted -split "," | ForEach-Object { $_.Trim() }
                         $TagsList = [System.Collections.ArrayList]::new()
+                        $tagValidationFailed = $false
 
                         foreach ($tag in $splittedtags) {
 
@@ -4489,8 +4697,15 @@ System.Collections.ArrayList
                             if ($tag -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+$') {
 
                                 $splittedtagName = $tag.TrimEnd().TrimStart()
+                                $ErrorMessage = "Device '{0}': Tag '{1}' format not supported! Expected format is <tagname>, <tagname>!" -f $DeviceToRemoveTags.SerialNumber, $splittedtagName
+                                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                                if ($WhatIf) {
+                                    Write-Warning "$ErrorMessage Cannot display API request."
+                                    $tagValidationFailed = $true
+                                    break
+                                }
 
-                                $DeviceToRemoveTags.Status = "Failed"
+                                $DeviceToRemoveTags.Status = "Warning"
                                 $DeviceToRemoveTags.TagsDeleted = $null
                                 $DeviceToRemoveTags.TagsNotFound = $null
                                 $DeviceToRemoveTags.Exception = $null
@@ -4499,22 +4714,19 @@ System.Collections.ArrayList
                                     TagsNotFound = 0; 
                                     Error        = "Tag format '$splittedtagName' not supported! Expected format is <tagname>, <tagname>!" 
                                 }
-
-                                if ($WhatIf) {
-                                    $ErrorMessage = "Device '{0}' tag '{1}' format not supported! Expected format is <tagname>, <tagname>!" -f $DeviceToRemoveTags.SerialNumber, $splittedtagName
-                                    Write-warning $ErrorMessage
-                                    break
-                                }                                
+                                Add-Member -InputObject $DeviceToRemoveTags -MemberType NoteProperty -Name _PreValidationFailed -Value $True -Force
                             }
                             else {
                             
                                 # Remove space at the begining and at the end of the string if any
                                 $tagname = $tag.TrimEnd().TrimStart()                                
-                                $TagsList += $tagname
+                                [void]$TagsList.Add($tagname)
 
                             }
                                 
                         } 
+
+                        if ($WhatIf -and $tagValidationFailed) { continue }
 
                         if ($TagsList) {                                
                                 
@@ -4568,14 +4780,28 @@ System.Collections.ArrayList
                         Error        = $null
                     }
                 }
+                else {
+                    # Device has no existing tags - nothing to remove
+                    $ErrorMessage = "Device '{0}': No tags found on this device, nothing to remove!" -f $DeviceToRemoveTags.SerialNumber
+                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                        continue
+                    }
+                    $DeviceToRemoveTags.Status = "Warning"
+                    $DeviceToRemoveTags.TagsDeleted = $null
+                    $DeviceToRemoveTags.TagsNotFound = $null
+                    $DeviceToRemoveTags.Details = [PSCustomObject]@{ TagsDeleted = 0; TagsNotFound = 0; Error = "No tags found on this device, nothing to remove!" }
+                    Add-Member -InputObject $DeviceToRemoveTags -MemberType NoteProperty -Name _PreValidationFailed -Value $True -Force
+                }
             }
         }
 
 
         "[{0}] List of objects in `$ObjectStatusList: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList | Out-String) | Write-Verbose
 
-        # Removing objects where status is failed (condition when device is not found or tags not supported)
-        $ObjectStatusListForFoundDevices = $ObjectStatusList | Where-Object { $_.Status -ne "Failed" }
+        # Removing objects where pre-validation failed (condition when device is not found or tags not supported)
+        $ObjectStatusListForFoundDevices = $ObjectStatusList | Where-Object { -not $_._PreValidationFailed }
         
         "[{0}] List of objects where status is not failed in `$ObjectStatusList: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusListforFoundDevices | Out-String) | Write-Verbose
         
@@ -4631,9 +4857,6 @@ System.Collections.ArrayList
 
                     if (-not $WhatIf) {
     
-                        # Find tags that need to be deleted but that do not exist
-                        $TagsNotfoundNumber = $TagsList.count - $TagsToBeDeleted.count
-    
                         foreach ($object in $Group.Group) {
                             $object.Status = "Complete"
                             # Format TagsDeleted as 'key=value' strings for output only
@@ -4668,7 +4891,7 @@ System.Collections.ArrayList
                     else {
 
                         foreach ($object in $Group.Group) {
-                            Write-Warning "Device '$($object.SerialNumber)' has no action required, tags to remove cannot be found!"
+                            Write-Warning "Device '$($object.SerialNumber)' has no action required, tags to remove cannot be found! Cannot display API request."
 
                         }
                     }
@@ -4682,8 +4905,8 @@ System.Collections.ArrayList
                         $object.Status = "Failed"
                         $object.TagsDeleted = $null
                         $object.TagsNotFound = $null
-                        $object.Exception = $_.Exception.Message
-                        $object.Details = [PSCustomObject]@{TagsDeleted = 0; TagsNotFound = 0; Error = "Device untagging error!" }
+                        $object.Exception = $Global:HPECOMInvokeReturnData
+                        $object.Details = [PSCustomObject]@{TagsDeleted = 0; TagsNotFound = 0; Error = if ($_.Exception.Message) { $_.Exception.Message } else { "Device untagging error!" } }
                         [void] $RemoveTagsDevicesStatus.add($object)
 
                     }
@@ -4691,8 +4914,8 @@ System.Collections.ArrayList
             }
         }   
         
-        # Getting objects where status is failed (condition when device is not found and tags are not supported)
-        $ObjectStatusListOfDevicesNotFound = $ObjectStatusList | Where-Object { $_.Status -eq "Failed" } 
+        # Getting objects where pre-validation failed (condition when device is not found and tags are not supported)
+        $ObjectStatusListOfDevicesNotFound = $ObjectStatusList | Where-Object { $_._PreValidationFailed }
 
 
         "[{0}] List of objects with devices not found: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusListOfDevicesNotFound | Out-String) | Write-Verbose
@@ -4703,14 +4926,17 @@ System.Collections.ArrayList
                 $Object.TagsDeleted = $null
                 $Object.TagsNotFound = $null
                 $Object.Exception = $null
+                # Remove the internal tracking property before adding to output
+                if ($Object.PSObject.Properties['_PreValidationFailed']) {
+                    $Object.PSObject.Properties.Remove('_PreValidationFailed')
+                }
                 [void] $RemoveTagsDevicesStatus.add($Object)
             }
         }
 
-        if (-not $WhatIf) {
+        if ($RemoveTagsDevicesStatus.Count -gt 0) {
 
-            $RemoveTagsDevicesStatus = Invoke-RepackageObjectWithType -RawObject $RemoveTagsDevicesStatus -ObjectName "Device.Tag.STTTSDE"  
-            Return $RemoveTagsDevicesStatus
+            Return Invoke-RepackageObjectWithType -RawObject $RemoveTagsDevicesStatus -ObjectName "Device.Tag.STTTSDE"
         }
     }
 }
@@ -4824,6 +5050,32 @@ Function Get-HPEGLLocation {
                     try {
                         [array]$_Resp = Invoke-HPEGLWebRequest -Method Get -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
     
+                        # Fetch tags for this location and attach to the object
+                        $TagsUri = (Get-LocationsTagsUri) + "/" + $Location.id
+                        "[{0}] Fetching tags for location '{1}' from '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Location.name, $TagsUri | Write-Verbose
+                        try {
+                            $tagsResp = Invoke-HPEGLWebRequest -Method Get -Uri $TagsUri -WhatIfBoolean $false -Verbose:$VerbosePreference
+                            # API may return an array directly or an object with an items/tags property
+                            $tagItems = if ($tagsResp -is [System.Collections.IEnumerable] -and $tagsResp -isnot [string]) {
+                                $tagsResp
+                            }
+                            elseif ($tagsResp.items) {
+                                $tagsResp.items
+                            }
+                            elseif ($tagsResp.tags) {
+                                $tagsResp.tags
+                            }
+                            else {
+                                $null
+                            }
+                            $_Resp | Add-Member -MemberType NoteProperty -Name "tags" -Value $tagItems -Force
+                            "[{0}] Retrieved {1} tag(s) for location '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($tagItems | Measure-Object).Count, $Location.name | Write-Verbose
+                        }
+                        catch {
+                            "[{0}] Could not retrieve tags for location '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Location.name, $_.Exception.Message | Write-Verbose
+                            $_Resp | Add-Member -MemberType NoteProperty -Name "tags" -Value $null -Force
+                        }
+
                         # [void]$ListOfDetailedLocations.Add($_Resp)
                         $ListOfDetailedLocations += $_Resp
                 
@@ -5010,6 +5262,10 @@ Function New-HPEGLLocation {
     .PARAMETER OperationsContactPhone
     (Optional) Sets the operations contact phone number for the location.
 
+    .PARAMETER Tags
+    (Optional) Tags to assign to the location on creation. Tags must be in the format: <Name>=<Value>, <Name>=<Value>.
+    Example: "Country=US, Site=Datacenter1"
+
     .PARAMETER ValidationCycle
     Specifies how often you would like to validate this location. Valid validation cycle is 6, 12 or 18 months. Default is 12 months.
 
@@ -5111,13 +5367,13 @@ Function New-HPEGLLocation {
         [Parameter (Mandatory, ParameterSetName = "ShippingReceiving")]
         [ValidateNotNullOrEmpty()]
         [ValidateScript({
-            if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
-                $true
-            }
-            else {
-                Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
-            }
-        })]
+                if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                    $true
+                }
+                else {
+                    Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
+                }
+            })]
         [String]$PostalCode,
         
         [Parameter (Mandatory, ParameterSetName = "ShippingReceiving")]
@@ -5143,13 +5399,13 @@ Function New-HPEGLLocation {
         [Parameter (Mandatory, ParameterSetName = "ShippingReceiving")]
         [ValidateNotNullOrEmpty()]
         [ValidateScript({
-            if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
-                $true
-            }
-            else {
-                Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
-            }
-        })]
+                if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                    $true
+                }
+                else {
+                    Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
+                }
+            })]
         [String]$ShippingReceivingPostalCode,    
 
         [Parameter (Mandatory, ParameterSetName = "Default")]
@@ -5225,6 +5481,10 @@ Function New-HPEGLLocation {
         [ValidateSet('6', '12', '18')]
         [String]$ValidationCycle = "12",
 
+        [Parameter (ParameterSetName = "Default")]
+        [Parameter (ParameterSetName = "ShippingReceiving")]
+        [String]$Tags,
+
         [Switch]$WhatIf
     ) 
 
@@ -5271,7 +5531,7 @@ Function New-HPEGLLocation {
 
             if ($WhatIf) {
                 $ErrorMessage = "Location '{0}': Resource already exists in the workspace! No action needed." -f $Name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -5289,8 +5549,15 @@ Function New-HPEGLLocation {
                 $PrimaryContactName = $PrimaryContactInfo.firstname + " " + $PrimaryContactInfo.lastname
             }
             else {
-                Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
-                $PrimaryContactName = "NONGLP"
+                "[{0}] {1} contact email is not found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PrimaryContactEmail | Write-Verbose
+                if ($WhatIf) {
+                    Write-Warning "$PrimaryContactEmail contact email is not found in the HPE GreenLake workspace! Cannot display API request."
+                    return
+                }
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "'$PrimaryContactEmail' primary contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and try again."
+                [void] $NewLocationStatus.add($objStatus)
+                return
             }
 
             if ($ShippingReceivingContactEmail) {
@@ -5302,9 +5569,15 @@ Function New-HPEGLLocation {
 
                 }
                 else {
-                    Write-Warning "$ShippingReceivingContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
-                    $ShippingReceivingContactName = "NONGLP"
-
+                    "[{0}] {1} contact email is not found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ShippingReceivingContactEmail | Write-Verbose
+                    if ($WhatIf) {
+                        Write-Warning "$ShippingReceivingContactEmail contact email is not found in the HPE GreenLake workspace! Cannot display API request."
+                        return
+                    }
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "'$ShippingReceivingContactEmail' shipping/receiving contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and try again."
+                    [void] $NewLocationStatus.add($objStatus)
+                    return
                 }
             }
             
@@ -5317,8 +5590,15 @@ Function New-HPEGLLocation {
 
                 }
                 else {
-                    Write-Warning "$SecurityContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
-                    $SecurityContactName = "NONGLP"
+                    "[{0}] {1} contact email is not found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecurityContactEmail | Write-Verbose
+                    if ($WhatIf) {
+                        Write-Warning "$SecurityContactEmail contact email is not found in the HPE GreenLake workspace! Cannot display API request."
+                        return
+                    }
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "'$SecurityContactEmail' security contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and try again."
+                    [void] $NewLocationStatus.add($objStatus)
+                    return
                 }
             }
             
@@ -5331,8 +5611,15 @@ Function New-HPEGLLocation {
 
                 }
                 else {
-                    Write-Warning "$OperationsContactEmail contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and trustworthy!"
-                    $OperationsContactName = "NONGLP"
+                    "[{0}] {1} contact email is not found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $OperationsContactEmail | Write-Verbose
+                    if ($WhatIf) {
+                        Write-Warning "$OperationsContactEmail contact email is not found in the HPE GreenLake workspace! Cannot display API request."
+                        return
+                    }
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "'$OperationsContactEmail' operations contact email is not found in the HPE GreenLake workspace! Please ensure the email address is valid and try again."
+                    [void] $NewLocationStatus.add($objStatus)
+                    return
                 }
             }
 
@@ -5353,7 +5640,7 @@ Function New-HPEGLLocation {
 
             }
 
-            $LocationAddressList += $StreetAddress 
+            [void]$LocationAddressList.Add($StreetAddress)
 
             if ($ShippingReceivingCountry) {
 
@@ -5367,7 +5654,7 @@ Function New-HPEGLLocation {
                     postalCode     = $ShippingReceivingPostalCode
                 }
                     
-                $LocationAddressList += $ShippingReceivingAddress
+                [void]$LocationAddressList.Add($ShippingReceivingAddress)
 
             }
            
@@ -5384,7 +5671,7 @@ Function New-HPEGLLocation {
                 email       = $PrimaryContactEmail
             }              
             
-            $ContactsList += $PrimaryContact 
+            [void]$ContactsList.Add($PrimaryContact)
 
 
             if ($ShippingReceivingContactEmail) {
@@ -5396,7 +5683,7 @@ Function New-HPEGLLocation {
                     email       = $ShippingReceivingContactEmail
                 }
 
-                $ContactsList += $ShippingReceivingContact
+                [void]$ContactsList.Add($ShippingReceivingContact)
 
             }
             
@@ -5409,7 +5696,7 @@ Function New-HPEGLLocation {
                     email       = $SecurityContactEmail
                 }
 
-                $ContactsList += $SecurityContact
+                [void]$ContactsList.Add($SecurityContact)
             }
             
             if ($OperationsContactEmail) {
@@ -5421,7 +5708,7 @@ Function New-HPEGLLocation {
                     email       = $OperationsContactEmail
                 }
 
-                $ContactsList += $OperationsContact
+                [void]$ContactsList.Add($OperationsContact)
             }
 
             # Building payload
@@ -5450,6 +5737,34 @@ Function New-HPEGLLocation {
                     "[{0}] Location '{1}' successfully created" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
                     $objStatus.Status = "Complete"
                     $objStatus.Details = "Location successfully created"
+
+                    # Apply tags if specified
+                    if ($PSBoundParameters.ContainsKey('Tags') -and $Tags) {
+                        $LocationId = if ($Response.id) { $Response.id } else { (Get-HPEGLLocation -Name $Name).id }
+                        if ($LocationId) {
+                            $CreateTagsList = [System.Collections.ArrayList]::new()
+                            $Tags -split ',' | ForEach-Object {
+                                $pair = $_.Trim()
+                                if ($pair -match '^([^=]+)\s*=\s*(.*)$') {
+                                    [void]$CreateTagsList.Add([PSCustomObject]@{ name = $Matches[1].Trim(); value = $Matches[2].Trim() })
+                                }
+                            }
+                            if ($CreateTagsList.Count -gt 0) {
+                                try {
+                                    $TagsPayload = [PSCustomObject]@{
+                                        locationId = $LocationId
+                                        createTags = $CreateTagsList
+                                    } | ConvertTo-Json -Depth 5
+                                    Invoke-HPEGLWebRequest -Uri (Get-LocationsTagsUri) -method 'PATCH' -body $TagsPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $false -Verbose:$VerbosePreference | Out-Null
+                                    "[{0}] Tags applied to location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                                    $objStatus.Details = "Location successfully created with $($CreateTagsList.Count) tag(s)"
+                                }
+                                catch {
+                                    "[{0}] Failed to apply tags to location '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $_.Exception.Message | Write-Verbose
+                                }
+                            }
+                        }
+                    }
         
                 }
 
@@ -5467,13 +5782,15 @@ Function New-HPEGLLocation {
         }
         
 
-        [void] $NewLocationStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $NewLocationStatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($NewLocationStatus.Count -gt 0) {
 
             $NewLocationStatus = Invoke-RepackageObjectWithType -RawObject $NewLocationStatus -ObjectName "ObjStatus.NSDE" 
             Return $NewLocationStatus
@@ -5578,6 +5895,20 @@ Function Set-HPEGLLocation {
     .PARAMETER RemoveOperationsContact
     (Optional) Deletes the operations contact of the location.
 
+    .PARAMETER Tags
+    (Optional) Tags to add or update on the location. Tags must be in the format: <Name>=<Value>, <Name>=<Value>.
+    Example: "Country=US, Site=Datacenter1"
+
+    .PARAMETER RemoveTags
+    (Optional) Tag names to remove from the location. Accepts a comma-separated list of tag names.
+    Example: "Country, Site"
+
+    .PARAMETER RemoveAllTags
+    (Optional) Removes all tags from the location.
+
+    .PARAMETER ValidationCycle
+    (Optional) Sets how often you would like to validate this location. Valid values are 6, 12 or 18 months.
+
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
         
@@ -5650,6 +5981,21 @@ Function Set-HPEGLLocation {
 
     Modifies or adds security contact information for all locations found in the currently connected HPE GreenLake workspace.
 
+    .EXAMPLE
+    Set-HPEGLLocation -Name "Mougins" -Tags "Country=FR, Site=HQ"
+
+    Adds or updates tags on the "Mougins" location.
+
+    .EXAMPLE
+    Set-HPEGLLocation -Name "Mougins" -RemoveTags "Country, Site"
+
+    Removes the "Country" and "Site" tags from the "Mougins" location.
+
+    .EXAMPLE
+    Set-HPEGLLocation -Name "Mougins" -RemoveAllTags
+
+    Removes all tags from the "Mougins" location.
+
     .INPUTS
     System.Collections.ArrayList
         List of location(s) from 'Get-HPEGLLocation'.
@@ -5707,13 +6053,13 @@ Function Set-HPEGLLocation {
 
         [Parameter (ParameterSetName = "PrimaryAddress")]
         [ValidateScript({
-            if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
-                $true
-            }
-            else {
-                Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
-            }
-        })]
+                if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                    $true
+                }
+                else {
+                    Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
+                }
+            })]
         [String]$PostalCode,
         
         [Parameter (ParameterSetName = "ShippingReceivingAddress")]
@@ -5733,13 +6079,13 @@ Function Set-HPEGLLocation {
 
         [Parameter (ParameterSetName = "ShippingReceivingAddress")]
         [ValidateScript({
-            if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
-                $true
-            }
-            else {
-                Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
-            }
-        })]
+                if ($_ -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                    $true
+                }
+                else {
+                    Throw "Invalid Postal Code: must be 3-10 characters long and contain only alphanumeric characters, spaces, or hyphens."
+                }
+            })]
         [String]$ShippingReceivingPostalCode,    
 
         [Parameter (ParameterSetName = "RemoveShippingReceivingAddress")]
@@ -5749,13 +6095,19 @@ Function Set-HPEGLLocation {
         [String]$PrimaryContactEmail,   
 
         [Parameter (ParameterSetName = "PrimaryContact")]
-        [String]$PrimaryContactPhone,  
+        [String]$PrimaryContactPhone,
+        
+        [Parameter (ParameterSetName = "PrimaryContact")]
+        [String]$PrimaryContactName,
 
         [Parameter (ParameterSetName = "ShippingReceivingContact")]
         [String]$ShippingReceivingContactEmail,   
 
         [Parameter (ParameterSetName = "ShippingReceivingContact")]
-        [String]$ShippingReceivingContactPhone, 
+        [String]$ShippingReceivingContactPhone,
+        
+        [Parameter (ParameterSetName = "ShippingReceivingContact")]
+        [String]$ShippingReceivingContactName,
         
         [Parameter (ParameterSetName = "RemoveShippingReceivingContact")]
         [Switch]$RemoveShippingReceivingContact,    
@@ -5778,6 +6130,18 @@ Function Set-HPEGLLocation {
         [Parameter (ParameterSetName = "RemoveOperationsContact")]
         [Switch]$RemoveOperationsContact,  
 
+        [Parameter (ParameterSetName = "Tags")]
+        [String]$Tags,
+
+        [Parameter (ParameterSetName = "RemoveTags")]
+        [String]$RemoveTags,
+
+        [Parameter (ParameterSetName = "RemoveAllTags")]
+        [Switch]$RemoveAllTags,
+
+        [ValidateSet('6', '12', '18')]
+        [String]$ValidationCycle,
+
         [Switch]$WhatIf
     ) 
 
@@ -5786,8 +6150,19 @@ Function Set-HPEGLLocation {
         $Caller = (Get-PSCallStack)[1].Command
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+        "[{0}] Parameter Set Name: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PSCmdlet.ParameterSetName | Write-Verbose
+        "[{0}] All Parameters bound: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters.Keys -join ', ') | Write-Verbose
+        
+        # Check specific postal code parameters
+        if ($PSBoundParameters.ContainsKey('PostalCode')) {
+            "[{0}] PostalCode parameter IS bound with value: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PostalCode | Write-Verbose
+        }
+        if ($PSBoundParameters.ContainsKey('ShippingReceivingPostalCode')) {
+            "[{0}] ShippingReceivingPostalCode parameter IS bound with value: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ShippingReceivingPostalCode | Write-Verbose
+        }
 
         $ObjectStatusList = [System.Collections.ArrayList]::new()
+        $InputList = [System.Collections.ArrayList]::new()
 
                
     }
@@ -5806,58 +6181,93 @@ Function Set-HPEGLLocation {
         }
         
 
-        [void] $ObjectStatusList.add($objStatus)
+        [void] $InputList.Add($objStatus)
+        if (-not $WhatIf) { [void] $ObjectStatusList.Add($objStatus) }
 
     }
 
     end {
 
+        "[{0}] Entering END block" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
         try {
             
+            "[{0}] About to call Get-HPEGLLocation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
             $Locations = Get-HPEGLLocation -ShowDetails
+            "[{0}] Get-HPEGLLocation returned {1} locations" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Locations.Count | Write-Verbose
+            
+            "[{0}] About to call Get-HPEGLUser" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
             $Users = Get-HPEGLUser 
+            "[{0}] Get-HPEGLUser returned {1} users" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Users.Count | Write-Verbose
             
         }
         catch {
             $PSCmdlet.ThrowTerminatingError($_)                
         }
         
+        "[{0}] About to start foreach loop, ObjectStatusList has {1} items" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ObjectStatusList.Count | Write-Verbose
+        "[{0}] Locations variable type: {1}, Count: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Locations.GetType().Name, $Locations.Count | Write-Verbose
+        "[{0}] Locations[0] properties: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), (($Locations[0].PSObject.Properties.Name) -join ', ') | Write-Verbose
         
-        foreach ($Object in $ObjectStatusList) {
+        foreach ($Object in $InputList) {
             
+            "[{0}] Inside foreach, processing object: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Object.Name | Write-Verbose
             $Locationfound = $Locations | Where-Object name -eq $Object.Name
-
-            $Uri = (Get-DevicesLocationUri) + "/" + $Locationfound.id
+            "[{0}] Found location: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Locationfound -ne $null) | Write-Verbose
 
             if (-not $Locationfound) {
 
-                # Must return a message if device not found
-                $Object.Status = "Failed"
-                $Object.Details = "Location cannot be found in the workspace!"
-
+                # Must return a message if location is not found
                 if ($WhatIf) {
                     $ErrorMessage = "Location '{0}': Resource cannot be found in the workspace!" -f $Object.Name
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
+                }
+                else {
+                    $Object.Status = "Warning"
+                    $Object.Details = "Location cannot be found in the workspace! No action needed."
                 }
 
             }
             else {
+                
+                "[{0}] Entered ELSE block - location found, starting processing" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $Uri = (Get-DevicesLocationUri) + "/update/" + $Locationfound.id
+                "[{0}] Uri built: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Uri | Write-Verbose
                                 
                 $LocationAddressList = [System.Collections.ArrayList]::new()
-                $ContactsList = [System.Collections.ArrayList]::new()
+                $AddressesToDelete = [System.Collections.ArrayList]::new()
+                $ContactsToDelete = [System.Collections.ArrayList]::new()
+                $ContactsToAdd = [System.Collections.ArrayList]::new()
+                
+                "[{0}] Created array lists, about to validate emails" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                 
                 #Region Validate emails
                 if ($PrimaryContactEmail) {
 
-                    $PrimaryContactInfo = $Users | Where-Object email -eq $PrimaryContactEmail
-                    
-                    # Get contact names from emails 
-                    if ( $PrimaryContactInfo) {
-                        $PrimaryContactName = $PrimaryContactInfo.contact.first_name + " " + $PrimaryContactInfo.contact.last_name
+                    # Use provided name if specified
+                    if ($PSBoundParameters.ContainsKey('PrimaryContactName')) {
+                        $PrimaryContactName = $PrimaryContactName
                     }
                     else {
-                        Throw "$PrimaryContactEmail contact email cannot be found in the HPE GreenLake workspace!"
+                        # Try to get name from workspace users
+                        $PrimaryContactInfo = $Users | Where-Object email -eq $PrimaryContactEmail
+                        
+                        if ( $PrimaryContactInfo) {
+                            $PrimaryContactName = $PrimaryContactInfo.displayName
+                        }
+                        else {
+                            "[{0}] Contact email '{1}' cannot be found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PrimaryContactEmail | Write-Verbose
+                            if ($WhatIf) {
+                                $ErrorMessage = "Contact email '{0}' cannot be found in the HPE GreenLake workspace! Use Get-HPEGLUser to see available users." -f $PrimaryContactEmail
+                                Write-Warning "$ErrorMessage Cannot display API request."
+                                continue
+                            }
+                            else {
+                                $Object.Status = "Warning"
+                                $Object.Details = "Contact email '$PrimaryContactEmail' cannot be found in the HPE GreenLake workspace! Use Get-HPEGLUser to see available users."
+                            }
+                        }
                     }
                 }          
 
@@ -5866,11 +6276,20 @@ Function Set-HPEGLLocation {
                     $ShippingReceivingContactInfo = $Users | Where-Object email -eq $ShippingReceivingContactEmail
 
                     if ( $ShippingReceivingContactInfo) {
-                        $ShippingReceivingContactName = $ShippingReceivingContactInfo.contact.first_name + " " + $ShippingReceivingContactInfo.contact.last_name
+                        $ShippingReceivingContactName = $ShippingReceivingContactInfo.displayName
 
                     }
                     else {
-                        Throw "$ShippingReceivingContactEmail contact email cannot be found in the HPE GreenLake workspace!"
+                        "[{0}] Contact email '{1}' cannot be found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ShippingReceivingContactEmail | Write-Verbose
+                        if ($WhatIf) {
+                            $ErrorMessage = "Contact email '{0}' cannot be found in the HPE GreenLake workspace! Use Get-HPEGLUser to see available users." -f $ShippingReceivingContactEmail
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                            continue
+                        }
+                        else {
+                            $Object.Status = "Warning"
+                            $Object.Details = "Contact email '$ShippingReceivingContactEmail' cannot be found in the HPE GreenLake workspace! Use Get-HPEGLUser to see available users."
+                        }
                     }
                 }
                 
@@ -5879,11 +6298,20 @@ Function Set-HPEGLLocation {
                     $SecurityContactInfo = $Users | Where-Object email -eq $SecurityContactEmail
 
                     if ( $SecurityContactInfo) {
-                        $SecurityContactName = $SecurityContactInfo.contact.first_name + " " + $SecurityContactInfo.contact.last_name
+                        $SecurityContactName = $SecurityContactInfo.displayName
 
                     }
                     else {
-                        Throw "$SecurityContactEmail contact email cannot be found in the HPE GreenLake workspace!"
+                        "[{0}] Contact email '{1}' cannot be found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecurityContactEmail | Write-Verbose
+                        if ($WhatIf) {
+                            $ErrorMessage = "Contact email '{0}' cannot be found in the HPE GreenLake workspace! Use Get-HPEGLUser to see available users." -f $SecurityContactEmail
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                            continue
+                        }
+                        else {
+                            $Object.Status = "Warning"
+                            $Object.Details = "Contact email '$SecurityContactEmail' cannot be found in the HPE GreenLake workspace! Use Get-HPEGLUser to see available users."
+                        }
                     }
                 }
                 
@@ -5892,11 +6320,20 @@ Function Set-HPEGLLocation {
                     $OperationsContactInfo = $Users | Where-Object email -eq $OperationsContactEmail
 
                     if ( $OperationsContactInfo) {
-                        $OperationsContactName = $OperationsContactInfo.contact.first_name + " " + $OperationsContactInfo.contact.last_name
+                        $OperationsContactName = $OperationsContactInfo.displayName
 
                     }
                     else {
-                        Throw "$OperationsContactEmail contact email cannot be found in the HPE GreenLake workspace!"
+                        "[{0}] Contact email '{1}' cannot be found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $OperationsContactEmail | Write-Verbose
+                        if ($WhatIf) {
+                            $ErrorMessage = "Contact email '{0}' cannot be found in the HPE GreenLake workspace! Use Get-HPEGLUser to see available users." -f $OperationsContactEmail
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                            continue
+                        }
+                        else {
+                            $Object.Status = "Warning"
+                            $Object.Details = "Contact email '$OperationsContactEmail' cannot be found in the HPE GreenLake workspace! Use Get-HPEGLUser to see available users."
+                        }
                     }
                 }
 
@@ -5909,106 +6346,48 @@ Function Set-HPEGLLocation {
 
                     # newname cannot be used when more than one location is found in $ObjectStatusList
                     if ($ObjectStatusList.Count -gt 1) {
-                        Throw "NewName cannot be used when more than one location is found in the pipeline!"
+                        "[{0}] NewName cannot be used when more than one location is found in the pipeline!" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        if ($WhatIf) {
+                            Write-Warning "NewName cannot be used when more than one location is found in the pipeline! Cannot display API request."
+                            continue
+                        }
+                        else {
+                            $Object.Status = "Warning"
+                            $Object.Details = "NewName cannot be used when more than one location is found in the pipeline!"
+                        }
                     }
                     else {
                         $Name = $NewName
                     }
 
                 }
-                else {
-                    $Name = $Locationfound.name
-                }
-
-                if (-not $PSBoundParameters.ContainsKey('Description')) {
-                
-                    if ($Locationfound.description) {
-                                
-                        $Description = $Locationfound.description
-                    }
-                    else {
-                        $Description = $Null
-                    }
-                }
-
-                if ($PSBoundParameters.ContainsKey('NewName') -or $PSBoundParameters.ContainsKey('Description')) {
-
-                    # Building payload
-            
-                    $Payload = [PSCustomObject]@{
-                        name         = $Name
-                        description  = $Description
-                        locationType = "building"
-            
-                    } | ConvertTo-Json -Depth 5
-                }
 
                 #EndRegion
             
                 #Region Modifying street address
-                if (-not $PSBoundParameters.ContainsKey('Country')) {
-                
-                    if (($Locationfound.addresses | Where-Object type -eq Street ).country) {
-                                
-                        $Country = ($Locationfound.addresses | Where-Object type -eq Street ).country
-                    }
-                    else {
-                        $Country = $Null
-                    }
-                }
-                if (-not $PSBoundParameters.ContainsKey('Street')) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq Street ).streetAddress) {
-                                
-                        $Street = ($Locationfound.addresses | Where-Object type -eq Street ).streetAddress
-                    }
-                    else {
-                        $Street = $Null
-                    }
-                }
-                if (-not $PSBoundParameters.ContainsKey('Street2')) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq Street ).streetAddress2) {
-                                
-                        $Street2 = ($Locationfound.addresses | Where-Object type -eq Street ).streetAddress2
-                    }
-                    else {
-                        $Street2 = $Null
-                    }
-                }
-                if (-not $PSBoundParameters.ContainsKey('City')) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq Street ).city) {
-                                
-                        $City = ($Locationfound.addresses | Where-Object type -eq Street ).city
-                    }
-                    else {
-                        $City = $Null
-                    }
-                }
-                # State is mandatory !
-                if (-not $State) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq Street ).state) {
-                                
-                        $State = ($Locationfound.addresses | Where-Object type -eq Street ).state
-                    }
-
-                }
-                if (-not $PSBoundParameters.ContainsKey('PostalCode')) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq Street ).postalCode) {
-                                
-                        $PostalCode = ($Locationfound.addresses | Where-Object type -eq Street ).postalCode
-                    }
-                    else {
-                        $PostalCode = $Null
-                    }
-                }
-
                 if ($PSBoundParameters.ContainsKey('Country') -or $PSBoundParameters.ContainsKey('Street') -or $PSBoundParameters.ContainsKey('Street2') -or $PSBoundParameters.ContainsKey('City') -or $PSBoundParameters.ContainsKey('State') -or $PSBoundParameters.ContainsKey('PostalCode')) {
                 
-                    $PrimaryAddressId = ($Locationfound.addresses | Where-Object type -eq Street).id
+                    # Get existing street address to fill in missing values
+                    $existingStreet = $Locationfound.addresses | Where-Object type -eq street
+                    $PrimaryAddressId = $existingStreet.id
+
+                    # Use provided values or fall back to existing ones
+                    if (-not $PSBoundParameters.ContainsKey('Country')) {
+                        $tempCountry = $existingStreet.country
+                        if ($tempCountry -and $Global:HPEGLSchemaMetadata.hpeCountryCodes.Name -contains $tempCountry) {
+                            $Country = $tempCountry
+                        }
+                    }
+                    if (-not $PSBoundParameters.ContainsKey('Street')) { $Street = $existingStreet.streetAddress }
+                    if (-not $PSBoundParameters.ContainsKey('Street2')) { $Street2 = $existingStreet.streetAddress2 }
+                    if (-not $PSBoundParameters.ContainsKey('City')) { $City = $existingStreet.city }
+                    if (-not $PSBoundParameters.ContainsKey('State')) { $State = $existingStreet.state }
+                    if (-not $PSBoundParameters.ContainsKey('PostalCode')) {
+                        $tempPostalCode = $existingStreet.postalCode
+                        if ($tempPostalCode -and $tempPostalCode -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                            $PostalCode = $tempPostalCode
+                        }
+                    }
 
                     $StreetAddress = [PSCustomObject]@{
                         country        = $Country
@@ -6021,91 +6400,44 @@ Function Set-HPEGLLocation {
                         id             = $PrimaryAddressId
                     }
 
-                    $LocationAddressList += $StreetAddress 
+                    [void]$LocationAddressList.Add($StreetAddress)
                 }
                 #Endregion
 
                 #Region Modifying shipping/receiving address
 
-                if (-not $PSBoundParameters.ContainsKey('ShippingReceivingCountry')) {
-                
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).country) {
-                                
-                        $ShippingReceivingCountry = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).country
-                    }
-                    else {
-                        $ShippingReceivingCountry = $Null
-                    }
-                }
-                if (-not $PSBoundParameters.ContainsKey('ShippingReceivingStreet')) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).streetAddress) {
-                                
-                        $ShippingReceivingStreet = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).streetAddress
-                    }
-                    else {
-                        $ShippingReceivingStreet = $Null
-                    }
-                }
-                if (-not $PSBoundParameters.ContainsKey('ShippingReceivingStreet2')) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).streetAddress2) {
-                                
-                        $ShippingReceivingStreet2 = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).streetAddress2
-                    }
-                    else {
-                        $ShippingReceivingStreet2 = $Null
-                    }
-                }
-                if (-not $PSBoundParameters.ContainsKey('ShippingReceivingCity')) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).city) {
-                                
-                        $ShippingReceivingCity = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).city
-                    }
-                    else {
-                        $ShippingReceivingCity = $Null
-                    }
-                }
-                # Mandatory
-                if (-not $PSBoundParameters.ContainsKey('ShippingReceivingState')) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).state) {
-                                
-                        $ShippingReceivingState = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).state
-                    }
-                    else {
-                        $ShippingReceivingState = "N/A"
-                    }
-                    
-                }
-                if (-not $PSBoundParameters.ContainsKey('ShippingReceivingPostalCode')) {
-            
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving ).postalCode) {
-                                
-                        $ShippingReceivingPostalCode = ($Locationfound.addresses | Where-Object type -eq shipping_receiving ).postalCode
-                    }
-                    else {
-                        $ShippingReceivingPostalCode = $Null
-                    }
-                }
-
-
                 if ($PSBoundParameters.ContainsKey('ShippingReceivingCountry') -or $PSBoundParameters.ContainsKey('ShippingReceivingStreet') -or $PSBoundParameters.ContainsKey('ShippingReceivingStreet2') `
                         -or $PSBoundParameters.ContainsKey('ShippingReceivingCity') -or $PSBoundParameters.ContainsKey('ShippingReceivingState') -or $PSBoundParameters.ContainsKey('ShippingReceivingPostalCode')) {
 
-                    # if already exists
-                    if (($Locationfound.addresses | Where-Object type -eq shipping_receiving).id) {
+                    # Get existing shipping/receiving address to fill in missing values
+                    $existingShipping = $Locationfound.addresses | Where-Object type -eq shipping_receiving
 
-                        $ShippingAddressId = ($Locationfound.addresses | Where-Object type -eq shipping_receiving).id
+                    # Use provided values or fall back to existing ones
+                    if (-not $PSBoundParameters.ContainsKey('ShippingReceivingCountry')) { $ShippingReceivingCountry = $existingShipping.country }
+                    if (-not $PSBoundParameters.ContainsKey('ShippingReceivingStreet')) { $ShippingReceivingStreet = $existingShipping.streetAddress }
+                    if (-not $PSBoundParameters.ContainsKey('ShippingReceivingStreet2')) { $ShippingReceivingStreet2 = $existingShipping.streetAddress2 }
+                    if (-not $PSBoundParameters.ContainsKey('ShippingReceivingCity')) { $ShippingReceivingCity = $existingShipping.city }
+                    if (-not $PSBoundParameters.ContainsKey('ShippingReceivingState')) { 
+                        $ShippingReceivingState = if ($existingShipping.state) { $existingShipping.state } else { "N/A" }
+                    }
+                    if (-not $PSBoundParameters.ContainsKey('ShippingReceivingPostalCode')) {
+                        $tempShippingPostalCode = $existingShipping.postalCode
+                        if ($tempShippingPostalCode -and $tempShippingPostalCode -match '^[a-zA-Z0-9\s\-]{3,10}$') {
+                            $ShippingReceivingPostalCode = $tempShippingPostalCode
+                        }
+                    }
+
+                    # If already exists, include ID for deletion
+                    if ($existingShipping.id) {
+                        $ShippingAddressId = $existingShipping.id
                         
                         $ShippingReceivingAddress = [PSCustomObject]@{
                             country        = $ShippingReceivingCountry
-                            streetaddress  = $ShippingReceivingStreet
-                            streetaddress2 = $ShippingReceivingStreet2
+                            streetAddress  = $ShippingReceivingStreet
+                            streetAddress2 = $ShippingReceivingStreet2
                             city           = $ShippingReceivingCity
                             state          = $ShippingReceivingState
-                            postalcode     = $ShippingReceivingPostalCode
+                            postalCode     = $ShippingReceivingPostalCode
                             type           = "shipping_receiving"
                             id             = $ShippingAddressId 
                         }
@@ -6113,22 +6445,22 @@ Function Set-HPEGLLocation {
                     else {
                         $ShippingReceivingAddress = [PSCustomObject]@{
                             country        = $ShippingReceivingCountry
-                            streetaddress  = $ShippingReceivingStreet
-                            streetaddress2 = $ShippingReceivingStreet2
+                            streetAddress  = $ShippingReceivingStreet
+                            streetAddress2 = $ShippingReceivingStreet2
                             city           = $ShippingReceivingCity
                             state          = $ShippingReceivingState
-                            postalcode     = $ShippingReceivingPostalCode
+                            postalCode     = $ShippingReceivingPostalCode
                             type           = "shipping_receiving"
                         }
 
                     }
                         
-                    $LocationAddressList += $ShippingReceivingAddress
+                    [void]$LocationAddressList.Add($ShippingReceivingAddress)
                 }
 
                 #Endregion
                 
-                #Region Removing Shipping/receiving contact
+                #Region Removing Shipping/receiving address
                 if ($RemoveShippingReceivingAddress) {
         
                     $ShippingAddressId = ($Locationfound.addresses | Where-Object type -eq shipping_receiving).id
@@ -6137,112 +6469,44 @@ Function Set-HPEGLLocation {
     
                         "[{0}] There is no Shipping and Receiving address for the '{1}' location!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
 
-                        $Object.Status = "Failed"
-                        $Object.Details = "There is no Shipping and Receiving address in this location to be removed!"
-                        # [void] $UpdateLocationStatus.add($Object)
-                        continue
-
-                        if ($Whatif) {
+                        if ($WhatIf) {
                             $ErrorMessage = "There is no Shipping and Receiving address in location '{0}' to be removed!" -f $Object.Name
-                            Write-warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             continue
+                        }
+                        else {
+                            $Object.Status = "Warning"
+                            $Object.Details = "There is no Shipping and Receiving address in this location to be removed!"
                         }
 
                     }
                     else {
-
-                        $StreetAddressId = ($Locationfound.addresses | Where-Object type -eq street).id
-
-                        $Country = ($Locationfound.addresses | Where-Object type -eq Street ).country
-                    
-                        $Street = ($Locationfound.addresses | Where-Object type -eq Street ).streetAddress
-        
-                        $Street2 = ($Locationfound.addresses | Where-Object type -eq Street ).streetAddress2
-        
-                        $City = ($Locationfound.addresses | Where-Object type -eq Street ).city
-        
-                        $State = ($Locationfound.addresses | Where-Object type -eq Street ).state
-        
-                        $PostalCode = ($Locationfound.addresses | Where-Object type -eq Street ).postalCode
-        
-                        $StreetAddress = [PSCustomObject]@{
-                            country        = $Country
-                            streetaddress  = $Street
-                            streetaddress2 = $Street2
-                            city           = $City
-                            state          = $State
-                            postalcode     = $PostalCode
-                            type           = "street"
-                            id             = $StreetAddressId 
-        
-                        }
-
-                        $LocationAddressList += $StreetAddress      
-                        
-                        $ShippingAddressInfo = [PSCustomObject]@{ 
-                            type = "shipping_receiving"
-                            id   = $ShippingAddressId
-                        }         
-                        
-                        $LocationAddressList += $ShippingAddressInfo      
-
+                        # For removal, add ID to delete array
+                        [void]$AddressesToDelete.Add($ShippingAddressId)
                     }
                 }
                 #Endregion
 
                 #Region Modifying primary contact
 
-                if (-not $PSBoundParameters.ContainsKey('PrimaryContactName')) {
-                
-                    if (($Locationfound.contacts | Where-Object type -eq primary).name) {
-                                
-                        $PrimaryContactName = ($Locationfound.contacts | Where-Object type -eq primary).name
-                    }
-                    else {
-                        $PrimaryContactName = $Null
-                    }
-                }
-                if (-not $PSBoundParameters.ContainsKey('PrimaryContactPhone')) {
-            
-                    if (($Locationfound.contacts | Where-Object type -eq primary).phone_number) {
-                                
-                        $PrimaryContactPhone = ($Locationfound.contacts | Where-Object type -eq primary).phone_number
-                    }
-                    else {
-                        $PrimaryContactPhone = $Null
-                    }
-                }
-                if (-not $PSBoundParameters.ContainsKey('PrimaryContactEmail')) {
-            
-                    if (($Locationfound.contacts | Where-Object type -eq primary).email) {
-                                
-                        $PrimaryContactEmail = ($Locationfound.contacts | Where-Object type -eq primary).email
-                    }
-                    else {
-                        $PrimaryContactEmail = $Null
-                    }
-                }
-
                 if ($PSBoundParameters.ContainsKey('PrimaryContactEmail') -or $PSBoundParameters.ContainsKey('PrimaryContactPhone')) {
             
                     $PrimaryContactId = ($Locationfound.contacts | Where-Object type -eq primary).id
-                
-                    $ContactInfo = [PSCustomObject]@{ 
-                        type = "primary"
-                        id   = $PrimaryContactId
-                    }         
                     
-                    $ContactsList += $ContactInfo             
+                    # If contact exists, delete it first
+                    if ($PrimaryContactId) {
+                        [void]$ContactsToDelete.Add($PrimaryContactId)
+                    }
                     
+                    # Add the new/updated contact (always required: email, name, type)
                     $PrimaryContact = [PSCustomObject]@{ 
-                        type        = "primary"
-                        name        = $PrimaryContactName
-                        phoneNumber = $PrimaryContactPhone
                         email       = $PrimaryContactEmail
-                        locationId  = $Locationfound.id
-                    }              
+                        name        = $PrimaryContactName
+                        type        = "primary"
+                        phoneNumber = $PrimaryContactPhone
+                    }
                 
-                    $ContactsList += $PrimaryContact 
+                    [void]$ContactsToAdd.Add($PrimaryContact)
 
                 }
 
@@ -6250,65 +6514,25 @@ Function Set-HPEGLLocation {
 
                 #Region Modifying shipping/receiving contact
 
-                if (-not $PSBoundParameters.ContainsKey('ShippingReceivingContactPhone')) {
+                if ($PSBoundParameters.ContainsKey('ShippingReceivingContactEmail') -or $PSBoundParameters.ContainsKey('ShippingReceivingContactPhone')) {
             
-                    if (($Locationfound.contacts | Where-Object type -eq shipping_receiving).phone_number) {
-                                
-                        $ShippingReceivingContactPhone = ($Locationfound.contacts | Where-Object type -eq shipping_receiving).phone_number
-                    }
-                    else {
-                        $ShippingReceivingContactPhone = $Null
-                    }
-                }
-                if (-not $PSBoundParameters.ContainsKey('ShippingReceivingContactEmail')) {
-            
-                    if (($Locationfound.contacts | Where-Object type -eq shipping_receiving).email) {
-                                
-                        $ShippingReceivingContactEmail = ($Locationfound.contacts | Where-Object type -eq shipping_receiving).email
-                    }
-                    else {
-                        $ShippingReceivingContactEmail = $Null
-                    }
-                }
-
-                if ( $PSBoundParameters.ContainsKey('ShippingReceivingContactEmail') -or $PSBoundParameters.ContainsKey('ShippingReceivingContactPhone')) {
+                    $ShippingReceivingContactId = ($Locationfound.contacts | Where-Object type -eq shipping_receiving).id
                     
-                    # If contact not existing
-                    if (! ($Locationfound.contacts | Where-Object type -eq shipping_receiving)) {
-
-                        $ShippingReceivingContact = [PSCustomObject]@{ 
-                            type        = "shipping_receiving"
-                            name        = $ShippingReceivingContactName
-                            phoneNumber = $ShippingReceivingContactPhone
-                            email       = $ShippingReceivingContactEmail
-                            locationId  = $Locationfound.id
-                        }
-
-                        $ContactsList += $ShippingReceivingContact
-
+                    # If contact exists, mark for deletion
+                    if ($ShippingReceivingContactId) {
+                        [void]$ContactsToDelete.Add($ShippingReceivingContactId)
                     }
-                    # If contact already created
-                    else {
-
-                        $ShippingReceivingContactId = ($Locationfound.contacts | Where-Object type -eq shipping_receiving).id
-        
-                        $ContactInfo = [PSCustomObject]@{ 
-                            type = "shipping_receiving"
-                            id   = $ShippingReceivingContactId
-                        }         
-                        
-                        $ContactsList += $ContactInfo  
-
-                        $ShippingReceivingContact = [PSCustomObject]@{ 
-                            type        = "shipping_receiving"
-                            name        = $ShippingReceivingContactName
-                            phoneNumber = $ShippingReceivingContactPhone
-                            email       = $ShippingReceivingContactEmail
-                            locationId  = $Locationfound.id
-                        }
-
-                        $ContactsList += $ShippingReceivingContact
+                    
+                    # Add the new/updated contact
+                    $ShippingReceivingContact = [PSCustomObject]@{ 
+                        email       = $ShippingReceivingContactEmail
+                        name        = $ShippingReceivingContactName
+                        type        = "shipping_receiving"
+                        phoneNumber = $ShippingReceivingContactPhone
                     }
+                
+                    [void]$ContactsToAdd.Add($ShippingReceivingContact)
+
                 }
 
                 #EndRegion
@@ -6322,98 +6546,44 @@ Function Set-HPEGLLocation {
                         
                         "[{0}] There is no Shipping and Receiving contact for the '{1}' location!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
                         
-                        $Object.Status = "Failed"
-                        $Object.Details = "There is no Shipping and Receiving contact in this location to be removed!"
-                        # [void] $UpdateLocationStatus.add($objStatus)
-                        continue
-
-                        if ($Whatif) {
+                        if ($WhatIf) {
                             $ErrorMessage = "There is no Shipping and Receiving contact in location '{0}' to be removed!" -f $Object.Name
-                            Write-warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             continue
                         }
-                 
+                        else {
+                            $Object.Status = "Warning"
+                            $Object.Details = "There is no Shipping and Receiving contact in this location to be removed!"
+                        }
 
                     }
                     else {
-        
-                        $ContactInfo = [PSCustomObject]@{ 
-                            type = "shipping_receiving"
-                            id   = $ShippingReceivingContactId
-                        }         
-                    
-                        $ContactsList += $ContactInfo  
+                        [void]$ContactsToDelete.Add($ShippingReceivingContactId)
                     }
                 }
                 #Endregion
 
                 #Region Modifying security contact
 
-                if (-not $PSBoundParameters.ContainsKey('SecurityContactPhone')) {
-        
-                    if (($Locationfound.contacts | Where-Object type -eq security).phone_number) {
-                                
-                        $SecurityContactPhone = ($Locationfound.contacts | Where-Object type -eq security).phone_number
-        
-                    }
-                    else {
-                        $SecurityContactPhone = $Null
-                    }
-        
-                }
-                if (-not $PSBoundParameters.ContainsKey('SecurityContactEmail')) {
-        
-                    if (($Locationfound.contacts | Where-Object type -eq security).email) {
-                                
-                        $SecurityContactEmail = ($Locationfound.contacts | Where-Object type -eq security).email
-        
-                    }
-                    else {
-                        $SecurityContactEmail = $Null
-                    }
-        
-                }
-
-                if ( $PSBoundParameters.ContainsKey('SecurityContactEmail') -or $PSBoundParameters.ContainsKey('SecurityContactPhone')) {
-
-                    # If contact not existing
-
-                    if (! ($Locationfound.contacts | Where-Object type -eq security)) {
-
-                        $SecurityContact = [PSCustomObject]@{ 
-                            type        = "security"
-                            name        = $SecurityContactName
-                            phoneNumber = $SecurityContactPhone
-                            email       = $SecurityContactEmail
-                            locationId  = $Locationfound.id
-
-                        }
-
-                        $ContactsList += $SecurityContact
-
-                    }
-                    # If contact already created
-                    else {
-
-                        $SecurityContactId = ($Locationfound.contacts | Where-Object type -eq security).id
-
-                        $ContactInfo = [PSCustomObject]@{ 
-                            type = "security"
-                            id   = $SecurityContactId
-                        }         
+                if ($PSBoundParameters.ContainsKey('SecurityContactEmail') -or $PSBoundParameters.ContainsKey('SecurityContactPhone')) {
+            
+                    $SecurityContactId = ($Locationfound.contacts | Where-Object type -eq security).id
                     
-                        $ContactsList += $ContactInfo  
-
-                        $SecurityContact = [PSCustomObject]@{ 
-                            type        = "security"
-                            name        = $SecurityContactName
-                            phoneNumber = $SecurityContactPhone
-                            email       = $SecurityContactEmail
-                            locationId  = $Locationfound.id
-                        }
-
-                        $ContactsList += $SecurityContact
+                    # If contact exists, mark for deletion
+                    if ($SecurityContactId) {
+                        [void]$ContactsToDelete.Add($SecurityContactId)
                     }
+                    
+                    # Add the new/updated contact
+                    $SecurityContact = [PSCustomObject]@{ 
+                        email       = $SecurityContactEmail
+                        name        = $SecurityContactName
+                        type        = "security"
+                        phoneNumber = $SecurityContactPhone
+                    }
+                
+                    [void]$ContactsToAdd.Add($SecurityContact)
+
                 }
                 #Endregion
 
@@ -6426,96 +6596,44 @@ Function Set-HPEGLLocation {
                         
                         "[{0}] There is no security contact for the '{1}' location!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
 
-                        $Object.Status = "Failed"
-                        $Object.Details = "There is no security contact in this location to be removed!"
-                        # [void] $UpdateLocationStatus.add($Object)
-                        continue
-
-                        if ($Whatif) {
+                        if ($WhatIf) {
                             $ErrorMessage = "There is no security contact in location '{0}' to be removed!" -f $Object.Name
-                            Write-warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             continue
+                        }
+                        else {
+                            $Object.Status = "Warning"
+                            $Object.Details = "There is no security contact in this location to be removed!"
                         }
 
                     }
                     else {
-
-                        $ContactInfo = [PSCustomObject]@{ 
-                            type = "security"
-                            id   = $SecurityContactId
-                        }         
-                
-                        $ContactsList += $ContactInfo  
+                        [void]$ContactsToDelete.Add($SecurityContactId)
                     }
                 }
                 #Endregion
 
                 #Region Modifying operations contact
 
-                if (-not $PSBoundParameters.ContainsKey('OperationsContactPhone')) {
-            
-                    if (($Locationfound.contacts | Where-Object type -eq operations).phone_number) {
-                                
-                        $OperationsContactPhone = ($Locationfound.contacts | Where-Object type -eq operations).phone_number
-        
-                    }
-                    else {
-                        $OperationsContactPhone = $Null
-                    }
-        
-                }  
-                if (-not $PSBoundParameters.ContainsKey('OperationsContactEmail')) {
-        
-                    if (($Locationfound.contacts | Where-Object type -eq operations).email) {
-                                
-                        $OperationsContactEmail = ($Locationfound.contacts | Where-Object type -eq operations).email
-        
-                    }
-                    else {
-                        $OperationsContactEmail = $Null
-                    }
-        
-                }  
-
                 if ($PSBoundParameters.ContainsKey('OperationsContactEmail') -or $PSBoundParameters.ContainsKey('OperationsContactPhone')) {
-
-                    # If contact not existing
-
-                    if (! ($Locationfound.contacts | Where-Object type -eq operations)) {
-
-                        $OperationsContact = [PSCustomObject]@{ 
-                            type        = "operations"
-                            name        = $OperationsContactName
-                            phoneNumber = $OperationsContactPhone
-                            email       = $OperationsContactEmail
-                            locationId  = $Locationfound.id
-                        }
-
-                        $ContactsList += $OperationsContact
-
-                    }                  
-                    # If contact already created
-                    else {
-
-                        $OperationsContactId = ($Locationfound.contacts | Where-Object type -eq operations).id
-
-                        $ContactInfo = [PSCustomObject]@{ 
-                            type = "operations"
-                            id   = $OperationsContactId
-                        }         
-                
-                        $ContactsList += $ContactInfo  
-
-                        $OperationsContact = [PSCustomObject]@{ 
-                            type        = "operations"
-                            name        = $OperationsContactName
-                            phoneNumber = $OperationsContactPhone
-                            email       = $OperationsContactEmail
-                            locationId  = $Locationfound.id
-                        }
-
-                        $ContactsList += $OperationsContact
+            
+                    $OperationsContactId = ($Locationfound.contacts | Where-Object type -eq operations).id
+                    
+                    # If contact exists, mark for deletion
+                    if ($OperationsContactId) {
+                        [void]$ContactsToDelete.Add($OperationsContactId)
                     }
+                    
+                    # Add the new/updated contact
+                    $OperationsContact = [PSCustomObject]@{ 
+                        email       = $OperationsContactEmail
+                        name        = $OperationsContactName
+                        type        = "operations"
+                        phoneNumber = $OperationsContactPhone
+                    }
+                
+                    [void]$ContactsToAdd.Add($OperationsContact)
+
                 }
                 #Endregion
 
@@ -6528,99 +6646,289 @@ Function Set-HPEGLLocation {
                         
                         "[{0}] There is no operations contact for the '{1}' location!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
                         
-                        $Object.Status = "Failed"
-                        $Object.Details = "There is no operations contact in this location to be removed!"
-                        # [void] $UpdateLocationStatus.add($Object)
-                        continue
-
-                        if ($Whatif) {
+                        if ($WhatIf) {
                             $ErrorMessage = "There is no operations contact in location '{0}' to be removed!" -f $Object.Name
-                            Write-warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             continue
                         }
-                       
+                        else {
+                            $Object.Status = "Warning"
+                            $Object.Details = "There is no operations contact in this location to be removed!"
+                        }
+
                     }
                     else {
-
-                        $ContactInfo = [PSCustomObject]@{ 
-                            type = "operations"
-                            id   = $OperationsContactId
-                        }         
-            
-                        $ContactsList += $ContactInfo  
+                        [void]$ContactsToDelete.Add($OperationsContactId)
                     }
                 }
                 #Endregion
 
 
-                # Building payload
+                # Building payloads - only include properties being changed
+                $NameDescriptionPayload = $null
+                $AddressPayload = $null
 
-                if ( $LocationAddressList) {
-                    $Payload = [PSCustomObject]@{
-                        name         = $Name
-                        description  = $Description
-                        locationType = "building"
-                        addresses    = $LocationAddressList
-        
-                    } | ConvertTo-Json -Depth 5
+                # Build name/description payload if being changed
+                if ($PSBoundParameters.ContainsKey('NewName') -or $PSBoundParameters.ContainsKey('Description') -or $PSBoundParameters.ContainsKey('ValidationCycle')) {
+                    $NameDescObj = [PSCustomObject]@{}
+                    
+                    if ($PSBoundParameters.ContainsKey('NewName')) {
+                        $NameDescObj | Add-Member -MemberType NoteProperty -Name "name" -Value $Name
+                    }
+                    
+                    if ($PSBoundParameters.ContainsKey('Description')) {
+                        $NameDescObj | Add-Member -MemberType NoteProperty -Name "description" -Value $Description
+                    }
+
+                    if ($PSBoundParameters.ContainsKey('ValidationCycle')) {
+                        $NameDescObj | Add-Member -MemberType NoteProperty -Name "validationCycle" -Value $ValidationCycle
+                    }
+                    
+                    $NameDescriptionPayload = $NameDescObj | ConvertTo-Json -Depth 5
                 }
 
-                if ( $ContactsList) {
-
-                    $Payload = [PSCustomObject]@{
-                        name         = $Name
-                        description  = $Description
-                        locationType = "building"
-                        contacts     = $ContactsList
-
+                # Build address payload if being changed
+                if ($LocationAddressList.Count -gt 0 -or $AddressesToDelete.Count -gt 0) {
+                    # Addresses: include ID in "add" to update in place, or omit ID to create new
+                    $AddressPayloadObj = [PSCustomObject]@{}
+                    
+                    $AddressesToAdd = @()
+                    
+                    foreach ($addr in $LocationAddressList) {
+                        if ($addr.id) {
+                            # Has ID - include it in the add section to update in place
+                            $AddressesToAdd += $addr
+                        }
+                        else {
+                            # No ID - add as new address
+                            $AddressesToAdd += $addr
+                        }
+                    }
+                    
+                    if ($AddressesToDelete.Count -gt 0) {
+                        $AddressPayloadObj | Add-Member -MemberType NoteProperty -Name "delete" -Value $AddressesToDelete
+                    }
+                    
+                    if ($AddressesToAdd.Count -gt 0) {
+                        $AddressPayloadObj | Add-Member -MemberType NoteProperty -Name "add" -Value $AddressesToAdd
+                    }
+                    
+                    $AddressPayload = [PSCustomObject]@{
+                        addresses = $AddressPayloadObj
                     } | ConvertTo-Json -Depth 5
                 }
-                
-                
-                if ( $LocationAddressList -and $ContactsList) {
-                    $Payload = [PSCustomObject]@{
-                        name         = $Name
-                        description  = $Description
-                        locationType = "building"
-                        addresses    = $LocationAddressList
-                        contacts     = $ContactsList
-
-        
-                    } | ConvertTo-Json -Depth 5
-                }
-
 
                     
                 # Modify Location
-                try {
+                if (-not $Object.Status) {
+                    try {
 
-                    $Response = Invoke-HPEGLWebRequest -Uri $Uri -method 'PATCH' -body $Payload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+                        # Handle contacts - single atomic operation with both delete and add
+                        if ($ContactsToDelete.Count -gt 0 -or $ContactsToAdd.Count -gt 0) {
+                            "[{0}] Updating contacts (delete: {1}, add: {2})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ContactsToDelete.Count, $ContactsToAdd.Count | Write-Verbose
+                        
+                            $ContactsPayload = [PSCustomObject]@{}
+                        
+                            if ($ContactsToDelete.Count -gt 0) {
+                                $ContactsPayload | Add-Member -MemberType NoteProperty -Name "delete" -Value $ContactsToDelete
+                            }
+                        
+                            if ($ContactsToAdd.Count -gt 0) {
+                                $ContactsPayload | Add-Member -MemberType NoteProperty -Name "add" -Value $ContactsToAdd
+                            }
+                        
+                            $ContactUpdatePayload = [PSCustomObject]@{
+                                contacts = $ContactsPayload
+                            } | ConvertTo-Json -Depth 5
+                        
+                            $Response = Invoke-HPEGLWebRequest -Uri $Uri -method 'PATCH' -body $ContactUpdatePayload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+                            "[{0}] Contact update successful" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        }
+                    
+                        # Update name/description if needed
+                        if ($NameDescriptionPayload) {
+                            "[{0}] Updating name/description" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $Response = Invoke-HPEGLWebRequest -Uri $Uri -method 'PATCH' -body $NameDescriptionPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+                        }
+                    
+                        # Update addresses if needed
+                        if ($AddressPayload) {
+                            "[{0}] Updating addresses" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                            $Response = Invoke-HPEGLWebRequest -Uri $Uri -method 'PATCH' -body $AddressPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+                        }
 
-                    if (-not $WhatIf) {
+                        # Update tags if needed
+                        if ($PSCmdlet.ParameterSetName -in @('Tags', 'RemoveTags', 'RemoveAllTags')) {
+                            $TagsUri = Get-LocationsTagsUri
+                            $TagsPayloadObj = [PSCustomObject]@{ locationId = $Locationfound.id }
 
-                        "[{0}] Location '{1}' successfully updated" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
-                        $Object.Status = "Complete"
-                        $Object.Details = "Location successfully modified"
+                            if ($PSCmdlet.ParameterSetName -eq 'Tags') {
+                                # Parse the requested tags
+                                $RequestedTags = [System.Collections.ArrayList]::new()
+                                $Tags -split ',' | ForEach-Object {
+                                    $pair = $_.Trim()
+                                    if ($pair -match '^([^=]+)\s*=\s*(.*)$') {
+                                        [void]$RequestedTags.Add([PSCustomObject]@{ name = $Matches[1].Trim(); value = $Matches[2].Trim() })
+                                    }
+                                }
+                                if ($RequestedTags.Count -eq 0) {
+                                    "[{0}] No valid tags found in '{1}'." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Tags | Write-Verbose
+                                    if ($WhatIf) {
+                                        Write-Warning "No valid tags found in '$Tags'. Tags must be in 'Key=Value' format. Cannot display API request."
+                                        continue
+                                    }
+                                    else {
+                                        $Object.Status = "Warning"
+                                        $Object.Details = "No valid tags found in '$Tags'. Tags must be in 'Key=Value' format."
+                                    }
+                                }
+
+                                # Compare against existing tags:
+                                #  - same name + same value  → skip (already set)
+                                #  - same name + diff value  → delete old + create new
+                                #  - new name                → create only
+                                $CreateTagsList = [System.Collections.ArrayList]::new()
+                                $DeleteTagsList = [System.Collections.ArrayList]::new()
+
+                                foreach ($requested in $RequestedTags) {
+                                    $existing = $Locationfound.tags | Where-Object { $_.name -ieq $requested.name }
+                                    if ($existing) {
+                                        if ($existing.value -eq $requested.value) {
+                                            "[{0}] Tag '{1}={2}' already set on location '{3}', skipping" -f $MyInvocation.InvocationName.ToString().ToUpper(), $requested.name, $requested.value, $Locationfound.name | Write-Verbose
+                                        }
+                                        else {
+                                            # Delete old value, add new value
+                                            [void]$DeleteTagsList.Add([PSCustomObject]@{ name = $existing.name; value = $existing.value })
+                                            [void]$CreateTagsList.Add([PSCustomObject]@{ name = $requested.name; value = $requested.value })
+                                        }
+                                    }
+                                    else {
+                                        [void]$CreateTagsList.Add([PSCustomObject]@{ name = $requested.name; value = $requested.value })
+                                    }
+                                }
+
+                                if ($CreateTagsList.Count -eq 0 -and $DeleteTagsList.Count -eq 0) {
+                                    "[{0}] All specified tags already have the same values on location '{1}'." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Object.Name | Write-Verbose
+                                    if ($WhatIf) {
+                                        Write-Warning "All specified tags already have the same values on location '$($Object.Name)'. No changes needed. Cannot display API request."
+                                        continue
+                                    }
+                                    else {
+                                        $Object.Status = "Warning"
+                                        $Object.Details = "All specified tags already have the same values on this location. No changes needed."
+                                    }
+                                }
+
+                                if ($DeleteTagsList.Count -gt 0) {
+                                    $TagsPayloadObj | Add-Member -MemberType NoteProperty -Name "deleteTags" -Value $DeleteTagsList
+                                }
+                                if ($CreateTagsList.Count -gt 0) {
+                                    $TagsPayloadObj | Add-Member -MemberType NoteProperty -Name "createTags" -Value $CreateTagsList
+                                }
+                            }
+                            elseif ($PSCmdlet.ParameterSetName -eq 'RemoveTags') {
+                                $DeleteTagsList = [System.Collections.ArrayList]::new()
+                                $RemoveTags -split ',' | ForEach-Object {
+                                    $tagName = ($_ -split '=')[0].Trim()
+                                    $existingTag = $Locationfound.tags | Where-Object { $_.name -eq $tagName }
+                                    if ($existingTag) {
+                                        [void]$DeleteTagsList.Add([PSCustomObject]@{ name = $existingTag.name; value = $existingTag.value })
+                                    }
+                                    else {
+                                        "[{0}] Tag '{1}' not found on location '{2}', skipping" -f $MyInvocation.InvocationName.ToString().ToUpper(), $tagName, $Locationfound.name | Write-Verbose
+                                    }
+                                }
+                                if ($DeleteTagsList.Count -eq 0) {
+                                    "[{0}] None of the specified tags were found on location '{1}'." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Object.Name | Write-Verbose
+                                    if ($WhatIf) {
+                                        Write-Warning "None of the specified tags were found on location '$($Object.Name)'. Cannot display API request."
+                                        continue
+                                    }
+                                    else {
+                                        $Object.Status = "Warning"
+                                        $Object.Details = "None of the specified tags were found on this location."
+                                    }
+                                }
+                                if (-not $Object.Status) {
+                                $TagsPayloadObj | Add-Member -MemberType NoteProperty -Name "deleteTags" -Value $DeleteTagsList
+                                }
+                            }
+                            else {
+                                # RemoveAllTags
+                                $ExistingTagsList = $Locationfound.tags
+                                if (-not $ExistingTagsList -or ($ExistingTagsList | Measure-Object).Count -eq 0) {
+                                    "[{0}] Location '{1}' has no tags to remove." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Object.Name | Write-Verbose
+                                    if ($WhatIf) {
+                                        Write-Warning "Location '$($Object.Name)' has no tags to remove. Cannot display API request."
+                                        continue
+                                    }
+                                    else {
+                                        $Object.Status = "Warning"
+                                        $Object.Details = "This location has no tags to remove."
+                                    }
+                                }
+                                if (-not $Object.Status) {
+                                $TagsPayloadObj | Add-Member -MemberType NoteProperty -Name "deleteTags" -Value $ExistingTagsList
+                                }
+                            }
+
+                            if (-not $Object.Status) {
+                            # For the -Tags set, split into two calls when there are deletions:
+                            # the API rejects a payload that both deletes and creates the same tag name.
+                            # Call 1 (if needed): delete old tag values
+                            # Call 2: create new tag values
+                            if ($PSCmdlet.ParameterSetName -eq 'Tags' -and $TagsPayloadObj.PSObject.Properties['deleteTags']) {
+                                $DeleteOnlyPayload = [PSCustomObject]@{
+                                    locationId = $Locationfound.id
+                                    deleteTags = $TagsPayloadObj.deleteTags
+                                } | ConvertTo-Json -Depth 5
+                                "[{0}] Step 1: Deleting existing tag values before update for location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Locationfound.name | Write-Verbose
+                                Invoke-HPEGLWebRequest -Uri $TagsUri -method 'PATCH' -body $DeleteOnlyPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference | Out-Null
+
+                                if ($TagsPayloadObj.PSObject.Properties['createTags']) {
+                                    $CreateOnlyPayload = [PSCustomObject]@{
+                                        locationId = $Locationfound.id
+                                        createTags = $TagsPayloadObj.createTags
+                                    } | ConvertTo-Json -Depth 5
+                                    "[{0}] Step 2: Creating updated tag values for location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Locationfound.name | Write-Verbose
+                                    $Response = Invoke-HPEGLWebRequest -Uri $TagsUri -method 'PATCH' -body $CreateOnlyPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+                                }
+                            }
+                            else {
+                                $TagsPayload = $TagsPayloadObj | ConvertTo-Json -Depth 5
+                                "[{0}] Updating tags for location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Locationfound.name | Write-Verbose
+                                $Response = Invoke-HPEGLWebRequest -Uri $TagsUri -method 'PATCH' -body $TagsPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+                            }
+                            } # end if (-not $Object.Status)
+                        }
+
+                        if (-not $WhatIf) {
+
+                            if (-not $Object.Status) {
+                                "[{0}] Location '{1}' successfully updated" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($Name ?? $Locationfound.name) | Write-Verbose
+                                $Object.Status = "Complete"
+                                $Object.Details = "Location successfully modified"
+                            }
             
-                    }
+                        }
 
-                }
-                catch {
-
-                    if (-not $WhatIf) {
-                        $Object.Status = "Failed"
-                        $Object.Details = "Location cannot be modified!"
-                        $Object.Exception = $_.Exception.message 
                     }
-                }
+                    catch {
+
+                        if (-not $WhatIf) {
+                            $Object.Status = "Failed"
+                            $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Location cannot be modified!" }
+                            $Object.Exception = $Global:HPECOMInvokeReturnData
+                        }
+                    }
+                } 
             }
         }
 
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
-            $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.NSDE" 
-            Return $ObjectStatusList
+            Return Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.NSDE"
         }
     }
 }
@@ -6739,9 +7047,6 @@ Are you sure you want to proceed?
             # Check if location exists
             try {
                 $Locationfound = Get-HPEGLLocation -Name $Name
-
-                $Uri = (Get-DevicesLocationUri) + "/" + $Locationfound.id
-                
             }
             catch {
                 $PSCmdlet.ThrowTerminatingError($_)                
@@ -6751,19 +7056,21 @@ Are you sure you want to proceed?
             if ( -not $Locationfound) {
     
                 # Must return a message if resource not found
-                
+                "[{0}] Location '{1}' cannot be found in the workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
                 if ($WhatIf) {
                     $ErrorMessage = "Location '{0}': Resource cannot be found in the workspace!" -f $Name
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "Location cannot be found in the workspace!"
                 }
             
             }
             else {           
+                
+                $Uri = (Get-DevicesLocationUri) + "/" + $Locationfound.id
                    
                 # Delete Location
                 try {
@@ -6799,28 +7106,330 @@ Are you sure you want to proceed?
 
             if ($WhatIf) {
                 $ErrorMessage = "Operation cancelled by the user!"
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {    
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Operation cancelled by the user!"
             }
         }
 
-        [void] $RemoveLocationStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $RemoveLocationStatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($RemoveLocationStatus.Count -gt 0) {
 
             $RemoveLocationStatus = Invoke-RepackageObjectWithType -RawObject $RemoveLocationStatus -ObjectName "ObjStatus.NSDE" 
             Return $RemoveLocationStatus
         }
 
 
+    }
+}
+
+Function Confirm-HPEGLLocation {
+    <#
+    .SYNOPSIS
+    Validate and reactivate an expired location.
+
+    .DESCRIPTION
+    This Cmdlet validates a location that has reached its expiration date (validationExpired = True) and resets the validation cycle. 
+    Locations must be periodically validated to ensure accurate information for HPE support case creation and services.
+    
+    When a location's expiredAt date is reached, the location needs to be revalidated using this cmdlet.
+
+    .PARAMETER Name 
+    Specifies the name of the location to validate. Use 'Get-HPEGLLocation' to retrieve available location names.
+
+    .PARAMETER ValidationCycle
+    Specifies the validation cycle in months (6, 12, or 18). Default is 12 months.
+    This determines when the location will need to be validated again after this confirmation.
+
+    .PARAMETER Force
+    Switch parameter that performs the validation without prompting for confirmation. By default, the cmdlet displays the current location details (address and contacts) and asks for confirmation before proceeding.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    Confirm-HPEGLLocation -Name "Mougins"
+    
+    Displays the current address and contact details for the "Mougins" location, prompts for confirmation, then validates the location and resets its validation cycle.
+
+    .EXAMPLE
+    Confirm-HPEGLLocation -Name "Mougins" -Force
+
+    Validates the "Mougins" location without prompting for confirmation.
+
+    .EXAMPLE
+    Get-HPEGLLocation | Where-Object validationExpired -eq $True | Confirm-HPEGLLocation -Force
+    
+    Validates all expired locations in the workspace without prompting for confirmation.
+
+    .EXAMPLE
+    Get-HPEGLLocation | Confirm-HPEGLLocation -ValidationCycle 18
+
+    Displays location details and prompts for confirmation for each location in the workspace, then validates the confirmed ones and sets their validation cycle to 18 months.
+
+    .INPUTS
+    System.String
+        Location name from 'Get-HPEGLLocation'.
+
+    .OUTPUTS
+    System.Collections.ArrayList    
+    A custom status object or array of objects containing the following PsCustomObject keys:  
+    * Name - name of the location object attempted to be validated 
+    * Status - status of the validation attempt (Failed for HTTP error return; Complete if successful; Warning if location not found) 
+    * Details - more information about the status 
+    * Exception - information about any exceptions generated during the operation.
+    #>
+
+    [CmdletBinding()]
+    Param( 
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [String]$Name,
+
+        [ValidateSet('6', '12', '18')]
+        [String]$ValidationCycle = "12",
+
+        [Switch]$Force,
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $ConfirmLocationStatus = [System.Collections.ArrayList]::new()
+               
+    }
+
+    Process {         
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+            Name      = $Name
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+        
+        # Pre-validation - Get location with details (use Trim() on name match to handle any trailing space from prior partial runs)
+        try {
+            "[{0}] Retrieving location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+            $AllLocations = Get-HPEGLLocation -ShowDetails -ErrorAction Stop
+            $Location = $AllLocations | Where-Object { $_.name.Trim() -eq $Name.Trim() }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        # Validation check
+        if (-not $Location) {
+            "[{0}] Location '{1}' not found in workspace" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+            
+            if ($WhatIf) {
+                $ErrorMessage = "Location '{0}' not found in workspace." -f $Name
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Location not found in workspace!"
+            }
+        }
+        else {
+            
+            "[{0}] Location '{1}' found with ID: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Location.id | Write-Verbose
+
+            # Build and display location details, then prompt for confirmation (unless -Force or -WhatIf)
+            if (-not $Force -and -not $WhatIf) {
+
+                $streetAddr = $Location.addresses | Where-Object type -eq "street"
+                $shippingAddr = $Location.addresses | Where-Object type -eq "shipping_receiving"
+
+                # Format street address block
+                $streetLines = @()
+                if ($streetAddr) {
+                    if ($streetAddr.streetAddress) { $streetLines += "  Street  : $($streetAddr.streetAddress)" }
+                    if ($streetAddr.streetAddress2) { $streetLines += "          : $($streetAddr.streetAddress2)" }
+                    if ($streetAddr.city) { $streetLines += "  City    : $($streetAddr.city)" }
+                    if ($streetAddr.state) { $streetLines += "  State   : $($streetAddr.state)" }
+                    if ($streetAddr.postalCode) { $streetLines += "  ZIP     : $($streetAddr.postalCode)" }
+                    if ($streetAddr.country) { $streetLines += "  Country : $($streetAddr.country)" }
+                }
+
+                # Format shipping/receiving address block
+                $shippingLines = @()
+                if ($shippingAddr) {
+                    if ($shippingAddr.streetAddress) { $shippingLines += "  Street  : $($shippingAddr.streetAddress)" }
+                    if ($shippingAddr.streetAddress2) { $shippingLines += "          : $($shippingAddr.streetAddress2)" }
+                    if ($shippingAddr.city) { $shippingLines += "  City    : $($shippingAddr.city)" }
+                    if ($shippingAddr.state) { $shippingLines += "  State   : $($shippingAddr.state)" }
+                    if ($shippingAddr.postalCode) { $shippingLines += "  ZIP     : $($shippingAddr.postalCode)" }
+                    if ($shippingAddr.country) { $shippingLines += "  Country : $($shippingAddr.country)" }
+                }
+
+                # Format contacts block
+                $contactLines = @()
+                foreach ($contactType in @('primary', 'shipping_receiving', 'security', 'operations')) {
+                    $c = $Location.contacts | Where-Object type -eq $contactType
+                    if ($c) {
+                        $label = switch ($contactType) {
+                            'primary' { 'Primary' }
+                            'shipping_receiving' { 'Shipping/Receiving' }
+                            'security' { 'Security' }
+                            'operations' { 'Operations' }
+                        }
+                        $contactLines += "  $label"
+                        if ($c.name) { $contactLines += "    Name  : $($c.name)" }
+                        if ($c.email) { $contactLines += "    Email : $($c.email)" }
+                        if ($c.phoneNumber) { $contactLines += "    Phone : $($c.phoneNumber)" }
+                    }
+                }
+
+                # Format tags block
+                $tagLines = @()
+                if ($Location.tags -and $Location.tags.Count -gt 0) {
+                    foreach ($tag in $Location.tags) {
+                        $tagLines += "  $($tag.name) = $($tag.value)"
+                    }
+                }
+
+                # Compose the display message
+                $displayParts = [System.Collections.Generic.List[string]]::new()
+                $displayParts.Add("")
+                if ($Location.description) { $displayParts.Add("Description: $($Location.description)") }
+                if ($Location.validationExpired) { $displayParts.Add("STATUS: VALIDATION EXPIRED") }
+                if ($Location.expiredAt) { $displayParts.Add("Expired at : $($Location.expiredAt)") }
+
+                if ($streetLines.Count -gt 0) {
+                    $displayParts.Add("")
+                    $displayParts.Add("Street Address:")
+                    $streetLines | ForEach-Object { $displayParts.Add($_) }
+                }
+
+                if ($shippingLines.Count -gt 0) {
+                    $displayParts.Add("")
+                    $displayParts.Add("Shipping/Receiving Address:")
+                    $shippingLines | ForEach-Object { $displayParts.Add($_) }
+                }
+
+                if ($contactLines.Count -gt 0) {
+                    $displayParts.Add("")
+                    $displayParts.Add("Contacts:")
+                    $contactLines | ForEach-Object { $displayParts.Add($_) }
+                }
+
+                if ($tagLines.Count -gt 0) {
+                    $displayParts.Add("")
+                    $displayParts.Add("Tags:")
+                    $tagLines | ForEach-Object { $displayParts.Add($_) }
+                }
+
+                $displayParts.Add("")
+
+                $question = ($displayParts -join "`n") + "`nAre the location details above correct? Do you want to confirm the validation?"
+
+                $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Confirm validation of the location '$Name'."
+                $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Cancel the validation. The location '$Name' will remain unchanged."
+
+                $choices = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
+                $decision = $Host.UI.PromptForChoice("Confirm Location: $Name", $question, $choices, 1)
+            }
+            else {
+                $decision = 0
+            }
+
+            if ($decision -eq 1) {
+
+                'Validation cancelled by user!' | Write-Verbose
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "Operation cancelled by the user!"
+
+            }
+            else {
+            
+                # Use the /update/ endpoint with application/merge-patch+json and locationDetails wrapper
+                # (same pattern as Set-HPEGLLocation)
+                $Uri = (Get-DevicesLocationUri) + "/update/" + $Location.id
+                $LocationType = if ($Location.locationType) { $Location.locationType } elseif ($Location.type) { $Location.type } else { "building" }
+
+                # 2-step approach: the API requires at least one property to change per call, and the name
+                # must be part of the change (description-only changes cause a 409 duplicate name conflict).
+                #   Step 1: Temp name + set validated=false (name change makes the call accepted)
+                #   Step 2: Restore original name + set validated=true + validationCycle (name change back makes this call accepted)
+                $OriginalName = $Location.name.Trim()
+                $OriginalDescription = $Location.description
+                $TempName = $OriginalName + " "
+                # Ensure TempName truly differs from the currently stored name (in case it already has a trailing space)
+                if ($Location.name -eq $TempName) { $TempName = $OriginalName + "  " }
+
+                try {
+                    # Step 1: Set temp name + validated=false
+                    $ResetPayload = @{
+                        locationDetails = @{
+                            name         = $TempName
+                            locationType = $LocationType
+                            description  = $OriginalDescription
+                            validated    = $false
+                        }
+                    } | ConvertTo-Json -Depth 5
+
+                    "[{0}] Step 1: Resetting validation state for location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                    Invoke-HPEGLWebRequest -Uri $Uri -method 'PATCH' -body $ResetPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference | Out-Null
+
+                    # Step 2: Restore original name + set validated=true with new cycle
+                    $ValidationPayload = @{
+                        locationDetails = @{
+                            name            = $OriginalName
+                            locationType    = $LocationType
+                            description     = $OriginalDescription
+                            validated       = $true
+                            validationCycle = $ValidationCycle
+                        }
+                    } | ConvertTo-Json -Depth 5
+
+                    "[{0}] Step 2: Setting validated=true and restoring name for location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                    $Response = Invoke-HPEGLWebRequest -Uri $Uri -method 'PATCH' -body $ValidationPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+            
+                    if (-not $WhatIf) {
+                        "[{0}] Location '{1}' successfully validated with {2} month validation cycle" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $ValidationCycle | Write-Verbose
+                        $objStatus.Status = "Complete"
+                        $objStatus.Details = "Location successfully validated with {0} month validation cycle" -f $ValidationCycle
+                    }
+                }
+                catch {
+                    if (-not $WhatIf) {
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Location validation failed!" }
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                    }
+                }
+            } # end inner else (user confirmed)
+        } # end else (location found)
+
+        if (-not $WhatIf) {
+            [void] $ConfirmLocationStatus.add($objStatus)
+        }
+    }
+
+    end {
+        if ($ConfirmLocationStatus.Count -gt 0) {
+            $ConfirmLocationStatus = Invoke-RepackageObjectWithType -RawObject $ConfirmLocationStatus -ObjectName "ObjStatus.NSDE" 
+            Return $ConfirmLocationStatus
+        }
     }
 }
 
@@ -6911,6 +7520,7 @@ Function Set-HPEGLDeviceLocation {
 
         $Uri = Get-DevicesUIDoorwayUri
 
+        $InputList = [System.Collections.ArrayList]::new()
         $ObjectStatusList = [System.Collections.ArrayList]::new()
         $DevicesList = [System.Collections.ArrayList]::new()
 
@@ -6927,6 +7537,14 @@ Function Set-HPEGLDeviceLocation {
         if ( -not $Locationfound) {
                     
             $ErrorMessage = "Location '{0}' cannot be found in the workspace!" -f $LocationName
+
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+
             throw $ErrorMessage
         }
 
@@ -6949,7 +7567,10 @@ Function Set-HPEGLDeviceLocation {
         }
     
 
-        [void]$ObjectStatusList.Add($objStatus)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) {
+            [void]$ObjectStatusList.Add($objStatus)
+        }
 
 
     }
@@ -6966,36 +7587,40 @@ Function Set-HPEGLDeviceLocation {
         }
         
         
-        "[{0}] List of devices where to set a location: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList.serialnumber | out-string) | Write-Verbose
+        "[{0}] List of devices where to set a location: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InputList.serialnumber | out-string) | Write-Verbose
 
-        foreach ($Object in $ObjectStatusList) {
+        foreach ($Object in $InputList) {
 
             $Device = $Devices | Where-Object serialNumber -eq $Object.SerialNumber
 
             if ( -not $Device) {
 
                 # Must return a message if device not found
-                $Object.Status = "Failed"
-                $Object.Details = "Device cannot be found in the HPE GreenLake workspace!" 
+                $ErrorMessage = "Device '{0}' cannot be found in the HPE GreenLake workspace!" -f $Object.SerialNumber
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
 
                 if ($WhatIf) {
-                    $ErrorMessage = "Device '{0}' cannot be found in the HPE GreenLake workspace!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $Object.Status = "Warning"
+                $Object.Details = "Device cannot be found in the HPE GreenLake workspace!" 
 
             } 
             elseif ($device.location.name -and -not $Force) {
 
                 # Must return a message if device is already assigned to location and removed from the list of devices to be set
-                $Object.Status = "Warning"
-                $Object.Details = "Device is already assigned to the '$($device.location.name)' location!"
+                $ErrorMessage = "Device '{0}' is already assigned to the '{1}' location!" -f $Object.SerialNumber, $device.location.name
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
 
                 if ($WhatIf) {
-                    $ErrorMessage = "Device '{0}' is already assigned to the '{1}' location!" -f $Object.SerialNumber, $device.location.name
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $Object.Status = "Warning"
+                $Object.Details = "Device is already assigned to the '$($device.location.name)' location!"
                 
             }
             else {
@@ -7067,9 +7692,8 @@ Function Set-HPEGLDeviceLocation {
                         If ($DeviceSet) {
                               
                             $Object.Status = "Failed"
-                            $Object.Details = "Location cannot be assigned to device!"
-
-                            $Object.Exception = $_.Exception.message 
+                            $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Location cannot be assigned to device!" }
+                            $Object.Exception = $Global:HPECOMInvokeReturnData
 
                         }
                     }
@@ -7077,7 +7701,7 @@ Function Set-HPEGLDeviceLocation {
             }
         }
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
             $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "Location.SLSDE" 
             Return $ObjectStatusList
@@ -7162,6 +7786,7 @@ Function Remove-HPEGLDeviceLocation {
 
         $Uri = Get-DevicesUIDoorwayUri
 
+        $InputList = [System.Collections.ArrayList]::new()
         $ObjectStatusList = [System.Collections.ArrayList]::new()
         $DevicesList = [System.Collections.ArrayList]::new()
 
@@ -7181,8 +7806,10 @@ Function Remove-HPEGLDeviceLocation {
             Exception    = $Null
                   
         }
-    
-        [void]$ObjectStatusList.Add($objStatus)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) {
+            [void]$ObjectStatusList.Add($objStatus)
+        }
 
 
     }
@@ -7199,36 +7826,40 @@ Function Remove-HPEGLDeviceLocation {
         }
         
         
-        "[{0}] List of devices where to remove the location: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList.serialnumber | out-string) | Write-Verbose
+        "[{0}] List of devices where to remove the location: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InputList.serialnumber | out-string) | Write-Verbose
 
-        foreach ($Object in $ObjectStatusList) {
+        foreach ($Object in $InputList) {
 
             $Device = $Devices | Where-Object serialNumber -eq $Object.SerialNumber
 
             if ( -not $Device) {
 
                 # Must return a message if device not found
-                $Object.Status = "Failed"
-                $Object.Details = "Device cannot be found in the workspace!" 
+                $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $Object.SerialNumber
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
 
                 if ($WhatIf) {
-                    $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $Object.Status = "Warning"
+                $Object.Details = "Device cannot be found in the workspace!" 
 
             } 
             elseif (-not $device.location.name) {
 
                 # Must return a message if device is not assigned to a location
-                $Object.Status = "Warning"
-                $Object.Details = "Device is not assigned to a location!"
+                $ErrorMessage = "Device '{0}': Resource is not assigned to a location!" -f $Object.SerialNumber
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
 
                 if ($WhatIf) {
-                    $ErrorMessage = "Device '{0}': Resource is not assigned to a location!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $Object.Status = "Warning"
+                $Object.Details = "Device is not assigned to a location!"
 
             }
             else {         
@@ -7289,8 +7920,8 @@ Function Remove-HPEGLDeviceLocation {
                         If ($DeviceSet) {
                               
                             $Object.Status = "Failed"
-                            $Object.Details = "Location cannot be unassigned from device!"
-                            $Object.Exception = $_.Exception.message 
+                            $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Location cannot be unassigned from device!" }
+                            $Object.Exception = $Global:HPECOMInvokeReturnData
 
                         }
                     }
@@ -7298,7 +7929,7 @@ Function Remove-HPEGLDeviceLocation {
             }
         }
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
             $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.SSDE"   
             Return $ObjectStatusList
@@ -7388,6 +8019,7 @@ Function Set-HPEGLDeviceServiceDeliveryContact {
 
         $Uri = Get-DevicesUIDoorwayUri
 
+        $InputList = [System.Collections.ArrayList]::new()
         $ObjectStatusList = [System.Collections.ArrayList]::new()
         $DevicesList = [System.Collections.ArrayList]::new()
 
@@ -7403,6 +8035,13 @@ Function Set-HPEGLDeviceServiceDeliveryContact {
         if ( -not $Emailfound) {
 
             $ErrorMessage = "Email '{0}' cannot be found in the workspace!" -f $Email
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+
             throw $ErrorMessage
         }
 
@@ -7425,7 +8064,10 @@ Function Set-HPEGLDeviceServiceDeliveryContact {
         }
     
 
-        [void]$ObjectStatusList.Add($objStatus)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) {
+            [void]$ObjectStatusList.Add($objStatus)
+        }
 
 
     }
@@ -7442,36 +8084,40 @@ Function Set-HPEGLDeviceServiceDeliveryContact {
         }
         
         
-        "[{0}] List of devices where to set the service delivery contact: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList.serialnumber | out-string) | Write-Verbose
+        "[{0}] List of devices where to set the service delivery contact: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InputList.serialnumber | out-string) | Write-Verbose
 
-        foreach ($Object in $ObjectStatusList) {
+        foreach ($Object in $InputList) {
 
             $Device = $Devices | Where-Object serialNumber -eq $Object.SerialNumber
 
             if ( -not $Device) {
 
                 # Must return a message if device not found
-                $Object.Status = "Failed"
-                $Object.Details = "Device cannot be found in the HPE GreenLake workspace!" 
+                $ErrorMessage = "Device '{0}' cannot be found in the HPE GreenLake workspace!" -f $Object.SerialNumber
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
 
                 if ($WhatIf) {
-                    $ErrorMessage = "Device '{0}' cannot be found in the HPE GreenLake workspace!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $Object.Status = "Warning"
+                $Object.Details = "Device cannot be found in the HPE GreenLake workspace!" 
 
             } 
             elseif ($device.serviceDelivery.email -eq $Email) {
 
                 # Must return a message if device already set with the same contact
-                $Object.Status = "Warning"
-                $Object.Details = "Device is already assigned to the service delivery contact '{0}'! No changes made." -f $device.serviceDelivery.email
+                $ErrorMessage = "Device '{0}' is already assigned to the service delivery contact '{1}'!" -f $Object.SerialNumber, $device.serviceDelivery.email
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
 
                 if ($WhatIf) {
-                    $WarningMessage = "Device is already assigned to the service delivery contact '{0}'! No changes will be made." -f $device.serviceDelivery.email
-                    Write-warning $WarningMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $Object.Status = "Warning"
+                $Object.Details = "Device is already assigned to the service delivery contact '{0}'! No changes made." -f $device.serviceDelivery.email
 
             }
             else {         
@@ -7479,8 +8125,6 @@ Function Set-HPEGLDeviceServiceDeliveryContact {
                 if ($device.serviceDelivery.email) {
                     # Must return a message if device is already assigned to contact and will be updated
                     "Device is currently assigned to the service delivery contact '{0}' and will be updated to the new contact '{1}'." -f $device.serviceDelivery.email, $Email | Write-Verbose
-                    $WarningMessage = "Device is currently assigned to the service delivery contact '{0}' and will be updated to the new contact '{1}'." -f $device.serviceDelivery.email, $Email
-                    Write-warning $WarningMessage
                 }
 
                 # Build DeviceList object
@@ -7542,9 +8186,8 @@ Function Set-HPEGLDeviceServiceDeliveryContact {
                         If ($DeviceSet) {
                               
                             $Object.Status = "Failed"
-                            $Object.Details = "Service delivery contact cannot be assigned to device!"
-
-                            $Object.Exception = $_.Exception.message 
+                            $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Service delivery contact cannot be assigned to device!" }
+                            $Object.Exception = $Global:HPECOMInvokeReturnData
 
                         }
                     }
@@ -7552,7 +8195,7 @@ Function Set-HPEGLDeviceServiceDeliveryContact {
             }
         }
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
             $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.SESDE" 
             Return $ObjectStatusList
@@ -7635,6 +8278,7 @@ Function Remove-HPEGLDeviceServiceDeliveryContact {
 
         $Uri = Get-DevicesUIDoorwayUri
 
+        $InputList = [System.Collections.ArrayList]::new()
         $ObjectStatusList = [System.Collections.ArrayList]::new()
         $DevicesList = [System.Collections.ArrayList]::new()
 
@@ -7655,7 +8299,10 @@ Function Remove-HPEGLDeviceServiceDeliveryContact {
                   
         }
     
-        [void]$ObjectStatusList.Add($objStatus)
+        [void]$InputList.Add($objStatus)
+        if (-not $WhatIf) {
+            [void]$ObjectStatusList.Add($objStatus)
+        }
 
 
     }
@@ -7672,36 +8319,40 @@ Function Remove-HPEGLDeviceServiceDeliveryContact {
         }
         
         
-        "[{0}] List of devices where to remove the service delivery contact: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ObjectStatusList.serialnumber | out-string) | Write-Verbose
+        "[{0}] List of devices where to remove the service delivery contact: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InputList.serialnumber | out-string) | Write-Verbose
 
-        foreach ($Object in $ObjectStatusList) {
+        foreach ($Object in $InputList) {
 
             $Device = $Devices | Where-Object serialNumber -eq $Object.SerialNumber
 
             if ( -not $Device) {
 
                 # Must return a message if device not found
-                $Object.Status = "Failed"
-                $Object.Details = "Device cannot be found in the workspace!" 
+                $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $Object.SerialNumber
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
 
                 if ($WhatIf) {
-                    $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $Object.Status = "Warning"
+                $Object.Details = "Device cannot be found in the workspace!" 
 
             } 
             elseif (-not $device.serviceDelivery.email -and -not $device.serviceDelivery.name) {
 
                 # Must return a message if device is not assigned to a service delivery contact
-                $Object.Status = "Warning"
-                $Object.Details = "Device is not assigned to a service delivery contact!"
+                $ErrorMessage = "Device '{0}': Resource is not assigned to a service delivery contact!" -f $Object.SerialNumber
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
 
                 if ($WhatIf) {
-                    $ErrorMessage = "Device '{0}': Resource is not assigned to a service delivery contact!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
+
+                $Object.Status = "Warning"
+                $Object.Details = "Device is not assigned to a service delivery contact!"
 
             }
             else {         
@@ -7762,8 +8413,8 @@ Function Remove-HPEGLDeviceServiceDeliveryContact {
                         If ($DeviceSet) {
                               
                             $Object.Status = "Failed"
-                            $Object.Details = "Service delivery contact cannot be unassigned from device!"
-                            $Object.Exception = $_.Exception.message 
+                            $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Service delivery contact cannot be unassigned from device!" }
+                            $Object.Exception = $Global:HPECOMInvokeReturnData
 
                         }
                     }
@@ -7771,7 +8422,7 @@ Function Remove-HPEGLDeviceServiceDeliveryContact {
             }
         }
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
             $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.SSDE"   
             Return $ObjectStatusList
@@ -7838,17 +8489,17 @@ function Invoke-RepackageObjectWithType {
 Export-ModuleMember -Function `
     'Get-HPEGLDevice', 'Add-HPEGLDeviceCompute', 'Connect-HPEGLDeviceComputeiLOtoCOM', 'Add-HPEGLDeviceStorage', 'Add-HPEGLDeviceNetwork', `
     'Disable-HPEGLDevice', 'Enable-HPEGLDevice', 'Add-HPEGLDeviceTagToDevice', 'Remove-HPEGLDeviceTagFromDevice', `
-    'Get-HPEGLLocation', 'New-HPEGLLocation', 'Set-HPEGLLocation', 'Remove-HPEGLLocation', `
+    'Get-HPEGLLocation', 'New-HPEGLLocation', 'Set-HPEGLLocation', 'Remove-HPEGLLocation', 'Confirm-HPEGLLocation', `
     'Set-HPEGLDeviceLocation', 'Remove-HPEGLDeviceLocation', `
     'Set-HPEGLDeviceServiceDeliveryContact', 'Remove-HPEGLDeviceServiceDeliveryContact' `
     -Alias *
 
 
 # SIG # Begin signature block
-# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDqS6YjIgrnbNzJ
-# MZhJkV80hiDFatYjg9ZdvA2PGX1FF6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCA6R39tPUlDTBdK
+# 0e3TSXctOO80d7E6cxDnqzQOyCK9CaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -7944,147 +8595,154 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgFpsyT/d7/M7KgzJkD9XOqhmopqs6VTHWCQDWZmKugsAwDQYJKoZIhvcNAQEB
-# BQAEggIACHH3EPwbtexYXTVebvrCI1L3QP5ZHRnExl5hjzY/v2Vz2oiEaqtC1UAX
-# WPApM6VTk2RWHMSy/spRoYEGjO6H0TMCD7w99xjmViffN0bGTG3TUIaQU1TQdXvj
-# wwxTXq4FQ8mf4zxPbXVF6vowZGOH5HocxJXu8JKcjaUe8D0pyTOWsyWVNAQ+0pIv
-# MTjlFqWQOmHkMWy54tBpInfXdYhaFDL44hvyDJqHu4IbKMmuw6l6xrLsakKT6EIk
-# +A+oj5ZuYYukArcNyfZ2bz+fweKknp9H2FWGQGcf7v51tqaJbMnzb+yuPZ+r1ait
-# QpkZEuS1IHOdj8rsmn1/1xq+HA2MIvpTPpfS9R7vXcecoeswilYXb2gJR4GnbjO/
-# /eHMF4wbCE6GWmxa/ybmcKb7EDex+GtDHjxek8R/MWhh19uuQcov2axOQOYGbvB0
-# vaqNwtp0V+YVO7wgAo48ryh2f9x3CyZG124tyD1LN3JMAXa0XQLMFjJc71u+i2MH
-# b0VTHGxkHt9Afbt8pB4odFU48DCl8hLw9xN41oHk+ONDARw98a6oKBI7puLGjmNv
-# ZEuLnM1tIQGHfr3xkJqkVO/Yc0ih6Cu2TS2Uu343HFzvtAi18Ut052wFU0AAcbRE
-# 3Djeodd/C/7YEgVeSj0T4d+SGffBLkJxTAsKUEPXhyy+Ksz2ebWhgheXMIIXkwYK
-# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMCpWy/gIsWhOlltAMZz2+mCA26cJMZrl7vo44J8fcevd
-# ecQx4I2yurTivLCyzmOPMQIQB6k+D7+SoPf26QDWmg0m1BgPMjAyNjAyMDUwOTAw
-# MjNaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
-# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
-# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
-# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
-# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
-# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
-# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
-# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
-# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
-# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
-# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
-# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
-# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
-# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
-# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
-# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
-# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
-# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
-# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
-# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
-# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
-# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
-# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
-# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
-# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
-# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
-# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
-# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
-# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
-# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
-# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
-# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
-# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
-# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
-# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
-# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
-# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
-# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
-# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
-# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
-# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
-# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
-# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
-# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
-# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
-# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
-# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
-# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
-# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
-# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
-# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
-# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
-# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
-# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
-# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
-# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
-# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
-# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
-# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
-# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
-# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
-# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
-# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
-# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
-# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
-# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
-# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
-# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
-# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
-# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
-# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
-# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
-# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
-# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
-# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
-# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
-# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
-# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
-# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
-# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
-# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
-# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
-# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
-# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
-# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
-# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
-# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
-# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
-# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
-# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
-# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
-# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
-# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
-# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
-# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
-# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMjA1
-# MDkwMDIzWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
-# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwpEiRCXBI2dL2f7zSQW74lzge
-# oCx23xrb2DMCu7IMhY0/m3JvIVRlx9/PkpE3VsbaMA0GCSqGSIb3DQEBAQUABIIC
-# AHBe3MNgatyUBWZIoP6d+Z9nWTLm0ohhn4hpDgaPbhE2nZLoHtTmtxPYxL3Fynsn
-# ZyuZjkdkMBVk7RLRpmbqcBlXqmH2MxBoiPVBTlrI68kFYaG7STWNg6j4E5vrm8LO
-# 5umOJD58WIasLTc7JcMAdtbUGJmPiQrQ8E1aQ10sYssz0gAf8JKl1jDgXbkoYAop
-# kjaRbREstuj76Jm6EMxhTz07tby1ri3Bqe5xUUrR/hcjufwkHtIs6Pj3KCsKnXQP
-# XjdakvdgPMlGn0jSaGMIPQ2kWJZsw1qrkN+neTYxTlBctBbYhECQdv48eo4MMOqr
-# QfZjErFgq8ri1olyPyIE+LiO8EpV0i0CeZ4fBhedxSWOLFhpIGTlvpjio3mTzTz/
-# E6JmxCkpQl9OZN25GUPtN9UD1qARh/VVZuLyTv9IwrWxUzLoLlSRyhfctA92MZWF
-# 28nJ0+Nb+18Qs3SAVosEj2/NloZLhJxyvgHTSopoLLqniipHz+Davr9aoo0t+Uy5
-# OVd8v1OmGkXTKZ9uyxk6njn/kC+T1lqsBGwVMchMg5+z1quo1EPr81YrqRKtG674
-# 7SMTw/p67rENcV0w76pACwG9uc1+JJBebrkLwdtW82tyIWRIBg2iCS1CXrwwvX8P
-# csk+sKz6JDCJjVpjW7/TQMCrt5z/EtxAzyep7UMrsXZg
+# IgQg3E+lqrrgGj3A3qdLiR+VOOiKULdVp8I86wWP9PgMmf0wDQYJKoZIhvcNAQEB
+# BQAEggIAcGsN6fOQ8R+CMQfT3lED+CS0lQBK7GT4sKQylVdCrr/lnqs9ZayGt9HJ
+# yPh4VLcDBXWQx7n5wKKX5/xQedSeqpn8Dawpxq9Mk9Cm1hK2hWknYFM10ZZrDMPz
+# RXhQsP4Yw59+qwGCFG0yfa0AVvqGsih19AKDb+ARiLC7Skg5nTDNUx2M33VzX2WI
+# KX8YJOL8llY/trAtD1uhkF0z7NiSvePvLplAmARSxHveed+PQFLi1FZtEjSxVUuR
+# J3dFVmaSLUPppaXyAuxsKY3fT79DlHoBIsLserVSPBI9JkDy0zbaPAzteFGzlrZC
+# 8pBp3XkFMKRadVF93ytE+S9DT5oVLoMK4SsDqgrK673JbZmDEnywwUVjPrVBhw8H
+# 2NLV+4Blsjt6fP7vuweIc0WVzC0w59AFDRYOV+6SiTE61e6KMgLOn1746o0sOnCu
+# M/+tEmFs6Oi3ChmzBfGQC62DKTgBrl7vOhe2YcPFJ2Ii5hcqT5nwp762yj/Sn18N
+# US/rFVqPfm4C65DWkhHmv3Fd4VGhJ1sPegOUqE8HBZpPSJzaapm9sVIJJU+OILFU
+# QMKEAmGCvTIR9IAqXG9LJ2jLG6JEzWT4dYDg2KoDOlMdsy5ICj11rSnzgbhcXdzt
+# Ra01rGECI3qQBh3tOqSTVPoYxWyZyQMIMmMGKNfdyshdRnzGW1ShghjoMIIY5AYK
+# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQw0zMPjpl322pM82d5YUd1k1JuFXKNeHKcLK3a
+# ++BtJCVePhMqZ+SPylAnM4sHc+h6AhRSo5q1LI8NmXFVRLCC+OXgnNwbMxgPMjAy
+# NjAzMTcxNDMzNTJaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
+# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
+# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
+# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
+# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
+# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
+# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
+# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
+# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
+# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
+# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
+# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
+# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
+# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
+# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
+# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
+# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
+# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
+# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
+# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
+# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
+# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
+# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
+# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
+# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
+# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
+# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
+# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
+# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
+# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
+# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
+# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
+# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
+# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
+# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
+# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
+# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
+# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
+# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
+# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
+# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
+# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
+# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
+# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
+# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
+# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
+# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
+# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
+# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
+# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
+# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
+# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
+# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
+# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
+# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
+# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
+# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
+# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
+# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
+# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
+# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
+# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
+# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
+# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
+# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
+# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
+# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
+# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
+# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
+# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
+# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
+# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
+# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
+# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
+# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
+# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
+# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
+# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
+# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
+# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
+# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
+# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
+# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
+# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
+# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
+# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
+# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
+# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
+# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
+# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
+# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
+# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
+# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
+# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
+# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
+# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
+# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
+# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
+# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
+# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
+# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
+# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
+# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
+# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
+# DxcNMjYwMzE3MTQzMzUyWjA/BgkqhkiG9w0BCQQxMgQwgU4zD81Vhplm4hsXElkR
+# n1aC6hI806mDyr0IazlqLqAg6yPYIJgO53Cdc4ToW3IqMIIBegYLKoZIhvcNAQkQ
+# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
+# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
+# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
+# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
+# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
+# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
+# AgDP1WzSe3BckX+6008DMzxRwWlC6meKqbvFBzC+ACBpDewAZ/GmzXGj75FTJXvN
+# aTQ1KnnWYw8urowj0hwEjaL368koVuHuSyzv5oPC6PuzCmdRQIUGJ5EGyGjMNNwI
+# sMVkJPd/ZKuk+t9Y1ZQYunnqZ7LLgBkPWioPPI88Ilvm+3xKGyazziY7SRd85VBP
+# 7tteqHKYsux+95xOre+RXGWKUNcplJk4litINcdW3so8L37K9qqYRSpXLwjRDeNj
+# dYK02aPpXijaaKHBTF34kKVsr2kCNUqGnK+aCced9n+tzht1zOaBYUpWRX7QN0nf
+# yLuwah+XlCkU82XgzyiX9iPeDB7ge8qDKduKiGyWJ3hM8dvtVY9zbWq0U6D9duxe
+# 2zkji+4UrrPLiJaMnDn8OlfOhVChEXVmzAfLO06fqIkWn1WAFukCqX7YN8tJCE9M
+# 4BP1G+eDVHxvPmjHXM882LcWcoy1zugBwwRtvZQk6MbZr+J65BxrpdpPQdZ452kd
+# dCPmQE39hIg2DeD7ymF6qC359AvLHOxyipNlySKV7AJuTKHVwgJvaWUZHTOmO9S8
+# 3tqMytnMG4FyzfvK+RqlVgBqA+ZyfU7x4xZPBe2MRcVMFIQl1eWSa2DyoE+GTPTd
+# 3zTKgqP1C4+B65WFXzOknr+70VPf4bBkGN6jROvyGJr2oA==
 # SIG # End signature block

@@ -570,8 +570,7 @@ Function Get-HPEGLServiceResourceRestrictionPolicy {
                 $Uri = (Get-AuthorizationResourceRestrictionsUri) + "?application_id=" + $ServiceID #+ "&include_predefined_filters_and_scope_resource_instances=true"
             }
             else {
-                $ErrorMessage = "Service '{0}' is not provisioned in the '{1}' region!" -f $ServiceName, $ServiceRegion
-                Write-warning $ErrorMessage
+                "[{0}] Service '{1}' is not provisioned in the '{2}' region - returning nothing" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceName, $ServiceRegion | Write-Verbose
                 return
             }
         }
@@ -824,7 +823,7 @@ Function New-HPEGLService {
 
             if ($WhatIf) {
                 $ErrorMessage = "Service '{0}' is not available in '{1}' region for provisioning!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -838,7 +837,7 @@ Function New-HPEGLService {
 
             if ($WhatIf) {
                 $ErrorMessage = "Service '{0}': Resource is already provisioned in '{1}' region! No action needed." -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -969,13 +968,15 @@ Function New-HPEGLService {
             }
         }      
 
-        [void] $AddServiceStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $AddServiceStatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($AddServiceStatus.Count -gt 0) {
 
             $AddServiceStatus = Invoke-RepackageObjectWithType -RawObject $AddServiceStatus -ObjectName "ObjStatus.NSDE" 
             Return $AddServiceStatus
@@ -1097,11 +1098,11 @@ Function Remove-HPEGLService {
 
             if ($WhatIf) {
                 $ErrorMessage = "Service '{0}': Resource cannot be found in the workspace!" -f $Name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Service not available in the region!"
             }
 
@@ -1114,11 +1115,11 @@ Function Remove-HPEGLService {
 
             if ($WhatIf) {
                 $ErrorMessage = "Service '{0}': Resource is not provisioned in any region!" -f $Name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Service is not provisioned in any region!"
             }
 
@@ -1213,7 +1214,7 @@ Function Remove-HPEGLService {
     
                     if ($WhatIf) {
                         $ErrorMessage = "Operation cancelled by the user!"
-                        Write-warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {    
@@ -1294,13 +1295,15 @@ Function Remove-HPEGLService {
             }
         }
 
-        [void] $RemoveServiceStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $RemoveServiceStatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($RemoveServiceStatus.Count -gt 0) {
 
             $RemoveServiceStatus = Invoke-RepackageObjectWithType -RawObject $RemoveServiceStatus -ObjectName "ObjStatus.NSDE" 
             Return $RemoveServiceStatus
@@ -1428,18 +1431,24 @@ Function Add-HPEGLDeviceToService {
 
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
 
-        # Check for empty or null serial number
-        if (-not $DeviceSerialNumber) {
-            Write-Warning "Empty or null serial number skipped."
-            continue
-        }
-
         # Build object for the output
         $objStatus = [pscustomobject]@{  
             SerialNumber = $DeviceSerialNumber
             Status       = $Null
             Details      = $Null
             Exception    = $Null                  
+        }
+
+        # Check for empty or null serial number
+        if (-not $DeviceSerialNumber) {
+            if ($WhatIf) {
+                Write-Warning "Empty or null serial number skipped. Cannot display API request."
+                continue
+            }
+            $objStatus.Status = "Warning"
+            $objStatus.Details = "Empty or null serial number skipped."
+            [void]$ObjectStatusList.Add($objStatus)
+            continue
         }
     
         [void]$ObjectStatusList.Add($objStatus)
@@ -1475,12 +1484,12 @@ Function Add-HPEGLDeviceToService {
             if ( -not $Device) {
 
                 # Must return a message if device not found
-                $Object.Status = "Failed"
+                $Object.Status = "Warning"
                 $Object.Details = "Device cannot be found in the workspace!" 
 
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
             } 
@@ -1492,7 +1501,7 @@ Function Add-HPEGLDeviceToService {
 
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource already assigned to a service instance!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
             }
@@ -1578,7 +1587,7 @@ Function Add-HPEGLDeviceToService {
                                 if ($DeviceSet) {
                                     $Object.Status = "Failed"
                                     $Object.Details = "Device cannot be assigned to the service instance!"
-                                    $Object.Exception = "HTTP Error: $($response.httpStatusCode) - $($response.message)"
+                                    $Object.Exception = $Global:HPECOMInvokeReturnData
                                 }
                             }
                         }
@@ -1592,8 +1601,8 @@ Function Add-HPEGLDeviceToService {
                         $DeviceSet = $DeviceHashtable[$Object.SerialNumber]
                         If ($DeviceSet) {
                             $Object.Status = "Failed"
-                            $Object.Details = "Device cannot be assigned to the service instance!"
-                            $Object.Exception = $_.Exception.message 
+                            $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Device cannot be assigned to the service instance!" }
+                            $Object.Exception = $Global:HPECOMInvokeReturnData 
                         }
                     }
                 }
@@ -1730,12 +1739,12 @@ Function Remove-HPEGLDeviceFromService {
             if ( -not $Device) {
 
                 # Must return a message if device not found
-                $Object.Status = "Failed"
+                $Object.Status = "Warning"
                 $Object.Details = "Device cannot be found in the workspace!" 
 
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
             } 
@@ -1747,7 +1756,7 @@ Function Remove-HPEGLDeviceFromService {
 
                 if ($WhatIf) {
                     $ErrorMessage = "Device '{0}': Resource not assigned to a service instance!" -f $Object.SerialNumber
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     continue
                 }
 
@@ -1837,7 +1846,7 @@ Function Remove-HPEGLDeviceFromService {
                                 if ($DeviceSet) {
                                     $Object.Status = "Failed"
                                     $Object.Details = "Device cannot be unassigned from the service instance!"
-                                    $Object.Exception = "HTTP Error: $($response.httpStatusCode) - $($response.message)"
+                                    $Object.Exception = $Global:HPECOMInvokeReturnData
                                 }
                             }
                         }
@@ -1852,8 +1861,8 @@ Function Remove-HPEGLDeviceFromService {
                         $DeviceSet = $DeviceHashtable[$Object.SerialNumber]
                         If ($DeviceSet) {
                             $Object.Status = "Failed"
-                            $Object.Details = "Device cannot be unassigned from the service instance!"
-                            $Object.Exception = $_.Exception.message 
+                            $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Device cannot be unassigned from the service instance!" }
+                            $Object.Exception = $Global:HPECOMInvokeReturnData 
                         }
                     }
                 }
@@ -2223,11 +2232,11 @@ Function New-HPEGLAPIcredential {
 
                 if ($WhatIf) {
                     $ErrorMessage = "Service '{0}' cannot be found or is not provisioned in '{1}' region!" -f $ServiceName, $Region
-                    Write-warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "Service cannot be found in the HPE GreenLake workspace!"
                 }
               
@@ -2266,7 +2275,7 @@ Function New-HPEGLAPIcredential {
 
             if ($WhatIf) {
                 $ErrorMessage = "API credential '{0}': Resource already exists in the workspace! No action needed." -f $CredentialName
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -2281,7 +2290,7 @@ Function New-HPEGLAPIcredential {
 
             if ($WhatIf) {
                 $ErrorMessage = "API credential '{0}': Resource cannot be created because you have reached the maximum of 7 personal API clients." -f $CredentialName
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
@@ -2436,13 +2445,15 @@ https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us
 
         }
 
-        [void] $NewAPICredentialStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $NewAPICredentialStatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($NewAPICredentialStatus.Count -gt 0) {
 
             "[{0}] Adding connectivity endpoints when absent to each generated credentials" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
@@ -2587,11 +2598,11 @@ Function Remove-HPEGLAPICredential {
 
             if ($WhatIf) {
                 $ErrorMessage = "API credential '{0}': Resource cannot be found in the workspace!" -f $Name
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "API credential cannot be found in the workspace!"
             }
 
@@ -2784,13 +2795,15 @@ For more information: https://support.hpe.com/hpesc/public/docDisplay?docId=a001
             }
         }  
 
-        [void] $RemoveAPICredentialStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $RemoveAPICredentialStatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($RemoveAPICredentialStatus.Count -gt 0) {
 
             $RemoveAPICredentialStatus = Invoke-RepackageObjectWithType -RawObject $RemoveAPICredentialStatus -ObjectName "ObjStatus.NSDE" 
             Return $RemoveAPICredentialStatus
@@ -3129,8 +3142,8 @@ Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceScopeFilter',
 # SIG # Begin signature block
 # MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBSCXD9ti6zDp+8
-# /HHUrbMrXBSubm1QUDHnJX/Jftj3MqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCATDIkyXl+UFfuc
+# vt7BL7I1greqv5zU5Gi7Xi1mgcEFuqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -3231,23 +3244,23 @@ Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceScopeFilter',
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgndElTajBBtMI414AV/g1+2RJSI3wmYIIEGX14TTHl44wDQYJKoZIhvcNAQEB
-# BQAEggIAWVwe3L1yyesQP3CgdLM8zyibPchC1FTnauzofnbTFKpm9HPd9dJmfAJ2
-# /GZqvQmTpL9iYTCH0oDUDXE8Z8Yur/opDBXwvQAQwsz2OfimPq0o4TQvCFlSk7Ka
-# s6RAwYxqEcEOjhFMFECwf0U/VjySkv6yMbPwd0VPZfXqP0dmdDXv2hQv6Bc2n0+c
-# zCHlXHbGqexCVNrQA+Dw92ETh5Lje/+hdfm2Zor3yMmUZwcyKjzwJ320ih91jgX/
-# qIe96nGVeWynL8ACflfH5UR3Q6Uf3QysWwhHY8JXOcIyLh+8ALYPqcuBTxB/Zxyn
-# UcD/qAfCiiMv6cHpybvKZQThJFfLchitPyJKaAUTED3elCwJf9plWxZtKKyxDani
-# 0wVlTZdxZY2+Yctz9OpskV4Fxri7aKz6Xpq5mzQ6uMflxJo5k/l7kfF5GVRRo12e
-# +LOJrqH/HJtjvfQW/BEwUKGC3aUNiL3Jm7eUftt22+NntmtrzwTW5/0j8wAcPWj7
-# RuU2qmediuh3ln1uafQuMyiNv9UTTgnSuQWoKYu2XCdPNdD+WRnuWNJYMXUa5d3K
-# nfRu0EudZep2gH0/hsA5BHrAd4kllZ8lbT/PQA2omEaJGicKaQBhk8kWCfEWrWKf
-# KHPTOAebzsa+kvUSnxTBQT/a9IR6LM32189m92ihNTocn9bQ4NWhgheXMIIXkwYK
+# IgQg+hBjB5puRxYgsvVSzu8Ex3EeiybLnXuS08zx2illgT0wDQYJKoZIhvcNAQEB
+# BQAEggIA2jtewwSXGJET+OD7QoQZzrYiFfnojCHpoZXBdcfp7tUGVg8tBWGZNR9f
+# ag4Fj++TrOPfxUSLVLcByJACgy9tpfHPJRUfA+UkrwEJwwTM6w52kaVLO2RWT6mt
+# e2qihSOq1iae90ObZdWCiS31lfa6XD5oniUs4P5N4skevy+g27pjAAvRY/3jQl1a
+# /n2VrPueVOAdoPorySnNWvtavvKNWOBHk92C9P6W17mBpjI1N0htoEj7GpIkpfnU
+# Dv4GTf+C0HpOfnaLEmcR9WccVLXR8EjUt1NOmF1yvUCZ216nNjoEoqzB9lWFunaG
+# +xol+xeIbyu4p4ux7okaGccDz3YSE3oRw0fX9X43L+XvRPvF1ArWJHiT14NByexA
+# 1m9fMhBKIw8VrSGtuTixVxh4j8kPMfUohlKXPV00GKoJYNylPNsHLL93NV4N7eVq
+# eYMLvlinJ3r+6hXSS0aq+9y5MWbMnMWUPdhFYCgYr23T1H3mDJg4O7hS2P0cQ2Uu
+# AjzU193lzsZzBYeATNbiKJZ/2tcvkC8NnjFNA1B2jlctfKijzHh2D/CzeA123TjD
+# PEn/e59JbQQC3Etsli3Lu+xH/gK50OyVDTod3reqDR9FuZDTQGVjaT90mEGsOXa4
+# hb/b3YZrGK2rubpR2HuL7OKKF8CD3vobDOls0ex7kRQ7o/NWezmhgheXMIIXkwYK
 # KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMNsQ+xkF6fdzZewJQ3oGohG/uLO0tBwpIL1hcJb9HWZe
-# 38m4lu/pJJdTIzBnXC4BJgIQfAQGlUoA3Po2T91azoLKjhgPMjAyNjAxMzAxMDUz
-# MjZaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# DQYJYIZIAWUDBAICBQAEMNgFOalPckBPDhvgE8Z4PCDNxqJbI/73a+3sbVQ03ZBG
+# 6chxuHhUzz+miFu6vLBEkwIQC+KJCGs3HNnaIzByhFzodRgPMjAyNjAzMTcxNDM2
+# MzhaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
 # AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
 # PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
 # IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
@@ -3353,20 +3366,20 @@ Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceScopeFilter',
 # MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
 # OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
 # IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMTMw
-# MTA1MzI2WjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMzE3
+# MTQzNjM4WjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
 # UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQw3n2ItFn5omwzs1Vw60ryGekw
-# FW25JAB5fXWtAbs/8NJKRJaVekc5DKHfJEZoNT9AMA0GCSqGSIb3DQEBAQUABIIC
-# AC4NZypF1uwGQ9Uy0UIp3BnI3h/9jzZ5nnGKNRghNQ6ItXJ7VGY254vibwDBXwqF
-# KtFYu0MHDq7mq31oDOnCxVs3sMNspt0pTsTcS1RjgpBFOsQuAIES00s3rvpi0Db2
-# G7h4x9G1KZfGPWDXn245pNsiD4UMgiz60ZK/hTHc8qmi095759Yw0lvyx7KDbguk
-# odZbotBIUi1DHcc4Ub5jMjAoTCdVO2/HmD1U7YoQX35jBaFGrJwoxA3J6Rc4RvBo
-# FEh68KOujqQy30SyT3k8BwSSKYqgVTSiy8ns9q67XtMQIakCnMMj8eMV/bqaqq6B
-# +K/1ZIrf6Cmns9j6IrS4lhw1eDwHjRSp19SICtoxe1BXtT5N2Db7JAxBgbuBigZh
-# NzBeeqnvZG8kbgiylzC3y2XAkPaA3rF/kLBcBJ2B/vnDlTUB3VLchIZ8hrR0wxjt
-# 3s3b4YYrN2y/3iU0wGHHkl5C0fmgTlQOKQRlLDzky1pNIzcah2+ie76rGRFE3+0T
-# /SUROkX/pOOmdDlmD/w2clMr6OlBydX04/9+sa1f49+3i5Qx3os0V7a7vkwpEq2D
-# 7lGaf9kfgNTgrk8BuGCnuNBCF89aXHF7MRB0/PThfbxj8pGQuRaTMNwq70j+QokV
-# 16GJktMcEv7DL0j7z0mdE4nOu5GVQtT1QfbSLclYBzsm
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwZbQNsneqpHOJ0aEe1aeTXe5l
+# InXUkU1grs4i6BV8XLFR0ZaJ4q1i+ZbnlBS4mrmFMA0GCSqGSIb3DQEBAQUABIIC
+# ADOxl1/dO2zplIBB0jSry5NERtL7vFfX0r4NPXm+vWxxUpG8i//MenqG0/oQIx9H
+# +lI9byABg9VU9EEV40zszSBg4emvQedIHuB0ESb40EMV1AsM/5bbIrwEpeKSbgus
+# 9vYj2DxBpljhsjB801h3mnx/31zjeaVwx+nkOmTKmI9cq2dAaoIsIS2ypAYx3+qH
+# 6RT9F/cJlF3C5tiHhGMrWVe5O1aOA/UUOt/nRFBYNp851XrSD1eCR3kD1QEwnVPD
+# qjfPoy6lWQRr+A0VM0bSg69LM7sD/WE7vcwDdICd40NlDRwESnLTHrlk6pMr2eMF
+# iHaDHDfGmiEbz+PE5VzLh8bImTmI+GfWjwcnmAM/Rhw7BSxUZzxyftfpQ1YeWvfJ
+# EwdZz3sOrL75/VEhYOmN8L5OaRCYl61/rJLBk4Srqj9FMKxmr9s/cYyIMV7yY2ef
+# 9qWL2QpBvTqzuDEOiHqpsakwU07arwdOu6xFEruXKvVJfDeBXLnWu2ydHX6fMn4R
+# YWlfHLEMGrYL6y8bWfYNL41kN/ZX4V1plKhrtyck85U0vJ773qxfXzYHT963mE2b
+# gByZQeFlJ5HKxXBzA969pho7/C9J6Z1XWmDnDpS2aTpM21Z8MS/u8ezBC7oIC/u5
+# e3pNcF+yJMatQYxmnyfA7WacgJM2VtaCLt9lEYKGmlJh
 # SIG # End signature block

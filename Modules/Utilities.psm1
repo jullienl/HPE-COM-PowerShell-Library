@@ -917,8 +917,8 @@ Example:
 
                     $headers = @{} 
                     $headers["Accept"] = "application/json"
-                    $headers["Content-Type"] = "application/json"
-                    $headers["Authorization"] = "Bearer $($glpApiAccessToken)"                                    
+                    $headers["Content-Type"] = $ContentType
+                    $headers["Authorization"] = "Bearer $($glpApiAccessToken)"
 
                     "[{0}] Request headers: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ((($headers | ConvertTo-Json) -Replace 'Bearer \S+', 'Bearer [REDACTED]') | Out-String) | Write-Verbose
 
@@ -1146,24 +1146,33 @@ Example:
                     $msg = if ($exceptionMessage) { "{0} - {1}" -f $Message, $exceptionMessage } else { $Message }
                     # "[{0}] Final constructed message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
 
-                    # Check for GreenLake 403 Forbidden errors - always a permissions issue
+                    # Check for GreenLake 403 Forbidden errors
                     if ($errorData.httpStatusCode -eq 403) {
                         "[{0}] 403 Forbidden detected - insufficient permissions for this operation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                         
-                        # 403 errors are always permission-related - provide helpful guidance
-                        $EnhancedError = "Insufficient permissions to perform this HPE GreenLake operation.`n`n"
-                        $EnhancedError += "CAUSE:`n"
-                        $EnhancedError += "You do not have the required role or permissions in this workspace.`n`n"
-                        $EnhancedError += "ACTION REQUIRED:`n"
-                        $EnhancedError += "1. Verify you have the appropriate role assigned using:`n"
-                        $EnhancedError += "   Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles`n`n"
-                        $EnhancedError += "2. If no role is assigned, request the appropriate role for this operation.`n`n"
-                        $EnhancedError += "3. To assign a role (requires workspace admin privileges):`n"
-                        $EnhancedError += "   Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Workspace Administrator'`n`n"
-                        $EnhancedError += "4. To see available roles, run: Get-HPEGLRole`n`n"
-                        $EnhancedError += "Error code: {0}" -f $errorData.errorCode
-                        
-                        $msg = $EnhancedError
+                        # Some 403s are quota/limit errors, not permission errors — use the API message directly
+                        $limitErrorCodes = @(
+                            'HPE_GL_UNIFIED_EVENTS_REGISTRATION_FORBIDDEN'
+                        )
+                        if ($errorData.errorCode -in $limitErrorCodes) {
+                            $msg = $errorData.message
+                        }
+                        else {
+                            # 403 errors are permission-related - provide helpful guidance
+                            $EnhancedError = "Insufficient permissions to perform this HPE GreenLake operation.`n`n"
+                            $EnhancedError += "CAUSE:`n"
+                            $EnhancedError += "You do not have the required role or permissions in this workspace.`n`n"
+                            $EnhancedError += "ACTION REQUIRED:`n"
+                            $EnhancedError += "1. Verify you have the appropriate role assigned using:`n"
+                            $EnhancedError += "   Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles`n`n"
+                            $EnhancedError += "2. If no role is assigned, request the appropriate role for this operation.`n`n"
+                            $EnhancedError += "3. To assign a role (requires workspace admin privileges):`n"
+                            $EnhancedError += "   Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Workspace Administrator'`n`n"
+                            $EnhancedError += "4. To see available roles, run: Get-HPEGLRole`n`n"
+                            $EnhancedError += "Error code: {0}" -f $errorData.errorCode
+                            
+                            $msg = $EnhancedError
+                        }
                     }
                    
 
@@ -1936,7 +1945,14 @@ You can also use the Tab key for auto-completion to see the list of provisioned 
             if ($Global:HPECOMRegions.count -gt 0) {
                 $FirstProvisionedCOMRegion = $Global:HPECOMRegions | Select-Object -first 1 | Select-Object -ExpandProperty region
                 "[{0}] About to retrieve the URIs of each job templates in '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $FirstProvisionedCOMRegion | Write-Verbose
-                Set-HPECOMJobTemplatesVariable -Region $FirstProvisionedCOMRegion
+                try {
+                    Set-HPECOMJobTemplatesVariable -Region $FirstProvisionedCOMRegion
+                }
+                catch {
+                    # If user lacks COM permissions, the error will be thrown by Set-HPECOMJobTemplatesVariable
+                    # Re-throw so the COM cmdlet fails with proper error message
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
             }
             else {
                 "[{0}] Unable to retrieve job templates because no provisioned COM region was found in the current workspace." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
@@ -2301,25 +2317,34 @@ Error: No API credential found. 'Connect-HPEGL' must be executed first to establ
                     $msg = if ($exceptionMessage) { "{0} - {1}" -f $Message, $exceptionMessage } else { $Message }
                     # "[{0}] Final constructed message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
 
-                    # Check for COM 403 Forbidden errors - always a permissions issue
+                    # Check for COM 403 Forbidden errors
                     if ($errorData.httpStatusCode -eq 403) {
                         "[{0}] 403 Forbidden detected - insufficient permissions for this operation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
                         
-                        # 403 errors are always permission-related - provide helpful guidance
-                        $EnhancedError = "Insufficient permissions to perform this Compute Ops Management operation.`n`n"
-                        $EnhancedError += "CAUSE:`n"
-                        $EnhancedError += "You do not have the required Compute Ops Management role or permissions in this workspace.`n`n"
-                        $EnhancedError += "ACTION REQUIRED:`n"
-                        $EnhancedError += "1. Verify you have a Compute Ops Management role assigned using:`n"
-                        $EnhancedError += "   Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles`n`n"
-                        $EnhancedError += "2. If no COM role is assigned, request one of the following roles:`n"
-                        $EnhancedError += "   - 'Compute Ops Management administrator' (full access)`n"
-                        $EnhancedError += "   - 'Compute Ops Management operator' (operational access)`n`n"
-                        $EnhancedError += "3. To assign a role (requires workspace admin privileges):`n"
-                        $EnhancedError += "   Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Compute Ops Management administrator'`n`n"
-                        $EnhancedError += "Error code: {0}" -f $errorData.errorCode
-                        
-                        $msg = $EnhancedError
+                        # Some 403s are quota/limit errors, not permission errors — use the API message directly
+                        $limitErrorCodes = @(
+                            'HPE_GL_UNIFIED_EVENTS_REGISTRATION_FORBIDDEN'
+                        )
+                        if ($errorData.errorCode -in $limitErrorCodes) {
+                            $msg = $errorData.message
+                        }
+                        else {
+                            # 403 errors are permission-related - provide helpful guidance
+                            $EnhancedError = "Insufficient permissions to perform this Compute Ops Management operation.`n`n"
+                            $EnhancedError += "CAUSE:`n"
+                            $EnhancedError += "You do not have the required Compute Ops Management role or permissions in this workspace.`n`n"
+                            $EnhancedError += "ACTION REQUIRED:`n"
+                            $EnhancedError += "1. Verify you have a Compute Ops Management role assigned using:`n"
+                            $EnhancedError += "   Get-HPEGLUser -Email 'your.email@company.com' -ShowRoles`n`n"
+                            $EnhancedError += "2. If no COM role is assigned, request one of the following roles:`n"
+                            $EnhancedError += "   - 'Compute Ops Management administrator' (full access)`n"
+                            $EnhancedError += "   - 'Compute Ops Management operator' (operational access)`n`n"
+                            $EnhancedError += "3. To assign a role (requires workspace admin privileges):`n"
+                            $EnhancedError += "   Add-HPEGLRoleToUser -Email 'your.email@company.com' -RoleName 'Compute Ops Management administrator'`n`n"
+                            $EnhancedError += "Error code: {0}" -f $errorData.errorCode
+                            
+                            $msg = $EnhancedError
+                        }
                     }
                    
 
@@ -3130,10 +3155,43 @@ The session object includes convenient methods and properties for session manage
 Clone() Method:
     Creates a deep copy of the session object for saving and restoring session state.
     
-    Example - Save and restore session:
+    RECOMMENDED APPROACH:
+        Use Save-HPEGLSession and Restore-HPEGLSession cmdlets instead - they handle token refresh automatically.
+        
+        PS> Connect-HPEGL -Workspace "Production"
+        PS> $prodSession = Save-HPEGLSession   ─► Saves the session object for the Production workspace
+        
+         // Do some work in the Production workspace...
+        
+        Now connect to a different workspace without losing the original session
+        
+        PS> Connect-HPEGL -Workspace "Development"
+        PS> $devSession = Save-HPEGLSession    ─► Saves the new session object for the Development workspace
+        
+         // Do some work in the Development workspace...
+        
+        Now switch between them quickly
+        
+        PS> Restore-HPEGLSession -Session $prodSession     ─► Restores the Production session, including tokens
+
+         // Do some work in the Production workspace without re-authenticating
+
+        PS> Restore-HPEGLSession -Session $devSession      ─► Restores the Development session, including tokens
+
+         // Do some work in the Development workspace without re-authenticating
+
+    
+    MANUAL APPROACH (Advanced Users):
         PS> $SavedSession = $Global:HPEGreenLakeSession.Clone()
-        PS> # Perform operations in a different workspace...
-        PS> $Global:HPEGreenLakeSession = $SavedSession  # Restore instantly without reconnecting
+        PS> Connect-HPEGL -Workspace "DifferentWorkspace"
+        PS> $Global:HPEGreenLakeSession = $SavedSession
+        PS> Invoke-HPEGLAutoReconnect -Force  # REQUIRED after workspace switch to refresh GLP API token
+    
+    IMPORTANT:
+    • After restoring a cloned session following a workspace switch, you MUST run Invoke-HPEGLAutoReconnect -Force
+    • GLP API tokens are workspace-specific and lose server-side authorization when switching workspaces
+    • Without token refresh, most GLP API calls will fail with authorization errors
+    • Same workspace restoration: No refresh needed
     
     Benefits:
     • Instant restoration (no API calls)
@@ -3950,6 +4008,62 @@ For complete Entra ID setup prerequisites, see: $script:HelpUrl
                             $entropy = $credentialTypeResponse.Credentials.RemoteNgcParams.Entropy
                             
                             "[{0}] Push notification available - Entropy: {1}" -f $functionName, $entropy | Write-Verbose
+                            
+                            # Check if Entropy is missing even though RemoteNgcParams exists
+                            if (-not $entropy) {
+                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
+                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
+                                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
+                                }
+                                "[{0}] RemoteNgcParams present but Entropy field is missing" -f $functionName | Write-Verbose
+                                $errorMessage = @"
+Microsoft Entra ID did not return an Entropy value for this authentication attempt.
+
+This means Entra ID did not issue a number-matching challenge to Microsoft Authenticator.  
+Number matching is required for this authentication flow, and when it is not triggered, the Entropy field is omitted.
+
+One of the most common causes is that Microsoft Authenticator is enrolled for MFA but not fully enabled for passwordless phone sign-in.
+
+Please verify the following:
+
+1. Enable passwordless phone sign-in (critical)
+   - Open Microsoft Authenticator on your mobile device
+   - Tap your work account
+   - Tap “Enable phone sign-in” or “Set up passwordless sign-in requests”
+   - Complete the biometric setup and approval prompt
+   - Confirm that “Passwordless sign-in requests” appears for your account
+
+2. Check your authentication methods
+   https://aka.ms/mysecurityinfo
+   - Ensure you have BOTH:
+       • Microsoft Authenticator - passwordless phone sign-in
+       • Microsoft Authenticator - push MFA
+   - Remove duplicate or stale entries
+
+3. Check device registration
+   - Your phone must appear correctly under Entra ID → Devices
+   - Remove stale or duplicate device objects
+   - Ensure the device is not registered under a different tenant
+
+4. Account type and cross-tenant access
+   - Guest accounts may not receive passwordless or number-matching challenges
+
+5. Conditional Access policies
+   - A CA policy may be forcing a different MFA method or blocking passwordless
+
+6. Other strong authentication methods
+   - FIDO2 keys, Windows Hello for Business, TAP, or certificate-based auth may take precedence
+
+If issues persist:
+   - Remove Authenticator entries from https://aka.ms/mysecurityinfo
+   - Remove the device from Entra ID → Devices
+   - Reinstall Microsoft Authenticator
+   - Re-register passwordless and MFA
+
+For complete Entra ID setup prerequisites, see: `$script:HelpUrl
+"@
+                                Write-Error `$errorMessage -ErrorAction Stop
+                            }
                         }
                         else {
                             # RemoteNGC exists but params are null - passwordless is available but not set as default
@@ -3996,18 +4110,39 @@ For complete Entra ID setup prerequisites, see: $script:HelpUrl
                                 }
                                 "[{0}] Failed to request RemoteNGC credentials: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
                                 $errorMessage = @"
-Microsoft Authenticator passwordless sign-in is not properly configured for this account.
+Microsoft Authenticator passwordless authentication could not be initialized.
 
-This error can occur for multiple reasons:
+DETECTED ISSUE:
+Entra ID reported passwordless capability but failed to provide authentication credentials (Entropy missing).
+This typically means passwordless authentication is partially configured but not fully functional.
 
-1. Microsoft Authenticator is not enrolled with passwordless phone sign-in enabled
-   - Go to https://aka.ms/mysecurityinfo
-   - Add or reconfigure Microsoft Authenticator with phone sign-in (passwordless) enabled
+HOW TO FIX:
+
+1. RE-ENROLL MICROSOFT AUTHENTICATOR FOR PASSWORDLESS:
+   - Go to: https://aka.ms/mysecurityinfo
+   - Sign in with your account
+   - REMOVE the existing "Microsoft Authenticator" entry
+   - Click "+ Add sign-in method"
+   - Select "Microsoft Authenticator"
+   - During setup, ensure you select "Phone sign-in" or "Passwordless" option (NOT just MFA)
+   - Complete the QR code enrollment
    - Wait 15-30 minutes for changes to propagate
 
-2. User is not assigned to the HPE GreenLake application in Entra ID
-   - Contact your Entra ID administrator to verify application access
-   - Ensure you have the required app role assignments
+2. VERIFY ENTRA ID AUTHENTICATION METHODS POLICY (Contact your IT administrator):
+   - Entra ID → Security → Authentication methods → Microsoft Authenticator
+   - Ensure "Passwordless phone sign-in" is ENABLED
+   - Verify your user/group is in the "Target" section
+   - Check "Authentication mode" is set to allow passwordless
+
+3. CHECK FOR CONFLICTING POLICIES:
+   - Conditional Access policies blocking passwordless
+   - Legacy per-user MFA enforced (conflicts with modern passwordless)
+   - Application-specific authentication requirements
+
+4. VERIFY APPLICATION ASSIGNMENT:
+   - Entra ID → Enterprise applications → HPE GreenLake
+   - Confirm your account is assigned
+   - Verify required app roles are granted
 
 For complete Entra ID setup prerequisites, see: $script:HelpUrl
 "@
@@ -4021,19 +4156,59 @@ For complete Entra ID setup prerequisites, see: $script:HelpUrl
                             Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
                         }
                         $errorMessage = @"
-Microsoft Authenticator passwordless authentication is not enabled for this account.
+Microsoft Authenticator passwordless authentication is not available for this account.
 
-This error can occur for multiple reasons:
+DETECTED ISSUE:
+Entra ID reports that RemoteNGC (passwordless) capability is NOT available for this account.
+This means passwordless phone sign-in is either not enrolled or not enabled by policy.
 
-1. Microsoft Authenticator is not enrolled with passwordless phone sign-in enabled
-   - Install Microsoft Authenticator on your mobile device
-   - Go to https://aka.ms/mysecurityinfo
-   - Add Microsoft Authenticator with phone sign-in (passwordless) enabled
+HOW TO FIX:
+
+1. ENROLL MICROSOFT AUTHENTICATOR FOR PASSWORDLESS:
+   - Install Microsoft Authenticator on your mobile device (if not already installed)
+   - Go to: https://aka.ms/mysecurityinfo
+   - Sign in with your account
+   - Click "+ Add sign-in method"
+   - Select "Microsoft Authenticator"
+   - IMPORTANT: During setup, select "Phone sign-in" or "Passwordless" option
+   - Scan the QR code in the Microsoft Authenticator app
+   - Complete the enrollment process
    - Wait 15-30 minutes for changes to propagate
 
-2. User is not assigned to the HPE GreenLake application in Entra ID
-   - Contact your Entra ID administrator to verify application access
-   - Ensure you have the required app role assignments
+2. VERIFY ENTRA ID POLICIES (Contact your IT administrator):
+   
+   a) Authentication Methods Policy:
+      - Entra ID → Security → Authentication methods → Microsoft Authenticator
+      - Verify "Passwordless phone sign-in" is ENABLED at tenant level
+      - Verify your user/group is included in the "Target" section
+      - Check "Authentication mode" allows passwordless
+   
+   b) Check Security Defaults:
+      - Entra ID → Properties → Manage security defaults
+      - If enabled, may need to be disabled for full passwordless support
+      - Replace with Conditional Access policies instead
+   
+   c) Conditional Access Policies:
+      - Check if any policies block or restrict passwordless authentication
+      - Look for policies requiring specific authentication methods
+   
+   d) Application Assignment:
+      - Entra ID → Enterprise applications → HPE GreenLake (or SAML app)
+      - Verify your account is assigned with appropriate role
+
+3. CHECK FOR CONFLICTING CONFIGURATIONS:
+   - Legacy per-user MFA should be disabled (use CA policies instead)
+   - No pending forced password resets
+   - Account not blocked or in restricted state
+
+4. VERIFY IN MICROSOFT AUTHENTICATOR APP (after enrollment):
+   - Open the app on your mobile device
+   - Find your work account ($Username)
+   - Should show "Phone sign-in enabled"
+   - Should NOT only show a 6-digit TOTP code
+
+NOTE: Standard MFA (push approve/deny) is different from passwordless (number matching).
+HPE GreenLake requires passwordless phone sign-in with number matching challenges.
 
 For complete Entra ID setup prerequisites, see: $script:HelpUrl
 "@
@@ -8022,6 +8197,12 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
+
+                # Detect HTML response instead of JSON (network issue / platform outage / maintenance)
+                if (-not $StatusCode -and $_.Exception.Message -match "Conversion from JSON failed") {
+                    throw "[{0}] Authentication failed: The HPE GreenLake platform returned an unexpected response (not JSON — likely an HTML error or maintenance page). This is usually caused by a temporary network issue or a service outage. Please check your network connectivity and try again later." -f $functionName
+                }
+
                 throw "[{0}] Authentication failed: Unexpected error: {1} {2} - {3}" -f $functionName, $StatusCode, $StatusError, $_.Exception.Message
             }
 
@@ -10353,9 +10534,169 @@ Please verify your authenticator app and try again.
             
         $Global:HPEGreenLakeSession = Invoke-RepackageObjectWithType -RawObject $Global:HPEGreenLakeSession -ObjectName 'Connection'
 
-        # Add Clone() method for easy session copying
+        # Add Clone() method for easy session copying with deep copy using .NET serialization
         $Global:HPEGreenLakeSession | Add-Member -MemberType ScriptMethod -Name Clone -Value {
-            return $this.PSObject.Copy()
+            # Check if connected to a workspace before cloning
+            if (-not $this.workspaceId) {
+                Write-Warning "Cannot clone session: No workspace connection active. Connect to a workspace first using 'Connect-HPEGL -Workspace <name>' or 'Connect-HPEGLWorkspace -Name <name>'"
+                return $null
+            }
+            
+            # Use .NET serialization for deep copy (much simpler!)
+            # Save WebRequestSession separately as it can't be serialized
+            $authSession = $this.AuthSession
+            $workspaceSession = $this.WorkspaceSession
+            
+            # Temporarily null them out for serialization
+            $this.AuthSession = $null
+            $this.WorkspaceSession = $null
+            
+            try {
+                # Deep copy using PowerShell's built-in serialization
+                $serialized = [System.Management.Automation.PSSerializer]::Serialize($this, [int32]::MaxValue)
+                $clonedSession = [System.Management.Automation.PSSerializer]::Deserialize($serialized)
+                
+                # Manually copy WebRequestSession objects with DEEP COPY of cookies
+                if ($authSession) {
+                    $clonedAuthSession = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
+                    if ($authSession.Headers) {
+                        $authSession.Headers.Keys | ForEach-Object { $clonedAuthSession.Headers[$_] = $authSession.Headers[$_] }
+                    }
+                    # Deep copy ALL cookies from ALL domains using reflection
+                    if ($authSession.Cookies) {
+                        $clonedAuthSession.Cookies = [System.Net.CookieContainer]::new()
+                        # Use reflection to access internal cookie collection
+                        $domainTableField = [System.Net.CookieContainer].GetField("m_domainTable", [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic)
+                        if ($domainTableField) {
+                            $domainTable = $domainTableField.GetValue($authSession.Cookies)
+                            if ($domainTable) {
+                                foreach ($domain in $domainTable.Keys) {
+                                    $domainEntry = $domainTable[$domain]
+                                    $listField = $domainEntry.GetType().GetField("m_list", [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic)
+                                    if ($listField) {
+                                        $cookieList = $listField.GetValue($domainEntry)
+                                        foreach ($cookieItem in $cookieList.Values) {
+                                            # Handle case where Values might return nested collections
+                                            $cookiesToProcess = if ($cookieItem -is [Array]) { $cookieItem } else { @($cookieItem) }
+                                            foreach ($cookie in $cookiesToProcess) {
+                                                # Skip if not a Cookie object
+                                                if ($cookie -isnot [System.Net.Cookie]) { continue }
+                                                
+                                                # Create NEW Cookie instance with same properties (true deep copy)
+                                                $newCookie = [System.Net.Cookie]::new()
+                                                $newCookie.Name = $cookie.Name
+                                                $newCookie.Value = $cookie.Value
+                                                $newCookie.Domain = $cookie.Domain
+                                                $newCookie.Path = $cookie.Path
+                                                # Handle Expires carefully - ensure it's a DateTime
+                                                if ($cookie.Expires -and $cookie.Expires -is [DateTime]) {
+                                                    $newCookie.Expires = $cookie.Expires
+                                                }
+                                                $newCookie.Secure = $cookie.Secure
+                                                $newCookie.HttpOnly = $cookie.HttpOnly
+                                                if ($cookie.Port) { $newCookie.Port = $cookie.Port }
+                                                $clonedAuthSession.Cookies.Add($newCookie)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    $clonedSession.AuthSession = $clonedAuthSession
+                }
+                
+                if ($workspaceSession) {
+                    $clonedWorkspaceSession = [Microsoft.PowerShell.Commands.WebRequestSession]::new()
+                    if ($workspaceSession.Headers) {
+                        $workspaceSession.Headers.Keys | ForEach-Object { $clonedWorkspaceSession.Headers[$_] = $workspaceSession.Headers[$_] }
+                    }
+                    # Deep copy ALL cookies from ALL domains using reflection
+                    if ($workspaceSession.Cookies) {
+                        $clonedWorkspaceSession.Cookies = [System.Net.CookieContainer]::new()
+                        # Use reflection to access internal cookie collection
+                        $domainTableField = [System.Net.CookieContainer].GetField("m_domainTable", [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic)
+                        if ($domainTableField) {
+                            $domainTable = $domainTableField.GetValue($workspaceSession.Cookies)
+                            if ($domainTable) {
+                                foreach ($domain in $domainTable.Keys) {
+                                    $domainEntry = $domainTable[$domain]
+                                    $listField = $domainEntry.GetType().GetField("m_list", [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic)
+                                    if ($listField) {
+                                        $cookieList = $listField.GetValue($domainEntry)
+                                        foreach ($cookieItem in $cookieList.Values) {
+                                            # Handle case where Values might return nested collections
+                                            $cookiesToProcess = if ($cookieItem -is [Array]) { $cookieItem } else { @($cookieItem) }
+                                            foreach ($cookie in $cookiesToProcess) {
+                                                # Skip if not a Cookie object
+                                                if ($cookie -isnot [System.Net.Cookie]) { continue }
+                                                
+                                                # Create NEW Cookie instance with same properties (true deep copy)
+                                                $newCookie = [System.Net.Cookie]::new()
+                                                $newCookie.Name = $cookie.Name
+                                                $newCookie.Value = $cookie.Value
+                                                $newCookie.Domain = $cookie.Domain
+                                                $newCookie.Path = $cookie.Path
+                                                # Handle Expires carefully - ensure it's a DateTime
+                                                if ($cookie.Expires -and $cookie.Expires -is [DateTime]) {
+                                                    $newCookie.Expires = $cookie.Expires
+                                                }
+                                                $newCookie.Secure = $cookie.Secure
+                                                $newCookie.HttpOnly = $cookie.HttpOnly
+                                                if ($cookie.Port) { $newCookie.Port = $cookie.Port }
+                                                $clonedWorkspaceSession.Cookies.Add($newCookie)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    $clonedSession.WorkspaceSession = $clonedWorkspaceSession
+                }
+                
+                # Note: Not adding Clone method to cloned session to avoid recursion issues
+                # If you need to clone a cloned session, use the original session instead
+                
+                # Re-add IsValid property to cloned session (define inline to avoid scope issues)
+                $clonedSession | Add-Member -MemberType ScriptProperty -Name IsValid -Value {
+                    # Check OAuth2 token (120 minutes validity)
+                    $oauth2Valid = $false
+                    if ($this.oauth2TokenCreation) {
+                        $oauth2Expiration = $this.oauth2TokenCreation.AddMinutes(120)
+                        $oauth2Valid = (Get-Date) -lt $oauth2Expiration
+                    }
+                    
+                    # Check GLP API token validity (only if workspace connection exists)
+                    $glpApiValid = $false
+                    if ($this.glpApiAccessTokenv1_2 -and $this.glpApiAccessTokenv1_2.Count -gt 0) {
+                        $glpExpiration = $this.glpApiAccessTokenv1_2[0].creation_Time.AddSeconds($this.glpApiAccessTokenv1_2[0].expires_in)
+                        $glpApiValid = (Get-Date) -lt $glpExpiration
+                    }
+                    elseif ($this.glpApiAccessToken -and $this.glpApiAccessToken.Count -gt 0) {
+                        $glpExpiration = $this.glpApiAccessToken[0].creation_Time.AddSeconds($this.glpApiAccessToken[0].expires_in)
+                        $glpApiValid = (Get-Date) -lt $glpExpiration
+                    }
+                    
+                    # Session is valid if OAuth2 token is valid
+                    # If workspace is connected, also require GLP API token to be valid
+                    if ($this.workspaceId) {
+                        # Connected to workspace - both tokens must be valid
+                        return ($oauth2Valid -and $glpApiValid)
+                    }
+                    else {
+                        # Not connected to workspace yet - only OAuth2 token needed
+                        return $oauth2Valid
+                    }
+                } -Force
+                
+                return $clonedSession
+            }
+            finally {
+                # Restore original sessions
+                $this.AuthSession = $authSession
+                $this.WorkspaceSession = $workspaceSession
+            }
         } -Force
         
         # Add IsValid property that dynamically checks session validity
@@ -10367,19 +10708,27 @@ Please verify your authenticator app and try again.
                 $oauth2Valid = (Get-Date) -lt $oauth2Expiration
             }
             
-            # Check GLP API token validity
+            # Check GLP API token validity (only if workspace connection exists)
             $glpApiValid = $false
-            if ($this.glpApiAccessTokenv1_2) {
+            if ($this.glpApiAccessTokenv1_2 -and $this.glpApiAccessTokenv1_2.Count -gt 0) {
                 $glpExpiration = $this.glpApiAccessTokenv1_2[0].creation_Time.AddSeconds($this.glpApiAccessTokenv1_2[0].expires_in)
                 $glpApiValid = (Get-Date) -lt $glpExpiration
             }
-            elseif ($this.glpApiAccessToken) {
+            elseif ($this.glpApiAccessToken -and $this.glpApiAccessToken.Count -gt 0) {
                 $glpExpiration = $this.glpApiAccessToken[0].creation_Time.AddSeconds($this.glpApiAccessToken[0].expires_in)
                 $glpApiValid = (Get-Date) -lt $glpExpiration
             }
             
-            # Session is valid only if both tokens are valid
-            return ($oauth2Valid -and $glpApiValid)
+            # Session is valid if OAuth2 token is valid
+            # If workspace is connected, also require GLP API token to be valid
+            if ($this.workspaceId) {
+                # Connected to workspace - both tokens must be valid
+                return ($oauth2Valid -and $glpApiValid)
+            }
+            else {
+                # Not connected to workspace yet - only OAuth2 token needed
+                return $oauth2Valid
+            }
         } -Force
 
         "[{0}] `$Global:HPEGreenLakeSession global variable set!" -f $functionName | Write-Verbose
@@ -10435,6 +10784,277 @@ Please verify your authenticator app and try again.
     }
 }
 
+Function Save-HPEGLSession {
+    <#
+    .SYNOPSIS
+        Creates a deep copy of the current HPE GreenLake session for later restoration.
+
+    .DESCRIPTION
+        This cmdlet creates a complete independent copy of the current $Global:HPEGreenLakeSession,
+        including all authentication tokens, cookies, and workspace information. The saved session
+        can be restored later using Restore-HPEGLSession, enabling workspace switching and multi-workspace
+        automation workflows.
+
+        The cmdlet uses deep copy techniques to ensure the saved session is completely independent:
+        - All session properties are serialized and deserialized for true deep copy
+        - Cookies are cloned individually to prevent shared references
+        - Both authentication (OAuth2) and workspace session data are preserved
+
+        Common use case: Save current workspace session before switching to another workspace,
+        then restore it later without requiring re-authentication.
+
+    .EXAMPLE
+        # Save current session before switching workspaces
+        $prodSession = Save-HPEGLSession
+        
+        # Switch to different workspace
+        Connect-HPEGL -Workspace "DevWorkspace"
+        # ... do some work ...
+        
+        # Restore saved session
+        Restore-HPEGLSession -Session $prodSession
+
+    .EXAMPLE
+        # Save multiple workspace sessions for quick switching
+        Connect-HPEGL -Workspace "Production"
+        $prodSession = Save-HPEGLSession
+        
+        Connect-HPEGL -Workspace "Development"
+        $devSession = Save-HPEGLSession
+        
+        Connect-HPEGL -Workspace "Testing"
+        $testSession = Save-HPEGLSession
+        
+        # Now switch between them quickly
+        Restore-HPEGLSession -Session $prodSession
+        Restore-HPEGLSession -Session $devSession
+
+    .OUTPUTS
+        PSCustomObject
+        Returns a deep copy of the current HPE GreenLake session object.
+
+    .NOTES
+        REQUIREMENTS:
+        - Must have an active HPE GreenLake session (Connect-HPEGL)
+        - Must be connected to a workspace
+        
+        TECHNICAL DETAILS:
+        - Uses .NET PSSerializer for automatic deep copy of standard properties
+        - Creates new WebRequestSession instances for cookie isolation
+        - Cookies are deep-copied using reflection to access CookieContainer internals
+        - IsValid property is preserved on cloned session for validity checking
+        
+        SESSION LIFETIME CONSTRAINTS:
+        - Access tokens expire after 15 minutes. Restore-HPEGLSession automatically exchanges
+          the saved refresh token for a new access token, so a short elapsed time is not a problem.
+        - However, the refresh token itself is subject to a 30-minute idle timeout. If the saved
+          session has been idle for more than 30 minutes, the refresh token will have expired and
+          Restore-HPEGLSession will fail with an authentication error. In that case a full
+          Connect-HPEGL re-authentication is required.
+        - These cmdlets are therefore best suited for active automation scripts that switch between
+          workspaces within a single run, not for persisting sessions across long pauses.
+
+        SAVED SESSION PROPERTIES:
+        - OAuth2 tokens (access, refresh, ID tokens)
+        - GLP API access tokens (workspace-specific)
+        - Workspace session cookies (aquila-user-api)
+        - Authentication session cookies (auth.hpe.com, SSO)
+        - Workspace metadata (ID, name, account ID)
+        - User information and session creation time
+
+    .LINK
+        Restore-HPEGLSession
+        Connect-HPEGL
+        Disconnect-HPEGL
+    #>
+
+    [CmdletBinding()]
+    Param()
+
+    Begin {
+        $functionName = $MyInvocation.InvocationName.ToString().ToUpper()
+        "[{0}] Starting session save operation" -f $functionName | Write-Verbose
+    }
+
+    Process {
+        try {
+            # Validate active session exists
+            if (-not $Global:HPEGreenLakeSession) {
+                throw "No active HPE GreenLake session found. Run Connect-HPEGL to establish a session first."
+            }
+
+            # Validate workspace connection
+            if (-not $Global:HPEGreenLakeSession.workspaceId) {
+                throw "Cannot save session: No workspace connection active. Connect to a workspace first using 'Connect-HPEGL -Workspace <name>' or 'Connect-HPEGLWorkspace -Name <name>'"
+            }
+
+            "[{0}] Saving session for workspace '{1}' (ID: {2})" -f $functionName, $Global:HPEGreenLakeSession.workspace, $Global:HPEGreenLakeSession.workspaceId | Write-Verbose
+
+            # Use the existing Clone() method on the session object
+            $clonedSession = $Global:HPEGreenLakeSession.Clone()
+
+            if (-not $clonedSession) {
+                throw "Session clone operation failed. Please check verbose output for details."
+            }
+
+            "[{0}] Session saved successfully for workspace '{1}'" -f $functionName, $Global:HPEGreenLakeSession.workspace | Write-Verbose
+            "[{0}] Saved session user: {1}" -f $functionName, $clonedSession.username | Write-Verbose
+            "[{0}] Saved session created at: {1}" -f $functionName, $clonedSession.oauth2TokenCreation | Write-Verbose
+
+            return $clonedSession
+        }
+        catch {
+            "[{0}] Error saving session: {1}" -f $functionName, $_.Exception.Message | Write-Error
+            throw
+        }
+    }
+}
+
+Function Restore-HPEGLSession {
+    <#
+    .SYNOPSIS
+        Restores a cloned HPE GreenLake session and automatically refreshes the GLP API token if needed.
+
+    .DESCRIPTION
+        This cmdlet safely restores a previously cloned session to $Global:HPEGreenLakeSession and automatically
+        handles GLP API token refresh when necessary. This is particularly important after switching workspaces,
+        as GLP API tokens are workspace-specific and their server-side authorization is revoked when switching
+        to a different workspace.
+
+        The cmdlet detects if the restored session requires token refresh by comparing:
+        - Current global session's workspace ID (if exists)
+        - Restored session's workspace ID
+        
+        If a workspace switch is detected, or if -Force is specified, the cmdlet automatically invokes
+        Invoke-HPEGLAutoReconnect to refresh the GLP API token without requiring full re-authentication.
+
+    .PARAMETER Session
+        The saved session object to restore (created via Save-HPEGLSession or $session = $Global:HPEGreenLakeSession.Clone())
+
+    .EXAMPLE
+        # Save session before switching workspaces
+        $workspaceASession = Save-HPEGLSession
+        
+        # Switch to different workspace
+        Connect-HPEGL -Workspace "WorkspaceB"
+        # ... do some work ...
+        
+        # Restore previous workspace session (automatically refreshes token if workspace changed)
+        Restore-HPEGLSession -Session $workspaceASession
+
+    .EXAMPLE
+        # For manual control, use Invoke-HPEGLAutoReconnect directly
+        $Global:HPEGreenLakeSession = $savedSession
+        Invoke-HPEGLAutoReconnect -Force  # Force refresh regardless of workspace switch
+
+    .NOTES
+        WHY TOKEN REFRESH IS NEEDED:
+        - GLP API tokens are workspace-specific (issued with workspaceId in URL path)
+        - Server revokes authorization when switching to a different workspace
+        - Cloned session has the token, but it lacks server-side authorization
+        - Most GLP APIs (Get-HPEGLDevice, Remove-HPEGLWorkspace, etc.) require authorized tokens
+        - Token refresh ensures server-side authorization is valid for the restored workspace
+        
+        TOKEN ARCHITECTURE:
+        - GLP API tokens: Used for most GLP platform APIs (devices, workspaces, subscriptions, etc.)
+        - Workspace cookies (aquila-user-api): Used for COM service-specific operations
+        - Token refresh doesn't require credentials (uses existing OAuth2 refresh token)
+
+        SESSION LIFETIME CONSTRAINTS:
+        - Access tokens expire after 15 minutes. This cmdlet automatically exchanges the saved
+          refresh token for a new access token, so a short elapsed time is not a problem.
+        - However, the refresh token itself is subject to a 30-minute idle timeout. If the saved
+          session has been idle for more than 30 minutes, the refresh token will have expired and
+          this cmdlet will fail with an authentication error. In that case a full Connect-HPEGL
+          re-authentication is required.
+        - These cmdlets are therefore best suited for active automation scripts that switch between
+          workspaces within a single run, not for persisting sessions across long pauses.
+
+    .LINK
+        Save-HPEGLSession
+        Connect-HPEGL
+        Invoke-HPEGLAutoReconnect
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true, Position = 0)]
+        [ValidateNotNull()]
+        [PSCustomObject]$Session
+    )
+
+    Begin {
+        $functionName = $MyInvocation.InvocationName.ToString().ToUpper()
+        "[{0}] Starting session restoration" -f $functionName | Write-Verbose
+    }
+
+    Process {
+        try {
+            # Validate session object
+            if (-not $Session.workspaceId) {
+                throw "Invalid session object: Missing workspaceId. Session must be connected to a workspace."
+            }
+
+            # Detect if workspace switch occurred
+            $workspaceSwitchDetected = $false
+            if ($Global:HPEGreenLakeSession -and $Global:HPEGreenLakeSession.workspaceId) {
+                if ($Global:HPEGreenLakeSession.workspaceId -ne $Session.workspaceId) {
+                    $workspaceSwitchDetected = $true
+                    "[{0}] Workspace switch detected: '{1}' -> '{2}'" -f $functionName, $Global:HPEGreenLakeSession.workspace, $Session.workspace | Write-Verbose
+                }
+            }
+
+            # Restore the session
+            "[{0}] Restoring session for workspace '{1}' (ID: {2})" -f $functionName, $Session.workspace, $Session.workspaceId | Write-Verbose
+            $Global:HPEGreenLakeSession = $Session
+
+            # Auto-refresh token if workspace switch detected
+            if ($workspaceSwitchDetected) {
+                "[{0}] Workspace switch detected, refreshing token for workspace '{1}'" -f $functionName, $Session.workspace | Write-Verbose
+                
+                try {
+                    # Fast token refresh using Invoke-HPEGLAutoReconnect
+                    Invoke-HPEGLAutoReconnect -Force -ErrorAction Stop | Out-Null
+                    "[{0}] GLP API token refreshed successfully" -f $functionName | Write-Verbose
+                    
+                    # Check if organization info is missing and fetch it
+                    if (-not $Global:HPEGreenLakeSession.organization -and -not $Global:HPEGreenLakeSession.organizationId) {
+                        "[{0}] Organization info missing, fetching current organization governance..." -f $functionName | Write-Verbose
+                        try {
+                            $OrgGovernance = Get-HPEGLOrganization -ShowCurrent -WarningAction SilentlyContinue -ErrorAction Stop
+                            if ($OrgGovernance -and $OrgGovernance.name -and $OrgGovernance.id) {
+                                $Global:HPEGreenLakeSession.organization = $OrgGovernance.name
+                                $Global:HPEGreenLakeSession.organizationId = $OrgGovernance.id
+                                "[{0}] Organization info populated: {1}" -f $functionName, $OrgGovernance.name | Write-Verbose
+                            }
+                        }
+                        catch {
+                            "[{0}] Could not fetch organization info: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
+                            # Non-critical - workspace may be standalone
+                        }
+                    }
+                }
+                catch {
+                    "[{0}] WARNING: Token refresh failed: {1}" -f $functionName, $_.Exception.Message | Write-Warning
+                    Write-Warning "Session restored but GLP API token may not be authorized. Most GLP APIs may fail."
+                    Write-Warning "Reconnect with: Connect-HPEGL -Workspace '$($Session.workspace)'"
+                }
+            }
+            else {
+                "[{0}] No token refresh needed (same workspace)" -f $functionName | Write-Verbose
+            }
+
+            # Return success message
+            "[{0}] Session restored successfully for workspace '{1}'" -f $functionName, $Session.workspace | Write-Verbose
+            
+        }
+        catch {
+            "[{0}] Error restoring session: {1}" -f $functionName, $_.Exception.Message | Write-Error
+            throw
+        }
+    }
+}
+
 Function Disconnect-HPEGL { 
     <#
 .SYNOPSIS
@@ -10459,6 +11079,7 @@ Step 4 - Clean Up Session-Specific Variables
 • Removes $HPEGreenLakeSession (all session tokens and authentication data)
 • Removes $HPEGLworkspaces (workspace list for current session)
 • Removes $HPECOMInvokeReturnData (last API response, may contain sensitive data)
+• Removes $HPECOMLastJobResult (last job cmdlet result)
 • Removes $HPEGLAPIClientCredentialName (credential name from disconnected session)
 • Removes $HPEGLGMTTimeDifferenceInHour (session-specific time offset)
 
@@ -10724,6 +11345,7 @@ and proceed directly to cleaning up local variables (Step 4).
                         'HPEGLworkspaces',              # Workspace list for current session
                         'HPEGreenLakeSession',          # All session tokens and authentication data
                         'HPECOMInvokeReturnData',       # Last API response (may contain sensitive data)
+                        'HPECOMLastJobResult',           # Last job cmdlet result
                         'HPEGLAPIClientCredentialName', # Credential name from disconnected session
                         'HPEGLGMTTimeDifferenceInHour'  # Session-specific time offset
                     )
@@ -10809,6 +11431,7 @@ and proceed directly to cleaning up local variables (Step 4).
                     'HPEGLworkspaces',              # Workspace list for current session
                     'HPEGreenLakeSession',          # All session tokens and authentication data
                     'HPECOMInvokeReturnData',       # Last API response (may contain sensitive data)
+                    'HPECOMLastJobResult',           # Last job cmdlet result
                     'HPEGLAPIClientCredentialName', # Credential name from disconnected session
                     'HPEGLGMTTimeDifferenceInHour'  # Session-specific time offset
                 )
@@ -11069,7 +11692,9 @@ Example:
                 "[{0}] POST request to: {1}" -f $functionName, $url | Write-Verbose
                 $response = Invoke-RestMethod -Method Post -Uri $url -Headers $headers -Body $tokenParams -SessionVariable CCSSession -Verbose:$VerbosePreference
                 if ($response.accounts) {
-                    $Global:HPEGLworkspaces = $response.accounts
+                    # Filter out workspaces with DELETE_INITIATED or other non-ACTIVE statuses
+                    $Global:HPEGLworkspaces = $response.accounts | Where-Object { $_.account_status -eq 'ACTIVE' }
+                    "[{0}] Filtered workspaces: Total accounts={1}, Active workspaces={2}" -f $functionName, $response.accounts.Count, $Global:HPEGLworkspaces.Count | Write-Verbose
                 }
                 $cookies = $CCSSession.Cookies.GetCookies($url)
                 # Display all cookies in verbose output
@@ -11081,7 +11706,8 @@ Example:
                 "[{0}] CCS session cookie: {1}...{2}" -f $functionName, $ccsSessionValue.Substring(0, 1), $ccsSessionValue.Substring($ccsSessionValue.Length - 1, 1) | Write-Verbose
                 $Global:HPEGreenLakeSession.WorkspaceSession = $CCSSession
                 $Global:HPEGreenLakeSession.ccsSid = $ccsSessionValue
-                $Global:HPEGreenLakeSession.workspacesCount = $Global:HPEGLworkspaces.Count
+                # Note: workspacesCount will be set after filtering accessible workspaces
+                $Global:HPEGreenLakeSession.workspacesCount = $Null
             }
             catch {
                 if (-not $NoProgress) {
@@ -11099,6 +11725,10 @@ Example:
             Write-Verbose " ----------------------------------STEP 2--------------------------------------------------------------------------------"
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Loading workspace" -Id 1
             $step++
+            
+            # Use the filtered active workspaces from $Global:HPEGLworkspaces (already filtered in STEP 1)
+            $Global:HPEGreenLakeSession.workspacesCount = $Global:HPEGLworkspaces.Count
+            
             if ($Global:HPEGLworkspaces.Count -eq 0) {
                 Write-Warning "No workspaces found. Please use New-HPEGLWorkspace to create one."
                 if (-not $NoProgress) {
@@ -11141,6 +11771,7 @@ To view available workspaces: Get-HPEGLWorkspace
                 }
             }
             else {
+                # If no Name specified and only one workspace, use it
                 $MyWorkspaceName = $Global:HPEGLworkspaces
             }
             
@@ -12010,12 +12641,20 @@ Manually remove old credentials via the HPE GreenLake web portal (Manage Workspa
                         Set-HPECOMJobTemplatesVariable -region $FirstProvisionedCOMRegion
                     }
                     catch {
-                        if (-not $NoProgress) {
-                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
-                            Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
-                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        # Check if this is a COM role permission error (403 Forbidden)
+                        if ($_.Exception.Message -match 'ACCESS DENIED - Compute Ops Management \(COM\) Role Required') {
+                            "[{0}] Step 6: Skipping COM job templates initialization - User lacks COM permissions" -f $functionName | Write-Verbose
+                            Write-Warning "Compute Ops Management (COM) access not available. COM-related cmdlets will not be accessible. To use COM features, request a COM role from your workspace administrator."
                         }
-                        $PSCmdlet.ThrowTerminatingError($_)
+                        else {
+                            # For other errors, terminate the connection
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 1
+                                Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake workspace" -Status "Failed" -Completed
+                                Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                            }
+                            $PSCmdlet.ThrowTerminatingError($_)
+                        }
                     }
                 }
                 elseif ($Global:HPECOMRegions.count -eq 0) {
@@ -12034,7 +12673,9 @@ Manually remove old credentials via the HPE GreenLake web portal (Manage Workspa
         #EndRegion Generate GLP API credential
 
         #Region: Get organization governance
-        if (-not $Force) {
+        # Fetch organization info when switching workspaces OR when organization info is missing
+        # This ensures cloned/restored sessions get proper organization context
+        if (-not $Force -or -not $Global:HPEGreenLakeSession.organization) {
             Write-Verbose " ----------------------------------STEP 7--------------------------------------------------------------------------------"
             "[{0}] STEP 7 - Getting organization governance" -f $functionName | Write-Verbose
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Getting organization governance" -Id 1
@@ -12160,6 +12801,10 @@ Function Invoke-HPEGLAutoReconnect {
                     $OAuth2ExpirationDate = $Global:HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120)
                     $MinutesUntilOAuth2Expiration = [math]::Round(($OAuth2ExpirationDate - $currentTime).TotalMinutes, 2)
                     
+                    # Check if error is due to invalid/expired refresh token
+                    $errorMessage = if ($_.ErrorDetails.Message) { $_.ErrorDetails.Message } else { $_.Exception.Message }
+                    $isRefreshTokenError = $errorMessage -match "invalid_grant|expired refresh token|unknown.*refresh token"
+                    
                     if ($MinutesUntilOAuth2Expiration -le 0) {
                         # OAuth2 token also expired - need full reconnection
                         # Calculate session age
@@ -12188,7 +12833,38 @@ Example:
     Connect-HPEGL -Workspace '$($Global:HPEGreenLakeSession.workspace)'
 
 "@ -ErrorAction Stop
-                    } else {
+                    }
+                    elseif ($isRefreshTokenError) {
+                        # Refresh token is invalid/expired even though OAuth2 token appears valid
+                        # This can happen if the refresh token was revoked or if there was a server-side session cleanup
+                        $SessionAge = (Get-Date) - $Global:HPEGreenLakeSession.oauth2TokenCreation
+                        $SessionAgeMinutes = [math]::Round($SessionAge.TotalMinutes, 0)
+                        
+                        Write-Error @"
+Session refresh failed: Refresh token is no longer valid.
+
+SESSION DETAILS:
+- Session created: $($Global:HPEGreenLakeSession.oauth2TokenCreation.ToString('yyyy-MM-dd HH:mm:ss'))
+- Session age: ${SessionAgeMinutes} minutes
+- OAuth2 token: Still valid (${MinutesUntilOAuth2Expiration} minutes remaining)
+- Refresh token: Invalid or expired
+
+POSSIBLE CAUSES:
+1. Session was inactive for extended period
+2. Refresh token was revoked server-side
+3. Another session login invalidated this token
+4. Server-side session cleanup occurred
+
+ACTION REQUIRED:
+Run 'Connect-HPEGL' to establish a fresh authenticated session.
+
+Example:
+    Connect-HPEGL
+    Connect-HPEGL -Workspace '$($Global:HPEGreenLakeSession.workspace)'
+
+"@ -ErrorAction Stop
+                    }
+                    else {
                         # OAuth2 token still valid but reconnection failed - pass through the original error
                         throw $_
                     }
@@ -13021,6 +13697,11 @@ function Invoke-RepackageObjectWithType {
                 }
             }
 
+            # Auto-save last job result for easy post-execution inspection
+            if ($ObjectName -in @('COM.Jobs.Status', 'COM.Schedules.Status')) {
+                $Global:HPECOMLastJobResult = $OutputObject
+            }
+
             return $OutputObject
         }
         else {
@@ -13037,13 +13718,13 @@ function Invoke-RepackageObjectWithType {
 
 
 # Export only public functions and aliases
-Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest', 'Connect-HPEOnepass', 'Connect-HPEGL', 'Disconnect-HPEGL', 'Connect-HPEGLWorkspace', 'Invoke-HPEGLAutoReconnect', 'Get-HPEGLJWTDetails' -Alias *
+Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest', 'Connect-HPEOnepass', 'Connect-HPEGL', 'Disconnect-HPEGL', 'Connect-HPEGLWorkspace', 'Invoke-HPEGLAutoReconnect', 'Get-HPEGLJWTDetails', 'Save-HPEGLSession', 'Restore-HPEGLSession' -Alias *
 
 # SIG # Begin signature block
-# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAjjV9yZ+2KROty
-# fMxsdGlgAE0nNIxo6bjgI8Fu3ey4VqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDcjMMcpgH4rPo1
+# 1ZcICLdsBmhuDqssSfmdiUu1v+Iy/qCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -13139,154 +13820,147 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgFi97pZJHurQ0RKoVKrfzUV3uC5L26KobXj72xePOxKswDQYJKoZIhvcNAQEB
-# BQAEggIAeBrDAgM5xR5GrtYGalijITUrUAuFjNQT1ksLbFdy/oDdxG8fN8PLqjvr
-# L5ZVuKCrafZT1WL2pX3wFEVN6+awTjsNTUQOX1gvvse185A2Zq5C8WH/JMM0EDeI
-# gdbtM6gcftknCdEJo8++09ljRH2s6ZYJ/bl6sHyRhFCcPa1lMOhxmNjzX+eWj2Sn
-# ohl0a/MIS8BJ3b4DjfGH271lAS4YcOlb30+he1Jebl+xo0yVnq+8oKL/0wRugiZQ
-# O04Gy6rbeKW883X4mtkcugEnASn0dyjsfGXTpOXSUITfIhoolxoxMR2rr1YAvfDx
-# fNpVONwvcgUubcZY/bxlKoIvVc3Vzgr6lm6y3PI3PeavnCQolvHxoTxyeAcbQkvv
-# VPB/Kam0WJBBVd47nATjdM2aUwjZsamTGcVazSeByKcjLKA8iCLKDJ+CLTEMoO1S
-# dbnbglMK8hAauOs9bGszxj9U4CNATJQJ0ShDdnHSTCZKmXYC6Qx93tDTIRB99enF
-# hfHjhJa+5qk+GTjczthg2oHZ9Uwn5TEgoqSS1JwSDpeDUUFHFd47BUdEtM5iFM+h
-# 7mtJTzQNHfacmJz9aERAzhsuC/IqLUqYlwjY76fOvhQ/B3sWTenIG5ISr/bFQfAW
-# 9aBcCpcisMoKEItW6UuVUfYQohvhkBeQBT3wXS6Chgc1oshhZZOhghjpMIIY5QYK
-# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwL9Tm1S3LB10zgbye8Izp4xKQcPXylQuF75Yq
-# wegCBmnSf09kCVi4E149e99CEjv8AhUA46Y+Xg+eqXE+7WRjlYhXJhLOj08YDzIw
-# MjYwMjA1MDkwMDU5WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
-# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
-# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
-# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
-# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
-# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
-# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
-# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
-# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
-# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
-# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
-# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
-# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
-# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
-# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
-# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
-# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
-# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
-# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
-# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
-# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
-# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
-# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
-# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
-# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
-# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
-# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
-# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
-# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
-# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
-# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
-# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
-# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
-# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
-# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
-# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
-# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
-# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
-# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
-# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
-# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
-# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
-# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
-# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
-# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
-# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
-# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
-# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
-# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
-# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
-# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
-# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
-# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
-# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
-# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
-# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
-# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
-# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
-# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
-# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
-# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
-# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
-# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
-# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
-# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
-# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
-# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
-# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
-# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
-# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
-# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
-# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
-# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
-# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
-# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
-# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
-# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
-# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
-# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
-# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
-# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
-# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
-# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
-# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
-# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
-# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
-# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
-# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
-# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
-# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
-# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
-# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
-# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
-# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
-# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
-# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
-# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
-# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
-# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
-# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
-# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
-# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
-# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI2MDIwNTA5MDA1OVowPwYJKoZIhvcNAQkEMTIEMCk1zhG73AKoM+4iqbLC
-# wIJzC5j9ihIySLwLLzeUCVMZasqx9iFWW5VstMr36VPuWTCCAXoGCyqGSIb3DQEJ
-# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
-# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
-# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
-# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
-# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
-# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
-# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
-# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAQx7Aq3Un8KlaoSPRx+vmV/GUY4mY7sPKEVsaHairXN7PcpgxTg6W7arz+wIJ
-# Q2PcG6HlWWBQk6IveZ7T9qEmz7gwcDLHM7dp0yaSWKoipraFfl13vwe8w7eJWIDY
-# z+M8/7el7UJA3gANEvLBfAMGQZqQhBmc/oHyExyYjxSdzRuG17vTcRGux03el6Rn
-# Ng6DwqwtyxJ6Ge4TopzMWbclg5AuN+XaxxVrAVpBLfcPezj3s841NXZL2wrJVAn8
-# 4PZEokjWbCLSCTl1Ckg0OomGoiWrVnArQeyLyL4IoVFHrOVGPH46QSxt2lCZKNuS
-# kalNZPtFDXO/RgV2o335VdYXap9cxYXPb67Z99N2amdSxTbcS7rrcwsijn4YFL/l
-# A5Ti4ULCWSBy4K2pAU0tjSHjX+P8e+nosbd1tAMF1ILeQD1nz729lZ0CqPeeDhq7
-# RJ9y/10ActsfblumbB16+ruuFjkxfxoJoLCDSXkWb4e6QBn9iUKsDRrdl/e48Pvf
-# 7JOvoE+VHXM38kkCQPBIFbpXrZwFMYG0KE6xJKowiUTnho6CAIN1D5N6CZH0dP89
-# pmRucgKhfl4f0xrk2Bs1BLeqHQXtk8OxuUPx9pVw1xA7HCxMcDe4d/b7LCUMIBdY
-# ZB9okkHz8spxwFL7b+aYETJ16uoAiNTZ5o36S+6dHI6yZQE=
+# IgQgdSuSPVFHr+n/EXYZ9FsO3MBBDk9sik/FzHm9fZSwnZEwDQYJKoZIhvcNAQEB
+# BQAEggIAu7yhVIT3FomFOfRXH9L4cis7vRlm4cved8qqD+jIwMo7dYtMIu4GowhY
+# yimP+rNarN88t/dAfWlcFuScaohbSQ7JQ5eZtAwQ+RoTbH9k0d0NACscdNqNS1GT
+# ZIC1Ur1TwKNg8CER93Y7bY9Cm/S589aRejchFtQmWvnv2OHnznbBpCZhRNxc70Vc
+# rtRn5ecwaVJkh1f/ySmg5kclD8dNXjHuU61khR9fFw6K1V6r1oy2R64QXRx2cwA9
+# GaD2soNLqZQ/BvOa2qOkWBD72W6z6Ev8aKLwIllCTfcb3qZPUWL6JwYKqgKNbsK0
+# /Z2m9BSqBuOXkt8LjrmVnBEnGRYZA1+21nTen33f9vMN6jM8lzxinCWq0qtyBmsE
+# 3D8HIfCkySgAe99KXytKvQRG40XDg0CPJgF6mG7H+KbgEcZsl9VKjXVqElc4J8N4
+# ybyz0MlOYzYqCP4/W3MUvwX56Va5+VQ1FeVKK4KG0Ggo+D4jIle9rS+cIQz4OCZB
+# CksPp11W5XuzVAz2uMZORbBBuyDvkyXUrVUVLBnm7g8+Zzzo67Re5IsRBP2VQF9O
+# 2D/A/AoMzeWc/3up1qMvULiUN7/ORpYLFV0xvqMlkoUs8LaFM8k0AI9ZcAwV+xU2
+# 2Tl4xk+hub2/8GXm3eHiZR9xGCT5xZX+6k39BXYKLxhpXWecwNihgheXMIIXkwYK
+# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMM0j4yeV7RcoNKHYJWv+CaKgvkdV3TpMwz4m3fMvsXUM
+# w+Mh5WsbTtaMYHnD1Z6wKwIQWrc5WvfLdhr6q+S0dW6S9BgPMjAyNjAzMTcxNDQw
+# MDJaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
+# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
+# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
+# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
+# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
+# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
+# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
+# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
+# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
+# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
+# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
+# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
+# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
+# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
+# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
+# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
+# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
+# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
+# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
+# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
+# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
+# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
+# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
+# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
+# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
+# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
+# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
+# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
+# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
+# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
+# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
+# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
+# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
+# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
+# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
+# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
+# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
+# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
+# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
+# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
+# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
+# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
+# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
+# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
+# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
+# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
+# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
+# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
+# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
+# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
+# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
+# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
+# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
+# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
+# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
+# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
+# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
+# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
+# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
+# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
+# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
+# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
+# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
+# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
+# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
+# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
+# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
+# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
+# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
+# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
+# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
+# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
+# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
+# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
+# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
+# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
+# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
+# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
+# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
+# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
+# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
+# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
+# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
+# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
+# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
+# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
+# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
+# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
+# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
+# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
+# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
+# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
+# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
+# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
+# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
+# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
+# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
+# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMzE3
+# MTQ0MDAyWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwKoH93lYzGxdkDJIuy9dCzjmQ
+# 1fDqxDRf62aHkpNLgQbAPiFhfUbKI53x/jShXDsgMA0GCSqGSIb3DQEBAQUABIIC
+# AEX1qvgNEYoJbPrzajTiynUzF3j84GhWAiBZ5xVLJZzAx1P3QA1G1vQAOYeIvmvS
+# BeFM0aXRqjitYheBbNos4FhPWxONPN0o3AAPzQlNuc5gYvc6f8OFOnOattbiH/TF
+# jCDGdnUQDz6z2n6EaTrPyfdsa8VAC5wL7xvGkZatlbmmUMa1kHaPaVGglhABtS3E
+# 3jAJh7NqzCB90JMkEURg3U1z0G4zyyLDhzsWTTAIGyxc40J/GQBh0ZmThtMRv/MU
+# aFckoCiqvCKDlyUWc/HzjnaSQ6GCsBQuWYDWD+mL2OGyjo0SMUWLMrkXs/dxMteV
+# gCnkOCsD/+bQH/PT3KqD1rQgNYCzx8jUJ482rAZSA2yJHb4RPzgyaxOI4E5WSIzw
+# 4hJY6bGUoLhofTfqvmHTBLWplADmBHaStIDcPqzu+GhjUf2+p7Qw7BlRzfJM0iVz
+# 5Lj+LnVZLGh+nHtnocS0DliVZICRuSLFv5p2IgXOvB2yp/gdUNxM/Z9eD4ITLnyG
+# dHDQLNES3ychBurmM8gEsODPbhgHaNRFW1GYbbgkUa1sdPV+g5K4Nsr1BEY63R9k
+# lFI/pGDo4E0HnpVLJMc1Pt3xqjZa1YDVc+1LCdr/9YDk9l3sSL6SwdyonSo02RAX
+# 7wisWd0fXwysQsgmc7jVplqEWuxAaD+th0TY3l3qfAbB
 # SIG # End signature block
