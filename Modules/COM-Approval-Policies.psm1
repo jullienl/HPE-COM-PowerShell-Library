@@ -114,18 +114,17 @@ Function Get-HPECOMApprovalPolicy {
 
         # Determine the URI
         $Uri = Get-COMApprovalPoliciesUri
-        
-        # Add name filter if specified
-        if ($Name) {
-            $EncodedName = [System.Web.HttpUtility]::UrlEncode($Name)
-            $Uri += "?filter=name eq '$EncodedName'"
-        }
 
         try {
             [Array]$Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -Method GET -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
 
             if ($Response) {
                 $ReturnData = Invoke-RepackageObjectWithType -RawObject $Response -ObjectName "COM.ApprovalPolicies"
+
+                # Apply case-insensitive name filter client-side
+                if ($Name) {
+                    $ReturnData = $ReturnData | Where-Object { $_.name -ieq $Name }
+                }
                 
                 # If ShowPolicyDetails is specified, expand the policyData details
                 if ($ShowPolicyDetails) {
@@ -588,13 +587,14 @@ Function New-HPECOMApprovalPolicy {
             "[{0}] Error checking for existing approval policy: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
             
             if ($WhatIf) {
-                Write-Warning "Cannot verify if approval policy exists: $($_.Exception.Message). Cannot display API request."
+                $ErrorMessage = "Cannot verify if approval policy already exists!"
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to verify if approval policy already exists." }
-                $objStatus.Exception = $_.Exception
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to verify if approval policy already exists!" }
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
             }
         }
@@ -610,13 +610,14 @@ Function New-HPECOMApprovalPolicy {
             "[{0}] Error retrieving users: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
             
             if ($WhatIf) {
-                Write-Warning "Cannot retrieve users from workspace: $($_.Exception.Message). Cannot display API request."
+                $ErrorMessage = "Cannot retrieve users from workspace!"
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve users from workspace." }
-                $objStatus.Exception = $_.Exception
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve users from workspace!" }
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
             }
         }
@@ -658,7 +659,7 @@ Function New-HPECOMApprovalPolicy {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "User(s) not found in workspace: '$userList'. Please verify the users exist."
                 return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
             }
@@ -681,7 +682,7 @@ Function New-HPECOMApprovalPolicy {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "You must specify at least one action with approvers (e.g., -UpdateFirmwareApprovers, -PowerOffApprovers, -EnableAllApprovers, etc.)."
                 return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
             }
@@ -696,7 +697,7 @@ Function New-HPECOMApprovalPolicy {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "You must specify at least one group name using -GroupNames parameter."
                 return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
             }
@@ -713,13 +714,14 @@ Function New-HPECOMApprovalPolicy {
             "[{0}] Error retrieving groups: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
             
             if ($WhatIf) {
-                Write-Warning "Cannot retrieve groups from region ${Region}: $($_.Exception.Message). Cannot display API request."
+                $ErrorMessage = "Cannot retrieve groups from region '${Region}'!"
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve groups from region $Region." }
-                $objStatus.Exception = $_.Exception
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve groups from region $Region!" }
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
             }
         }
@@ -751,7 +753,7 @@ Function New-HPECOMApprovalPolicy {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Group(s) not found in region ${Region}: '$groupList'. Please verify the group names exist."
                 return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
             }
@@ -865,8 +867,8 @@ Function New-HPECOMApprovalPolicy {
         }
         catch {
             $objStatus.Status = "Failed"
-            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to create approval policy." }
-            $objStatus.Exception = $_.Exception
+            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to create approval policy!" }
+            $objStatus.Exception = $Global:HPECOMInvokeReturnData
         }
 
         $ReturnData = Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
@@ -1276,13 +1278,14 @@ Function Set-HPECOMApprovalPolicy {
             "[{0}] Error retrieving existing approval policy: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
             
             if ($WhatIf) {
-                Write-Warning "Cannot retrieve approval policy: $($_.Exception.Message). Cannot display API request."
+                $ErrorMessage = "Cannot retrieve the approval policy!"
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve existing approval policy." }
-                $objStatus.Exception = $_.Exception
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve existing approval policy!" }
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
             }
         }
@@ -1315,13 +1318,14 @@ Function Set-HPECOMApprovalPolicy {
                 "[{0}] Error retrieving users: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
                 
                 if ($WhatIf) {
-                    Write-Warning "Cannot retrieve users from workspace: $($_.Exception.Message). Cannot display API request."
+                    $ErrorMessage = "Cannot retrieve users from workspace!"
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve users from workspace." }
-                    $objStatus.Exception = $_.Exception
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve users from workspace!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                     return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
                 }
             }
@@ -1356,7 +1360,7 @@ Function Set-HPECOMApprovalPolicy {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "User(s) not found in workspace: '$userList'. Please verify the users exist."
                     return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
                 }
@@ -1375,13 +1379,14 @@ Function Set-HPECOMApprovalPolicy {
                 "[{0}] Error retrieving groups: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
                 
                 if ($WhatIf) {
-                    Write-Warning "Cannot retrieve groups from region ${Region}: $($_.Exception.Message). Cannot display API request."
+                    $ErrorMessage = "Cannot retrieve groups from region '${Region}'!"
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 else {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve groups from region $Region." }
-                    $objStatus.Exception = $_.Exception
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve groups from region $Region!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                     return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
                 }
             }
@@ -1413,7 +1418,7 @@ Function Set-HPECOMApprovalPolicy {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "Group(s) not found in region ${Region}: '$groupList'. Please verify the group names exist."
                     return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
                 }
@@ -1571,8 +1576,8 @@ Function Set-HPECOMApprovalPolicy {
         }
         catch {
             $objStatus.Status = "Failed"
-            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to update approval policy." }
-            $objStatus.Exception = $_.Exception
+            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to update approval policy!" }
+            $objStatus.Exception = $Global:HPECOMInvokeReturnData
         }
 
         $ReturnData = Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
@@ -1715,13 +1720,14 @@ Function Remove-HPECOMApprovalPolicy {
             "[{0}] Error retrieving approval policy: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
             
             if ($WhatIf) {
-                Write-Warning "Cannot retrieve approval policy: $($_.Exception.Message). Cannot display API request."
+                $ErrorMessage = "Cannot retrieve the approval policy!"
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve approval policy." }
-                $objStatus.Exception = $_.Exception
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve approval policy!" }
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 return Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
             }
         }
@@ -1740,8 +1746,8 @@ Function Remove-HPECOMApprovalPolicy {
         }
         catch {
             $objStatus.Status = "Failed"
-            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to delete approval policy." }
-            $objStatus.Exception = $_.Exception
+            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to delete approval policy!" }
+            $objStatus.Exception = $Global:HPECOMInvokeReturnData
         }
 
         $ReturnData = Invoke-RepackageObjectWithType -RawObject $objStatus -ObjectName "COM.ApprovalPolicies.Status"
@@ -1750,6 +1756,673 @@ Function Remove-HPECOMApprovalPolicy {
 }
 
 # Private helper function for repackaging objects with custom type names
+Function Add-HPECOMApprovalPolicyToGroup {
+    <#
+    .SYNOPSIS
+    Assign an approval policy to one or more server groups.
+
+    .DESCRIPTION
+    This cmdlet assigns an existing approval policy to one or more server groups. The policy is applied in addition to any groups already assigned to it.
+
+    Approval policies add a required approval step to supported actions on server groups and server group members, helping ensure that high impact actions are reviewed and authorized before being applied.
+
+    Use Get-HPECOMApprovalPolicy to review the current configuration, and Get-HPECOMGroup to list available group names.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER PolicyName
+    The name of the approval policy to assign to the group(s).
+
+    .PARAMETER ResourceUri
+    The resource URI of the approval policy to assign. Typically used with pipeline input.
+
+    .PARAMETER GroupName
+    Name(s) of the group(s) to assign the approval policy to. Accepts a single group name or an array of group names.
+    Groups already assigned to the policy are skipped with a Warning status.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request.
+
+    .EXAMPLE
+    Add-HPECOMApprovalPolicyToGroup -Region eu-central -PolicyName "Production Approvals" -GroupName "Production Servers"
+
+    Assigns the "Production Approvals" approval policy to the "Production Servers" group in the eu-central region.
+
+    .EXAMPLE
+    Add-HPECOMApprovalPolicyToGroup -Region eu-central -PolicyName "Production Approvals" -GroupName "Production Servers", "Critical Systems"
+
+    Assigns the "Production Approvals" approval policy to multiple groups in a single operation.
+
+    .EXAMPLE
+    Get-HPECOMApprovalPolicy -Region eu-central -Name "Production Approvals" | Add-HPECOMApprovalPolicyToGroup -Region eu-central -GroupName "New Group"
+
+    Assigns "Production Approvals" to "New Group" using pipeline input.
+
+    .INPUTS
+    HPEGreenLake.COM.ApprovalPolicies [System.Management.Automation.PSCustomObject]
+
+    .OUTPUTS
+    HPEGreenLake.COM.ApprovalPolicies.AddGroup [System.Management.Automation.PSCustomObject]
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter(Mandatory, ParameterSetName = 'ByName')]
+        [String]$PolicyName,
+
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'ByResourceUri')]
+        [Alias('uri')]
+        [String]$ResourceUri,
+
+        [Parameter(Mandatory)]
+        [String[]]$GroupName,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+        $Caller = (Get-PSCallStack)[1].Command
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+        $StatusList = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Step 1: Get existing policy and validate it exists
+        "[{0}] Retrieving existing approval policy..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+        try {
+            if ($ResourceUri) {
+                $existingPolicy = Invoke-HPECOMWebRequest -Region $Region -Uri $ResourceUri -Method GET -ErrorAction Stop -Verbose:$false
+            }
+            else {
+                $existingPolicy = Get-HPECOMApprovalPolicy -Region $Region -Name $PolicyName -ErrorAction Stop -Verbose:$false
+            }
+
+            if (-not $existingPolicy) {
+                $policyId = if ($PolicyName) { "'$PolicyName'" } else { "with URI '$ResourceUri'" }
+                "[{0}] Approval policy {1} not found" -f $MyInvocation.InvocationName.ToString().ToUpper(), $policyId | Write-Verbose
+
+                foreach ($gName in $GroupName) {
+                    if ($WhatIf) {
+                        Write-Warning "Approval policy $policyId not found. Cannot display API request."
+                    }
+                    else {
+                        $objStatus = [PSCustomObject]@{
+                            PolicyName = if ($PolicyName) { $PolicyName } else { $ResourceUri }
+                            GroupName  = $gName
+                            Status     = "Warning"
+                            Details    = "Approval policy $policyId not found."
+                            Exception  = $null
+                        }
+                        [void] $StatusList.Add($objStatus)
+                    }
+                }
+                return
+            }
+
+            "[{0}] Found approval policy: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $existingPolicy.name | Write-Verbose
+        }
+        catch {
+            $ErrorMessage = "Cannot retrieve approval policy!"
+            "[{0}] Error retrieving approval policy: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+
+            foreach ($gName in $GroupName) {
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                }
+                else {
+                    $objStatus = [PSCustomObject]@{
+                        PolicyName = if ($PolicyName) { $PolicyName } else { $ResourceUri }
+                        GroupName  = $gName
+                        Status     = "Failed"
+                        Details    = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve approval policy!" }
+                        Exception  = $Global:HPECOMInvokeReturnData
+                    }
+                    [void] $StatusList.Add($objStatus)
+                }
+            }
+            return
+        }
+
+        # Step 2: Get all groups in the region
+        "[{0}] Retrieving groups from region '{1}'..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+
+        try {
+            $allGroups = Get-HPECOMGroup -Region $Region -ErrorAction Stop -Verbose:$false
+            "[{0}] Retrieved {1} group(s) from region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($allGroups | Measure-Object).Count, $Region | Write-Verbose
+        }
+        catch {
+            $ErrorMessage = "Cannot retrieve groups from region '${Region}'!"
+            "[{0}] Error retrieving groups: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+
+            foreach ($gName in $GroupName) {
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                }
+                else {
+                    $objStatus = [PSCustomObject]@{
+                        PolicyName = $existingPolicy.name
+                        GroupName  = $gName
+                        Status     = "Failed"
+                        Details    = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve groups from region '${Region}'!" }
+                        Exception  = $Global:HPECOMInvokeReturnData
+                    }
+                    [void] $StatusList.Add($objStatus)
+                }
+            }
+            return
+        }
+
+        $existingResources = @($existingPolicy.policyData.resources)
+
+        # Step 3: Validate each group name and collect valid groups for PATCH
+        $validGroupStatuses = [System.Collections.ArrayList]::new()
+        $newResources = @()
+
+        foreach ($gName in $GroupName) {
+            "[{0}] Validating group: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $gName | Write-Verbose
+
+            $group = $allGroups | Where-Object { $_.name -eq $gName }
+
+            if (-not $group) {
+                "[{0}] Group '{1}' not found in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $gName, $Region | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "Group '$gName' not found in region '${Region}'. Cannot display API request."
+                }
+                else {
+                    $objStatus = [PSCustomObject]@{
+                        PolicyName = $existingPolicy.name
+                        GroupName  = $gName
+                        Status     = "Warning"
+                        Details    = "Group '$gName' not found in region '${Region}'."
+                        Exception  = $null
+                    }
+                    [void] $StatusList.Add($objStatus)
+                }
+                continue
+            }
+
+            "[{0}] Group '{1}' found with ID: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $gName, $group.id | Write-Verbose
+
+            # Check if group is a OneView appliance group (not supported for approval policies)
+            if ($group.deviceType -match '^OVE_APPLIANCE') {
+                "[{0}] Group '{1}' is a OneView appliance group (deviceType: '{2}') - not supported for approval policies" -f $MyInvocation.InvocationName.ToString().ToUpper(), $gName, $group.deviceType | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "Group '$gName' is a OneView appliance group and cannot be assigned to an approval policy. Approval policies only apply to server groups. Cannot display API request."
+                }
+                else {
+                    $objStatus = [PSCustomObject]@{
+                        PolicyName = $existingPolicy.name
+                        GroupName  = $gName
+                        Status     = "Warning"
+                        Details    = "Group '$gName' is a OneView appliance group and cannot be assigned to an approval policy. Approval policies only apply to server groups."
+                        Exception  = $null
+                    }
+                    [void] $StatusList.Add($objStatus)
+                }
+                continue
+            }
+
+            # Check if group is already assigned to this policy
+            $alreadyAssigned = $existingResources | Where-Object { $_.id -eq $group.id }
+
+            if ($alreadyAssigned) {
+                "[{0}] Group '{1}' is already assigned to policy '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $gName, $existingPolicy.name | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "Group '$gName' is already assigned to approval policy '$($existingPolicy.name)'. Cannot display API request."
+                }
+                else {
+                    $objStatus = [PSCustomObject]@{
+                        PolicyName = $existingPolicy.name
+                        GroupName  = $gName
+                        Status     = "Warning"
+                        Details    = "Group '$gName' is already assigned to approval policy '$($existingPolicy.name)'."
+                        Exception  = $null
+                    }
+                    [void] $StatusList.Add($objStatus)
+                }
+                continue
+            }
+
+            # Group is valid and not yet assigned - track for PATCH
+            $newResources += @{ resourceId = $group.id; resourceType = "compute-ops-mgmt/group" }
+
+            $objStatus = [PSCustomObject]@{
+                PolicyName = $existingPolicy.name
+                GroupName  = $gName
+                Status     = $null
+                Details    = $null
+                Exception  = $null
+            }
+            [void] $validGroupStatuses.Add($objStatus)
+        }
+
+        # Step 4: If there are valid new groups, build and send PATCH
+        if ($newResources.Count -gt 0) {
+            "[{0}] Adding {1} group(s) to approval policy '{2}'..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $newResources.Count, $existingPolicy.name | Write-Verbose
+
+            # Clean up existing resources to match API write format
+            $cleanedResources = @()
+            foreach ($existingResource in $existingResources) {
+                $cleanedResources += @{
+                    resourceId   = $existingResource.id
+                    resourceType = $existingResource.type
+                }
+            }
+            $cleanedResources += $newResources
+
+            # Clean up existing approvables to match API write format
+            $cleanedApprovables = @()
+            foreach ($existingApprovable in $existingPolicy.policyData.approvables) {
+                $cleanedApprovers = @()
+                foreach ($approver in $existingApprovable.approvers) {
+                    $cleanedApprovers += @{ email = $approver.email }
+                }
+                $cleanedApprovables += @{
+                    approvableName = $existingApprovable.approvableName
+                    approvers      = $cleanedApprovers
+                    minApprovers   = $existingApprovable.minApprovers
+                }
+            }
+
+            $payload = [PSCustomObject]@{
+                name        = $existingPolicy.name
+                description = $existingPolicy.description
+                policyData  = [PSCustomObject]@{
+                    approvables = [array]$cleanedApprovables
+                    resources   = [array]$cleanedResources
+                }
+            }
+
+            $Uri  = $existingPolicy.resourceUri
+            $body = $payload | ConvertTo-Json -Depth 10
+
+            try {
+                $null = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -Method PATCH -Body $body -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference -ErrorAction Stop
+
+                if (-not $WhatIf) {
+                    foreach ($vs in $validGroupStatuses) {
+                        $vs.Status  = "Complete"
+                        $vs.Details = "Group '$($vs.GroupName)' successfully added to approval policy '$($existingPolicy.name)'."
+                        [void] $StatusList.Add($vs)
+                    }
+                }
+            }
+            catch {
+                if (-not $WhatIf) {
+                    $errMsg = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to update approval policy!" }
+                    foreach ($vs in $validGroupStatuses) {
+                        $vs.Status    = "Failed"
+                        $vs.Details   = $errMsg
+                        $vs.Exception = $Global:HPECOMInvokeReturnData
+                        [void] $StatusList.Add($vs)
+                    }
+                }
+            }
+        }
+    }
+
+    End {
+        if ($StatusList.Count -gt 0) {
+            Return Invoke-RepackageObjectWithType -RawObject $StatusList -ObjectName "COM.ApprovalPolicies.AddGroup"
+        }
+    }
+}
+
+
+Function Remove-HPECOMApprovalPolicyFromGroup {
+    <#
+    .SYNOPSIS
+    Remove an approval policy from one or more server groups.
+
+    .DESCRIPTION
+    This cmdlet removes an existing approval policy from one or more server groups. The policy remains active for any other groups still assigned to it.
+
+    Approval policies add a required approval step to supported actions on server groups and server group members, helping ensure that high impact actions are reviewed and authorized before being applied.
+
+    Use Get-HPECOMApprovalPolicy to review the current configuration, and Get-HPECOMGroup to list available group names.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER PolicyName
+    The name of the approval policy to remove from the group(s).
+
+    .PARAMETER ResourceUri
+    The resource URI of the approval policy to update. Typically used with pipeline input.
+
+    .PARAMETER GroupName
+    Name(s) of the group(s) to remove the approval policy from. Accepts a single group name or an array of group names.
+    Groups not currently assigned to the policy are skipped with a Warning status.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request.
+
+    .EXAMPLE
+    Remove-HPECOMApprovalPolicyFromGroup -Region eu-central -PolicyName "Production Approvals" -GroupName "Production Servers"
+
+    Removes the "Production Approvals" approval policy from the "Production Servers" group in the eu-central region.
+
+    .EXAMPLE
+    Remove-HPECOMApprovalPolicyFromGroup -Region eu-central -PolicyName "Production Approvals" -GroupName "Production Servers", "Critical Systems"
+
+    Removes the "Production Approvals" approval policy from multiple groups in a single operation.
+
+    .EXAMPLE
+    Get-HPECOMApprovalPolicy -Region eu-central -Name "Production Approvals" | Remove-HPECOMApprovalPolicyFromGroup -Region eu-central -GroupName "Production Servers"
+
+    Removes the approval policy from "Production Servers" using pipeline input.
+
+    .INPUTS
+    HPEGreenLake.COM.ApprovalPolicies [System.Management.Automation.PSCustomObject]
+
+    .OUTPUTS
+    HPEGreenLake.COM.ApprovalPolicies.RemoveGroup [System.Management.Automation.PSCustomObject]
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter(Mandatory, ParameterSetName = 'ByName')]
+        [String]$PolicyName,
+
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'ByResourceUri')]
+        [Alias('uri')]
+        [String]$ResourceUri,
+
+        [Parameter(Mandatory)]
+        [String[]]$GroupName,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+        $Caller = (Get-PSCallStack)[1].Command
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+        $StatusList = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Step 1: Get existing policy and validate it exists
+        "[{0}] Retrieving existing approval policy..." -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+        try {
+            if ($ResourceUri) {
+                $existingPolicy = Invoke-HPECOMWebRequest -Region $Region -Uri $ResourceUri -Method GET -ErrorAction Stop -Verbose:$false
+            }
+            else {
+                $existingPolicy = Get-HPECOMApprovalPolicy -Region $Region -Name $PolicyName -ErrorAction Stop -Verbose:$false
+            }
+
+            if (-not $existingPolicy) {
+                $policyId = if ($PolicyName) { "'$PolicyName'" } else { "with URI '$ResourceUri'" }
+                "[{0}] Approval policy {1} not found" -f $MyInvocation.InvocationName.ToString().ToUpper(), $policyId | Write-Verbose
+
+                foreach ($gName in $GroupName) {
+                    if ($WhatIf) {
+                        Write-Warning "Approval policy $policyId not found. Cannot display API request."
+                    }
+                    else {
+                        $objStatus = [PSCustomObject]@{
+                            PolicyName = if ($PolicyName) { $PolicyName } else { $ResourceUri }
+                            GroupName  = $gName
+                            Status     = "Warning"
+                            Details    = "Approval policy $policyId not found."
+                            Exception  = $null
+                        }
+                        [void] $StatusList.Add($objStatus)
+                    }
+                }
+                return
+            }
+
+            "[{0}] Found approval policy: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $existingPolicy.name | Write-Verbose
+        }
+        catch {
+            $ErrorMessage = "Cannot retrieve approval policy!"
+            "[{0}] Error retrieving approval policy: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+
+            foreach ($gName in $GroupName) {
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                }
+                else {
+                    $objStatus = [PSCustomObject]@{
+                        PolicyName = if ($PolicyName) { $PolicyName } else { $ResourceUri }
+                        GroupName  = $gName
+                        Status     = "Failed"
+                        Details    = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve approval policy!" }
+                        Exception  = $Global:HPECOMInvokeReturnData
+                    }
+                    [void] $StatusList.Add($objStatus)
+                }
+            }
+            return
+        }
+
+        # Step 2: Get all groups in the region
+        "[{0}] Retrieving groups from region '{1}'..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+
+        try {
+            $allGroups = Get-HPECOMGroup -Region $Region -ErrorAction Stop -Verbose:$false
+            "[{0}] Retrieved {1} group(s) from region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($allGroups | Measure-Object).Count, $Region | Write-Verbose
+        }
+        catch {
+            $ErrorMessage = "Cannot retrieve groups from region '${Region}'!"
+            "[{0}] Error retrieving groups: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+
+            foreach ($gName in $GroupName) {
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                }
+                else {
+                    $objStatus = [PSCustomObject]@{
+                        PolicyName = $existingPolicy.name
+                        GroupName  = $gName
+                        Status     = "Failed"
+                        Details    = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve groups from region '${Region}'!" }
+                        Exception  = $Global:HPECOMInvokeReturnData
+                    }
+                    [void] $StatusList.Add($objStatus)
+                }
+            }
+            return
+        }
+
+        $existingResources = @($existingPolicy.policyData.resources)
+
+        # Step 3: Validate each group name and collect IDs to remove
+        $validGroupStatuses = [System.Collections.ArrayList]::new()
+        $idsToRemove = [System.Collections.Generic.HashSet[string]]::new()
+
+        foreach ($gName in $GroupName) {
+            "[{0}] Validating group: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $gName | Write-Verbose
+
+            $group = $allGroups | Where-Object { $_.name -eq $gName }
+
+            if (-not $group) {
+                "[{0}] Group '{1}' not found in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $gName, $Region | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "Group '$gName' not found in region '${Region}'. Cannot display API request."
+                }
+                else {
+                    $objStatus = [PSCustomObject]@{
+                        PolicyName = $existingPolicy.name
+                        GroupName  = $gName
+                        Status     = "Warning"
+                        Details    = "Group '$gName' not found in region '${Region}'."
+                        Exception  = $null
+                    }
+                    [void] $StatusList.Add($objStatus)
+                }
+                continue
+            }
+
+            "[{0}] Group '{1}' found with ID: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $gName, $group.id | Write-Verbose
+
+            # Check if group is currently assigned to this policy
+            $assignedResource = $existingResources | Where-Object { $_.id -eq $group.id }
+
+            if (-not $assignedResource) {
+                "[{0}] Group '{1}' is not assigned to policy '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $gName, $existingPolicy.name | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "Group '$gName' is not assigned to approval policy '$($existingPolicy.name)'. Cannot display API request."
+                }
+                else {
+                    $objStatus = [PSCustomObject]@{
+                        PolicyName = $existingPolicy.name
+                        GroupName  = $gName
+                        Status     = "Warning"
+                        Details    = "Group '$gName' is not assigned to approval policy '$($existingPolicy.name)'."
+                        Exception  = $null
+                    }
+                    [void] $StatusList.Add($objStatus)
+                }
+                continue
+            }
+
+            # Group is valid and assigned - track for removal
+            [void] $idsToRemove.Add($group.id)
+
+            $objStatus = [PSCustomObject]@{
+                PolicyName = $existingPolicy.name
+                GroupName  = $gName
+                Status     = $null
+                Details    = $null
+                Exception  = $null
+            }
+            [void] $validGroupStatuses.Add($objStatus)
+        }
+
+        # Step 4: If there are groups to remove, build and send PATCH
+        if ($idsToRemove.Count -gt 0) {
+            "[{0}] Removing {1} group(s) from approval policy '{2}'..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $idsToRemove.Count, $existingPolicy.name | Write-Verbose
+
+            # Build resources array excluding the removed groups
+            $remainingResources = @()
+            foreach ($existingResource in $existingResources) {
+                if (-not $idsToRemove.Contains($existingResource.id)) {
+                    $remainingResources += @{
+                        resourceId   = $existingResource.id
+                        resourceType = $existingResource.type
+                    }
+                }
+            }
+
+            # Clean up existing approvables to match API write format
+            $cleanedApprovables = @()
+            foreach ($existingApprovable in $existingPolicy.policyData.approvables) {
+                $cleanedApprovers = @()
+                foreach ($approver in $existingApprovable.approvers) {
+                    $cleanedApprovers += @{ email = $approver.email }
+                }
+                $cleanedApprovables += @{
+                    approvableName = $existingApprovable.approvableName
+                    approvers      = $cleanedApprovers
+                    minApprovers   = $existingApprovable.minApprovers
+                }
+            }
+
+            $payload = [PSCustomObject]@{
+                name        = $existingPolicy.name
+                description = $existingPolicy.description
+                policyData  = [PSCustomObject]@{
+                    approvables = [array]$cleanedApprovables
+                    resources   = [array]$remainingResources
+                }
+            }
+
+            $Uri  = $existingPolicy.resourceUri
+            $body = $payload | ConvertTo-Json -Depth 10
+
+            try {
+                $null = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -Method PATCH -Body $body -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference -ErrorAction Stop
+
+                if (-not $WhatIf) {
+                    foreach ($vs in $validGroupStatuses) {
+                        $vs.Status  = "Complete"
+                        $vs.Details = "Approval policy '$($existingPolicy.name)' successfully removed from group '$($vs.GroupName)'."
+                        [void] $StatusList.Add($vs)
+                    }
+                }
+            }
+            catch {
+                if (-not $WhatIf) {
+                    $errMsg = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to update approval policy!" }
+                    foreach ($vs in $validGroupStatuses) {
+                        $vs.Status    = "Failed"
+                        $vs.Details   = $errMsg
+                        $vs.Exception = $Global:HPECOMInvokeReturnData
+                        [void] $StatusList.Add($vs)
+                    }
+                }
+            }
+        }
+    }
+
+    End {
+        if ($StatusList.Count -gt 0) {
+            Return Invoke-RepackageObjectWithType -RawObject $StatusList -ObjectName "COM.ApprovalPolicies.RemoveGroup"
+        }
+    }
+}
+
+
 function Invoke-RepackageObjectWithType {   
     Param   (   
         $RawObject,
@@ -1787,13 +2460,374 @@ function Invoke-RepackageObjectWithType {
     }   
 }
 
-Export-ModuleMember -Function 'Get-HPECOMApprovalPolicy', 'New-HPECOMApprovalPolicy', 'Set-HPECOMApprovalPolicy', 'Remove-HPECOMApprovalPolicy' -Alias *
+Function Get-HPECOMApprovalRequest {
+    <#
+    .SYNOPSIS
+    Retrieve approval requests.
+
+    .DESCRIPTION
+    This cmdlet retrieves approval requests generated when actions that require approval are attempted on server groups or server group members.
+    Approval requests are created when a user initiates an action covered by an active approval policy.
+    Use this cmdlet to view pending, approved, or declined approval requests in a specified region.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER State
+    Optional parameter to filter approval requests by their current state.
+    Valid values are 'PENDING', 'APPROVED', 'DECLINED', 'EXPIRED', 'CANCELLED'.
+
+    .PARAMETER WhatIf 
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Get-HPECOMApprovalRequest -Region eu-central
+
+    Retrieves all approval requests in the eu-central region.
+
+    .EXAMPLE
+    Get-HPECOMApprovalRequest -Region eu-central -State PENDING
+
+    Retrieves all pending approval requests in the eu-central region.
+
+    .EXAMPLE
+    Get-HPECOMApprovalRequest -Region eu-central -State APPROVED
+
+    Retrieves all approved approval requests in the eu-central region.
+
+    .INPUTS
+    None. You cannot pipe objects to this cmdlet.
+
+    .OUTPUTS
+    HPEGreenLake.COM.ApprovalRequests [System.Management.Automation.PSCustomObject]
+
+        Approval request objects with the following key properties:
+        - id: The unique identifier of the approval request
+        - approvalState: The current state of the request (PENDING, APPROVED, DECLINED, EXPIRED, CANCELLED)
+        - approvableName: The name of the operation requiring approval
+        - resourceTypeName: The type of the targeted resource ('server' or 'group')
+        - resourceName: The display name of the targeted resource (server hostname or group name)
+        - requester: Object containing email, firstName, lastName of the user who initiated the request
+        - createdAt: Timestamp when the request was created
+        - updatedAt: Timestamp when the request was last updated
+        - requestRemarks: Comments added during or after the approval/decline/cancel action
+        - cancelledBy: Object containing email, firstName, lastName of the user who cancelled the request (if applicable)
+        - approvableResource: The raw resource object (type, id, resourceUri) on which the operation was requested
+        - operation: The job associated with the request
+        - minApprovers: Minimum number of approvers required
+        - resourceUri: The URI of the approval request resource
+    #>
+
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
+    Param( 
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $Global:HPECOMRegions global variable and create completions
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter(ParameterSetName = 'Default')]
+        [ValidateSet('PENDING', 'APPROVED', 'DECLINED', 'EXPIRED', 'CANCELLED')]
+        [String]$State,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+        $Caller = (Get-PSCallStack)[1].Command
+        
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+    }
+
+    Process {
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Determine the URI
+        $Uri = Get-COMApprovalRequestsUri
+
+        try {
+            [Array]$Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -Method GET -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+            if ($Response) {
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $Response -ObjectName "COM.ApprovalRequests"
+
+                # Apply state filter client-side (case-insensitive)
+                if ($State) {
+                    $ReturnData = $ReturnData | Where-Object { $_.approvalState -ieq $State }
+                }
+
+                # Enrich each object with resourceName and resourceTypeName for display
+                $AllServers = $null
+                $AllGroups  = $null
+
+                foreach ($item in $ReturnData) {
+                    $rType = $item.approvableResource.type
+                    $rId   = $item.approvableResource.id
+
+                    if ($rType -eq 'compute-ops-mgmt/server') {
+                        $resourceTypeName = 'server'
+                        if (-not $AllServers) {
+                            $AllServers = Get-HPECOMServer -Region $Region -ErrorAction SilentlyContinue
+                        }
+                        $matched = $AllServers | Where-Object { $_.id -eq $rId } | Select-Object -First 1
+                        if ($matched -and $matched.name) {
+                            $resourceName = $matched.name
+                        } else {
+                            $resourceName = ($rId -split '\+')[-1]  # fall back to serial number
+                        }
+                    } elseif ($rType -eq 'compute-ops-mgmt/group') {
+                        $resourceTypeName = 'group'
+                        if (-not $AllGroups) {
+                            $AllGroups = Get-HPECOMGroup -Region $Region -ErrorAction SilentlyContinue
+                        }
+                        $matched = $AllGroups | Where-Object { $_.id -eq $rId } | Select-Object -First 1
+                        $resourceName = if ($matched) { $matched.name } else { $rId }
+                    } else {
+                        $resourceTypeName = ($rType -split '/')[-1]
+                        $resourceName = $rId
+                    }
+
+                    $approverRemarks = ($item.requestData.approvals | Where-Object { $_.remarks } | ForEach-Object { $_.remarks }) -join '; '
+                    $item | Add-Member -NotePropertyName 'resourceName'     -NotePropertyValue $resourceName     -Force
+                    $item | Add-Member -NotePropertyName 'resourceTypeName' -NotePropertyValue $resourceTypeName -Force
+                    $item | Add-Member -NotePropertyName 'requestRemarks'   -NotePropertyValue $approverRemarks  -Force
+                }
+
+                return $ReturnData | Sort-Object -Property createdAt -Descending
+            }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+    }
+}
+
+Function Resolve-HPECOMApprovalRequest {
+    <#
+    .SYNOPSIS
+    Approve or decline a pending approval request.
+
+    .DESCRIPTION
+    This cmdlet approves or declines a pending approval request in the specified COM region.
+    The request must be in PENDING state — requests in any other state (EXPIRED, CANCELLED, APPROVED, DECLINED) cannot be actioned.
+
+    Use 'Get-HPECOMApprovalRequest -State PENDING' to retrieve pending requests.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Id
+    The unique identifier of the approval request to approve or decline.
+    This value can be retrieved using 'Get-HPECOMApprovalRequest'.
+
+    .PARAMETER ApprovalState
+    The approval decision. Valid values are 'APPROVED' or 'DECLINED'.
+
+    .PARAMETER Remarks
+    Optional comments to include with the approval or decline decision.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Resolve-HPECOMApprovalRequest -Region eu-central -Id "9170d44f-9db5-4d93-bf5b-55972bd6a8d2" -ApprovalState APPROVED
+
+    Approves the specified approval request in the eu-central region.
+
+    .EXAMPLE
+    Resolve-HPECOMApprovalRequest -Region eu-central -Id "9170d44f-9db5-4d93-bf5b-55972bd6a8d2" -ApprovalState DECLINED -Remarks "Not authorized at this time."
+
+    Declines the specified approval request with a comment.
+
+    .EXAMPLE
+    $ApprovalRequestId = Get-HPECOMApprovalRequest -Region eu-central -State PENDING | Select-Object -First 1 -ExpandProperty id
+    Resolve-HPECOMApprovalRequest -Region eu-central -Id $ApprovalRequestId -ApprovalState APPROVED
+
+    Retrieves the ID of the first pending approval request, then approves it.
+
+    .EXAMPLE
+    Get-HPECOMApprovalRequest -Region eu-central -State PENDING | Resolve-HPECOMApprovalRequest -Region eu-central -ApprovalState APPROVED -Remarks "Batch approved"
+
+    Approves all pending approval requests in the eu-central region using pipeline input.
+
+    .INPUTS
+    HPEGreenLake.COM.ApprovalRequests [System.Management.Automation.PSCustomObject]
+        Approval request objects retrieved using 'Get-HPECOMApprovalRequest'.
+
+    .OUTPUTS
+    HPEGreenLake.COM.ApprovalRequests.Status [System.Management.Automation.PSCustomObject]
+
+        Status objects with the following properties:
+        - Id: The unique identifier of the approval request
+        - ApprovalState: The approval decision submitted (APPROVED or DECLINED)
+        - Status: The result of the operation (Complete, Failed, or Warning)
+        - Details: A message describing the result
+        - Exception: Error details if the operation failed
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
+        [String]$Id,
+
+        [Parameter(Mandatory)]
+        [ValidateSet('APPROVED', 'DECLINED')]
+        [String]$ApprovalState,
+
+        [String]$Remarks,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+        $Caller = (Get-PSCallStack)[1].Command
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+        $StatusList = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $objStatus = [PSCustomObject]@{
+            Id            = $Id
+            ApprovalState = $ApprovalState
+            Status        = $null
+            Details       = $null
+            Exception     = $null
+        }
+
+        # Validate the approval request exists and is PENDING
+        "[{0}] Retrieving approval request with ID '{1}'..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Id | Write-Verbose
+
+        $approvalRequest = $null
+        try {
+            $requestUri = (Get-COMApprovalRequestsUri) + "/$Id"
+            $approvalRequest = Invoke-HPECOMWebRequest -Region $Region -Uri $requestUri -Method GET -ErrorAction Stop -Verbose:$false
+        }
+        catch {
+            if ($WhatIf) {
+                Write-Warning "Approval request with ID '$Id' not found. Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status    = "Failed"
+                $objStatus.Details   = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve approval request with ID '$Id'!" }
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
+            }
+        }
+
+        if (-not $objStatus.Status) {
+            if (-not $approvalRequest) {
+                "[{0}] Approval request '{1}' not found" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Id | Write-Verbose
+                if ($WhatIf) {
+                    Write-Warning "Approval request with ID '$Id' not found. Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status  = "Warning"
+                    $objStatus.Details = "Approval request with ID '$Id' not found."
+                }
+            }
+            elseif ($approvalRequest.approvalState -ne 'PENDING') {
+                "[{0}] Approval request '{1}' is in '{2}' state - cannot be actioned" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Id, $approvalRequest.approvalState | Write-Verbose
+                if ($WhatIf) {
+                    Write-Warning "Approval request '$Id' is in '$($approvalRequest.approvalState)' state. Only PENDING requests can be approved or declined. Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status  = "Warning"
+                    $objStatus.Details = "Approval request '$Id' is in '$($approvalRequest.approvalState)' state. Only PENDING requests can be approved or declined."
+                }
+            }
+            else {
+                "[{0}] Approval request '{1}' is PENDING - submitting {2} decision..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Id, $ApprovalState | Write-Verbose
+
+                $payload = [ordered]@{ approvalState = $ApprovalState }
+                if ($Remarks) { $payload.remarks = $Remarks }
+
+                $Uri  = (Get-COMApprovalRequestsUri) + "/$Id/approve"
+                $body = $payload | ConvertTo-Json -Depth 5
+
+                try {
+                    $null = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -Method POST -Body $body -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference -ErrorAction Stop
+
+                    if (-not $WhatIf) {
+                        $objStatus.Status  = "Complete"
+                        $objStatus.Details = "Approval request '$Id' has been $($ApprovalState.ToLower())."
+                    }
+                }
+                catch {
+                    if (-not $WhatIf) {
+                        $objStatus.Status    = "Failed"
+                        $objStatus.Details   = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to process approval request '$Id'!" }
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                    }
+                }
+            }
+        }
+
+        if (-not $WhatIf) {
+            [void] $StatusList.Add($objStatus)
+        }
+    }
+
+    End {
+        if ($StatusList.Count -gt 0) {
+            Return Invoke-RepackageObjectWithType -RawObject $StatusList -ObjectName "COM.ApprovalRequests.Status"
+        }
+    }
+}
+
+Export-ModuleMember -Function 'Get-HPECOMApprovalPolicy', 'New-HPECOMApprovalPolicy', 'Set-HPECOMApprovalPolicy', 'Remove-HPECOMApprovalPolicy', 'Add-HPECOMApprovalPolicyToGroup', 'Remove-HPECOMApprovalPolicyFromGroup', 'Get-HPECOMApprovalRequest', 'Resolve-HPECOMApprovalRequest' -Alias *
 
 # SIG # Begin signature block
 # MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCAM1TNON/YAZNv
-# jnes6esSIw4VNhORx3VJ5F/JZfC+4KCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCBeTNVzfrvxaw2
+# oHVuTcDu7Y8qZDCwfM5+4a4zF/dg4qCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -1894,23 +2928,23 @@ Export-ModuleMember -Function 'Get-HPECOMApprovalPolicy', 'New-HPECOMApprovalPol
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgoc1OLmfajkXEjmuO5kxn7LkfSrz3a+Eiz4r9o57VHvgwDQYJKoZIhvcNAQEB
-# BQAEggIAim/UBL8MYB9pT7GVLX/ReV1WO5kGYGEE/b3oE6c+V1s817tv28kRJPYJ
-# lRvXTQ7wSg7a55AWn3pidFjEFf5FQPD976XQQGSKaJQgQJS1bx56rTloSxfAX49M
-# lHp6kFB5Ov50f4O/qF4L+EpRPXGc8viVLhPUABYxWgaNmNv7VuddXcPVMjwjPzv9
-# Yq03ikORj7Njc6LatBWb64RgP/TNUNzN2Y0Iw6HcRs/vjJZxc1EYxNfu45T837PB
-# VlkOyaQu004HmJh/kSfc1fr96GJ1XV8/be7Yp4VatUpQNt+xs4d+B/FbjxdzjBjF
-# eOu/DU9hxeLV/A0LdSfMJO7J1OIWvCsBmBvX131PtNEy19O8T6pdEc7qwPdGQvFc
-# BBu67ZnwnooLWaxAGdgGCQmptdex50xZ7dWmXg2CUcJm+w7jAIzIhyEOGUiGlnf7
-# 1MPO9hR+o4ZVMrrhDSDPvFqeszFkA4E/QAx3HcWISmn7Ik+6aNy+gseW0sGw/DWd
-# ULCMUj0VnWdd72Kcb6nmoltiRQcq3htRta4/rAwcgglvQmsbvJuc3sUZBVQqMcZJ
-# A/q+BrMprDysbcH7lrVZUAdNQGr6fBy43L+bNcCYn/NPZWU9BehAixx/pEJ1AbLQ
-# at+vJwWa9mo4SurDLwchLh70OSCRTk0Qfpz4E1tAwW/20bUh4O2hghjoMIIY5AYK
+# IgQg+NNq5tXhWmOtBIJubkFhUkmcKaWZlEP+IIJBencPtIcwDQYJKoZIhvcNAQEB
+# BQAEggIAlbY0kVcuMQepYIZvi4x74+IbXh0zE+O9rLWm4StcTtCgXMK+LoVXaGyo
+# bNZjcv2DXDrBCzHdqx4JCjHGDbize4ODFCTGWWPIhxzgE1DCPzHZqFndRSVebbfE
+# pPNaR2ClFLxsBDE7KMNdY32fLmpH8fdcNK3+FN5emg+KJqraL+qf9lsyaqXzy7PM
+# Us0hAJve8wIoJzJOSzlmcctSEwGkcSJSE9VOvCQ2YDFtF+3Uz9lonMFJcor3hCDg
+# iOxPm7rLfC8cdTVqESwb4UxNkrRZOdj6h0c13KuuTif1BnCkFM5FoDB06duS0CEU
+# ob5eV+q13QqqeJR1g7SJ+Rz2M/4ZZCvM1Jpb182foaGK5rdOTl2kdnBGFvTfUKoE
+# vl0qd8BQDeOdaJbeEru7LKIV0czctnDArrW/nx3SsncfxdQVqzUgcPccee6HpGco
+# rZ7WvnwDIxZCUvgE+UgkepCFdfBd9Uuuo5oj3+ml4o1L3aMbYmo1Rb9dfIMMmJdE
+# yo/Dm82m4+eYIHEP8JPKPxmNhcmvItqfbpau1Bk/er4suKRlo/f1BBGx5+pHrdMz
+# kAcDFkqjun5wahBNUQ0fJ8kmXc0htesoAkT4nDgKdI+ffcxFmsoaPX5v90hFg0dz
+# /1ccGp3URz0/g/H7pxQzSM6bd396Coi+UdqNosGNBZmHb2Jmj/KhghjoMIIY5AYK
 # KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwME9w2CPot/oWaAu+sUpfoHX/zkkX0AWVsu2H
-# rOnrlwTjPhYIa3gFzUvCaJpCxoQZAhRA/WWI/FknDOVe1h5gyukSXpJPYRgPMjAy
-# NjAxMzAxMDQ1NDFaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
+# AQEwQTANBglghkgBZQMEAgIFAAQw4yGtV0f6FTiz13KewjZWOyuh74m8snknO0yl
+# xno3mBTjPhFGcXgUcw1Cwaick+HxAhRjdKCnUUrCsbO3/YqX5eLmTmg06RgPMjAy
+# NjAzMTcxNDIzNDBaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
 # b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
 # dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
 # oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
@@ -2018,8 +3052,8 @@ Export-ModuleMember -Function 'Get-HPECOMApprovalPolicy', 'New-HPECOMApprovalPol
 # ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
 # IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
 # BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjYwMTMwMTA0NTQxWjA/BgkqhkiG9w0BCQQxMgQwh46hgU6sha8gomsGpFXS
-# Ivha9RwwoY7r1gyfE5Ci7vFxIfJnTYGrxJT+25AIE3gKMIIBegYLKoZIhvcNAQkQ
+# DxcNMjYwMzE3MTQyMzQwWjA/BgkqhkiG9w0BCQQxMgQwau6IFFaeDIQEhjdq07Xa
+# hpDprYGsTh9M403e5JH7cAvOTqoxe8hrH8drtlCGKJiBMIIBegYLKoZIhvcNAQkQ
 # AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
 # hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
 # ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
@@ -2028,15 +3062,15 @@ Export-ModuleMember -Function 'Get-HPECOMApprovalPolicy', 'New-HPECOMApprovalPol
 # IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
 # VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
 # aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgCQLHFrJpE5agIbGpCC+3KEWBGZf4x/NtWmANIyd7B8cFceRu+GUGFORvVCMDHk
-# FvZ3Y2h0PaRp4j6Sg9oQOvQtw73e1bcPq1xckMAz9tBOQ7p/JZIqtKiIaR+1P5U1
-# ECGUiN89SFvLf0jw12gxKFD5mT5RSyTLP4CEjiS4qYPQQQhAdIDL4hjo0ZwowQeV
-# kdfzOOPG61ECZHRN+Hfki8Xt3m6SM/WkjE+ZbVH6CUdVqAq1maZP//pe3O1X4fhd
-# RHaLosQYny4XgyPFOC1qxGYRsJTs6BJpZQau9Gcwe6SDE8Pu9Tlqg9aRSGOwYKeq
-# 5gDNoc2bVT98kBdS/hyu4TFSbwhRzv1BKIgI+jJCiDuguRduRwdn0JgsioZQ/1e4
-# MVXxOgcvGgf1yOe/brVKXHG2CsE56ESSYXdEV3uR5AHhlNLhQnFJ656QUTT5vdtT
-# ArWNkTh653fdwqJsGAzV3KV4VNhWMu+yLff0YWwrxKOaqK8BXgFdTMJlTJWRj8dd
-# mLVge4fB/A4HWHoQ7M1UPoEN2wdMPxSFD6h9pxAqKGDfqGGF1QEE5vhkRMFz9h4E
-# KAo7I3fbfkKrpPMYwP+BYXMJh5S6InkS1PA1vIGe5U2bb0dtj+JOLhXfP85VTGyi
-# 1plFGPyKHfkOjzymn6fn+Tz/PBuANt6WjOCwtDZFSTgdEA==
+# AgBiO4aeiTt9kvudEwQp3ClolOQyHYiRNhYCjOwb7nusS/tuKs8lnNRm1BiA2yJL
+# LtrSKz9peKEJKZnBGPGK+rNFGi3NnMonJCxiPayPzJJIl6dNAJYMczq79UP/g84E
+# ve/dyJktsKOvOOtV+//FqV2xgqZabTQiUYOaMgDYLjI94L2qwj0iOmypjidqDYPV
+# 0afRfq3Xd+IaV5o2RRmt0TrPkPbmgm5VAYd1menqLP4rXt9Yh6suS22+RJs/bRK+
+# KgSGOTltxgXrxEzF2CWUhGtt7gha5OF/AyYAcwtV6X8O+z0viqqBYu4zhF/QhNi7
+# ltZkekr9A05anrsPcd1Ng654IOquWPfJxjvJ94E9RdNWMit3S644tJOH4jUB4LaE
+# CKc6NFIQSoW+HyIjXvscTOu8wstAnN7yJIZqeShxPf9uTdFXu656F9ZY/f2dD1m2
+# dwXs99glf1UZuVy5frKuGRcbt9cEXigul4L6K2GB8FEHkupo2SYAKsTFVCuIGGqN
+# K+8pTtObOo++LXbeQzyxS3biJ6bXWS3N5t3cKTUNVhD0QkFv6bSrWfYdYL/Z/XV4
+# d1ThQE235HvfORzbToGqWZrkred2NBsSfRm1ZoTSx4kV4Ru/OzP8y1U4bBamhiZ6
+# NvBJf32Sj43RHcgWpaHY2ATk5OH2+rm5FPiS33wCKb+VIw==
 # SIG # End signature block

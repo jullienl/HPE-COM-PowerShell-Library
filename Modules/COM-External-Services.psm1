@@ -21,7 +21,7 @@ Function Get-HPECOMExternalService {
     Name of an external services resource.
 
     .PARAMETER ServiceType
-    Specifies the type of external service to retrieve. The available options are 'SERVICE_NOW' and 'DSCC'.
+    Specifies the type of external service to retrieve. The available options are 'SERVICE_NOW', 'DSCC', 'VMWARE_VCENTER', and 'ARUBA_CENTRAL'.
    
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
@@ -66,7 +66,7 @@ Function Get-HPECOMExternalService {
 
         [String]$Name,
 
-        [ValidateSet("SERVICE_NOW", "DSCC")]
+        [ValidateSet("SERVICE_NOW", "DSCC", "VMWARE_VCENTER", "ARUBA_CENTRAL")]
         [String]$ServiceType,
 
         [Switch]$WhatIf
@@ -91,10 +91,16 @@ Function Get-HPECOMExternalService {
         $Uri = Get-COMExternalServicesUri
 
         if ($ServiceType -eq "SERVICE_NOW") {
-            $Uri = (Get-Uri) + "?filter=serviceType eq 'SERVICE_NOW'"
+            $Uri = (Get-COMExternalServicesUri) + "?filter=serviceType eq 'SERVICE_NOW'"
         }
         elseif ($ServiceType -eq "DSCC") {
-            $Uri = (Get-Uri) + "?filter=serviceType eq 'DSCC'"    
+            $Uri = (Get-COMExternalServicesUri) + "?filter=serviceType eq 'DSCC'"
+        }
+        elseif ($ServiceType -eq "VMWARE_VCENTER") {
+            $Uri = (Get-COMExternalServicesUri) + "?filter=serviceType eq 'VMWARE_VCENTER'"
+        }
+        elseif ($ServiceType -eq "ARUBA_CENTRAL") {
+            $Uri = (Get-COMExternalServicesUri) + "?filter=serviceType eq 'ARUBA_CENTRAL'"
         }
 
         try {
@@ -118,7 +124,28 @@ Function Get-HPECOMExternalService {
             # Add region to object
             $CollectionList | Add-Member -type NoteProperty -name region -value $Region
 
-            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.ExternalServices"    
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $CollectionList -ObjectName "COM.ExternalServices"
+
+            # Tag VMware vCenter items with a dedicated TypeName so the vCenter-specific format view is applied
+            # Also resolve the SecureGateway name from the associatedGatewayUri
+            $_Appliances = $null
+            foreach ($item in $ReturnData) {
+                if ($item.serviceType -eq "VMWARE_VCENTER") {
+                    $item.PSObject.TypeNames.Insert(0, "HPEGreenLake.COM.ExternalServices.VMwareVCenter")
+
+                    # Resolve SecureGateway name from associatedGatewayUri (fetch appliances once)
+                    if ($item.serviceData.associatedGatewayUri) {
+                        if (-not $_Appliances) {
+                            $_Appliances = Get-HPECOMAppliance -Region $Region -ErrorAction SilentlyContinue
+                        }
+                        $_SGName = $_Appliances | Where-Object { $_.resourceUri -eq $item.serviceData.associatedGatewayUri } | Select-Object -ExpandProperty name -ErrorAction SilentlyContinue
+                        $item | Add-Member -Type NoteProperty -Name secureGatewayName -Value $_SGName -Force
+                    }
+                }
+                elseif ($item.serviceType -eq "SERVICE_NOW") {
+                    $item.PSObject.TypeNames.Insert(0, "HPEGreenLake.COM.ExternalServices.ServiceNow")
+                }
+            }
     
             $ReturnData = $ReturnData #| Sort-Object { $_.updatedAt }
         
@@ -141,12 +168,11 @@ Function New-HPECOMExternalService {
     Deploy an external service application in a specified region.
 
     .DESCRIPTION
-    This cmdlet deploys either a ServiceNow or Data Services Cloud Console (DSCC) external service application in a specified region.
+    This cmdlet deploys a ServiceNow, Data Services Cloud Console (DSCC), VMware vCenter, or Aruba Central external service application in a specified region.
     - The ServiceNow integration enables COM to automatically create incidents in ServiceNow when iLOs report hardware-related service events.
     - The Data Services Cloud Console (DSCC) integration allows COM to configure and manage external storage.
-
-    .PARAMETER Name 
-    Name of the external service application to deploy. 
+    - The VMware vCenter integration enables the HPE Compute Ops Management plug-in for VMware vCenter.  
+    - The Aruba Central integration allows Compute Ops Management to show the connectivity between server network adapter ports and switch ports.  
     
     .PARAMETER Region     
     Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) to deploy the external web service. 
@@ -160,15 +186,37 @@ Function New-HPECOMExternalService {
     .PARAMETER DSCC
     Switch parameter to specify the deployment of a Data Services Cloud Console integration
 
-    .PARAMETER Description 
-    Parameter to specify a description. 
+    .PARAMETER VMwareVCenter
+    Switch parameter to specify the deployment of a VMware vCenter integration.
+
+    .PARAMETER ArubaCentral
+    Switch parameter to specify the deployment of an Aruba Central integration.
+
+    .PARAMETER VCenterServer
+    The FQDN or IPv4 address of the vCenter server.
+
+    .PARAMETER SecureGatewayName
+    The name (FQDN or hostname) of the HPE Compute Ops Management Secure Gateway appliance associated with this vCenter integration.
+    The cmdlet resolves this name to the appliance resource URI automatically.
+    This parameter accepts pipeline input from 'Get-HPECOMAppliance' via the 'name' property.
+
+    .PARAMETER VCenterCertFingerprint
+    The SHA-256 fingerprint of the vCenter server certificate.
+    If not provided, the cmdlet automatically retrieves it from the vCenter server specified in '-VCenterServer' on port 443.
+    Provide this parameter explicitly when auto-retrieval is not possible (e.g., the vCenter server is not directly reachable). See the examples section for a PowerShell snippet to retrieve this value manually.
 
     .PARAMETER Credential 
-    Parameter to specify the credential (clientID and client secret) of the external service. 
+    Parameter to specify the PSCredential object for the external service.
+    This parameter is mandatory for creating external services.
+    [SERVICE_NOW]  The PSCredential object whose username is the OAuth clientId and password is the clientSecret.
+    [DSCC] The PSCredential object whose username is the OAuth clientId and password is the clientSecret.
+    [VMWARE_VCENTER] The PSCredential object whose username is the vCenter login and password is the vCenter password.
+    [ARUBA_CENTRAL] The PSCredential object whose username is the OAuth clientId and password is the clientSecret. To obtain these values, log in to Aruba Central. Navigate to the Organization > Platform Integration > REST API page. In the My Apps & Tokens section, copy the Client ID/Client Secret.
 
     .PARAMETER RefreshToken 
-    Parameter to specify the refresh token of the external web service. 
- 
+    Parameter to specify the refresh token of the external web service. Applies to ServiceNow and Aruba Central integrations. 
+    [ARUBA_CENTRAL] To obtain this value, log in to Aruba Central. Navigate to the Organization > Platform Integration > REST API page. In the My Apps & Tokens section, copy the Refresh Token corresponding to the Client ID used for authentication.
+    
     .PARAMETER OauthUrl 
     Authentication URL of the external web service to obtain OAuth tokens. 
 
@@ -178,23 +226,61 @@ Function New-HPECOMExternalService {
     .PARAMETER RefreshTokenExpiryInDays 
     Parameter to specify the number of days after which the refresh token will expire.
 
+    .PARAMETER APIGatewayURL
+    The Aruba Central API gateway URL (e.g., 'https://central.arubanetworks.com'). This parameter is required for Aruba Central integrations.
+    
+    To obtain this value, log in to Aruba Central. Navigate to the Organization > Platform Integration > REST API page. In the APIs section, copy the first part of the URL in the All Published APIs section, stopping after .com. Do not include any characters after .com. For example: https://central.arubanetworks.com. 
+
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
     $ExternalServiceCredential = Get-Credential -Message "Enter your clientID and clientSecret"
-    New-HPECOMExternalService -Name MyServiceNow -Region eu-central -Description "This is my ServiceNow integration" -Credential $ExternalServiceCredential -RefreshToken "541646646434684343" -OauthUrl "https://example.service-now.com/oauth_token.do" -IncidentUrl "https://example.service-now.com/api/now/import/u_demo_incident_inbound_api" -refreshTokenExpiryInDays 100 
+    New-HPECOMExternalService -Region eu-central -Credential $ExternalServiceCredential -RefreshToken "541646646434684343" -OauthUrl "https://example.service-now.com/oauth_token.do" -IncidentUrl "https://example.service-now.com/api/now/import/u_demo_incident_inbound_api" -refreshTokenExpiryInDays 100 
     
     Create a ServiceNow integration in the central EU region. 
 
     .EXAMPLE
     $DSCCcredentials = Get-Credential -Message "Enter your clientID and clientSecret"
-    New-HPECOMExternalService -Region eu-central -DSCC -Name "Data Services Cloud Console integration" -Description "This is my DSCC service in US-West" -DSCCRegion us-west -Credential $DSCCcredentials
+    New-HPECOMExternalService -Region eu-central -DSCC -DSCCRegion us-west -Credential $DSCCcredentials
 
     Create in the central EU region a Data Services Cloud Console integration configured in the US-west region.
 
+    .EXAMPLE
+    $vCenterCredential = Get-Credential -Message "Enter your vCenter username and password"
+    New-HPECOMExternalService -Region eu-central -VMwareVCenter -Credential $vCenterCredential -VCenterServer "vcenter.example.com" -SecureGatewayName "comsgw.lj.lab" -VCenterCertFingerprint "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+
+    Create a VMware vCenter integration in the central EU region.
+
+    .EXAMPLE
+    $vCenterCredential = Get-Credential -Message "Enter your vCenter username and password"
+    Get-HPECOMAppliance -Region eu-central -Type SecureGateway -Name comsgw.lj.lab | New-HPECOMExternalService -VMwareVCenter -Credential $vCenterCredential -VCenterServer "vcenter.lj.lab" -VCenterCertFingerprint "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+
+    Create a VMware vCenter integration using a piped Secure Gateway appliance object to automatically populate the SecureGatewayName and Region parameters.
+
+    .EXAMPLE
+    $vCenterFQDN = "vcenter.example.com"
+    $tcpClient = New-Object System.Net.Sockets.TcpClient($vCenterFQDN, 443)
+    $sslStream = New-Object System.Net.Security.SslStream($tcpClient.GetStream(), $false, { $true })
+    $sslStream.AuthenticateAsClient($vCenterFQDN)
+    $cert = $sslStream.RemoteCertificate
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $hashBytes = $sha256.ComputeHash($cert.GetRawCertData())
+    $VCenterCertFingerprint = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+    $sslStream.Close(); $tcpClient.Close()
+    Write-Host "vCenter SHA-256 fingerprint: $VCenterCertFingerprint"
+
+    Retrieve the SHA-256 certificate fingerprint from a vCenter server on port 443 using .NET SSL classes. The resulting value can be provided to the -VCenterCertFingerprint parameter when you prefer to supply it manually. Otherwise, the cmdlet auto-retrieves the fingerprint when this parameter is omitted.
+
+    .EXAMPLE
+    $vCenterCredential = Get-Credential -Message "Enter your vCenter username and password"
+    New-HPECOMExternalService -Region eu-central -VMwareVCenter -Credential $vCenterCredential -VCenterServer "vcenter.lj.lab" -SecureGatewayName "comsgw.lj.lab"
+
+    Create a VMware vCenter integration without specifying a certificate fingerprint. The cmdlet automatically connects to 'vcenter.lj.lab' on port 443 and retrieves the SHA-256 fingerprint.
+
     .INPUTS
-    Pipeline input is not supported
+    System.Management.Automation.PSCustomObject
+        A Secure Gateway appliance object from 'Get-HPECOMAppliance'. The 'name' property is bound to the SecureGatewayName parameter and the 'region' property is bound to the Region parameter.
 
     .OUTPUTS
     System.Collections.ArrayList
@@ -210,7 +296,7 @@ Function New-HPECOMExternalService {
     [CmdletBinding(DefaultParameterSetName = 'ServiceNow')]
     Param( 
         
-        [Parameter (Mandatory)] 
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
                 if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
@@ -233,24 +319,23 @@ Function New-HPECOMExternalService {
             })]
         [String]$Region,  
 
-        [Parameter (Mandatory)]
-        [ValidateScript({ $_.Length -lt 256 })]
-        [String]$Name,
+        [Parameter(Mandatory, ParameterSetName = 'DSCC')]
+        [switch]$DSCC,
 
         [Parameter(Mandatory, ParameterSetName = 'ServiceNow')]
         [switch]$ServiceNow,
 
-        [Parameter(Mandatory, ParameterSetName = 'DSCC')]
-        [switch]$DSCC,
+        [Parameter(Mandatory, ParameterSetName = 'VMwareVCenter')]
+        [switch]$VMwareVCenter,
 
-        [Parameter (Mandatory)]
-        [ValidateScript({ $_.Length -lt 256 })]
-        [String]$Description,
+        [Parameter(Mandatory, ParameterSetName = 'ArubaCentral')]
+        [switch]$ArubaCentral,
 
         [Parameter (Mandatory)]
         [PSCredential]$Credential,
 
         [Parameter (Mandatory, ParameterSetName = 'ServiceNow')]
+        [Parameter (Mandatory, ParameterSetName = 'ArubaCentral')]
         [String]$RefreshToken,
 
         [Parameter (Mandatory, ParameterSetName = 'ServiceNow')]
@@ -266,6 +351,19 @@ Function New-HPECOMExternalService {
         [Parameter (Mandatory, ParameterSetName = 'DSCC')]
         [String]$DSCCRegion,
 
+        [Parameter (Mandatory, ParameterSetName = 'ArubaCentral')]
+        [String]$APIGatewayURL,
+
+        [Parameter (Mandatory, ParameterSetName = 'VMwareVCenter')]
+        [String]$VCenterServer,
+
+        [Parameter (Mandatory, ParameterSetName = 'VMwareVCenter', ValueFromPipelineByPropertyName)]
+        [Alias('name')]
+        [String]$SecureGatewayName,
+
+        [Parameter (ParameterSetName = 'VMwareVCenter')]
+        [String]$VCenterCertFingerprint,
+
         [Switch]$WhatIf
     ) 
 
@@ -279,13 +377,24 @@ Function New-HPECOMExternalService {
         $Uri = Get-COMExternalServicesUri  
         $DeployExternalServiceStatus = [System.Collections.ArrayList]::new()
 
-        $AuthenticationType = "OAUTH"
-
     }
 
     Process {
 
         "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        if ($ServiceNow) {
+            $Name = "ServiceNow_" + $Region
+        }
+        elseif ($DSCC) {
+            $Name = "DSCC_" + $Region
+        }
+        elseif ($ArubaCentral) {
+            $Name = "ArubaCentral_" + $Region
+        }
+        else {
+            $Name = $VCenterServer
+        }
 
         # Build object for the output
         $objStatus = [pscustomobject]@{
@@ -301,6 +410,13 @@ Function New-HPECOMExternalService {
         try {
             $ExternalServiceResource = Get-HPECOMExternalService -Region $Region -Name $Name
 
+            # ARUBA_CENTRAL: the API enforces one instance per region regardless of name.
+            # If the name-based lookup missed an existing entry (e.g. created with a different name),
+            # fall back to a service-type check to catch the conflict before POSTing.
+            if (-not $ExternalServiceResource -and $ArubaCentral) {
+                $ExternalServiceResource = Get-HPECOMExternalService -Region $Region -ServiceType "ARUBA_CENTRAL" | Select-Object -First 1
+            }
+
         }
         catch {
             $PSCmdlet.ThrowTerminatingError($_)
@@ -312,14 +428,14 @@ Function New-HPECOMExternalService {
             "[{0}] External service '{1}' already exists in '{2}' region!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
 
             if ($WhatIf) {
-                $ErrorMessage = "External service '{0}': Resource already exists in the '{1}' region! No action needed." -f $OneViewID, $Region
-                Write-warning $ErrorMessage
+                $ErrorMessage = "External service '{0}': Resource already exists in the '{1}' region! No action needed." -f $Name, $Region
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
                 $objStatus.Status = "Warning"
                 $objStatus.Details = "External service already exists in the region! No action needed."
-
+                $objStatus.ServiceType = $ExternalServiceResource.servicetype
             }
 
         }
@@ -331,6 +447,8 @@ Function New-HPECOMExternalService {
             if ($ServiceNow) {            
     
                 $ServiceType = "SERVICE_NOW"
+                $AuthenticationType = "OAUTH"
+                $objStatus.ServiceType = $ServiceType 
     
                 $Authentication = @{
                     clientId     = $ClientID
@@ -344,10 +462,92 @@ Function New-HPECOMExternalService {
                     refreshTokenExpiryInDays = $refreshTokenExpiryInDays
                 }           
             }
+            elseif ($VMwareVCenter) {
+
+                $ServiceType = "VMWARE_VCENTER"
+                $AuthenticationType = "BASIC"
+                $objStatus.ServiceType = $ServiceType 
+
+
+                $Authentication = @{
+                    username = $ClientID
+                    password = $clientSecret
+                }
+
+                try {
+                    $SecureGatewayResource = Get-HPECOMAppliance -Region $Region -Name $SecureGatewayName -ErrorAction Stop
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+
+                if (-not $SecureGatewayResource) {
+                    $ErrorMessage = "Secure Gateway appliance '$SecureGatewayName' cannot be found in the '$Region' region!"
+                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                        return
+                    }
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = $ErrorMessage
+
+                }
+                else {
+                    # Auto-retrieve vCenter certificate fingerprint if not provided
+                    if (-not $VCenterCertFingerprint) {
+                        try {
+                            $tcpClient = New-Object System.Net.Sockets.TcpClient($VCenterServer, 443)
+                            $sslStream = New-Object System.Net.Security.SslStream($tcpClient.GetStream(), $false, { $true })
+                            $sslStream.AuthenticateAsClient($VCenterServer)
+                            $cert = $sslStream.RemoteCertificate
+                            $sha256 = [System.Security.Cryptography.SHA256]::Create()
+                            $hashBytes = $sha256.ComputeHash($cert.GetRawCertData())
+                            $VCenterCertFingerprint = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+                            $sslStream.Close(); $tcpClient.Close()
+                            "[{0}] Auto-retrieved vCenter certificate fingerprint from '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $VCenterServer, $VCenterCertFingerprint | Write-Verbose
+                        }
+                        catch {
+                            $ErrorMessage = "Failed to auto-retrieve vCenter certificate fingerprint from '$VCenterServer' on port 443!"
+                            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                            if ($WhatIf) {
+                                Write-Warning "$ErrorMessage Cannot display API request."
+                                return
+                            }
+                            $objStatus.Status = "Failed"
+                            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { $ErrorMessage }
+                        }
+                    }
+
+                    $ServiceData = @{
+                        vCenterUrl             = $VCenterServer
+                        associatedGatewayUri   = $SecureGatewayResource.resourceUri
+                        vCenterCertFingerprint = $VCenterCertFingerprint.Replace(":", "").ToLower()
+                    }
+                }
+            }
+            elseif ($ArubaCentral) {
+
+                $ServiceType = "ARUBA_CENTRAL"
+                $AuthenticationType = "OAUTH"
+                $objStatus.ServiceType = $ServiceType
+
+                $Authentication = @{
+                    clientId     = $ClientID
+                    clientSecret = $clientSecret
+                    refreshToken = $RefreshToken
+                }
+
+                $ServiceData = @{
+                    nbUrl = $APIGatewayURL
+                }
+            }
             # ServiceType is DSCC
             else {
     
                 $ServiceType = "DSCC"
+                $AuthenticationType = "OAUTH"
+                $objStatus.ServiceType = $ServiceType 
+
     
                 $Authentication = @{
                     clientId     = $ClientID
@@ -359,59 +559,75 @@ Function New-HPECOMExternalService {
                 }           
             }
     
-            $objStatus.ServiceType = $ServiceType 
     
-            # Build payload
-            $payload = ConvertTo-Json @{
-                name               = $Name
-                serviceType        = $ServiceType 
-                authenticationType = $authenticationType
-                description        = $Description
-                authentication     = $Authentication
-                serviceData        = $ServiceData
-            }
+            # Build payload and deploy only if no earlier validation failure
+            if (-not $objStatus.Status) {
+
+                $payload = ConvertTo-Json @{
+                    name               = $Name
+                    serviceType        = $ServiceType 
+                    authenticationType = $AuthenticationType
+                    authentication     = $Authentication
+                    serviceData        = $ServiceData
+                }
+
+                # Build sanitized payload for WhatIf display (mask sensitive credential fields)
+                $SanitizedPayload = $payload -replace '"(clientSecret|password|refreshToken)":\s*"[^"]*"', '"$1": "[REDACTED]"'
     
+                # Deploy the external service. 
+                try {
+                    if ($WhatIf) {
+                        $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $SanitizedPayload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+                    }
+                    else {
+                        $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+                    }
     
-            # Deploy the external service. 
-            try {
-                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+                    if (-not $WhatIf) {
     
-                
-                if (-not $WhatIf) {
+                        "[{0}] '{1}' external service creation raw response: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceType, $Response | Write-Verbose
     
-                    "[{0}] '{1}' external service creation raw response: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceType, $Response | Write-Verbose
-    
-                    do {
-                        $ExternalService_status = (Get-HPECOMExternalService -Region $Region | Where-Object name -eq $Name ).status
-                        Start-Sleep 1
-                    } until ($ExternalService_status -eq "ENABLED")
-                    
-                    "[{0}] '{1}' external service successfully deployed in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+                        do {
+                            $ExternalService_status = (Get-HPECOMExternalService -Region $Region | Where-Object name -eq $Name ).status
+                            Start-Sleep 1
+                        } until ($ExternalService_status -eq "ENABLED")
                         
-                    $objStatus.Status = "Complete"
-                    $objStatus.Details = "External service successfully deployed in $Region region"
+                        "[{0}] '{1}' external service successfully deployed in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+                            
+                        $objStatus.Status = "Complete"
+                        $objStatus.Details = "External service successfully deployed in $Region region"
+    
+                    }
     
                 }
+                catch {
     
+                    if (-not $WhatIf) {
+                        $_errMsg = if ($_.Exception.Message) { $_.Exception.Message } else { "" }
+                        if ($_errMsg -match "already exists" -or $Global:HPECOMInvokeReturnData.errorCode -match "1700004") {
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = "External service already exists in the region! No action needed."
+                        }
+                        else {
+                            $objStatus.Status = "Failed"
+                            $objStatus.Details = if ($_errMsg) { $_errMsg } else { "External service cannot be deployed!" }
+                            $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                        }
+                    }
+                }           
             }
-            catch {
-    
-                if (-not $WhatIf) {
-                    $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "External service cannot be deployed!" }
-                    $objStatus.Exception = $Global:HPECOMInvokeReturnData 
-                }
-            }           
         }
 
 
-        [void] $DeployExternalServiceStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $DeployExternalServiceStatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($DeployExternalServiceStatus.Count -gt 0) {
 
             $DeployExternalServiceStatus = Invoke-RepackageObjectWithType -RawObject $DeployExternalServiceStatus -ObjectName "COM.ExternalServices.NSDE"   
             Return $DeployExternalServiceStatus
@@ -424,16 +640,18 @@ Function New-HPECOMExternalService {
 Function Remove-HPECOMExternalService {
     <#
     .SYNOPSIS
-    Remove a ServiceNow application in a region.
+    Remove an external service (ServiceNow, DSCC, or VMware vCenter) from a region.
 
     .DESCRIPTION
-    This Cmdlet can be used to remove the ServiceNow application in a region.    
+    This Cmdlet removes an external service from the specified region.
+    - For ServiceNow and DSCC integrations, the resource is deleted directly via a REST DELETE call.
+    - For VMware vCenter integrations, deletion is performed via a 'DeleteVCenter' job because the API does not support direct deletion. The cmdlet submits the job and waits for it to complete.
         
     .PARAMETER Name 
-    Name of the ServiceNow application to remove. 
+    Name of the external service to remove. 
     
     .PARAMETER Region     
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to remove ServiceNow. 
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where to remove the external service. 
     This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
@@ -442,9 +660,14 @@ Function Remove-HPECOMExternalService {
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    Remove-HPECOMExternalService -Region eu-central -Name 'MyServiceNow_Name' 
+    Remove-HPECOMExternalService -Region eu-central -Name 'ServiceNow_eu-central'
     
     Remove the ServiceNow integration from the central EU region. 
+
+    .EXAMPLE
+    Remove-HPECOMExternalService -Region us-west -Name 'vcenter.lj.lab'
+    
+    Remove the VMware vCenter integration named 'vcenter.lj.lab' from the us-west region using a job.
 
     .EXAMPLE
     Get-HPECOMExternalService -Region eu-central -Name MyServiceNow_Name  | Remove-HPECOMExternalService 
@@ -465,6 +688,7 @@ Function Remove-HPECOMExternalService {
         A custom status object or array of objects containing the following PsCustomObject keys:  
         * Name - Name of the external service attempted to be removed
         * Region - Name of the region where the external service is removed
+        * ServiceType - Type of the external service (SERVICE_NOW, DSCC, VMWARE_VCENTER)
         * Status - Status of the removal attempt (Failed for http error return; Complete if removal is successful; Warning if no action is needed) 
         * Details - More information about the status 
         * Exception: Information about any exceptions generated during the operation.
@@ -545,57 +769,126 @@ Function Remove-HPECOMExternalService {
         
         if (-not $ExternalServiceID) {
             # Must return a message if not found
+            $ErrorMessage = "External service '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
             if ($WhatIf) {
                 
-                $ErrorMessage = "External service '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
 
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "External service cannot be found in the region!"
 
             }
         }
         else {
 
-            $Uri = (Get-COMExternalServicesUri) + "/" + $ExternalServiceID
+            $_ServiceType = $ExternalServicesResource.serviceType
 
-            # Deploy the external service. 
-            try {
-                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method DELETE -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+            if ($_ServiceType -eq "VMWARE_VCENTER") {
 
-                
-                if (-not $WhatIf) {
+                # VMware vCenter services cannot be deleted directly — a job must be used
+                $_JobTemplateName = 'DeleteVCenter'
+                $JobTemplateId = $Global:HPECOMjobtemplatesUris | Where-Object name -eq $_JobTemplateName | ForEach-Object id
 
-                    "[{0}] External service removal raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
-
-                    "[{0}] External service '{1}' successfully deleted from '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
-                    
-                    $objStatus.Status = "Complete"
-                    $objStatus.Details = "External service successfully deleted from $Region region"
-
+                if (-not $JobTemplateId) {
+                    $ErrorMessage = "Job template '$_JobTemplateName' cannot be found. Ensure you are connected and the job templates are loaded."
+                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                        return
+                    }
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = $ErrorMessage
                 }
+                else {
 
+                    $JobUri = Get-COMJobsUri
+
+                    $payload = ConvertTo-Json @{
+                        jobTemplate  = $JobTemplateId
+                        resourceId   = $ExternalServiceID
+                        resourceType = "compute-ops-mgmt/external-service"
+                        jobParams    = @{
+                            vCenterUuid          = $ExternalServiceID
+                            externalServiceId    = $ExternalServiceID
+                            vCenterUrl           = $ExternalServicesResource.serviceData.vCenterUrl
+                            associatedGatewayUri = $ExternalServicesResource.serviceData.associatedGatewayUri
+                        }
+                    }
+
+                    try {
+                        $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $JobUri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                        if (-not $WhatIf) {
+
+                            "[{0}] '{1}' job submitted, waiting for completion..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $_JobTemplateName | Write-Verbose
+
+                            $JobResult = Wait-HPECOMJobComplete -Region $Region -Job $Response.resourceUri -Verbose:$VerbosePreference
+
+                            "[{0}] Job result: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $JobResult | Write-Verbose
+
+                            if ($JobResult.resultCode -eq "SUCCESS") {
+                                "[{0}] External service '{1}' successfully deleted from '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+                                $objStatus.Status = "Complete"
+                                $objStatus.Details = "External service successfully deleted from $Region region"
+                            }
+                            else {
+                                $objStatus.Status = "Failed"
+                                $objStatus.Details = if ($JobResult.message) { $JobResult.message } else { "DeleteVCenter job did not complete successfully. Result: $($JobResult.resultCode)" }
+                                $objStatus.Exception = $JobResult
+                            }
+                        }
+                    }
+                    catch {
+
+                        if (-not $WhatIf) {
+                            $objStatus.Status = "Failed"
+                            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "External service cannot be deleted!" }
+                            $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                        }
+                    }
+                }
             }
-            catch {
+            else {
 
-                if (-not $WhatIf) {
-                    $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "External service cannot be deleted!" }
-                    $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+                $Uri = (Get-COMExternalServicesUri) + "/" + $ExternalServiceID
+
+                try {
+                    $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method DELETE -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+
+                    if (-not $WhatIf) {
+
+                        "[{0}] External service removal raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
+
+                        "[{0}] External service '{1}' successfully deleted from '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+                        
+                        $objStatus.Status = "Complete"
+                        $objStatus.Details = "External service successfully deleted from $Region region"
+
+                    }
+
                 }
-            }           
+                catch {
 
+                    if (-not $WhatIf) {
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "External service cannot be deleted!" }
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+                    }
+                }           
+            }
         }
-        [void] $RemoveExternalServiceStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $RemoveExternalServiceStatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($RemoveExternalServiceStatus.Count -gt 0) {
 
             $RemoveExternalServiceStatus = Invoke-RepackageObjectWithType -RawObject $RemoveExternalServiceStatus -ObjectName "COM.ExternalServices.NSDE"   
             Return $RemoveExternalServiceStatus
@@ -608,58 +901,175 @@ Function Remove-HPECOMExternalService {
 Function Set-HPECOMExternalService {
     <#
     .SYNOPSIS
-    Updates an external services item in a specified region.
+    Updates an external service in a specified region.
 
     .DESCRIPTION
-    This Cmdlet modifies the ServiceNow application settings in a specified region. If a parameter is not provided, the cmdlet retains the current setting and only updates the provided parameters.
-            
+    This cmdlet modifies the settings of a ServiceNow, DSCC, VMware vCenter, or Aruba Central external service in a specified region.
+    Only the parameters you supply are updated — any parameter not provided retains its current value (PATCH semantics).
+
+    The cmdlet auto-detects the service type from the existing resource, so no type switch is needed.
+    Supply only the parameters relevant to the service type being updated:
+
+      SERVICE_NOW parameters  : -Credential, -RefreshToken, -OauthUrl, -IncidentUrl, -RefreshTokenExpiryInDays,
+                                 -ServiceEventIssues, -CriticalEventIssues, -WarningEventIssues, -UtilizationAlerts,
+                                 -PowerResetEvent, -DisconnectedEvent
+      DSCC parameters         : -Credential, -DSCCRegion
+      VMWARE_VCENTER parameters: -Credential, -VCenterServer, -AssociatedGatewayUri, -VCenterCertFingerprint
+      ARUBA_CENTRAL parameters : -Credential, -RefreshToken, -APIGatewayURL
+
+    For all service types, -Name, -NewName, and -Description can be updated independently without supplying credentials.
+
+    Incident scope for SERVICE_NOW follows a mandatory hierarchy (lower selections must be True before higher ones can be True):
+      serviceEventIssues (minimum) → criticalEventIssues → warningEventIssues (maximum scope)
+    Additionally, at least one of -ServiceEventIssues or -UtilizationAlerts must be True.
+    -PowerResetEvent and -DisconnectedEvent are fully independent.
+
     .PARAMETER Name 
-    Specifies the name of the external web service to update. 
+    Specifies the name of the external service to update.
 
     .PARAMETER NewName
-    Specifies the new name for the external web service.
-        
+    Specifies a new name for the external service.
+
     .PARAMETER Region 
-    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the external web service is located. 
+    Specifies the region code of the Compute Ops Management instance where the external service is located (e.g., 'us-west', 'eu-central').
     This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
 
     .PARAMETER Description 
-    Specifies a description for the external web service. 
+    Specifies a new description for the external service. Applies to both SERVICE_NOW and VMWARE_VCENTER services.
 
     .PARAMETER Credential 
-    Specifies the credentials (clientID and client secret) of the external web service. 
+    [SERVICE_NOW]  The PSCredential object whose username is the OAuth clientId and password is the clientSecret.
+    [DSCC] The PSCredential object whose username is the OAuth clientId and password is the clientSecret.
+    [VMWARE_VCENTER] The PSCredential object whose username is the vCenter login and password is the vCenter password.
+    [ARUBA_CENTRAL] The PSCredential object whose username is the OAuth clientId and password is the clientSecret. To obtain these values, log in to Aruba Central. Navigate to the Organization > Platform Integration > REST API page. In the My Apps & Tokens section, copy the Client ID/Client Secret.
+
+    This parameter is optional. If omitted, the existing credential stored in the service is preserved.
+    When supplied for SERVICE_NOW or ARUBA_CENTRAL, -RefreshToken must also be provided.
 
     .PARAMETER RefreshToken 
-    Specifies the refresh token of the external web service. 
-    
+    [SERVICE_NOW / ARUBA_CENTRAL] The OAuth refresh token used to obtain access tokens.
+    Required when -Credential is provided for a SERVICE_NOW or ARUBA_CENTRAL service.
+    Note: refreshToken is stored in the authentication block alongside clientId/clientSecret. Updating it requires -Credential to be provided as well.
+    [ARUBA_CENTRAL] To obtain this value, log in to Aruba Central. Navigate to the Organization > Platform Integration > REST API page. In the My Apps & Tokens section, copy the Refresh Token corresponding to the Client ID used for authentication.
+
     .PARAMETER OauthUrl 
-    Specifies the authentication URL of the external web service used to obtain OAuth tokens. 
+    [SERVICE_NOW only] The OAuth token endpoint URL (e.g., 'https://instance.service-now.com/oauth_token.do').
+    Optional — can be updated independently without providing -Credential. If omitted, the existing URL is retained.
 
     .PARAMETER IncidentUrl 
-    Specifies the incident URL of the external web service that is used to create incidents.
-        
+    [SERVICE_NOW only] The REST API endpoint used to create incidents (e.g., 'https://instance.service-now.com/api/now/import/...').
+    Optional — can be updated independently without providing -Credential. If omitted, the existing URL is retained.
+
     .PARAMETER RefreshTokenExpiryInDays 
-    Specifies the number of days after which the refresh token will expire.
+    [SERVICE_NOW only] The number of days until the refresh token expires. Valid range: 100–365.
+    Optional — can be updated independently without providing -Credential. If omitted, the existing value is retained.
+
+    .PARAMETER ServiceEventIssues
+    [SERVICE_NOW only] When True, incidents are created for service events (events with severity 'warning' or 'critical' that are classified as service events).
+    This is the minimum scope level. Must be True before -CriticalEventIssues or -WarningEventIssues can be set to True.
+    Optional — if omitted, the existing value is retained.
+
+    .PARAMETER CriticalEventIssues
+    [SERVICE_NOW only] When True, incidents are created for non-service events with severity 'critical'.
+    Requires -ServiceEventIssues to be True. Must be True before -WarningEventIssues can be set to True.
+    Optional — if omitted, the existing value is retained.
+
+    .PARAMETER WarningEventIssues
+    [SERVICE_NOW only] When True, incidents are created for non-service events with severity 'warning'.
+    Requires both -ServiceEventIssues and -CriticalEventIssues to be True.
+    Optional — if omitted, the existing value is retained.
+
+    .PARAMETER UtilizationAlerts
+    [SERVICE_NOW only] When True, incidents are created for power utilization threshold breach events.
+    Independent of the serviceEventIssues/criticalEventIssues/warningEventIssues hierarchy, but at least one of -ServiceEventIssues or -UtilizationAlerts must be True.
+    Optional — if omitted, the existing value is retained.
+
+    .PARAMETER PowerResetEvent
+    [SERVICE_NOW only] When True, incidents are created for power change (reset) events.
+    Fully independent of all other scope settings.
+    Optional — if omitted, the existing value is retained.
+
+    .PARAMETER DisconnectedEvent
+    [SERVICE_NOW only] Sets the number of hours of disconnectivity before an incident is created (0 = disabled, 1, 2, or 3 hours).
+    Fully independent of all other scope settings.
+    Optional — if omitted, the existing value is retained.
+
+    .PARAMETER DSCCRegion
+    [DSCC only] The region code of the Data Services Cloud Console instance (e.g., 'us-west', 'eu-central').
+    Optional — if omitted, the existing region is retained.
+
+    .PARAMETER APIGatewayURL
+    [ARUBA_CENTRAL only] The Aruba Central API gateway URL (e.g., 'https://central.arubanetworks.com').
+    Optional — if omitted, the existing URL is retained.
+
+    To obtain this value, log in to Aruba Central. Navigate to the Organization > Platform Integration > REST API page. In the APIs section, copy the first part of the URL in the All Published APIs section, stopping after .com. Do not include any characters after .com. For example: https://central.arubanetworks.com. 
+
+    .PARAMETER VCenterServer
+    [VMWARE_VCENTER only] The FQDN or IPv4 address of the vCenter server.
+    Optional — if omitted, the existing value is retained.
+
+    .PARAMETER AssociatedGatewayUri
+    [VMWARE_VCENTER only] The resource URI of the Secure Gateway appliance associated with this vCenter integration.
+    Optional — if omitted, the existing URI is retained.
+
+    .PARAMETER VCenterCertFingerprint
+    [VMWARE_VCENTER only] The SHA-256 fingerprint of the vCenter server TLS certificate, as a plain lowercase hex string with no separators (e.g., '035fa3f6e64b195b...').
+    Colons and mixed case are accepted and normalized automatically.
+    Optional — if omitted, the existing stored fingerprint is retained. If no fingerprint is stored, the cmdlet auto-retrieves it from the vCenter server on port 443.
 
     .PARAMETER WhatIf
     Shows the raw REST API call that would be made to COM instead of sending the request, useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    Set-HPECOMExternalService -Region eu-central -Name MyServiceNow_Name -NewName MyServiceNow_for_COM -Description "This is my new description" -Credential $credentials -RefreshToken "541646646434684343" 
+    $credential = Get-Credential -Message "Enter your Aruba Central clientID and clientSecret"
+    Set-HPECOMExternalService -Region us-west -Name "ArubaCentral_us-west" -Credential $credential -RefreshToken "newRefreshToken" -APIGatewayURL "https://central.arubanetworks.com"
 
-    Updates the external service 'MyServiceNow_Name' in the 'eu-central' region with a new name 'MyServiceNow_for_COM' and a new description.
-    
-    .EXAMPLE
-    Set-HPECOMExternalService -Region eu-central -Name MyServiceNow_Name -Description "This is my new description" -Credential $credential -RefreshToken "541646646434684343" -OauthUrl "https://example.service-now.com/oauth_token.do" -IncidentUrl "https://example.service-now.com/api/now/import/u_demo_incident_inbound_api" -RefreshTokenExpiryInDays 200
-        
-    Updates the external service 'MyServiceNow_Name' in the central EU region with new parameters.
+    Updates the authentication credentials, refresh token, and Aruba Central URL for an existing Aruba Central integration.
 
     .EXAMPLE
-    Get-HPECOMExternalService -Region eu-central -Name MyServiceNow_Name | Set-HPECOMExternalService -Description "This is my new description" -Credential $credential -RefreshToken "541646646434684343" -OauthUrl "https://example.service-now.com/oauth_token.do" -IncidentUrl "https://example.service-now.com/api/now/import/u_demo_incident_inbound_api" -RefreshTokenExpiryInDays 150
+    Get-HPECOMExternalService -Region us-west -Name "my-vcenter" | Set-HPECOMExternalService -Description "Updated description"
 
-    Updates the external service 'MyServiceNow_Name' in the central EU region with new parameters.
+    Updates only the description of the VMware vCenter integration 'my-vcenter'. No credentials required for a description-only update.
+
+    .EXAMPLE
+    $DSCCcredentials = Get-Credential -Message "Enter your DSCC clientID and clientSecret"
+    Set-HPECOMExternalService -Region eu-central -Name "DSCC_eu-central" -Credential $DSCCcredentials -DSCCRegion us-west
+
+    Updates the credentials and DSCC region for a DSCC integration.
+
+    .EXAMPLE
+    $vCenterCredential = Get-Credential -Message "Enter vCenter username and password"
+    Set-HPECOMExternalService -Region us-west -Name "my-vcenter" -Credential $vCenterCredential -VCenterServer "vcenter2.example.com"
+
+    Updates the vCenter server address and credentials for an existing VMware vCenter integration.
+
+    .EXAMPLE
+    Set-HPECOMExternalService -Region eu-central -Name MyServiceNow -NewName MyServiceNow_v2 -Description "Updated description"
+
+    Renames the ServiceNow integration and updates its description. No credentials required.
+
+    .EXAMPLE
+    $credential = Get-Credential -Message "Enter ServiceNow clientId and clientSecret"
+    Set-HPECOMExternalService -Region eu-central -Name MyServiceNow -Credential $credential -RefreshToken "newtoken123" -OauthUrl "https://instance.service-now.com/oauth_token.do" -IncidentUrl "https://instance.service-now.com/api/now/import/u_incidents" -RefreshTokenExpiryInDays 200
+
+    Updates the authentication settings for an existing ServiceNow integration.
+
+    .EXAMPLE
+    Set-HPECOMExternalService -Region eu-central -Name MyServiceNow -ServiceEventIssues $True -CriticalEventIssues $True -WarningEventIssues $True -UtilizationAlerts $True -PowerResetEvent $True -DisconnectedEvent 2
+
+    Sets the maximum incident scope for a ServiceNow integration: all event types enabled, incidents created after 2 hours of disconnectivity.
+
+    .EXAMPLE
+    Set-HPECOMExternalService -Region eu-central -Name MyServiceNow -ServiceEventIssues $True -UtilizationAlerts $False -PowerResetEvent $False -DisconnectedEvent 0
+
+    Sets the minimum incident scope: only service events, no utilization alerts, no power reset events, disconnected events disabled.
+
+    .EXAMPLE
+    Get-HPECOMExternalService -Region eu-central -Name MyServiceNow | Set-HPECOMExternalService -Description "This is my new description" -Credential $credential -RefreshToken "541646646434684343" -OauthUrl "https://example.service-now.com/oauth_token.do" -IncidentUrl "https://example.service-now.com/api/now/import/u_demo_incident_inbound_api" -RefreshTokenExpiryInDays 150
+
+    Updates both the description and authentication settings for a ServiceNow integration using the pipeline.
 
     .INPUTS
     System.Collections.ArrayList
@@ -712,21 +1122,39 @@ Function Set-HPECOMExternalService {
         [ValidateScript({ $_.Length -lt 256 })]
         [String]$Description,
 
-        [Parameter (Mandatory)]
         [PSCredential]$Credential,
 
-        [Parameter (Mandatory)]
         [String]$RefreshToken,
 
-        # [Parameter (Mandatory)]
         [String]$OauthUrl,
 
-        # [Parameter (Mandatory)]
         [String]$IncidentUrl,
 
-        # [Parameter (Mandatory)]
         [ValidateRange(100, 365)]
         [Int]$RefreshTokenExpiryInDays,
+
+        [Bool]$ServiceEventIssues,
+
+        [Bool]$CriticalEventIssues,
+
+        [Bool]$WarningEventIssues,
+
+        [Bool]$UtilizationAlerts,
+
+        [Bool]$PowerResetEvent,
+
+        [ValidateRange(0, 3)]
+        [Int]$DisconnectedEvent,
+
+        [String]$VCenterServer,
+
+        [String]$AssociatedGatewayUri,
+
+        [String]$VCenterCertFingerprint,
+
+        [String]$DSCCRegion,
+
+        [String]$APIGatewayURL,
 
         [Switch]$WhatIf
     ) 
@@ -775,12 +1203,12 @@ Function Set-HPECOMExternalService {
             if ($WhatIf) {
                             
                 $ErrorMessage = "External service '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
 
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "External service cannot be found in the region!"
             }
         }
@@ -805,73 +1233,331 @@ Function Set-HPECOMExternalService {
                 }
             }
 
+            # Build authentication and service data based on service type
+            $_ServiceType = $ExternalServicesResource.serviceType
 
-            if (-not $OauthUrl) {
-                $OauthUrl = $ExternalServicesResource.serviceData.oauthUrl
+            # Extract credential values only when a credential object was provided
+            if ($Credential) {
+                $ClientID = $Credential.UserName
+                $clientSecret = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Password))
             }
 
-            if (-not $IncidentUrl) {
-                $IncidentUrl = $ExternalServicesResource.serviceData.incidentUrl
-            }
+            if ($_ServiceType -eq "VMWARE_VCENTER") {
 
-            if (-not $refreshTokenExpiryInDays) {
-                $refreshTokenExpiryInDays = $ExternalServicesResource.serviceData.refreshTokenExpiryInDays
-            }
+                # Determine whether any vCenter-specific field is being changed
+                $_anyVCenterChange = $Credential -or
+                                     $PSBoundParameters.ContainsKey('VCenterServer') -or
+                                     $PSBoundParameters.ContainsKey('AssociatedGatewayUri') -or
+                                     $PSBoundParameters.ContainsKey('VCenterCertFingerprint')
 
-            # Deploy the external service. 
-                     
-            $ClientID = $Credential.UserName
-            $clientSecret = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Credential.Password))
+                if ($_anyVCenterChange) {
 
-            $Authentication = @{
-                clientId     = $ClientID
-                clientSecret = $clientSecret
-                refreshToken = $RefreshToken
-            }
+                    if (-not $VCenterServer) {
+                        $VCenterServer = $ExternalServicesResource.serviceData.vCenterUrl
+                    }
 
+                    if (-not $AssociatedGatewayUri) {
+                        $AssociatedGatewayUri = $ExternalServicesResource.serviceData.associatedGatewayUri
+                    }
 
+                    if (-not $VCenterCertFingerprint) {
+                        $VCenterCertFingerprint = $ExternalServicesResource.serviceData.vCenterCertFingerprint
+                    }
 
-            $ServiceData = @{
-                oauthUrl                 = $OauthUrl
-                incidentUrl              = $IncidentUrl
-                refreshTokenExpiryInDays = $refreshTokenExpiryInDays
-            }
-
-            # Build payload
-            $payload = ConvertTo-Json @{
-                name           = $Name
-                state          = "ENABLED"
-                description    = $Description
-                authentication = $Authentication
-                serviceData    = $ServiceData
-            }
-
-        
-
-            # Deploy the external service. 
-            try {
-                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method PATCH -body $payload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
-
-                
-                if (-not $WhatIf) {
-
-                    "[{0}] External service update raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
-                
-                    "[{0}] External service '{1}' successfully updated in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
-                    
-                    $objStatus.Status = "Complete"
-                    $objStatus.Details = "External service successfully updated in $Region region"
-
+                    # Auto-retrieve vCenter certificate fingerprint from server if still not available
+                    if (-not $VCenterCertFingerprint) {
+                        try {
+                            $tcpClient = New-Object System.Net.Sockets.TcpClient($VCenterServer, 443)
+                            $sslStream = New-Object System.Net.Security.SslStream($tcpClient.GetStream(), $false, { $true })
+                            $sslStream.AuthenticateAsClient($VCenterServer)
+                            $cert = $sslStream.RemoteCertificate
+                            $sha256 = [System.Security.Cryptography.SHA256]::Create()
+                            $hashBytes = $sha256.ComputeHash($cert.GetRawCertData())
+                            $VCenterCertFingerprint = ($hashBytes | ForEach-Object { $_.ToString("x2") }) -join ""
+                            $sslStream.Close(); $tcpClient.Close()
+                            "[{0}] Auto-retrieved vCenter certificate fingerprint from '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $VCenterServer, $VCenterCertFingerprint | Write-Verbose
+                        }
+                        catch {
+                            $ErrorMessage = "Failed to auto-retrieve vCenter certificate fingerprint from '$VCenterServer' on port 443!"
+                            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                            if ($WhatIf) {
+                                Write-Warning "$ErrorMessage Cannot display API request."
+                                return
+                            }
+                            $objStatus.Status = "Failed"
+                            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { $ErrorMessage }
+                        }
+                    }
                 }
 
+                # Build payload hash — only include authentication/serviceData when something changed
+                $payloadHash = [ordered]@{
+                    name        = $Name
+                    state       = "ENABLED"
+                    description = $Description
+                }
+
+                if ($_anyVCenterChange -and -not $objStatus.Status) {
+
+                    if ($Credential) {
+                        $payloadHash['authentication'] = @{
+                            username = $ClientID
+                            password = $clientSecret
+                        }
+                    }
+
+                    $payloadHash['serviceData'] = @{
+                        vCenterUrl             = $VCenterServer
+                        associatedGatewayUri   = $AssociatedGatewayUri
+                        vCenterCertFingerprint = $VCenterCertFingerprint.Replace(":", "").ToLower()
+                    }
+                }
+
+                $payload = ConvertTo-Json $payloadHash
+
+                # Build sanitized payload for WhatIf display (mask sensitive credential fields)
+                $SanitizedPayload = $payload -replace '"(clientSecret|password|refreshToken)":\s*"[^"]*"', '"$1": "[REDACTED]"'
+
             }
-            catch {
+            elseif ($_ServiceType -eq "DSCC") {
 
-                if (-not $WhatIf) {
-                    $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "External service cannot be updated!" }
-                    $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+                # DSCC authentication uses clientId/clientSecret only (no refreshToken)
+                $_credentialChange  = [bool]$Credential
+                $_serviceDataChange = $PSBoundParameters.ContainsKey('DSCCRegion')
 
+                $payloadHash = [ordered]@{
+                    name        = $Name
+                    state       = "ENABLED"
+                    description = $Description
+                }
+
+                if ($_credentialChange) {
+                    $payloadHash['authentication'] = @{
+                        clientId     = $ClientID
+                        clientSecret = $clientSecret
+                    }
+                }
+
+                if ($_serviceDataChange) {
+                    $payloadHash['serviceData'] = @{
+                        region = $DSCCRegion
+                    }
+                }
+
+                $payload = ConvertTo-Json $payloadHash
+
+                # Build sanitized payload for WhatIf display (mask sensitive credential fields)
+                $SanitizedPayload = $payload -replace '"(clientSecret|password|refreshToken)":\s*"[^"]*"', '"$1": "[REDACTED]"'
+
+            }
+            elseif ($_ServiceType -eq "ARUBA_CENTRAL") {
+
+                # ARUBA_CENTRAL uses clientId/clientSecret/refreshToken for auth and nbUrl (APIGatewayURL) for serviceData
+                $_credentialChange  = $Credential -or $PSBoundParameters.ContainsKey('RefreshToken')
+                $_serviceDataChange = $PSBoundParameters.ContainsKey('APIGatewayURL')
+
+                $payloadHash = [ordered]@{
+                    name        = $Name
+                    state       = "ENABLED"
+                    description = $Description
+                }
+
+                if ($_credentialChange) {
+
+                    if (-not $Credential) {
+                        $ErrorMessage = "External service '{0}': Parameter '-Credential' (clientId/clientSecret) is required when updating the authentication token for ARUBA_CENTRAL services in the '{1}' region!" -f $Name, $Region
+                        if ($WhatIf) { Write-Warning "$ErrorMessage Cannot display API request."; return }
+                        $objStatus.Status = "Warning"
+                        $objStatus.Details = $ErrorMessage
+                    }
+                    elseif (-not $RefreshToken) {
+                        $ErrorMessage = "External service '{0}': Parameter '-RefreshToken' is required when updating credentials for ARUBA_CENTRAL services in the '{1}' region!" -f $Name, $Region
+                        if ($WhatIf) { Write-Warning "$ErrorMessage Cannot display API request."; return }
+                        $objStatus.Status = "Warning"
+                        $objStatus.Details = $ErrorMessage
+                    }
+                    else {
+                        $payloadHash['authentication'] = @{
+                            clientId     = $ClientID
+                            clientSecret = $clientSecret
+                            refreshToken = $RefreshToken
+                        }
+                    }
+                }
+
+                if ($_serviceDataChange -and -not $objStatus.Status) {
+                    $payloadHash['serviceData'] = @{
+                        nbUrl = $APIGatewayURL
+                    }
+                }
+
+                $payload = ConvertTo-Json $payloadHash
+
+                # Build sanitized payload for WhatIf display (mask sensitive credential fields)
+                $SanitizedPayload = $payload -replace '"(clientSecret|password|refreshToken)":\s*"[^"]*"', '"$1": "[REDACTED]"'
+
+            }
+            else {
+                # SERVICE_NOW
+                # Split into two independent concerns:
+                #   - Authentication change: requires both -Credential and -RefreshToken (refreshToken lives in the authentication block)
+                #   - ServiceData change   : oauthUrl / incidentUrl / refreshTokenExpiryInDays — can be updated without credentials
+
+                $_credentialChange  = $Credential -or $PSBoundParameters.ContainsKey('RefreshToken')
+                $_serviceDataChange = $PSBoundParameters.ContainsKey('OauthUrl') -or
+                                      $PSBoundParameters.ContainsKey('IncidentUrl') -or
+                                      $PSBoundParameters.ContainsKey('RefreshTokenExpiryInDays') -or
+                                      $PSBoundParameters.ContainsKey('ServiceEventIssues') -or
+                                      $PSBoundParameters.ContainsKey('CriticalEventIssues') -or
+                                      $PSBoundParameters.ContainsKey('WarningEventIssues') -or
+                                      $PSBoundParameters.ContainsKey('UtilizationAlerts') -or
+                                      $PSBoundParameters.ContainsKey('PowerResetEvent') -or
+                                      $PSBoundParameters.ContainsKey('DisconnectedEvent')
+
+                $payloadHash = [ordered]@{
+                    name        = $Name
+                    state       = "ENABLED"
+                    description = $Description
+                }
+
+                if ($_credentialChange) {
+
+                    if (-not $Credential) {
+                        $ErrorMessage = "External service '{0}': Parameter '-Credential' (clientId/clientSecret) is required when updating the authentication token for SERVICE_NOW services in the '{1}' region!" -f $Name, $Region
+                        if ($WhatIf) { Write-Warning "$ErrorMessage Cannot display API request."; return }
+                        $objStatus.Status = "Warning"
+                        $objStatus.Details = $ErrorMessage
+                    }
+                    elseif (-not $RefreshToken) {
+                        $ErrorMessage = "External service '{0}': Parameter '-RefreshToken' is required when updating credentials for SERVICE_NOW services in the '{1}' region!" -f $Name, $Region
+                        if ($WhatIf) { Write-Warning "$ErrorMessage Cannot display API request."; return }
+                        $objStatus.Status = "Warning"
+                        $objStatus.Details = $ErrorMessage
+                    }
+                    else {
+                        $payloadHash['authentication'] = @{
+                            clientId     = $ClientID
+                            clientSecret = $clientSecret
+                            refreshToken = $RefreshToken
+                        }
+                    }
+                }
+
+                if ($_serviceDataChange -and -not $objStatus.Status) {
+
+                    if (-not $OauthUrl) {
+                        $OauthUrl = $ExternalServicesResource.serviceData.oauthUrl
+                    }
+
+                    if (-not $IncidentUrl) {
+                        $IncidentUrl = $ExternalServicesResource.serviceData.incidentUrl
+                    }
+
+                    if (-not $refreshTokenExpiryInDays) {
+                        $refreshTokenExpiryInDays = $ExternalServicesResource.serviceData.refreshTokenExpiryInDays
+                    }
+
+                    # Incident scope: detect if any hierarchical scope field is being changed
+                    $_anyScopeChange = $PSBoundParameters.ContainsKey('ServiceEventIssues') -or
+                                       $PSBoundParameters.ContainsKey('CriticalEventIssues') -or
+                                       $PSBoundParameters.ContainsKey('WarningEventIssues') -or
+                                       $PSBoundParameters.ContainsKey('UtilizationAlerts')
+
+                    if ($_anyScopeChange) {
+
+                        # Resolve effective values: use supplied parameter if provided, otherwise retain the existing stored value
+                        $_effServiceEventIssues  = if ($PSBoundParameters.ContainsKey('ServiceEventIssues'))  { $ServiceEventIssues }  else { [bool]$ExternalServicesResource.serviceData.serviceEventIssues }
+                        $_effCriticalEventIssues = if ($PSBoundParameters.ContainsKey('CriticalEventIssues')) { $CriticalEventIssues } else { [bool]$ExternalServicesResource.serviceData.criticalEventIssues }
+                        $_effWarningEventIssues  = if ($PSBoundParameters.ContainsKey('WarningEventIssues'))  { $WarningEventIssues }  else { [bool]$ExternalServicesResource.serviceData.warningEventIssues }
+                        $_effUtilizationAlerts   = if ($PSBoundParameters.ContainsKey('UtilizationAlerts'))   { $UtilizationAlerts }   else { [bool]$ExternalServicesResource.serviceData.utilizationAlerts }
+
+                        # Validate hierarchy: warningEventIssues requires criticalEventIssues
+                        if ($_effWarningEventIssues -and -not $_effCriticalEventIssues) {
+                            $ErrorMessage = "External service '{0}': -WarningEventIssues requires -CriticalEventIssues to be True in the '{1}' region!" -f $Name, $Region
+                            if ($WhatIf) { Write-Warning "$ErrorMessage Cannot display API request."; return }
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = $ErrorMessage
+                        }
+                        # Validate hierarchy: criticalEventIssues requires serviceEventIssues
+                        elseif ($_effCriticalEventIssues -and -not $_effServiceEventIssues) {
+                            $ErrorMessage = "External service '{0}': -CriticalEventIssues requires -ServiceEventIssues to be True in the '{1}' region!" -f $Name, $Region
+                            if ($WhatIf) { Write-Warning "$ErrorMessage Cannot display API request."; return }
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = $ErrorMessage
+                        }
+                        # At least one of serviceEventIssues or utilizationAlerts must be True
+                        elseif (-not $_effServiceEventIssues -and -not $_effUtilizationAlerts) {
+                            $ErrorMessage = "External service '{0}': At least one of -ServiceEventIssues or -UtilizationAlerts must be True in the '{1}' region!" -f $Name, $Region
+                            if ($WhatIf) { Write-Warning "$ErrorMessage Cannot display API request."; return }
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = $ErrorMessage
+                        }
+                    }
+
+                    if (-not $objStatus.Status) {
+
+                        $serviceDataBlock = @{
+                            oauthUrl                 = $OauthUrl
+                            incidentUrl              = $IncidentUrl
+                            refreshTokenExpiryInDays = $refreshTokenExpiryInDays
+                        }
+
+                        if ($_anyScopeChange) {
+                            $serviceDataBlock['serviceEventIssues']  = $_effServiceEventIssues
+                            $serviceDataBlock['criticalEventIssues'] = $_effCriticalEventIssues
+                            $serviceDataBlock['warningEventIssues']  = $_effWarningEventIssues
+                            $serviceDataBlock['utilizationAlerts']   = $_effUtilizationAlerts
+                        }
+
+                        if ($PSBoundParameters.ContainsKey('PowerResetEvent')) {
+                            $serviceDataBlock['powerResetEvent'] = $PowerResetEvent
+                        }
+
+                        if ($PSBoundParameters.ContainsKey('DisconnectedEvent')) {
+                            $serviceDataBlock['disconnectedEvent'] = $DisconnectedEvent
+                        }
+
+                        $payloadHash['serviceData'] = $serviceDataBlock
+                    }
+                }
+
+                $payload = ConvertTo-Json $payloadHash
+
+                # Build sanitized payload for WhatIf display (mask sensitive credential fields)
+                $SanitizedPayload = $payload -replace '"(clientSecret|password|refreshToken)":\s*"[^"]*"', '"$1": "[REDACTED]"'
+            }
+
+            # Deploy the external service. 
+            if (-not $objStatus.Status) {
+                try {
+                    if ($WhatIf) {
+                        $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method PATCH -body $SanitizedPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+                    }
+                    else {
+                        $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method PATCH -body $payload -ContentType "application/merge-patch+json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+                    }
+
+                    
+                    if (-not $WhatIf) {
+
+                        "[{0}] External service update raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
+                    
+                        "[{0}] External service '{1}' successfully updated in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $Region | Write-Verbose
+                        
+                        $objStatus.Status = "Complete"
+                        $objStatus.Details = "External service successfully updated in $Region region"
+
+                    }
+
+                }
+                catch {
+
+                    if (-not $WhatIf) {
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "External service cannot be updated!" }
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+
+                    }
                 }
             }           
         }
@@ -895,13 +1581,16 @@ Function Set-HPECOMExternalService {
 Function Test-HPECOMExternalService {
     <#
     .SYNOPSIS
-    Generate a test incident in a region.
+    Test a configured external service integration in a region.
 
     .DESCRIPTION
-    This Cmdlet can be used to generate a test incident in a region. For external service with serviceType as SERVICE_NOW, the cmdlet will generate a test incident for ServiceNow.
-    For external service with serviceType as DSCC, the cmdlet will test the integration connection to Data Services Cloud Console. 
+    This Cmdlet can be used to verify the integration of a configured external service in a region.
+    
+    - For external service with serviceType SERVICE_NOW, the cmdlet generates a test incident in ServiceNow.
+    - For external service with serviceType DSCC, the cmdlet tests the integration connection to Data Services Cloud Console. This test is available even if the configured DSCC integration is disabled.
+    - VMware vCenter does not support a connectivity test.
        
-    An activity will be generated as a result of this test and indicates the success or failure of creating the test incident.   
+    An activity will be generated as a result of this test and indicates the success or failure of the test.   
         
     .PARAMETER Name 
     Name of the external web service to test. 
@@ -916,14 +1605,14 @@ Function Test-HPECOMExternalService {
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    Test-HPECOMExternalServiceServiceNow -Region eu-central -Name MyServiceNow_Name
+    Test-HPECOMExternalService -Region eu-central -Name MyServiceNow_Name
     
-    Generate a test incident for ServiceNow.
+    Generate a test incident for a ServiceNow external service integration.
 
     .EXAMPLE
-    Test-HPECOMExternalServiceServiceNow -Region eu-central  | Test-HPECOMExternalService 
+    Get-HPECOMExternalService -Region eu-central | Test-HPECOMExternalService
 
-    Generate a test incident for ServiceNow.
+    Test all supported external service integrations in the eu-central region. VMware vCenter integrations will be skipped with a warning.
 
     .INPUTS
     System.Collections.ArrayList
@@ -981,8 +1670,9 @@ Function Test-HPECOMExternalService {
         "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
         $TestExternalServiceStatus = [System.Collections.ArrayList]::new()
+        $_ActivitySearchCriteria = [System.Collections.ArrayList]::new()
 
-        $_Date = Get-Date
+        $_Date = [datetime]::UtcNow
 
         
     }
@@ -1016,15 +1706,15 @@ Function Test-HPECOMExternalService {
         if (-not $ExternalServicesResource) {
 
             # Must return a message if not found
+            $ErrorMessage = "External service '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
             if ($WhatIf) {
                 
-                $ErrorMessage = "External service '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
 
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "External service cannot be found in the region!"
             }
 
@@ -1045,10 +1735,27 @@ Function Test-HPECOMExternalService {
                     $ServiceTypeCategory = "External service"
                     $ServiceTypeSourceName = "Data Services Cloud Console integration"
                 }
+                "VMWARE_VCENTER" {
+                    $ErrorMessage = "External service '{0}': VMware vCenter does not support a connectivity test." -f $Name
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                        return
+                    }
+                    else {
+                        $objStatus.Status = "Warning"
+                        $objStatus.Details = $ErrorMessage
+                    }
+                }
                 Default {
                         $ErrorMessage = "External service '{0}': Service type '{1}' is not supported for testing in the '{2}' region!" -f $Name, $ServiceType, $Region
-                        Write-warning $ErrorMessage
-                        return
+                        if ($WhatIf) {
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                            return
+                        }
+                        else {
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = $ErrorMessage
+                        }
                 }
             }
 
@@ -1056,45 +1763,82 @@ Function Test-HPECOMExternalService {
 
             # Generate a test incident 
                      
-            try {
-                $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -ContentType 'application/json' -Body (@{} | ConvertTo-Json) -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+            if (-not $objStatus.Status) {
+                try {
+                    $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -ContentType 'application/json' -Body (@{} | ConvertTo-Json) -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
 
                 
-                if (-not $WhatIf) {
-                    "[{0}] External service test raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
-                    "[{0}] Test incident '{1}' has been successfully generated for '{2}' in '{3}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $ServiceTypeName, $Region | Write-Verbose
-                    $objStatus.Status = "Complete"
-                    $objStatus.Details = "Test incident has been successfully generated for $ServiceTypeName in $Region region"
-                }
+                    if (-not $WhatIf) {
+                        "[{0}] External service test raw response: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response | Write-Verbose
+                        "[{0}] Test incident '{1}' has been successfully generated for '{2}' in '{3}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $name, $ServiceTypeName, $Region | Write-Verbose
+                        $objStatus.Status = "Complete"
+                        $objStatus.Details = "Test incident has been successfully generated for $ServiceTypeName in $Region region"
+                        [void] $_ActivitySearchCriteria.Add([pscustomobject]@{
+                            Region      = $Region
+                            SourceName  = $ServiceTypeSourceName
+                            Category    = $ServiceTypeCategory
+                            DisplayName = $Name
+                        })
+                    }
 
-            }
-            catch {
-                if (-not $WhatIf) {
-                    $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Test incident cannot be generated for $ServiceTypeName" }
-                    $objStatus.Exception = $Global:HPECOMInvokeReturnData 
                 }
-            }           
+                catch {
+                    if (-not $WhatIf) {
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Test incident cannot be generated for $ServiceTypeName" }
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+                    }
+                }           
+            }
         }
 
-        [void] $TestExternalServiceStatus.add($objStatus)
+        if (-not $WhatIf) {
+            [void] $TestExternalServiceStatus.add($objStatus)
+        }
 
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($TestExternalServiceStatus.Count -gt 0) {
 
-            if ($TestExternalServiceStatus.Status -notcontains "Failed") {
-                do {
-                    $_Activity = Get-HPECOMActivity -Region $Region -SourceName $ServiceTypeSourceName -Category $ServiceTypeCategory -WarningAction SilentlyContinue | Where-Object { ([datetime]$_.createdAt) -gt $_Date }
-                    Start-Sleep 1
-                    
-                } until ($_Activity)
-                
-                $TestExternalServiceStatus = Invoke-RepackageObjectWithType -RawObject $TestExternalServiceStatus -ObjectName "COM.ExternalServices.NSDE"   
-                Write-Host $TestExternalServiceStatus.details -ForegroundColor Green
-                Return  $_Activity
+            if ($_ActivitySearchCriteria.Count -gt 0) {
+
+                $_AllActivities = [System.Collections.ArrayList]::new()
+
+                foreach ($_Criteria in $_ActivitySearchCriteria) {
+
+                    "[{0}] Polling for activity: Region='{1}', SourceName='{2}', Category='{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Criteria.Region, $_Criteria.SourceName, $_Criteria.Category | Write-Verbose
+
+                    $_Elapsed = 0
+                    $_MaxWait = 30
+                    $_Activity = $null
+
+                    do {
+                        $_PercentComplete = [int](($_Elapsed / $_MaxWait) * 100)
+                        Write-Progress -Id 10 -Activity "Testing external service '$($_Criteria.DisplayName)'" -Status "$_Elapsed / $_MaxWait seconds" -PercentComplete $_PercentComplete
+                        $_Activity = Get-HPECOMActivity -Region $_Criteria.Region -SourceName $_Criteria.SourceName -Category $_Criteria.Category -WarningAction SilentlyContinue | Where-Object { ([datetime]$_.createdAt).ToUniversalTime() -gt $_Date }
+                        if (-not $_Activity) { Start-Sleep 1; $_Elapsed++ }
+                    } until ($_Activity -or $_Elapsed -ge $_MaxWait)
+
+                    Write-Progress -Id 10 -Activity "Testing external service '$($_Criteria.DisplayName)'" -Completed
+
+                    if ($_Activity) {
+                        [void] $_AllActivities.Add($_Activity)
+                    }
+                    else {
+                        "[{0}] Timed out waiting for activity: Region='{1}', SourceName='{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_Criteria.Region, $_Criteria.SourceName | Write-Verbose
+                    }
+                }
+
+                $TestExternalServiceStatus = Invoke-RepackageObjectWithType -RawObject $TestExternalServiceStatus -ObjectName "COM.ExternalServices.NSDE"
+
+                if ($_AllActivities.Count -gt 0) {
+                    Return $_AllActivities
+                }
+                else {
+                    Return $TestExternalServiceStatus
+                }
             }
             else {
                 $TestExternalServiceStatus = Invoke-RepackageObjectWithType -RawObject $TestExternalServiceStatus -ObjectName "COM.ExternalServices.NSDE"   
@@ -1104,6 +1848,414 @@ Function Test-HPECOMExternalService {
     }
 }
 
+
+
+Function Invoke-HPECOMExternalServiceVCenterFirmwareBaselineSync {
+    <#
+    .SYNOPSIS
+    Synchronize the firmware baseline for a VMware vCenter external service integration in a region.
+
+    .DESCRIPTION
+    This Cmdlet triggers a firmware baseline synchronization job for a configured VMware vCenter external service.
+    
+    The synchronization retrieves the current firmware baseline from the connected vCenter server and updates the Compute Ops Management inventory.
+    
+    By default, the Cmdlet waits for the job to complete and returns a status object. Use -Async to return the job resource immediately, or -ScheduleTime to schedule the synchronization for a later time.
+    
+    Only external services with serviceType VMWARE_VCENTER are supported. Other service types will produce a warning.
+        
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the VMware vCenter external service is configured.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER Name
+    Specifies the name of the VMware vCenter external service to synchronize.
+
+    .PARAMETER ScheduleTime
+    Specifies the date and time when the synchronization should be executed.
+    This parameter accepts a DateTime object or a string representation of a date and time.
+    If not specified, the synchronization will be executed immediately.
+
+    Examples for setting the date and time using `Get-Date`:
+    - (Get-Date).AddMonths(6)
+    - (Get-Date).AddDays(15)
+    - (Get-Date).AddHours(3)
+    Example for using a specific date string:
+    - "2024-05-20 08:00:00"
+
+    .PARAMETER Interval
+    Specifies the interval at which the synchronization should be repeated. This parameter accepts a string representation of an ISO 8601 period duration. If not specified, the synchronization will not be repeated.
+
+    This parameter supports common ISO 8601 period durations such as:
+    - P1D (1 Day)
+    - P1W (1 Week)
+    - P1M (1 Month)
+    - P1Y (1 Year)
+
+    The accepted formats include periods (P) referencing days, weeks, months, years but not time (T) designations that reference hours, minutes, and seconds.
+
+    A valid interval must be greater than 15 minutes (PT15M) and less than 1 year (P1Y).
+
+    .PARAMETER Async
+    Use this parameter to immediately return the asynchronous job resource to monitor (using 'state' and 'resultCode' properties). By default, the Cmdlet will wait for the job to complete.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Invoke-HPECOMExternalServiceVCenterFirmwareBaselineSync -Region us-west -Name "team13-vcsa.hol.enablement.local"
+    
+    Triggers a firmware baseline synchronization for the specified VMware vCenter external service integration and waits for completion.
+
+    .EXAMPLE
+    Get-HPECOMExternalService -Region us-west -ServiceType VMWARE_VCENTER | Invoke-HPECOMExternalServiceVCenterFirmwareBaselineSync
+    
+    Triggers firmware baseline synchronization for all VMware vCenter external service integrations in the us-west region and waits for each job to complete.
+
+    .EXAMPLE
+    Invoke-HPECOMExternalServiceVCenterFirmwareBaselineSync -Region us-west -Name "team13-vcsa.hol.enablement.local" -Async
+    
+    Triggers a firmware baseline synchronization and immediately returns the job resource to monitor.
+
+    .EXAMPLE
+    Invoke-HPECOMExternalServiceVCenterFirmwareBaselineSync -Region us-west -Name "team13-vcsa.hol.enablement.local" -ScheduleTime (Get-Date).AddHours(6)
+    
+    Schedules a firmware baseline synchronization to run 6 hours from now.
+
+    .EXAMPLE
+    Invoke-HPECOMExternalServiceVCenterFirmwareBaselineSync -Region us-west -Name "team13-vcsa.hol.enablement.local" -ScheduleTime (Get-Date).AddDays(1) -Interval P1W
+    
+    Schedules a weekly firmware baseline synchronization starting tomorrow.
+
+    .INPUTS
+    System.Collections.ArrayList
+        List of external service(s) from 'Get-HPECOMExternalService'. 
+
+    .OUTPUTS
+    HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
+
+        - When the job completes (default synchronous mode), the returned object contains:
+            - Name - Name of the external service for which synchronization was attempted
+            - ServiceType - Service type of the external service
+            - Region - Name of the region where the synchronization was triggered
+            - Status - Status of the synchronization attempt (Failed / Complete / Warning)
+            - Details - More information about the status
+            - Exception - Information about any exceptions generated during the operation
+
+        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete`.
+
+    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+
+        - The schedule object that includes the schedule details when `-ScheduleTime` is used.
+
+    #>
+
+    [CmdletBinding(DefaultParameterSetName = 'Async')]
+    Param( 
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $Global:HPECOMRegions global variable and create completions
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,  
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({ $_.Length -lt 256 })]
+        [String]$Name,
+
+        [Parameter (Mandatory, ParameterSetName = 'Schedule')]
+        [ValidateScript({
+                if ($_ -ge (Get-Date) -and $_ -le (Get-Date).AddYears(1)) {
+                    $true
+                }
+                else {
+                    throw "The ScheduleTime must be within one year from the current date."
+                }
+            })]
+        [DateTime]$ScheduleTime,
+
+        [ValidateScript({
+            # Validate ISO 8601 duration format
+            if ($_ -notmatch '^P(?!$)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(\d+H)?(\d+M)?(\d+S)?)?$') {
+                throw "Invalid duration format. Please use an ISO 8601 period interval (e.g., P1D, P1W, P1M, P1Y, PT1H, PT15M)"
+            }
+
+            # Extract duration parts
+            $years   = [int]($matches[1] -replace '\D', '')
+            $months  = [int]($matches[2] -replace '\D', '')
+            $weeks   = [int]($matches[3] -replace '\D', '')
+            $days    = [int]($matches[4] -replace '\D', '')
+            $hours   = [int]($matches[6] -replace '\D', '')
+            $minutes = [int]($matches[7] -replace '\D', '')
+            $seconds = [int]($matches[8] -replace '\D', '')
+
+            # Calculate total duration in seconds (approximate months/years)
+            $totalSeconds = 0
+            if ($years)   { $totalSeconds += $years * 365 * 24 * 3600 }
+            if ($months)  { $totalSeconds += $months * 30 * 24 * 3600 }
+            if ($weeks)   { $totalSeconds += $weeks * 7 * 24 * 3600 }
+            if ($days)    { $totalSeconds += $days * 24 * 3600 }
+            if ($hours)   { $totalSeconds += $hours * 3600 }
+            if ($minutes) { $totalSeconds += $minutes * 60 }
+            if ($seconds) { $totalSeconds += $seconds }
+
+            $minSeconds = 15 * 60
+            $maxSeconds = 365 * 24 * 3600  # 1 year
+
+            if ($totalSeconds -lt $minSeconds) {
+                throw "The interval must be greater than 15 minutes (PT15M)."
+            }
+            if ($totalSeconds -gt $maxSeconds) {
+                throw "The interval must be less than 1 year (P1Y)."
+            }
+            return $true
+        })]
+        [Parameter (ParameterSetName = 'Schedule')]
+        [String]$Interval,
+
+        [Parameter (ParameterSetName = 'Async')]
+        [switch]$Async,
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $SyncStatus = [System.Collections.ArrayList]::new()
+
+        $_JobTemplateName  = 'VcenterFirmwareBundlesSync'
+        $JobTemplateId     = $Global:HPECOMjobtemplatesUris | Where-Object name -eq $_JobTemplateName | ForEach-Object id
+        $JobsUri           = Get-COMJobsUri
+
+        "[{0}] Job template '{1}' ID: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_JobTemplateName, $JobTemplateId | Write-Verbose
+
+    }
+    
+    Process {
+        
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+        
+        try {
+            $ExternalServicesResource = Get-HPECOMExternalService -Region $Region -Name $Name 
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        # Build object for the output (used in synchronous mode)
+        $objStatus = [pscustomobject]@{
+            Name        = $Name
+            ServiceType = $ExternalServicesResource.ServiceType                       
+            Region      = $Region                            
+            Status      = $Null
+            Details     = $Null
+            Exception   = $Null
+        }
+
+        if (-not $ExternalServicesResource) {
+
+            $ErrorMessage = "External service '{0}': Resource cannot be found in the '{1}' region!" -f $Name, $Region
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = "External service cannot be found in the region!"
+            }
+
+        }
+        else {
+
+            $ServiceType = $ExternalServicesResource.ServiceType
+
+            if ($ServiceType -ne "VMWARE_VCENTER") {
+
+                $ErrorMessage = "External service '{0}': Firmware baseline synchronization is only supported for VMware vCenter integrations. Service type '{1}' is not supported." -f $Name, $ServiceType
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = $ErrorMessage
+                }
+
+            }
+            else {
+
+                if (-not $JobTemplateId) {
+                    $ErrorMessage = "Job template '$_JobTemplateName' cannot be found in the loaded templates. Ensure you are connected and job templates are loaded."
+                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                        return
+                    }
+                    else {
+                        $objStatus.Status = "Warning"
+                        $objStatus.Details = $ErrorMessage
+                    }
+                }
+                else {
+
+                    $_ResourceUri = $ExternalServicesResource.resourceUri
+                    $_ResourceId  = $ExternalServicesResource.id
+
+                    if ($ScheduleTime) {
+
+                        $Uri = Get-COMSchedulesUri
+
+                        $_Body = @{
+                            jobTemplateUri = "/api/compute/v1/job-templates/" + $JobTemplateId
+                            resourceUri    = $_ResourceUri
+                        }
+
+                        $Operation = @{
+                            type   = "REST"
+                            method = "POST"
+                            uri    = "/api/compute/v1/jobs"
+                            body   = $_Body
+                        }
+
+                        $randomNumber = Get-Random -Minimum 000000 -Maximum 999999
+
+                        $ScheduleName = "$($Name)_VCenterFirmwareBaselineSync_Schedule_$($randomNumber)"
+                        $Description  = "Scheduled task to run a firmware baseline synchronization for vCenter integration '$($Name)'"
+
+                        if ($Interval) {
+                            $Schedule = @{
+                                startAt  = $ScheduleTime.ToString("o")
+                                interval = $Interval
+                            }
+                        }
+                        else {
+                            $Schedule = @{
+                                startAt = $ScheduleTime.ToString("o")
+                            }
+                        }
+
+                        $payload = @{
+                            name                  = $ScheduleName
+                            description           = $Description
+                            associatedResourceUri = $_ResourceUri
+                            purpose               = $Null
+                            schedule              = $Schedule
+                            operation             = $Operation
+                        }
+
+                    }
+                    else {
+
+                        $Uri = $JobsUri
+
+                        $payload = @{
+                            jobTemplate  = $JobTemplateId
+                            resourceId   = $_ResourceId
+                            resourceType = "compute-ops-mgmt/external-service"
+                        }
+                    }
+
+                    $payload = ConvertTo-Json $payload -Depth 10
+
+                    try {
+                        $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+
+                        if ($ScheduleTime) {
+
+                            if (-not $WhatIf) {
+                                $ReturnData = Invoke-RepackageObjectWithType -RawObject $Response -ObjectName "COM.Schedules"
+                                "[{0}] Schedule created for '{1}' in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+                            }
+
+                        }
+                        else {
+
+                            if (-not $WhatIf -and -not $Async) {
+
+                                "[{0}] Firmware baseline sync job submitted for '{1}' in '{2}' region, waiting for completion..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+
+                                $JobResult = Wait-HPECOMJobComplete -Region $Region -Job $Response.resourceUri -Verbose:$VerbosePreference
+
+                                "[{0}] Job result: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($JobResult | Out-String) | Write-Verbose
+
+                                if ($JobResult.resultCode -eq "SUCCESS") {
+                                    "[{0}] Firmware baseline successfully synchronized for '{1}' in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
+                                    $objStatus.Status = "Complete"
+                                    $objStatus.Details = "Firmware baseline successfully synchronized for VMware vCenter integration '$Name' in $Region region"
+                                }
+                                else {
+                                    $objStatus.Status = "Failed"
+                                    $objStatus.Details = if ($JobResult.message) { $JobResult.message } else { "Firmware baseline sync job did not complete successfully. Result: $($JobResult.resultCode)" }
+                                    $objStatus.Exception = $JobResult
+                                }
+
+                            }
+                            else {
+
+                                # Async — return raw job resource
+                                if (-not $WhatIf) {
+                                    $Response | Add-Member -type NoteProperty -name region -value $Region
+                                    $ReturnData = Invoke-RepackageObjectWithType -RawObject $Response -ObjectName "COM.Jobs"
+                                }
+                            }
+                        }
+                    }
+                    catch {
+                        if (-not $WhatIf) {
+                            $objStatus.Status = "Failed"
+                            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Firmware baseline synchronization cannot be triggered for VMware vCenter integration '$Name'" }
+                            $objStatus.Exception = $Global:HPECOMInvokeReturnData 
+                        }
+                    }
+
+                    # ScheduleTime → $ReturnData (COM.Schedules), Async → $ReturnData (COM.Jobs)
+                    # Sync         → $objStatus accumulated into $SyncStatus for End block
+                    if (-not $WhatIf) {
+                        if (($ScheduleTime -or $Async) -and $ReturnData) {
+                            Return $ReturnData
+                        }
+                    }
+                }
+            }
+        }
+
+        if (-not $WhatIf) {
+            [void] $SyncStatus.add($objStatus)
+        }
+
+    }
+
+    end {
+
+        if ($SyncStatus.Count -gt 0) {
+            $SyncStatus = Invoke-RepackageObjectWithType -RawObject $SyncStatus -ObjectName "COM.ExternalServices.NSDE"
+            Return $SyncStatus
+        }
+    }
+}
 
 
 # Private functions (not exported)
@@ -1158,13 +2310,13 @@ Function Test-HPECOMExternalService {
 
 
 # Export only public functions and aliases
-Export-ModuleMember -Function 'Get-HPECOMExternalService', 'New-HPECOMExternalService', 'Remove-HPECOMExternalService', 'Set-HPECOMExternalService', 'Test-HPECOMExternalService' -Alias *
+Export-ModuleMember -Function 'Get-HPECOMExternalService', 'Invoke-HPECOMExternalServiceVCenterFirmwareBaselineSync', 'New-HPECOMExternalService', 'Remove-HPECOMExternalService', 'Set-HPECOMExternalService', 'Test-HPECOMExternalService' -Alias *
 
 # SIG # Begin signature block
-# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAdIQPz9Oxua0yw
-# qGB7+vNvL4u2AQrWrOtZDIBMyytqt6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDlyg2D2qpZBuxr
+# 4xMLBYAAcJRA07bjiQxc589o+JhCW6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -1260,147 +2412,147 @@ Export-ModuleMember -Function 'Get-HPECOMExternalService', 'New-HPECOMExternalSe
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg5emNhIpfhvJ8Idm8jON7WLJfq1ZMsQkn1lcSanTEKgQwDQYJKoZIhvcNAQEB
-# BQAEggIAuhQAi6ArVInc+w4atvfri2qD8mVOxMxdP2Ty3XqKY8+klJFRuQvic3Qz
-# Hi597rziGW8jT63Fg4WGxHCjllQqF2kOGeGo0t5ke6jw5a8Ri3o3CF94awG9YSDI
-# ePjsAZu/KtG4ZKM70Lm85BoSE/VHiFuExG60hy2+Cciz+rXn0zd2kIxADj5s8hQ4
-# buqedLSb/j5JtJ1Z9k1VEWsiDQPreKsOknFqqS9JolVSfmS5f/PvANBfwR0rsi35
-# j913PYAh0Z2KmQs/FH4HOFDcN4yrkkqc3IdzmY+DmjwCffP5ajenMbRdVYy+RTTl
-# JR7XZ7ldVWTgG21VCN6Ss0o2Icsr/hY+CS5zoS3Q9MuT0XGjwzjF7xzFU15j1T+Z
-# oDFlci+5dBG8+u9S9ENICHmue5g+Jf/gnuTI3K9lCeBtWl6W6pBdP6W9ryxUSrfe
-# lsRWybPJfp0UUAIdEAN0zb+q34eEYxtyRy2H4g/xIyyjkCTMzmkfW0XMdVzaXoT5
-# N/6vHgZtyNSr+L/wZXw3PAcXI3gR1tqlRwkC/2Ez+pDDJ1Gf4Jm62zkPhPjIGKIZ
-# JL8al5ndehEDVU4sOQC1RXgaEQbFC9Q3CB1OPk4UbAW6whTwRLcBtXMJhNKbb+J5
-# sixlaCvTsn+oQZdgvi335VMqTvmv1yNqYOLiA0hIyAARM/Q3rPKhgheXMIIXkwYK
-# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMGMYtMsKhbtJept66kHS6/RCOe2XPVHpbaD6y1ZWXJeM
-# zzAt6wEpeePvvJTWUn8oEgIQdqpvAj+esORhwKLUAoYdhRgPMjAyNjAxMzAxMDQ2
-# MDdaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
-# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
-# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
-# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
-# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
-# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
-# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
-# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
-# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
-# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
-# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
-# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
-# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
-# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
-# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
-# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
-# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
-# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
-# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
-# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
-# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
-# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
+# IgQgYx2BaSFHUKVYOJ5h+YXr8N7zGCqo1VT3arziLzUVg5wwDQYJKoZIhvcNAQEB
+# BQAEggIAHEowKR6bL7I5Ieq84xVKRtnKxuSFY3QbPaXeecMQVwhD/5b5Fm4zsH3d
+# FAjrR4MOWIP2Qhoi/mfRFYjc86uNnZzv05Zwh/7n0kWIn8wUQI4Jt/aZGMsmFl1G
+# zmVehD3PWFfhhjCo74CwAnqKyuRJLvLjXmy/SD4K+AnOfrIlD8irJgJwSpEfakaJ
+# 7GkqOPlf03y5gpfEwI5xKHCevYnHxvqteMQboZnpXi9RQKYECdngSRDOcHkVrc3t
+# Zo1UYlS4LVpUhZU1V0YuZO6adsRDJ/61l8Lz0dx2+sOtD/eQhurVu2NoqV4VOy04
+# qeaEz24hWgUnxqJEUmhAvBH5eExCwvF9tMbPbBfuyNvPg2w3sryn+OSHtmZL8Doz
+# 9r8VmeoOHS4HK8sxH+DDXJaV7QmVVtoAzgXjvvvw1JceRiOEQVIoj6+V7Wnr69OC
+# 6Zo4S4k6i25CZTmpelsJ5j3K9IrLlPfot3S0HOmW0wM6GLaFplgtU4wH+NCNYcdr
+# BorcL5voCz2aj0XPwbg0OQZmcodJ5rica0kBeifnQ0KFCEb+pksZY2WMtVF/it90
+# M3BktvqIfPpDsBpAU9EW5fHoIZgCrjG32kMdUBg2GIf0zt7CFJkILLlPqtOq5S73
+# h8Ss5Fxm0CC0OhB1dItOFqLYh+BqMUP3J1j3cC4377ggC5DxZKqhgheYMIIXlAYK
+# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMGv874pkgREAx9Pz0IyMepTJT3/Bgv7KVQktOS+xX0iq
+# s16hymnyLKMtw7L5SsrkJQIRANhsBkbWSuO+fgA2nPDO53IYDzIwMjYwMzE3MTQy
+# NDI1WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
+# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
+# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
+# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
+# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
+# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
+# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
+# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
+# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
+# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
+# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
+# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
+# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
+# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
+# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
+# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
+# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
+# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
+# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
+# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
 # ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
-# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
-# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
-# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
-# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
-# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
-# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
-# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
-# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
-# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
-# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
-# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
-# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
-# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
-# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
-# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
-# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
-# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
-# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
-# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
-# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
-# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
-# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
-# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
-# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
-# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
-# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
-# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
-# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
-# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
-# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
-# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
-# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
-# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
-# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
-# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
-# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
-# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
-# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
-# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
-# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
-# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
-# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
-# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
-# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
-# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
-# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
-# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
-# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
-# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
-# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
-# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
-# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
-# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
-# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
-# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
-# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
-# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
-# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
-# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
-# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
-# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
-# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
-# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
-# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
-# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
-# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
-# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
-# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
-# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
-# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
-# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
-# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
-# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
-# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMTMw
-# MTA0NjA3WjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
-# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwMO1lc+E29bW28h1PbZi4CJYi
-# nVRlE2nX5AIEy/4IaBDWphdkYnPUuHobXpb+//NGMA0GCSqGSIb3DQEBAQUABIIC
-# AIUrp2+KPKHaBx5NfFiuT74qnT+Z29LZYmi+9aYf6YeYM+uVtlhFTMktRDiLvhW/
-# TAj6y6uh9Jnqm+IzEyyLhpkrq7TPcSHHD6qq2s/7pFqZCSlSrRwDt8kkn2PEnc3x
-# Wzn/pqGZUPIXXLdqdACTCSWhRMU3x/bF2pOs2MVYDFfPIWcChCYSYvfXUK3bEyRw
-# IfyAZy3fQsTwkckk65UC2mafrqxfC+w9Dv8CcfUW0dNA57Z0Lp13t0H+SZLGI3Mq
-# CHLKGh5DyRFzWUPMuV/oMQKqnDQeS6/2LqcvVbHrgtuqHBZ8JsAxOAtTtz5Ek196
-# Qc/S6AdI6siqdB1kxf0DTs+7bCXQHh2F0PL8RalChepJdMHWcSRhnmVKcqDRTQJ4
-# OKBC4ocQ5e6ToFj9Bme0e9dPEtF0AvKbrtzdwjxymexkj+36XIsQrEeOen8Oh1a8
-# gFX8PmXZFAkeR74BbpP0zAYe6mn2Ad5LyGfvS7GWKjqqsqT2bTF4+My/6siKXVe3
-# 0AXySFCtLrOZbW3X6vu2GXD5g+S5bOuhzXGu+w5Fw1D7zeO0OesbkY58zzygrRnV
-# 94Bq9kSDzd7F6149cw/WRm5zwQ9AsAyiSyY+q8rLDw3tiUTI5Www0CNLQs3+mA+u
-# uyL71mx7Dr5JHCoRywpuE3xtG1HZVwF8nu04bA/U9ErQ
+# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
+# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
+# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
+# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
+# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
+# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
+# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
+# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
+# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
+# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
+# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
+# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
+# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
+# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
+# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
+# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
+# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
+# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
+# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
+# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
+# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
+# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
+# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
+# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
+# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
+# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
+# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
+# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
+# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
+# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
+# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
+# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
+# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
+# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
+# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
+# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
+# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
+# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
+# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
+# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
+# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
+# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
+# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
+# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
+# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
+# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
+# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
+# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
+# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
+# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
+# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
+# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
+# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
+# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
+# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
+# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
+# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
+# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
+# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
+# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
+# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
+# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
+# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
+# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
+# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
+# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
+# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
+# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
+# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
+# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
+# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
+# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
+# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
+# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
+# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
+# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
+# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
+# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
+# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
+# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
+# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDMx
+# NzE0MjQyNVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMDUhAEjMYc3rO2w4VYwMS0Ov
+# 6AlvwhkXzWrttCKul47wLDRsUWaWfn/H5mLich2oYDANBgkqhkiG9w0BAQEFAASC
+# AgDO3Uu1xQras6QYXNT+OP23xjfT3YlEcVtJ98NLx+JjknHhbQ5BpzjGwbSzn95c
+# v2gR7Btmetc5kfsViaMIH/cO+62r8Hne7OYTcqCbHwn5CmGOHehmwCAjrpLpOz7r
+# jDtaCRMMaAGGZF95+Q3Z4HZMklewNYdKkEENi9HwEtJ/vOewsh2Xe4x2yvZWiPBI
+# 8Fk+kaVFUWsaaStEEoirlsY+asni21sbsqy8Z9+rGXcm2Are7iaI7pMKwOXb2FDd
+# oFpMN6dwpWI5vA6aoNbznMrs9LyAWraz+IcY7e4Oxu+QdTIZWDv7zRQawML9ul4O
+# RJrbrMGGVPvkQz4Gb3tYbgC/F7N1Ak4jGXSthJX35g9HogsOz+rdjWEF6P3GNow4
+# e4eZc8UTBMnUN89rqCPjB/hcmBPH5mmFxPvomcroAFzswbYEiwy8MGA3BViWnzM7
+# 2Sc6L7x+wkB9UrvLVge+BRejdbjEISwDhuglsOuLIplDjIT6HOq+eFC8J3hczuLG
+# cwoZ12ilKwRl6wOY+YRcrXFxLRDlQ3zcJLADlE7o77XePYrCFkmgwPRyPvhFG1W5
+# 9yNFtvhoSfGvddUiPu0nMqW98ae2nKABZgAy7a0MLuqtgcHpQ7/KmPuCX42jSSZw
+# XdzJHvtseFjpbx2iZPXgzRzzSv78srjxAlY69N/3CmeNnQ==
 # SIG # End signature block

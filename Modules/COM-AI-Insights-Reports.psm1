@@ -264,8 +264,8 @@ function New-HPECOMServerInventory {
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
-    .PARAMETER SerialNumber
-    Serial number of the server on which server inventory data will be collected. 
+    .PARAMETER Name
+    Name, hostname, or serial number of the server on which server inventory data will be collected. 
     
     .PARAMETER Chassis
     Switch parameter that can be used to collect the chassis inventory data.
@@ -340,12 +340,12 @@ function New-HPECOMServerInventory {
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    New-HPECOMServerInventory -Region us-west -SerialNumber CN70490RXQ  
+    New-HPECOMServerInventory -Region us-west -Name CN70490RXQ  
 
     Collects a full inventory data from server 'CN70490RXQ' in the western US region.
 
     .EXAMPLE
-    New-HPECOMServerInventory -Region us-west -SerialNumber CN70490RXQ -Chassis -Fans 
+    New-HPECOMServerInventory -Region us-west -Name CN70490RXQ -Chassis -Fans 
 
     Collects the chassis and fans inventory data from server 'CN70490RXQ' in the western US region.
 
@@ -355,14 +355,14 @@ function New-HPECOMServerInventory {
     Collects the full inventory data from server named 'HOL19' in the western US region.    
     
     .EXAMPLE
-    New-HPECOMServerInventory -Region eu-central -SerialNumber CZ12312312 -ScheduleTime (Get-Date).AddDays(1) 
+    New-HPECOMServerInventory -Region eu-central -Name CZ12312312 -ScheduleTime (Get-Date).AddDays(1) 
 
-    Creates a new server inventory in the 'eu-central' region with serial number 'CZ12312312', scheduled to start one day from the current date.
+    Creates a new server inventory in the 'eu-central' region for server 'CZ12312312', scheduled to start one day from the current date.
 
     .EXAMPLE
-    New-HPECOMServerInventory -Region eu-central -SerialNumber CZ12312312 -ScheduleTime (Get-Date).AddDays(1) -Interval P1W
+    New-HPECOMServerInventory -Region eu-central -Name CZ12312312 -ScheduleTime (Get-Date).AddDays(1) -Interval P1W
 
-    Creates a new server inventory in the 'eu-central' region with serial number 'CZ12312312', scheduled to start one day from the current date and recur weekly.
+    Creates a new server inventory in the 'eu-central' region for server 'CZ12312312', scheduled to start one day from the current date and recur weekly.
 
     .EXAMPLE
     "CZ12312312", "CZ12312313" | New-HPECOMServerInventory -Region eu-central
@@ -371,7 +371,7 @@ function New-HPECOMServerInventory {
 
     .INPUTS
     System.String, System.String[]
-        A single string object or a list of string objects that represent the server's serial numbers.
+        A single string object or a list of string objects representing the server's name, hostname, or serial number.
     System.Collections.ArrayList
         List of servers from 'Get-HPECOMServer'. 
 
@@ -431,7 +431,8 @@ function New-HPECOMServerInventory {
         [String]$Region,      
         
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ValueFromPipeline)]
-        [String]$SerialNumber,
+        [Alias('SerialNumber', 'serial')]
+        [String]$Name,
         
         [switch]$Chassis,
 
@@ -491,7 +492,6 @@ function New-HPECOMServerInventory {
 
         $_JobTemplateName = 'GetFullServerInventory'
 
-        $JobTemplateUri = $Global:HPECOMjobtemplatesUris | Where-Object name -eq $_JobTemplateName | ForEach-Object resourceuri
         $JobTemplateId = $Global:HPECOMjobtemplatesUris | Where-Object name -eq $_JobTemplateName | ForEach-Object id
 
         $Uri = Get-COMJobsUri
@@ -512,8 +512,8 @@ function New-HPECOMServerInventory {
 
             $objStatus = [pscustomobject]@{
                 name               = $Null
-                description        = if ($SerialNumber) { "Scheduled task to collect inventory data from server '$SerialNumber'" } else { "Scheduled task to collect inventory data from all servers" }
-                associatedResource = if ($SerialNumber) { $SerialNumber } else { "All servers" }
+                description        = if ($Name) { "Scheduled task to collect inventory data from server '$Name'" } else { "Scheduled task to collect inventory data from all servers" }
+                associatedResource = if ($Name) { $Name } else { "All servers" }
                 purpose            = "INVENTORY_REPORT"
                 id                 = $Null
                 nextStartAt        = $Null
@@ -531,7 +531,7 @@ function New-HPECOMServerInventory {
 
             $objStatus = [pscustomobject]@{               
                 name               = $_JobTemplateName
-                associatedResource = if ($SerialNumber) { $SerialNumber } else { "All servers" }
+                associatedResource = if ($Name) { $Name } else { "All servers" }
                 date               = "$((Get-Date).ToString())"
                 state              = $Null
                 duration           = $Null
@@ -546,7 +546,7 @@ function New-HPECOMServerInventory {
 
         try {
 
-            $_server = Get-HPECOMServer -Region $Region -Name $SerialNumber
+            $_server = Get-HPECOMServer -Region $Region -Name $Name
             $_ResourceUri = $_server.resourceUri
             $_ResourceId = $_server.Id
             $_ResourceType = $_server.type
@@ -566,16 +566,16 @@ function New-HPECOMServerInventory {
                 $objStatus.message = "Server cannot be found in the Compute Ops Management instance!"
             }
             else {
-                $objStatus.state = "ERROR"
+                $objStatus.state = "WARNING"
                 $objStatus.duration = '00:00:00'
                 $objStatus.resultCode = "FAILURE"
-                $objStatus.status = "Failed"
+                $objStatus.status = "Warning"
                 $objStatus.message = "Server cannot be found in the Compute Ops Management instance!"
             }
             
             if ($WhatIf) {
-                $ErrorMessage = "Server '{0}': Resource cannot be found in the Compute Ops Management instance!" -f $SerialNumber
-                Write-warning $ErrorMessage
+                $ErrorMessage = "Server '{0}': Resource cannot be found in the Compute Ops Management instance!" -f $Name
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
 
             }
@@ -646,8 +646,8 @@ function New-HPECOMServerInventory {
 
                 $randomNumber = Get-Random -Minimum 000000 -Maximum 999999
 
-                $Name = "$($SerialNumber)_Inventory_Report_Schedule_$($randomNumber)"
-                $Description = "Scheduled task to run an inventory report on server '$($SerialNumber)'"
+                $ScheduleName = "$($Name)_Inventory_Report_Schedule_$($randomNumber)"
+                $Description = "Scheduled task to run an inventory report on server '$($Name)'"
 
                 if ($Interval) {
                     
@@ -665,7 +665,7 @@ function New-HPECOMServerInventory {
                 }
 
                 $Payload = @{
-                    name                  = $Name
+                    name                  = $ScheduleName
                     description           = $Description
                     associatedResourceUri = $_ResourceUri
                     purpose               = "INVENTORY_REPORT"
@@ -786,14 +786,14 @@ function New-HPECOMServerInventory {
         }
 
         # Add tracking object to the list of object status list
-        [void]$ObjectStatusList.Add($objStatus)
+        if (-not $WhatIf) { [void]$ObjectStatusList.Add($objStatus) }
 
         
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
             if ($ScheduleTime) {
 
@@ -1714,13 +1714,13 @@ Function Get-HPECOMSustainabilityInsights {
     Results include server metadata (model, generation, processor, location).
 
     .EXAMPLE
-    Get-HPECOMSustainabilityInsights -Region eu-central -SerialNumber 123456789 -EnergyCost
+    Get-HPECOMSustainabilityInsights -Region eu-central -Name 123456789 -EnergyCost
 
     Returns the estimated energy cost data for the server with serial number '123456789' in the 'eu-central' region, 
     including data from the past 90 days and cost projections for the next 180 days.
 
     .EXAMPLE
-    Get-HPECOMSustainabilityInsights -Region eu-central -SerialNumber 123456789 -Co2Emissions -LookbackDays 7 -ProjectionDays 100
+    Get-HPECOMSustainabilityInsights -Region eu-central -Name 123456789 -Co2Emissions -LookbackDays 7 -ProjectionDays 100
 
     Returns the estimated CO2 emissions data for the server with serial number '123456789' in the 'eu-central' region, 
     including emissions from the past 7 days and projections for the next 100 days.
@@ -1729,7 +1729,7 @@ Function Get-HPECOMSustainabilityInsights {
     Get-HPECOMSustainabilityInsights -Region eu-central -Name "pveauto" -EnergyCost
 
     Returns the estimated energy cost data for the server with hostname 'pveauto' in the 'eu-central' region.
-    The -Name parameter alias can be used instead of -SerialNumber for better clarity when filtering by hostname.
+    The -SerialNumber alias is available for backward compatibility when filtering by serial number.
 
     .EXAMPLE
     Get-HPECOMServer -Region us-west -ConnectionType Direct -PowerState ON | Select-Object -First 2 | Get-HPECOMSustainabilityInsights -Co2Emissions 
@@ -2045,7 +2045,6 @@ Function Get-HPECOMSustainabilityInsights {
                         
                 if ($ItemsArray -is [System.Collections.IEnumerable] -and $ItemsArray.Count -gt 0) {
                     $ItemsArray = $ItemsArray | Sort-Object name, serialNumber
-                    $ItemsArray = $ItemsArray | Sort-Object name, serialNumber
                 }
 
                 Foreach ($Item in $ItemsArray) {
@@ -2149,7 +2148,7 @@ Function Get-HPECOMServerUtilizationInsights {
     This cmdlet retrieves utilization insights for servers managed by COM in the specified region.
     It provides information on CPU, memory bus, and I/O bus usage. These insights help organizations monitor and manage the performance of their server infrastructure.
     By default, the cmdlet returns utilization insights over the past 90 days but users can customize the time range by using the `LookbackDays` parameter.
-    Users can filter the results to view data for individual servers by specifying a server's serial number or by piping server objects from the `Get-HPECOMServer` cmdlet.
+    Users can filter the results to view data for individual servers by specifying a server's name, hostname, or serial number, or by piping server objects from the `Get-HPECOMServer` cmdlet.
 
     Note: 
     - Server utilization insights are primarily designed for HPE ProLiant Intel-based servers
@@ -2165,8 +2164,8 @@ Function Get-HPECOMServerUtilizationInsights {
 
     Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
     
-    .PARAMETER SerialNumber
-    Mandatory parameter that can be used to get the report data of a specific server.
+    .PARAMETER Name
+    Name, hostname, or serial number of the server for which to retrieve report data.
 
     .PARAMETER CPUUtilization
     Optional switch parameter that can be used to display the CPU utilization data.
@@ -2188,29 +2187,29 @@ Function Get-HPECOMServerUtilizationInsights {
     Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
 
     .EXAMPLE
-    Get-HPECOMServerUtilizationInsights -Region eu-central -SerialNumber 123456789 -CPUUtilization 
+    Get-HPECOMServerUtilizationInsights -Region eu-central -Name 123456789 -CPUUtilization 
 
-    Returns the CPU utilization insights for the server with serial number '123456789' in the eu-central region, including data from the past 90 days.
-
-    .EXAMPLE
-    Get-HPECOMServerUtilizationInsights -Region eu-central -SerialNumber 123456789 -CPUUtilization -LookbackDays 180
-
-    Returns the CPU utilization insights for the server with serial number '123456789' in the eu-central region, including data from the past 180 days.
+    Returns the CPU utilization insights for server '123456789' in the eu-central region, including data from the past 90 days.
 
     .EXAMPLE
-    Get-HPECOMServerUtilizationInsights -Region eu-central -SerialNumber 123456789 -MemoryBusUtilization 
+    Get-HPECOMServerUtilizationInsights -Region eu-central -Name 123456789 -CPUUtilization -LookbackDays 180
 
-    Returns the memory bus utilization insights for the server with serial number '123456789' in the eu-central region, including data from the past 90 days.
-
-    .EXAMPLE
-    Get-HPECOMServerUtilizationInsights -Region eu-central -SerialNumber 123456789 -IOBusUtilization
-
-    Returns the I/O bus utilization insights for the server with serial number '123456789' in the eu-central region, including data from the past 90 days.
+    Returns the CPU utilization insights for server '123456789' in the eu-central region, including data from the past 180 days.
 
     .EXAMPLE
-    Get-HPECOMServerUtilizationInsights -Region eu-central -SerialNumber 123456789 -CPUInterconnectUtilization
+    Get-HPECOMServerUtilizationInsights -Region eu-central -Name 123456789 -MemoryBusUtilization 
 
-    Returns the CPU interconnect utilization insights for the server with serial number '123456789' in the eu-central region, including data from the past 90 days.
+    Returns the memory bus utilization insights for server '123456789' in the eu-central region, including data from the past 90 days.
+
+    .EXAMPLE
+    Get-HPECOMServerUtilizationInsights -Region eu-central -Name 123456789 -IOBusUtilization
+
+    Returns the I/O bus utilization insights for server '123456789' in the eu-central region, including data from the past 90 days.
+
+    .EXAMPLE
+    Get-HPECOMServerUtilizationInsights -Region eu-central -Name 123456789 -CPUInterconnectUtilization
+
+    Returns the CPU interconnect utilization insights for server '123456789' in the eu-central region, including data from the past 90 days.
 
     .EXAMPLE
     Get-HPECOMServer -Region us-west -ConnectionType Direct -PowerState ON | Select-Object -First 2 | Get-HPECOMServerUtilizationInsights -CPUUtilization
@@ -2220,11 +2219,11 @@ Function Get-HPECOMServerUtilizationInsights {
     .EXAMPLE
     '123456789', '987654321' | Get-HPECOMServerUtilizationInsights -Region us-west -MemoryBusUtilization
 
-    This command returns the memory bus utilization insights for the servers with serial numbers '123456789' and '987654321' in the 'us-west' region, including data from the past 90 days.
+    This command returns the memory bus utilization insights for the servers '123456789' and '987654321' in the 'us-west' region, including data from the past 90 days.
 
     .INPUTS
     System.String, System.String[]
-        A single string object or a list of string objects representing the server's serial numbers.
+        A single string object or a list of string objects representing the server's name, hostname, or serial number.
 
     System.Collections.ArrayList
         List of servers retrieved using 'Get-HPECOMServer'.
@@ -2257,7 +2256,8 @@ Function Get-HPECOMServerUtilizationInsights {
         [String]$Region,
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [String]$SerialNumber,
+        [Alias('SerialNumber', 'serial')]
+        [String]$Name,
 
         [Parameter (Mandatory, ParameterSetName = 'CPUUtilization')]
         [Switch]$CPUUtilization,
@@ -2284,7 +2284,7 @@ Function Get-HPECOMServerUtilizationInsights {
         
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        $ServerSerialNumbersList = [System.Collections.ArrayList]::new() 
+        $ServerNameList = [System.Collections.ArrayList]::new() 
 
         $ListOfReturnData = [System.Collections.ArrayList]::new() 
 
@@ -2296,8 +2296,8 @@ Function Get-HPECOMServerUtilizationInsights {
       
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
 
-        if ($SerialNumber) {
-            [void]$ServerSerialNumbersList.Add($SerialNumber)
+        if ($Name) {
+            [void]$ServerNameList.Add($Name)
         }
 
     }
@@ -2306,18 +2306,18 @@ Function Get-HPECOMServerUtilizationInsights {
 
         $LookbackDate = (Get-Date).AddDays(-$LookbackDays).ToString("yyyy-MM-dd")
 
-        if ($ServerSerialNumbersList.Count -gt 0) {
-            '[{0}] List of serial numbers to process: {1}' -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ServerSerialNumbersList -join ", ") | Write-Verbose
+        if ($ServerNameList.Count -gt 0) {
+            '[{0}] List of servers to process: {1}' -f $MyInvocation.InvocationName.ToString().ToUpper(), ($ServerNameList -join ", ") | Write-Verbose
         }
 
-        foreach ($ServerSerialNumber in $ServerSerialNumbersList) {
+        foreach ($ServerName in $ServerNameList) {
 
-            "[{0}] Processing serial number: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerSerialNumber | Write-Verbose
+            "[{0}] Processing server: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerName | Write-Verbose
 
             $Server = $False
 
             try {
-                $Server = Get-HPECOMServer -Region $Region -Name $ServerSerialNumber
+                $Server = Get-HPECOMServer -Region $Region -Name $ServerName
     
             }
             catch {
@@ -2326,20 +2326,20 @@ Function Get-HPECOMServerUtilizationInsights {
     
             if (-not $Server) {
                 # Server not found - handle based on WhatIf parameter
-                "[{0}] Server '{1}' not found in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerSerialNumber, $Region | Write-Verbose
+                "[{0}] Server '{1}' not found in region '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerName, $Region | Write-Verbose
                 
                 if ($WhatIf) {
-                    $WarningMessage = "Server with serial number '{0}' not found in region '{1}'. Cannot display API request." -f $ServerSerialNumber, $Region
+                    $WarningMessage = "Server '{0}' not found in region '{1}'. Cannot display API request." -f $ServerName, $Region
                     Write-Warning $WarningMessage
                 }
                 Continue
             }
             elseif ($Server.connectionType -eq "ONEVIEW") {
                 # OneView managed server - handle based on WhatIf parameter
-                "[{0}] Server '{1}' is a OneView managed server and does not support utilization insights" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerSerialNumber | Write-Verbose
+                "[{0}] Server '{1}' is a OneView managed server and does not support utilization insights" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerName | Write-Verbose
                 
                 if ($WhatIf) {
-                    $WarningMessage = "Server with serial number '{0}' is a OneView managed server and does not support utilization insights. Cannot display API request." -f $ServerSerialNumber
+                    $WarningMessage = "Server '{0}' is a OneView managed server and does not support utilization insights. Cannot display API request." -f $ServerName
                     Write-Warning $WarningMessage
                 }
                 Continue
@@ -2387,20 +2387,20 @@ Function Get-HPECOMServerUtilizationInsights {
 
                 # Check if servers were excluded from results
                 if ($ResponseObject.PSObject.Properties.Name -contains 'excluded' -and $ResponseObject.excluded -gt 0) {
-                    "[{0}] API returned {1} excluded server(s) for serial number: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ResponseObject.excluded, $ServerSerialNumber | Write-Verbose
+                    "[{0}] API returned {1} excluded server(s) for server: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ResponseObject.excluded, $ServerName | Write-Verbose
                     $ServerExcluded = $true
                     
                     # Check if this is a non-Intel server and add processor-specific guidance
                     if ($Server.processorVendor -and $Server.processorVendor -ne "INTEL") {
                         $ProcessorInfo = $Server.processorVendor.Trim()
                         $WarningMessage = @"
-Server '$ServerSerialNumber' was excluded from utilization insights (API returned excluded=1).
+Server '$ServerName' was excluded from utilization insights (API returned excluded=1).
 
 Note: This server has a non-Intel processor ($ProcessorInfo).
 Server utilization insights may not be available for all non-Intel processor architectures.
 
 Server details:
-- Serial Number: $ServerSerialNumber
+- Name: $ServerName
 - Model: $($Server.hardware.model)
 - Processor: $ProcessorInfo
 
@@ -2412,7 +2412,7 @@ If this server should support utilization insights, check:
                     }
                     else {
                         $WarningMessage = @"
-Server '$ServerSerialNumber' was excluded from utilization insights (API returned excluded=1).
+Server '$ServerName' was excluded from utilization insights (API returned excluded=1).
 
 Possible causes:
 - Metrics collection is not enabled for this server
@@ -2771,8 +2771,8 @@ Export-ModuleMember -Function 'Get-HPECOMReport', 'New-HPECOMServerInventory', '
 # SIG # Begin signature block
 # MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCCHZ1im4yk9SJW
-# D7CV4UyLCSVdKOFTjV0n+JzqACeyfKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAQUUmH2n+B+amW
+# zjti6rrb5Du3ryrBZHfb61PRDZ9ydqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -2873,23 +2873,23 @@ Export-ModuleMember -Function 'Get-HPECOMReport', 'New-HPECOMServerInventory', '
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg18qTWaueruF9dCWrSjuzs0AQ11jaxYnt7itx/jd6uiIwDQYJKoZIhvcNAQEB
-# BQAEggIAclfyiO9RQmKBhvrqPsOvraNQFY7bLGGuOBeqgvUb6zjG6gdBdFFqHLt3
-# Nh3FhMlqKS+xqJN86+Uzk1uOPpj8MMHze4cGlcvx8NSprRIWVVUqx5Pe2KeC/5o7
-# wcp5VD12pNPk2l74s/eBizLjmqm9dZDHyptqSkAkYBspA0tmVzGKkHvbEE/3eRie
-# N+3R2Jhnqa2ZpR7mWlMXwNxDvaQxhPl34dyAITtLMBpvjOTg53jkXaxK2ntCd745
-# BiMLCEeFqL9OIrCGQTvmllKvXHloyqrFHX8llFMOMPK0RkzzANUG8XD32purU8/e
-# 9rehc4V593RkcV2xnCITQxtmPDezvff6JjZbiE/ntteN4pncioYlYkfIWVrTyA8J
-# 0aKvLXbfwFkVBiqn5uie2mIKOVSK8sF6M91oLBNi2pXCrLEWp9a9sFSnsexvgteO
-# zZxZ2PSP3DSLyXEWlVdB0lgv7t66GTSB4mLhxC8e9cpN+tAbACQ91oL5l1SvYSCJ
-# C0supYgNUQa5T1D9c/YZ6+VAmygyRrsGiLpOdQCsbuPwt5/RBTzmuSFzqrQu6Tww
-# tN+RcEo0bmRMbyStPsLFnEzAgsSN3PW4bzhlujdVspcynEB3XO0drVQys4KIcy5U
-# NBcaPkFM3lN8MRH/dZC7xk8tMZbwrMYIgpA6tPcrMYTTfz46JLOhghjoMIIY5AYK
+# IgQgDRPu2EDGbCs0fJ00H9brb/LDNulAe6nFbCL0pfJvtuMwDQYJKoZIhvcNAQEB
+# BQAEggIAsWQ61VvAdgytwUibprO0kxgej9en/vdgsGXdIb+RiuDBdvMYvFyyQGnx
+# z7i+7ngYVMQ3pwHOw/OSLIOLvuOgm4+yii5nTZR5NDnGcrr0IDXuBYdepTIvGOg/
+# iyN5UaZWY6dW9YjVf1YQaBD75/rfBSkRwtrez8rTtK+n5ac9LK96iXKzqlkH6POQ
+# ooB4YS8h57AyTCrsoHIcYetXrmzjTz7aSxYCsFwTs9+MrlT2wpTAnxK2VKm4b0mN
+# 30/CUeststgJOQ7/zD72M1UdIpjvvSZVYL5dp+SZVx3gCZMdqCCJtUMUjHHVH0DV
+# y0Vehs/vwY8PURuckK3zs/+geVrlIYDUcbAudA6AEvEm5+N7dyrwTSQcveoCXtHb
+# FZNuqovBQPHlmmR48B4WRveaBj8H9r6TkdzSlup3XfVW215jRSuR6QqmD3SpB+ha
+# K6Lzyo4aUEcsqQrX10QoIgxT6kG0exixBK8QbNXCULlUwtubQiVJz+f5pDUGNAJC
+# /dEWI65Mlx+/LG9ODo8x6ZDW8YLem2F1qTBTFtjwe5AHabF+WukysHypbBy6om3j
+# CvcVl6JKiBgCtbbK0op9BMog39EAyxGsNkHMo5/jGP3D1Ps+uP/MqUd7E1JQc2Fz
+# 76hvMkCzjGZv6KtA+gH7GZTMiRKrLsVsdu8Qpc29clcZTZCqebyhghjoMIIY5AYK
 # KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwbdXytPP85cKGKYuKUxzbRtBPzdJd6Oth++P0
-# cbCeltikbgHWYjejW+0PqlhhMaowAhQZzcsVd3McBJHb9we8Zk+bmw3SihgPMjAy
-# NjAyMDIwOTM4NTFaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
+# AQEwQTANBglghkgBZQMEAgIFAAQw0KFnlPTQqkU/FQUaN1d2lTwqaWnEFIBIDduc
+# e7qxh6xEHMS5Y0O2cO5B4lTePdNQAhRcVnudoQHTHzBZ4pzxoBddbWW0pxgPMjAy
+# NjAzMTcxNDIxMjZaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
 # b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
 # dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
 # oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
@@ -2997,8 +2997,8 @@ Export-ModuleMember -Function 'Get-HPECOMReport', 'New-HPECOMServerInventory', '
 # ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
 # IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
 # BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjYwMjAyMDkzODUxWjA/BgkqhkiG9w0BCQQxMgQw1I5MufBdQovJzNWj6WW0
-# bFXGX52uA3cBB9fVqTu6DTJizqJw9KIRG7gsc5HjNjotMIIBegYLKoZIhvcNAQkQ
+# DxcNMjYwMzE3MTQyMTI2WjA/BgkqhkiG9w0BCQQxMgQw+3fZZLKEp9RcJb+H/+94
+# EJMwu4u7h8LjlHyCcmP2yNa5es0qwKSTlnnflJqwdAbdMIIBegYLKoZIhvcNAQkQ
 # AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
 # hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
 # ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
@@ -3007,15 +3007,15 @@ Export-ModuleMember -Function 'Get-HPECOMReport', 'New-HPECOMServerInventory', '
 # IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
 # VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
 # aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgAfsfbxutoxdjF48eDnHFTMrLBjHRq9QfSolT6FcDldAQYdYW5Pf2NHdyZfE/lQ
-# g4jFyPgq7OhtmLJ0pyVuQkrZTGtKfO81KlfHuwjHtbMV7XWETBvIojjCBmv+Jx5S
-# dHyxkwFn5zH62xsPd6nVgcanWtUpmigT6HVoIRnPFAjp6j1yIN7L7OF7YzAWQQgU
-# AubrfPM/pPe+VZbW0zeuBuYu0O6Ev7Oyxp8C7XBzi1bHaM7vdy4qoVOq3B9dNcxj
-# UdXlPEA/RonlY06AQFMcbNrsENlHCXL2/EnysKoWfaA8XlcoTTq4JVREyDj3tDas
-# J/wviSySyuCSC3uTVBve5QVD/orjF7lPR8EeWvoh5pK5A8+XJw1hf6sbgeqgWG+E
-# s4aG0U+CCW+8HeZv4S8ObxkdSZQ1wsvpzePtaoDNaMXp2UbF53/dThIOX8keVmPV
-# 9qwGYJEm4WzTnNkthJCpBc8rJFWQuYcmNf7pZHv0nr/J4fhTs6XDU6tcNKt3Cdok
-# DE272PDXQZQNypy7hed+3Wm5w0nHaGXEW0Z7XRX0uXtSeHKap5DlPKpjgfP7sYNH
-# R2qlC6yeK+ddF9dXAhaM3DkhzgxzYAXguKQ/rAdw2TJMN0YKCqbxH+rcChtO4Lmz
-# mvpBfEKoNACEG4zKHtWgdIfyNNvitELBW3Op+vU32Ul8RQ==
+# AgABXDAdvqZ/aF9Y2wj5w0yh5R/LBmS35i2fwDoTs8N46i5X7Nhd31qLmFmI+YPg
+# XKtoJt0/ctxiOukzOsh787TzQiMpvQuYDA1Stlzsd9prRsWCxi3V+WJ3nX/GKK3U
+# kaN7pHCkKVreQA3g1YyWYWKzbeAcNLpsZ0LqeJnlBhuXcN0+I8j3Cb8ekXrg+YoA
+# 5fcbzlbMezuJju3ZnuHke3PggTmzcnDacXY+O3hkwGmA+G8yS0HrPkArFbDQLRbG
+# W+tDtmggBiG7qdO1cerCwtVGvX8Gajlbb5fPZkHbwFk6Ayjs8q8m5tqm7BmOD+Hh
+# lodx7kqcqtMfmSGPj3Ev5IxEjzNJOTxudGifToqE26AEZfKNFX5Fo5oCvw+sA3jK
+# gK8tVdg8LvF1J5fn9pzv1sdORFlfV6HHniETdX8n0emILiXvtHE+h/QboONPo+or
+# FKaNx9T9QN3UfcGQylx3l9YF+iFMZWxIBofls/e97LC9HRN1lQeq7ESdfgUQUMbl
+# QltU8gEmzyn6a8WaMa4FD0YQNn6lMiZlFeUZ8V5X2v5tYB9kzro+v3dXK6O5+8Ig
+# m1zBL554Ga+i2ruvt92OuXK+CkaNbuuD4z2TD/gJrMyFHw+3I7V7J91Kv8lnkHwH
+# RbPav+JKj2gPDPETa2Y0+E54aBni6SEu0pq3KhmmkbZ0/A==
 # SIG # End signature block

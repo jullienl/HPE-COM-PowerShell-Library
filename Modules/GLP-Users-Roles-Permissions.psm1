@@ -202,7 +202,8 @@ Function Get-HPEGLUser {
 
         if ($Null -ne $Collection.Resources) {
                 
-            $CollectionList = $Collection.Resources 
+            # Ensure Resources is always treated as an array (API returns single object when only 1 user)
+            $CollectionList = @($Collection.Resources)
 
             # "[{0}] List of users: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), ( $CollectionList | out-string ) | Write-Verbose
 
@@ -303,7 +304,14 @@ Function Get-HPEGLUser {
                             
                             # If Invoke-HPEGLWebRequest returns null (expected), get the raw content from the global variable
                             if ($null -eq $AuthSourceData -and $null -ne $Global:HPECOMInvokeReturnData.Content) {
-                                $AuthSourceData = $Global:HPECOMInvokeReturnData.Content | ConvertFrom-Json
+                                # Check if Content is already a PSCustomObject or if it's a JSON string
+                                if ($Global:HPECOMInvokeReturnData.Content -is [string]) {
+                                    $AuthSourceData = $Global:HPECOMInvokeReturnData.Content | ConvertFrom-Json
+                                }
+                                else {
+                                    # Already converted to object
+                                    $AuthSourceData = $Global:HPECOMInvokeReturnData.Content
+                                }
                             }
                             
                             if ($null -ne $AuthSourceData.users -and $AuthSourceData.users.Count -gt 0) {
@@ -384,7 +392,7 @@ Function Get-HPEGLUser {
 
                         # Validate user was found
                         if (-not $CollectionList) {
-                            Write-Error "User with email '$Email' not found in the organization."
+                            "[{0}] User with email '{1}' not found in the organization." -f $MyInvocation.InvocationName.ToString().ToUpper(), $Email | Write-Verbose
                             return
                         }
 
@@ -439,19 +447,10 @@ Function Get-HPEGLUser {
                     return $ReturnData 
                 }
                 else {
-                    return $ReturnData 
+                    return $ReturnData
                 }
-
             }
-    
         }
-        else {
-
-            return 
-                
-        }
-        
-        
     }
 }
 
@@ -572,7 +571,7 @@ Function Send-HPEGLUserInvitation {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "User does not exist in the workspace. Use New-HPEGLUser to create new users."
             }
         }
@@ -603,28 +602,9 @@ Function Send-HPEGLUserInvitation {
             catch {
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { 
-                        $_.Exception.Message 
-                    } else { 
-                        Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "Invitation sending failure!" 
-                    }
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Invitation sending failure!" }
                     
-                    $technicalInfo = @()
-                    if ($Global:HPECOMInvokeReturnData.errorCode) {
-                        $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                    }
-                    if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                        $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { 
-                            $Global:HPECOMInvokeReturnData.httpStatusCode 
-                        } else { 
-                            $Global:HPECOMInvokeReturnData.StatusCode 
-                        }
-                        $technicalInfo += "HTTP $statusCode"
-                    }
-                    if ($technicalInfo.Count -eq 0) {
-                        $technicalInfo += $_.Exception.GetType().Name
-                    }
-                    $objStatus.Exception = $technicalInfo -join " | "
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 }
             }
         }
@@ -650,37 +630,18 @@ Function Send-HPEGLUserInvitation {
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
                                   
-                    $objStatus.Details = if ($_.Exception.Message) { 
-                        $_.Exception.Message 
-                    } else { 
-                        Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "Invitation sending failure!" 
-                    }
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Invitation sending failure!" }
 
-                    $technicalInfo = @()
-                    if ($Global:HPECOMInvokeReturnData.errorCode) {
-                        $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                    }
-                    if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                        $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { 
-                            $Global:HPECOMInvokeReturnData.httpStatusCode 
-                        } else { 
-                            $Global:HPECOMInvokeReturnData.StatusCode 
-                        }
-                        $technicalInfo += "HTTP $statusCode"
-                    }
-                    if ($technicalInfo.Count -eq 0) {
-                        $technicalInfo += $_.Exception.GetType().Name
-                    }
-                    $objStatus.Exception = $technicalInfo -join " | "
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 }
             }
         }
 
-        [void] $ObjectStatusList.add($objStatus)
+        if (-not $WhatIf) { [void] $ObjectStatusList.add($objStatus) }
     }
 
     end {
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
             $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.ESDE" 
             Return $ObjectStatusList
         }
@@ -988,7 +949,7 @@ Function New-HPEGLUser {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "RoleName and ScopeName arrays must have the same number of elements!"
                 [void]$ObjectStatusList.Add($objStatus)
                 return
@@ -1011,7 +972,7 @@ Function New-HPEGLUser {
                             return
                         }
                         else {
-                            $objStatus.Status = "Failed"
+                            $objStatus.Status = "Warning"
                             $objStatus.Details = "Role '$($RoleName[$i])' not found. To list all available roles, use: Get-HPEGLRole"
                             [void]$ObjectStatusList.Add($objStatus)
                             return
@@ -1030,7 +991,7 @@ Function New-HPEGLUser {
                                 return
                             }
                             else {
-                                $objStatus.Status = "Failed"
+                                $objStatus.Status = "Warning"
                                 $objStatus.Details = "Scope group '$($ScopeName[$i])' not found. To list all scope groups, use: Get-HPEGLScopeGroup"
                                 [void]$ObjectStatusList.Add($objStatus)
                                 return
@@ -1073,7 +1034,7 @@ Function New-HPEGLUser {
                             return
                         }
                         else {
-                            $objStatus.Status = "Failed"
+                            $objStatus.Status = "Warning"
                             $objStatus.Details = "User group '$GroupName' not found. To list all user groups, use: Get-HPEGLUserGroup"
                             [void]$ObjectStatusList.Add($objStatus)
                             return
@@ -1087,7 +1048,7 @@ Function New-HPEGLUser {
                     $ErrorMessage = "Unable to retrieve user groups. This feature requires an HPE GreenLake organization to be configured. User groups are not available for standalone workspaces. Error details: $($_.Exception.Message)"
                     
                     if ($WhatIf) {
-                        Write-Warning $ErrorMessage
+                        Write-Warning "$ErrorMessage Cannot display API request."
                         return
                     }
                     else {
@@ -1159,15 +1120,25 @@ Function New-HPEGLUser {
                     }
                 }
                 else {
+                    $GroupFailures = @()
                     foreach ($GroupName in $UserGroupName) {
                         try {
                             Add-HPEGLUserToUserGroup -GroupName $GroupName -UserEmail $Email -ErrorAction Stop | Out-Null
                         }
                         catch {
-                            Write-Warning "Failed to add user to group '$GroupName': $($_.Exception.Message)"
+                            $GroupFailures += $GroupName
+                            "[{0}] Failed to add user to group '$GroupName': {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
                         }
                     }
-                    $objStatus.Details += " and added to user groups"
+                    if ($GroupFailures.Count -eq 0) {
+                        $objStatus.Details += " and added to user groups"
+                    }
+                    elseif ($GroupFailures.Count -lt $UserGroupName.Count) {
+                        $objStatus.Details += " but failed to add to group(s): $($GroupFailures -join ', ')"
+                    }
+                    else {
+                        $objStatus.Details += " but failed to add to any user groups"
+                    }
                 }
             }
         }
@@ -1178,33 +1149,17 @@ Function New-HPEGLUser {
             else {
                 $objStatus.Status = "Failed"
 
-                $objStatus.Details = if ($_.Exception.Message) { 
-                    $_.Exception.Message 
-                } else { 
-                    Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "User creation failed!"
-                }
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "User creation failed!" }
                 
-                # Build technical diagnostics
-                $technicalInfo = @()
-                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                    $technicalInfo += "Error Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                }
-                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                    $technicalInfo += "HTTP Status: $statusCode"
-                }
-                if ($technicalInfo.Count -eq 0) {
-                    $technicalInfo += $_.Exception.Message
-                }
-                $objStatus.Exception = $technicalInfo -join " | "
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
             }
         }
 
-        [void]$ObjectStatusList.Add($objStatus)
+        if (-not $WhatIf) { [void]$ObjectStatusList.Add($objStatus) }
     }
 
     End {
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
             $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.ESDE"
             Return $ObjectStatusList
         }
@@ -1406,8 +1361,8 @@ Function Remove-HPEGLUser {
                 catch {
                     if (-not $WhatIf) {
                         $Object.Status = "Failed"
-                        $Object.Details = $FailureMessage
-                        $Object.Exception = $_.Exception.Message
+                        $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { $FailureMessage }
+                        $Object.Exception = $Global:HPECOMInvokeReturnData
                     }
                 }
 
@@ -1419,14 +1374,14 @@ Function Remove-HPEGLUser {
                 $Object.Details = "User with email '$($Object.Email)' not found in the current workspace. No action needed. To list all users, use: Get-HPEGLUser"
 
                 if ($WhatIf) {
-                    $ErrorMessage = "User with email '{0}' cannot be found in the current workspace. No action needed! To list all users, use: Get-HPEGLUser" -f $Object.Email
-                    Write-warning $ErrorMessage
+                    $ErrorMessage = "User with email '{0}' cannot be found in the current workspace. No action needed! To list all users, use: Get-HPEGLUser." -f $Object.Email
+                    Write-Warning "$ErrorMessage Cannot display API request."
                 }       
             }
         }
 
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
 
             $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "UserRemoval.Status" 
             Return $ObjectStatusList
@@ -2657,7 +2612,7 @@ Function Add-HPEGLRoleToUser {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "User '$Email' not found in the workspace. To list all users, use: Get-HPEGLUser"
                     $objStatus.Exception = "User not found"
                     [void]$RoleAssignmentStatus.Add($objStatus)
@@ -2677,7 +2632,7 @@ Function Add-HPEGLRoleToUser {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "User is an SSO user managed by your identity provider. Role assignments must be done through your IdP (not via HPE GreenLake API)."
                     $objStatus.Exception = "SSO user not supported"
                     [void]$RoleAssignmentStatus.Add($objStatus)
@@ -2694,7 +2649,7 @@ Function Add-HPEGLRoleToUser {
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else {  "Error retrieving user" }
-                $objStatus.Exception = $_.Exception.GetType().Name
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void]$RoleAssignmentStatus.Add($objStatus)
                 return
             }
@@ -2713,7 +2668,7 @@ Function Add-HPEGLRoleToUser {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "Role '$RoleName' not found. To list all available roles, use: Get-HPEGLRole"
                     $objStatus.Exception = "Role not found"
                     [void]$RoleAssignmentStatus.Add($objStatus)
@@ -2750,7 +2705,7 @@ Function Add-HPEGLRoleToUser {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "Service mismatch: This role cannot be scoped to a scope group. Workspace-level roles (e.g., 'Workspace Observer') can only be assigned to entire workspace. Use service-specific roles (e.g., 'Compute Ops Management viewer') with -ScopeGroupName."
                     $objStatus.Exception = "Role does not support scope groups"
                     [void]$RoleAssignmentStatus.Add($objStatus)
@@ -2767,7 +2722,7 @@ Function Add-HPEGLRoleToUser {
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving role." }
-                $objStatus.Exception = $_.Exception.GetType().Name
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void]$RoleAssignmentStatus.Add($objStatus)
                 return
             }
@@ -2796,7 +2751,7 @@ Function Add-HPEGLRoleToUser {
                             return
                         }
                         else {
-                            $objStatus.Status = "Failed"
+                            $objStatus.Status = "Warning"
                             $objStatus.Details = "Scope group '$ScopeName' not found. To list all scope groups, use: Get-HPEGLScopeGroup"
                             $objStatus.Exception = "Scope group not found"
                             [void]$RoleAssignmentStatus.Add($objStatus)
@@ -2822,7 +2777,7 @@ Function Add-HPEGLRoleToUser {
                 else {
                     $objStatus.Status = "Failed"
                     $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving scope groups." }
-                    $objStatus.Exception = $_.Exception.GetType().Name
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                     [void]$RoleAssignmentStatus.Add($objStatus)
                     return
                 }
@@ -2954,30 +2909,18 @@ Function Add-HPEGLRoleToUser {
             $objStatus.Status = "Failed"
             $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Role assignment failed." }
             
-            # Build technical exception info with error code and HTTP status
-            $technicalInfo = @()
-            if ($Global:HPECOMInvokeReturnData.errorCode) {
-                $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-            }
-            if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                $technicalInfo += "HTTP $statusCode"
-            }
-            if ($technicalInfo.Count -eq 0) {
-                $technicalInfo += $_.Exception.GetType().Name
-            }
-            $objStatus.Exception = $technicalInfo -join " | "
+            $objStatus.Exception = $Global:HPECOMInvokeReturnData
             
             "[{0}] Role assignment failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $objStatus.Exception | Write-Verbose
         }
 
         # Add to collection for batch return
-        [void]$RoleAssignmentStatus.Add($objStatus)
+        if (-not $WhatIf) { [void]$RoleAssignmentStatus.Add($objStatus) }
     }
 
     End {
         
-        if (-not $WhatIf -and $RoleAssignmentStatus.Count -gt 0) {
+        if ($RoleAssignmentStatus.Count -gt 0) {
             $RoleAssignmentStatus = Invoke-RepackageObjectWithType -RawObject $RoleAssignmentStatus -ObjectName "RoleAssignment.User"
             Return $RoleAssignmentStatus
         }
@@ -3125,7 +3068,7 @@ Function Remove-HPEGLRoleFromUser {
                         return
                     }
                     else {
-                        $objStatus.Status = "Failed"
+                        $objStatus.Status = "Warning"
                         $objStatus.Details = "User '$Email' not found in the workspace. To list all users, use: Get-HPEGLUser"
                         $objStatus.Exception = "User not found"
                         [void]$RoleRemovalStatus.Add($objStatus)
@@ -3142,7 +3085,7 @@ Function Remove-HPEGLRoleFromUser {
                         return
                     }
                     else {
-                        $objStatus.Status = "Failed"
+                        $objStatus.Status = "Warning"
                         $objStatus.Details = "User is an SSO user managed by your identity provider. Role management must be done through your IdP (not via HPE GreenLake API)."
                         $objStatus.Exception = "SSO user not supported"
                         [void]$RoleRemovalStatus.Add($objStatus)
@@ -3163,7 +3106,7 @@ Function Remove-HPEGLRoleFromUser {
                         return
                     }
                     else {
-                        $objStatus.Status = "Failed"
+                        $objStatus.Status = "Warning"
                         $objStatus.Details = "User has no role assignments or user not found. To list user roles, use: Get-HPEGLUserRole -Email '$Email'"
                         $objStatus.Exception = "No role assignments found"
                         [void]$RoleRemovalStatus.Add($objStatus)
@@ -3220,7 +3163,7 @@ Function Remove-HPEGLRoleFromUser {
                 else {
                     $objStatus.Status = "Failed"
                     $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving user role assignments." }
-                    $objStatus.Exception = $_.Exception.GetType().Name
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                     [void]$RoleRemovalStatus.Add($objStatus)
                     return
                 }
@@ -3269,31 +3212,19 @@ Function Remove-HPEGLRoleFromUser {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Role removal failed." }
             
-                # Build technical exception info with error code and HTTP status
-                $technicalInfo = @()
-                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                    $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                }
-                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                    $technicalInfo += "HTTP $statusCode"
-                }
-                if ($technicalInfo.Count -eq 0) {
-                    $technicalInfo += $_.Exception.GetType().Name
-                }
-                $objStatus.Exception = $technicalInfo -join " | "
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 
                 "[{0}] Role removal failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $objStatus.Exception | Write-Verbose
             }
         }
 
         # Add to collection for batch return
-        [void]$RoleRemovalStatus.Add($objStatus)
+        if (-not $WhatIf) { [void]$RoleRemovalStatus.Add($objStatus) }
     }
 
     End {
         
-        if (-not $WhatIf -and $RoleRemovalStatus.Count -gt 0) {
+        if ($RoleRemovalStatus.Count -gt 0) {
             $RoleRemovalStatus = Invoke-RepackageObjectWithType -RawObject $RoleRemovalStatus -ObjectName "RoleAssignment.User"
             Return $RoleRemovalStatus
         }
@@ -3449,7 +3380,7 @@ Function Set-HPEGLUserRole {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "User '$Email' not found in the workspace. To list all users, use: Get-HPEGLUser"
                     $objStatus.Exception = "User not found"
                     [void]$RoleModificationStatus.Add($objStatus)
@@ -3469,7 +3400,7 @@ Function Set-HPEGLUserRole {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "User is an SSO user managed by your identity provider. Role management must be done through your IdP (not via HPE GreenLake API)."
                     $objStatus.Exception = "SSO user not supported"
                     [void]$RoleModificationStatus.Add($objStatus)
@@ -3486,7 +3417,7 @@ Function Set-HPEGLUserRole {
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving user." }
-                $objStatus.Exception = $_.Exception.GetType().Name
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void]$RoleModificationStatus.Add($objStatus)
                 return
             }
@@ -3504,7 +3435,7 @@ Function Set-HPEGLUserRole {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "Role '$RoleName' not found. To list all available roles, use: Get-HPEGLRole"
                     $objStatus.Exception = "Role not found"
                     [void]$RoleModificationStatus.Add($objStatus)
@@ -3537,7 +3468,7 @@ Function Set-HPEGLUserRole {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "Service mismatch: This role cannot be scoped to a scope group. Workspace-level roles (e.g., 'Workspace Observer') can only have entire workspace access. Use service-specific roles (e.g., 'Compute Ops Management viewer') with -ScopeGroupName."
                     $objStatus.Exception = "Role does not support scope groups"
                     [void]$RoleModificationStatus.Add($objStatus)
@@ -3554,7 +3485,7 @@ Function Set-HPEGLUserRole {
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving role." }
-                $objStatus.Exception = $_.Exception.GetType().Name
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void]$RoleModificationStatus.Add($objStatus)
                 return
             }
@@ -3574,7 +3505,7 @@ Function Set-HPEGLUserRole {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "User has no role assignments. Cannot modify a role that isn't assigned. To list user roles, use: Get-HPEGLUserRole -Email '$Email'"
                     $objStatus.Exception = "No role assignments found"
                     [void]$RoleModificationStatus.Add($objStatus)
@@ -3593,7 +3524,7 @@ Function Set-HPEGLUserRole {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "Role '$RoleName' is not currently assigned to user. Cannot modify a role that isn't assigned. To add this role, use: Add-HPEGLRoleToUser"
                     $objStatus.Exception = "Role not assigned"
                     [void]$RoleModificationStatus.Add($objStatus)
@@ -3688,7 +3619,7 @@ Function Set-HPEGLUserRole {
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving user role assignments." }
-                $objStatus.Exception = $_.Exception.GetType().Name
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void]$RoleModificationStatus.Add($objStatus)
                 return
             }
@@ -3717,7 +3648,7 @@ Function Set-HPEGLUserRole {
                             return
                         }
                         else {
-                            $objStatus.Status = "Failed"
+                            $objStatus.Status = "Warning"
                             $objStatus.Details = "Scope group '$ScopeName' not found. To list all scope groups, use: Get-HPEGLScopeGroup"
                             $objStatus.Exception = "Scope group not found"
                             [void]$RoleModificationStatus.Add($objStatus)
@@ -3743,7 +3674,7 @@ Function Set-HPEGLUserRole {
                 else {
                     $objStatus.Status = "Failed"
                     $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else {"Error retrieving scope groups."}
-                    $objStatus.Exception = $_.Exception.GetType().Name
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                     [void]$RoleModificationStatus.Add($objStatus)
                     return
                 }
@@ -3780,30 +3711,18 @@ Function Set-HPEGLUserRole {
             $objStatus.Status = "Failed"
             $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Role modification failed." }
             
-            # Build technical exception info with error code and HTTP status
-            $technicalInfo = @()
-            if ($Global:HPECOMInvokeReturnData.errorCode) {
-                $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-            }
-            if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                $technicalInfo += "HTTP $statusCode"
-            }
-            if ($technicalInfo.Count -eq 0) {
-                $technicalInfo += $_.Exception.GetType().Name
-            }
-            $objStatus.Exception = $technicalInfo -join " | "
+            $objStatus.Exception = $Global:HPECOMInvokeReturnData
             
             "[{0}] Role modification failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $objStatus.Exception | Write-Verbose
         }
 
         # Add to collection for batch return
-        [void]$RoleModificationStatus.Add($objStatus)
+        if (-not $WhatIf) { [void]$RoleModificationStatus.Add($objStatus) }
     }
 
     End {
         
-        if (-not $WhatIf -and $RoleModificationStatus.Count -gt 0) {
+        if ($RoleModificationStatus.Count -gt 0) {
             $RoleModificationStatus = Invoke-RepackageObjectWithType -RawObject $RoleModificationStatus -ObjectName "RoleModification.User"
             Return $RoleModificationStatus
         }
@@ -4421,7 +4340,7 @@ Function New-HPEGLUserGroup {
 
         # Validate that RoleName and ScopeName are used together
         if ($RoleName -and -not $ScopeName) {
-            $objStatus.Status = "Failed"
+            $objStatus.Status = "Warning"
             $objStatus.Details = "ScopeName parameter is required when RoleName is specified"
             $objStatus.Exception = "Missing required parameter"
             "[{0}] Error: ScopeName is required when RoleName is specified" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
@@ -4430,7 +4349,7 @@ Function New-HPEGLUserGroup {
         }
 
         if ($ScopeName -and -not $RoleName) {
-            $objStatus.Status = "Failed"
+            $objStatus.Status = "Warning"
             $objStatus.Details = "RoleName parameter is required when ScopeName is specified"
             $objStatus.Exception = "Missing required parameter"
             "[{0}] Error: RoleName is required when ScopeName is specified" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
@@ -4568,38 +4487,21 @@ Function New-HPEGLUserGroup {
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
                 
-                # Use helper function to extract error message
-                $objStatus.Details = if ($_.Exception.Message) { 
-                    $_.Exception.Message 
-                } else { 
-                    Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "User group cannot be created!"
-                }
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "User group cannot be created!" }
                 
-                # Build technical exception info with error code and HTTP status
-                $technicalInfo = @()
-                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                    $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                }
-                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                    $technicalInfo += "HTTP $statusCode"
-                }
-                if ($technicalInfo.Count -eq 0) {
-                    $technicalInfo += $_.Exception.GetType().Name
-                }
-                $objStatus.Exception = $technicalInfo -join " | "
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 
                 "[{0}] User group '{1}' creation failed: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $objStatus.Exception | Write-Verbose
             }
         }
 
         # Add to collection for batch return
-        [void]$CreateUserGroupStatus.Add($objStatus)
+        if (-not $WhatIf) { [void]$CreateUserGroupStatus.Add($objStatus) }
     }
 
     End {
         
-        if (-not $WhatIf -and $CreateUserGroupStatus.Count -gt 0) {
+        if ($CreateUserGroupStatus.Count -gt 0) {
             $CreateUserGroupStatus = Invoke-RepackageObjectWithType -RawObject $CreateUserGroupStatus -ObjectName "ObjStatus.NSDE"
             return $CreateUserGroupStatus
         }
@@ -4729,7 +4631,7 @@ Function Remove-HPEGLUserGroup {
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving user group." }
-                $objStatus.Exception = $_.Exception.GetType().Name
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void]$DeleteUserGroupStatus.Add($objStatus)
                 return
             }
@@ -4743,7 +4645,7 @@ Function Remove-HPEGLUserGroup {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "User group '$Name' not found"
                 $objStatus.Exception = "Group not found"
                 [void]$DeleteUserGroupStatus.Add($objStatus)
@@ -4762,7 +4664,7 @@ Function Remove-HPEGLUserGroup {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "User group is managed by '$($Group.source)' and cannot be deleted through the API"
                 $objStatus.Exception = "Cannot delete non-local group"
                 [void]$DeleteUserGroupStatus.Add($objStatus)
@@ -4804,26 +4706,9 @@ Function Remove-HPEGLUserGroup {
                 else {
                     $objStatus.Status = "Failed"
                     
-                    # Use helper function to extract error message
-                    $objStatus.Details = if ($_.Exception.Message) { 
-                        $_.Exception.Message 
-                    } else { 
-                        Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "User group cannot be deleted!"
-                    }
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "User group cannot be deleted!" }
                     
-                    # Build technical exception info with error code and HTTP status
-                    $technicalInfo = @()
-                    if ($Global:HPECOMInvokeReturnData.errorCode) {
-                        $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                    }
-                    if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                        $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                        $technicalInfo += "HTTP $statusCode"
-                    }
-                    if ($technicalInfo.Count -eq 0) {
-                        $technicalInfo += $_.Exception.GetType().Name
-                    }
-                    $objStatus.Exception = $technicalInfo -join " | "
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 
                     "[{0}] User group deletion failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $objStatus.Exception | Write-Verbose
                 }
@@ -4831,12 +4716,12 @@ Function Remove-HPEGLUserGroup {
         }
 
         # Add to collection for batch return
-        [void]$DeleteUserGroupStatus.Add($objStatus)
+        if (-not $WhatIf) { [void]$DeleteUserGroupStatus.Add($objStatus) }
     }
 
     End {
         
-        if (-not $WhatIf -and $DeleteUserGroupStatus.Count -gt 0) {
+        if ($DeleteUserGroupStatus.Count -gt 0) {
             $DeleteUserGroupStatus = Invoke-RepackageObjectWithType -RawObject $DeleteUserGroupStatus -ObjectName "ObjStatus.NSDE"
             return $DeleteUserGroupStatus
         }
@@ -4988,7 +4873,7 @@ Function Set-HPEGLUserGroup {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "No properties specified to update. Specify at least -NewName or -NewDescription."
                 $objStatus.Exception = "Missing required parameters"
                 [void]$UpdateUserGroupStatus.Add($objStatus)
@@ -5010,7 +4895,7 @@ Function Set-HPEGLUserGroup {
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving user group." }
-                $objStatus.Exception = $_.Exception.GetType().Name
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void]$UpdateUserGroupStatus.Add($objStatus)
                 return
             }
@@ -5024,7 +4909,7 @@ Function Set-HPEGLUserGroup {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "User group '$Name' not found"
                 $objStatus.Exception = "Group not found"
                 [void]$UpdateUserGroupStatus.Add($objStatus)
@@ -5043,7 +4928,7 @@ Function Set-HPEGLUserGroup {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "User group is managed by '$($Group.source)' and cannot be modified through the API"
                 $objStatus.Exception = "Cannot modify non-local group"
                 [void]$UpdateUserGroupStatus.Add($objStatus)
@@ -5070,7 +4955,7 @@ Function Set-HPEGLUserGroup {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "A user group with the name '$NewName' already exists"
                     $objStatus.Exception = "Duplicate group name"
                     [void]$UpdateUserGroupStatus.Add($objStatus)
@@ -5151,35 +5036,21 @@ Function Set-HPEGLUserGroup {
             else {
                 $objStatus.Status = "Failed"
                 
-                # Use helper function to extract error message
-                $errorMsg = Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "User group cannot be updated!"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error updating user group." }
                 
-                # Build technical exception info with error code and HTTP status
-                $technicalInfo = @()
-                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                    $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                }
-                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                    $technicalInfo += "HTTP $statusCode"
-                }
-                if ($technicalInfo.Count -eq 0) {
-                    $technicalInfo += $_.Exception.GetType().Name
-                }
-                $objStatus.Exception = $technicalInfo -join " | "
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
             
                 "[{0}] User group update failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $objStatus.Exception | Write-Verbose
             }
         }
 
         # Add to collection for batch return
-        [void]$UpdateUserGroupStatus.Add($objStatus)
+        if (-not $WhatIf) { [void]$UpdateUserGroupStatus.Add($objStatus) }
     }
 
     End {
         
-        if (-not $WhatIf -and $UpdateUserGroupStatus.Count -gt 0) {
+        if ($UpdateUserGroupStatus.Count -gt 0) {
             $UpdateUserGroupStatus = Invoke-RepackageObjectWithType -RawObject $UpdateUserGroupStatus -ObjectName "ObjStatus.NSDE"
             return $UpdateUserGroupStatus
         }
@@ -5326,7 +5197,7 @@ Function Add-HPEGLRoleToUserGroup {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "User group '$GroupName' not found"
                     $objStatus.Exception = "Group not found"
                     [void]$RoleAssignmentStatus.Add($objStatus)
@@ -5346,7 +5217,7 @@ Function Add-HPEGLRoleToUserGroup {
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving user group." }
-                $objStatus.Exception = $_.Exception.GetType().Name
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void]$RoleAssignmentStatus.Add($objStatus)
                 return
             }
@@ -5365,7 +5236,7 @@ Function Add-HPEGLRoleToUserGroup {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "Role '$RoleName' not found"
                     $objStatus.Exception = "Role not found"
                     [void]$RoleAssignmentStatus.Add($objStatus)
@@ -5385,7 +5256,7 @@ Function Add-HPEGLRoleToUserGroup {
             else {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving role." }
-                $objStatus.Exception = $_.Exception.GetType().Name
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void]$RoleAssignmentStatus.Add($objStatus)
                 return
             }
@@ -5414,7 +5285,7 @@ Function Add-HPEGLRoleToUserGroup {
                             return
                         }
                         else {
-                            $objStatus.Status = "Failed"
+                            $objStatus.Status = "Warning"
                             $objStatus.Details = "Scope group '$ScopeName' not found. To list all scope groups, use: Get-HPEGLScopeGroup"
                             $objStatus.Exception = "Scope group not found"
                             [void]$RoleAssignmentStatus.Add($objStatus)
@@ -5440,7 +5311,7 @@ Function Add-HPEGLRoleToUserGroup {
                 else {
                     $objStatus.Status = "Failed"
                     $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving scope groups." }
-                    $objStatus.Exception = $_.Exception.GetType().Name
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                     [void]$RoleAssignmentStatus.Add($objStatus)
                     return
                 }
@@ -5480,33 +5351,21 @@ Function Add-HPEGLRoleToUserGroup {
             $objStatus.Details = if ($_.Exception.Message) { 
                 $_.Exception.Message 
             } else { 
-                "Role assignment failed: $($_.Exception.Message)" 
+                "Role assignment failed!" 
             }
             
-            # Build technical exception info with error code and HTTP status
-            $technicalInfo = @()
-            if ($Global:HPECOMInvokeReturnData.errorCode) {
-                $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-            }
-            if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                $technicalInfo += "HTTP $statusCode"
-            }
-            if ($technicalInfo.Count -eq 0) {
-                $technicalInfo += $_.Exception.GetType().Name
-            }
-            $objStatus.Exception = $technicalInfo -join " | "
+            $objStatus.Exception = $Global:HPECOMInvokeReturnData
             
             "[{0}] Role assignment failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $objStatus.Exception | Write-Verbose
         }
 
         # Add to collection for batch return
-        [void]$RoleAssignmentStatus.Add($objStatus)
+        if (-not $WhatIf) { [void]$RoleAssignmentStatus.Add($objStatus) }
     }
 
     End {
         
-        if (-not $WhatIf -and $RoleAssignmentStatus.Count -gt 0) {
+        if ($RoleAssignmentStatus.Count -gt 0) {
             $RoleAssignmentStatus = Invoke-RepackageObjectWithType -RawObject $RoleAssignmentStatus -ObjectName "RoleAssignment.Status"
             return $RoleAssignmentStatus
         }
@@ -5649,7 +5508,7 @@ Function Remove-HPEGLRoleFromUserGroup {
                         return
                     }
                     else {
-                        $objStatus.Status = "Failed"
+                        $objStatus.Status = "Warning"
                         $objStatus.Details = "User group '$GroupName' not found"
                         $objStatus.Exception = "Group not found"
                         [void]$RoleRemovalStatus.Add($objStatus)
@@ -5670,7 +5529,7 @@ Function Remove-HPEGLRoleFromUserGroup {
                         return
                     }
                     else {
-                        $objStatus.Status = "Failed"
+                        $objStatus.Status = "Warning"
                         $objStatus.Details = "Role '$RoleName' is not assigned to group '$GroupName'"
                         $objStatus.Exception = "Role not assigned"
                         [void]$RoleRemovalStatus.Add($objStatus)
@@ -5692,7 +5551,7 @@ Function Remove-HPEGLRoleFromUserGroup {
                 else {
                     $objStatus.Status = "Failed"
                     $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error retrieving group or role assignment." }
-                    $objStatus.Exception = $_.Exception.GetType().Name
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                     [void]$RoleRemovalStatus.Add($objStatus)
                     return
                 }
@@ -5744,31 +5603,19 @@ Function Remove-HPEGLRoleFromUserGroup {
                     "Role removal failed." 
                 }
             
-                # Build technical exception info with error code and HTTP status
-                $technicalInfo = @()
-                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                    $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                }
-                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                    $technicalInfo += "HTTP $statusCode"
-                }
-                if ($technicalInfo.Count -eq 0) {
-                    $technicalInfo += $_.Exception.GetType().Name
-                }
-                $objStatus.Exception = $technicalInfo -join " | "
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
             
                 "[{0}] Role removal failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $objStatus.Exception | Write-Verbose
             }
         }
 
         # Add to collection for batch return
-        [void]$RoleRemovalStatus.Add($objStatus)
+        if (-not $WhatIf) { [void]$RoleRemovalStatus.Add($objStatus) }
     }
 
     End {
         
-        if (-not $WhatIf -and $RoleRemovalStatus.Count -gt 0) {
+        if ($RoleRemovalStatus.Count -gt 0) {
             $RoleRemovalStatus = Invoke-RepackageObjectWithType -RawObject $RoleRemovalStatus -ObjectName "RoleAssignment.Status"
             return $RoleRemovalStatus
         }
@@ -5932,7 +5779,7 @@ Function Add-HPEGLUserToUserGroup {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "No active HPE GreenLake session. Please run Connect-HPEGL first."
                 [void]$AddUserStatus.Add($objStatus)
                 return
@@ -5952,7 +5799,7 @@ Function Add-HPEGLUserToUserGroup {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "User group '$GroupName' not found"
                     $objStatus.Exception = "Group not found"
                     [void]$AddUserStatus.Add($objStatus)
@@ -6035,7 +5882,7 @@ Function Add-HPEGLUserToUserGroup {
                     # Determine status based on the reason for no valid users
                     if ($notFoundUsers.Count -gt 0 -and $alreadyMemberUsers.Count -eq 0) {
                         # Only not-found users = Failed
-                        $objStatus.Status = "Failed"
+                        $objStatus.Status = "Warning"
                         $objStatus.Details = "None of the specified users were found in the workspace"
                     }
                     elseif ($alreadyMemberUsers.Count -gt 0 -and $notFoundUsers.Count -eq 0) {
@@ -6114,26 +5961,9 @@ Function Add-HPEGLUserToUserGroup {
             else {
                 $objStatus.Status = "Failed"
                 
-                # Use helper function to extract error message
-                $objStatus.Details = if ($_.Exception.Message) { 
-                    $_.Exception.Message 
-                } else { 
-                    Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "Users cannot be added to group!"
-                }               
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Users cannot be added to group!" }
                 
-                # Build technical exception info with error code and HTTP status
-                $technicalInfo = @()
-                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                    $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                }
-                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                    $technicalInfo += "HTTP $statusCode"
-                }
-                if ($technicalInfo.Count -eq 0) {
-                    $technicalInfo += $_.Exception.GetType().Name
-                }
-                $objStatus.Exception = $technicalInfo -join " | "
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
             
                 "[{0}] Adding users failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $objStatus.Exception | Write-Verbose
                 
@@ -6144,7 +5974,7 @@ Function Add-HPEGLUserToUserGroup {
     }
 
     End {
-        if (-not $WhatIf -and $AddUserStatus.Count -gt 0) {
+        if ($AddUserStatus.Count -gt 0) {
             $AddUserStatus = Invoke-RepackageObjectWithType -RawObject $AddUserStatus -ObjectName "UserGroup.MemberAddition.Status"
             return $AddUserStatus
         }
@@ -6307,7 +6137,7 @@ Function Remove-HPEGLUserFromUserGroup {
                 return
             }
             else {
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "No active HPE GreenLake session. Please run Connect-HPEGL first."
                 [void]$RemoveUserStatus.Add($objStatus)
                 return
@@ -6327,7 +6157,7 @@ Function Remove-HPEGLUserFromUserGroup {
                     return
                 }
                 else {
-                    $objStatus.Status = "Failed"
+                    $objStatus.Status = "Warning"
                     $objStatus.Details = "User group '$GroupName' not found"
                     $objStatus.Exception = "Group not found"
                     [void]$RemoveUserStatus.Add($objStatus)
@@ -6408,7 +6238,7 @@ Function Remove-HPEGLUserFromUserGroup {
                     # Determine status based on the reason for no valid users
                     if ($notFoundUsers.Count -gt 0 -and $notMemberUsers.Count -eq 0) {
                         # Only not-found users = Failed
-                        $objStatus.Status = "Failed"
+                        $objStatus.Status = "Warning"
                         $objStatus.Details = "None of the specified users were found in the workspace"
                     }
                     elseif ($notMemberUsers.Count -gt 0 -and $notFoundUsers.Count -eq 0) {
@@ -6487,26 +6317,9 @@ Function Remove-HPEGLUserFromUserGroup {
             else {
                 $objStatus.Status = "Failed"
                 
-                # Use helper function to extract error message
-                $objStatus.Details = if ($_.Exception.Message) { 
-                    $_.Exception.Message 
-                } else { 
-                    Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "Users cannot be removed from group!"
-                }
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Users cannot be removed from group!" }
                 
-                # Build technical exception info with error code and HTTP status
-                $technicalInfo = @()
-                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                    $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                }
-                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                    $technicalInfo += "HTTP $statusCode"
-                }
-                if ($technicalInfo.Count -eq 0) {
-                    $technicalInfo += $_.Exception.GetType().Name
-                }
-                $objStatus.Exception = $technicalInfo -join " | "
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
             
                 "[{0}] Removing users failed: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $objStatus.Exception | Write-Verbose
                 
@@ -6517,7 +6330,7 @@ Function Remove-HPEGLUserFromUserGroup {
     }
 
     End {
-        if (-not $WhatIf -and $RemoveUserStatus.Count -gt 0) {
+        if ($RemoveUserStatus.Count -gt 0) {
             $RemoveUserStatus = Invoke-RepackageObjectWithType -RawObject $RemoveUserStatus -ObjectName "UserGroup.MemberRemoval.Status"
             return $RemoveUserStatus
         }
@@ -7180,7 +6993,7 @@ Function New-HPEGLScopeGroup {
             catch {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else {  "Failed to retrieve service information for '$ServiceName'" }
-                $objStatus.Exception = $_.Exception.Message
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 [void] $CreateScopeGroupStatus.add($objStatus)
                 return
             }
@@ -7229,7 +7042,7 @@ Function New-HPEGLScopeGroup {
                     catch {
                         $objStatus.Status = "Failed"
                         $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve filter '$Filter' from region '$Region'" }
-                        $objStatus.Exception = $_.Exception.Message
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData
                         [void] $CreateScopeGroupStatus.add($objStatus)
                         return
                     }
@@ -7283,34 +7096,14 @@ Function New-HPEGLScopeGroup {
     
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { 
-                        $_.Exception.Message 
-                    } else { 
-                        Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "Scope group cannot be created!"
-                    }
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Scope group cannot be created!" }
 
-                    # Build technical diagnostics
-                    $technicalInfo = @()
-                    if ($Global:HPECOMInvokeReturnData.errorCode) {
-                        $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                    }
-                    if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                        $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { 
-                            $Global:HPECOMInvokeReturnData.httpStatusCode 
-                        } else { 
-                            $Global:HPECOMInvokeReturnData.StatusCode 
-                        }
-                        $technicalInfo += "HTTP $statusCode"
-                    }
-                    if ($technicalInfo.Count -eq 0) {
-                        $technicalInfo += $_.Exception.GetType().Name
-                    }
-                    $objStatus.Exception = $technicalInfo -join " | "
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 }
             }           
         }
 
-        [void] $CreateScopeGroupStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $CreateScopeGroupStatus.add($objStatus) }
 
     }
 
@@ -7455,42 +7248,25 @@ Function New-HPEGLScopeGroup {
                             if (-not $WhatIf) {
                                 $objStatus.Status = "Failed"
                                 
-                                # Use helper function to extract error message
-                                 $objStatus.Details = if ($_.Exception.Message) { 
-                                    $_.Exception.Message 
-                                } else { 
-                                    Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "Scope group cannot be created!"
-                                }                           
+                                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Scope group cannot be created!" }
                                 
-                                # Build technical exception info with error code and HTTP status
-                                $technicalInfo = @()
-                                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                                    $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                                }
-                                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                                    $technicalInfo += "HTTP $statusCode"
-                                }
-                                if ($technicalInfo.Count -eq 0) {
-                                    $technicalInfo += $_.Exception.GetType().Name
-                                }
-                                $objStatus.Exception = $technicalInfo -join " | "
+                                $objStatus.Exception = $Global:HPECOMInvokeReturnData
                             }
                         }
                         
-                        [void] $CreateScopeGroupStatus.add($objStatus)
+                        if (-not $WhatIf) { [void] $CreateScopeGroupStatus.add($objStatus) }
                     }
                 }
                 catch {
                     $objStatus.Status = "Failed"
                     $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve service information for '$ServiceName'" }
-                    $objStatus.Exception = $_.Exception.Message
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                     [void] $CreateScopeGroupStatus.add($objStatus)
                 }
             }
         }
 
-        if (-not $WhatIf -and $CreateScopeGroupStatus.Count -gt 0) {
+        if ($CreateScopeGroupStatus.Count -gt 0) {
             $CreateScopeGroupStatus = Invoke-RepackageObjectWithType -RawObject $CreateScopeGroupStatus -ObjectName "ObjStatus.NSDE"    
             Return $CreateScopeGroupStatus
         }
@@ -7657,11 +7433,11 @@ Function Set-HPEGLScopeGroup {
                 
                 if ($WhatIf) {
                     $ErrorMessage = "Scope group '{0}' not found! Cannot show API preview without an existing scope group." -f $Name
-                    Write-Warning $ErrorMessage
+                    Write-Warning "$ErrorMessage Cannot display API request."
                     return
                 }
                 
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Scope group not found"
                 [void] $SetScopeGroupStatus.add($objStatus)
                 return
@@ -7674,7 +7450,7 @@ Function Set-HPEGLScopeGroup {
         catch {
             $objStatus.Status = "Failed"
             $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve scope group '$Name'" }
-            $objStatus.Exception = $_.Exception.Message
+            $objStatus.Exception = $Global:HPECOMInvokeReturnData
             [void] $SetScopeGroupStatus.add($objStatus)
             return
         }
@@ -7747,7 +7523,7 @@ Function Set-HPEGLScopeGroup {
                             else {
                                 $ErrorMessage = "None of the specified filters were found in any of the provisioned regions: {0}. Cannot show API preview without valid filters." -f ($FilterName -join ', ')
                             }
-                            Write-Warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             return
                         }
                         
@@ -7772,7 +7548,7 @@ Function Set-HPEGLScopeGroup {
                             
                             if ($WhatIf) {
                                 $ErrorMessage = "Filter '{0}' not found in region '{1}'. Cannot show API preview without valid filters." -f $Filter, $Region
-                                Write-Warning $ErrorMessage
+                                Write-Warning "$ErrorMessage Cannot display API request."
                                 return
                             }
                             
@@ -7795,7 +7571,7 @@ Function Set-HPEGLScopeGroup {
                     catch {
                         $objStatus.Status = "Failed"
                         $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve filter '$Filter' from region '$Region'" }
-                        $objStatus.Exception = $_.Exception.Message
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData
                         [void] $SetScopeGroupStatus.add($objStatus)
                         return
                     }
@@ -7848,7 +7624,7 @@ Function Set-HPEGLScopeGroup {
                             return
                         }
                         
-                        $objStatus.Status = "Failed"
+                        $objStatus.Status = "Warning"
                         $objStatus.Details = "Unable to extract region from existing filters."
                         [void] $SetScopeGroupStatus.add($objStatus)
                         return
@@ -7885,7 +7661,7 @@ Function Set-HPEGLScopeGroup {
                             else {
                                 $ErrorMessage = "None of the specified filters were found in any of the provisioned regions: {0}. Cannot show API preview without valid filters." -f ($AddFilterName -join ', ')
                             }
-                            Write-Warning $ErrorMessage
+                            Write-Warning "$ErrorMessage Cannot display API request."
                             return
                         }
                         
@@ -7911,7 +7687,7 @@ Function Set-HPEGLScopeGroup {
                             
                             if ($WhatIf) {
                                 $ErrorMessage = "Filter '{0}' not found in region '{1}'. Cannot show API preview without valid filters." -f $Filter, $Region
-                                Write-Warning $ErrorMessage
+                                Write-Warning "$ErrorMessage Cannot display API request."
                                 return
                             }
                             
@@ -7939,7 +7715,7 @@ Function Set-HPEGLScopeGroup {
                     catch {
                         $objStatus.Status = "Failed"
                         $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Failed to retrieve filter '$Filter' from region '$Region'" }
-                        $objStatus.Exception = $_.Exception.Message
+                        $objStatus.Exception = $Global:HPECOMInvokeReturnData
                         [void] $SetScopeGroupStatus.add($objStatus)
                         return
                     }
@@ -8023,36 +7799,19 @@ Function Set-HPEGLScopeGroup {
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
                 
-                # Use helper function to extract error message
-                $objStatus.Details = if ($_.Exception.Message) { 
-                    $_.Exception.Message 
-                } else { 
-                    Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "Scope group cannot be modified!"
-                }
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Scope group cannot be modified!" }
                 
-                # Build technical exception info with error code and HTTP status
-                $technicalInfo = @()
-                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                    $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                }
-                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                    $technicalInfo += "HTTP $statusCode"
-                }
-                if ($technicalInfo.Count -eq 0) {
-                    $technicalInfo += $_.Exception.GetType().Name
-                }
-                $objStatus.Exception = $technicalInfo -join " | "
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
             }
         }
 
-        [void] $SetScopeGroupStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $SetScopeGroupStatus.add($objStatus) }
 
     }
 
     End {
 
-        if (-not $WhatIf -and $SetScopeGroupStatus.Count -gt 0) {
+        if ($SetScopeGroupStatus.Count -gt 0) {
             $SetScopeGroupStatus = Invoke-RepackageObjectWithType -RawObject $SetScopeGroupStatus -ObjectName "ObjStatus.NSDE"    
             Return $SetScopeGroupStatus
         }
@@ -8282,23 +8041,9 @@ Function Remove-HPEGLScopeGroup {
                         $Object = $ObjectStatusList | Where-Object { $_.Name -eq $ScopeGroupInfo.Name -or $_.Id -eq $ScopeGroupInfo.Id }
                         $Object.Status = "Failed"
                         
-                        # Use helper function to extract error message
-                        $errorMsg = Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "Scope group deletion failed!"
-                        $Object.Details = $errorMsg
+                        $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Scope group deletion failed!" }
                         
-                        # Build technical exception info with error code and HTTP status
-                        $technicalInfo = @()
-                        if ($Global:HPECOMInvokeReturnData.errorCode) {
-                            $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                        }
-                        if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                            $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                            $technicalInfo += "HTTP $statusCode"
-                        }
-                        if ($technicalInfo.Count -eq 0) {
-                            $technicalInfo += $_.Exception.GetType().Name
-                        }
-                        $Object.Exception = $technicalInfo -join " | "
+                        $Object.Exception = $Global:HPECOMInvokeReturnData
                         
                         ("[{0}] Scope group '{1}' deletion failed: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ScopeGroupInfo.Name, $Object.Exception) | Write-Verbose
                     }
@@ -8306,7 +8051,7 @@ Function Remove-HPEGLScopeGroup {
             }
         }
 
-        if (-not $WhatIf) {
+        if ($ObjectStatusList.Count -gt 0) {
             $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.NSDE" 
             Return $ObjectStatusList
         }
@@ -8409,7 +8154,7 @@ Function Copy-HPEGLScopeGroup {
             Exception = $null
             Id        = $null
         }
-        [void] $CopyScopeGroupStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $CopyScopeGroupStatus.add($objStatus) }
 
         try {
             # Check if target scope group already exists
@@ -8441,7 +8186,7 @@ Function Copy-HPEGLScopeGroup {
                     return
                 }
                 
-                $objStatus.Status = "Failed"
+                $objStatus.Status = "Warning"
                 $objStatus.Details = "Source scope group '$Name' not found"
                 ("[{0}] Source scope group '{1}' not found" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name) | Write-Verbose
                 return
@@ -8457,7 +8202,6 @@ Function Copy-HPEGLScopeGroup {
             if (-not $DetailedScopeGroup -or -not $DetailedScopeGroup.scopes) {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = "Could not retrieve scope details from source scope group"
-                Write-Warning "Could not retrieve scope details from source scope group '$Name'"
                 return
             }
 
@@ -8521,33 +8265,16 @@ Function Copy-HPEGLScopeGroup {
         catch {
             $objStatus.Status = "Failed"
             
-            # Use helper function to extract error message
-            $objStatus.Details = if ($_.Exception.Message) { 
-                $_.Exception.Message 
-            } else {             
-                Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "Error copying scope group"
-            }
+            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Error copying scope group" }
             
-            # Build technical exception info with error code and HTTP status
-            $technicalInfo = @()
-            if ($Global:HPECOMInvokeReturnData.errorCode) {
-                $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-            }
-            if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { $Global:HPECOMInvokeReturnData.httpStatusCode } else { $Global:HPECOMInvokeReturnData.StatusCode }
-                $technicalInfo += "HTTP $statusCode"
-            }
-            if ($technicalInfo.Count -eq 0) {
-                $technicalInfo += $_.Exception.GetType().Name
-            }
-            $objStatus.Exception = $technicalInfo -join " | "
+            $objStatus.Exception = $Global:HPECOMInvokeReturnData
             
             ("[{0}] Error copying scope group '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $objStatus.Exception) | Write-Error
         }
     }
 
     End {
-        if (-not $WhatIf) {
+        if ($CopyScopeGroupStatus.Count -gt 0) {
             $CopyScopeGroupStatus = Invoke-RepackageObjectWithType -RawObject $CopyScopeGroupStatus -ObjectName "ObjStatus.NSDE"
             return $CopyScopeGroupStatus
         }
@@ -8780,18 +8507,17 @@ Function Set-HPEGLUserPreference {
             
             if ($Whatif) {
                 $ErrorMessage = "At least one preference parameter must be provided!" 
-                Write-warning $ErrorMessage
+                Write-Warning "$ErrorMessage Cannot display API request."
                 return
             }
             else {
                 # Build object for the output
                 $objStatus = [pscustomobject]@{
                     Email     = $Global:HPEGreenLakeSession.username
-                    Status    = "Failed"
+                    Status    = "Warning"
                     Details   = "At least one preference parameter must be provided!"
                     Exception = $Null
                 }
-                [void] $SetUserPreferenceStatus.add($objStatus)
             }
             
         }
@@ -8958,41 +8684,21 @@ Function Set-HPEGLUserPreference {
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { 
-                        $_.Exception.Message 
-                    } else {                        
-                        Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "User preference update failed!"
-                    }
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "User preference update failed!" }
                     
-                    # Build technical diagnostics
-                    $technicalInfo = @()
-                    if ($Global:HPECOMInvokeReturnData.errorCode) {
-                        $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                    }
-                    if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                        $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { 
-                            $Global:HPECOMInvokeReturnData.httpStatusCode 
-                        } else { 
-                            $Global:HPECOMInvokeReturnData.StatusCode 
-                        }
-                        $technicalInfo += "HTTP $statusCode"
-                    }
-                    if ($technicalInfo.Count -eq 0) {
-                        $technicalInfo += $_.Exception.GetType().Name
-                    }
-                    $objStatus.Exception = $technicalInfo -join " | "
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 }
             }    
             
         }
 
-        [void] $SetUserPreferenceStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $SetUserPreferenceStatus.add($objStatus) }
             
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($SetUserPreferenceStatus.Count -gt 0) {
 
             $SetUserPreferenceStatus = Invoke-RepackageObjectWithType -RawObject $SetUserPreferenceStatus -ObjectName "ObjStatus.ESDE" 
             Return $SetUserPreferenceStatus
@@ -9453,39 +9159,19 @@ Function Set-HPEGLUserAccountDetails {
 
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
-                $objStatus.Details = if ($_.Exception.Message) { 
-                    $_.Exception.Message 
-                } else {    
-                    Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "User account details update failed!"
-                }
+                $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "User account details update failed!" }
                 
-                # Build technical diagnostics
-                $technicalInfo = @()
-                if ($Global:HPECOMInvokeReturnData.errorCode) {
-                    $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                }
-                if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                    $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { 
-                        $Global:HPECOMInvokeReturnData.httpStatusCode 
-                    } else { 
-                        $Global:HPECOMInvokeReturnData.StatusCode 
-                    }
-                    $technicalInfo += "HTTP $statusCode"
-                }
-                if ($technicalInfo.Count -eq 0) {
-                    $technicalInfo += $_.Exception.GetType().Name
-                }
-                $objStatus.Exception = $technicalInfo -join " | "
+                $objStatus.Exception = $Global:HPECOMInvokeReturnData
             }
         }
 
-        [void] $SetUserAccountDetailsStatus.add($objStatus)
+        if (-not $WhatIf) { [void] $SetUserAccountDetailsStatus.add($objStatus) }
    
     }
 
     end {
 
-        if (-not $WhatIf) {
+        if ($SetUserAccountDetailsStatus.Count -gt 0) {
 
             $SetUserAccountDetailsStatus = Invoke-RepackageObjectWithType -RawObject $SetUserAccountDetailsStatus -ObjectName "ObjStatus.ESDE" 
             Return $SetUserAccountDetailsStatus
@@ -9602,8 +9288,8 @@ Function Set-HPEGLUserAccountPassword {
             $objStatus = [pscustomobject]@{
                 Email     = $Global:HPEGreenLakeSession.username
                 Status    = "Failed"
-                Details   = "Unable to verify user authentication source. Please ensure you have an active HPE GreenLake session."
-                Exception = $_.Exception.Message
+                Details   = if ($_.Exception.Message) { $_.Exception.Message } else { "Unable to verify user authentication source. Please ensure you have an active HPE GreenLake session." }
+                Exception = $Global:HPECOMInvokeReturnData
             }
             [void] $UserPasswordChangeStatus.add($objStatus)
             
@@ -9654,18 +9340,17 @@ Only LOCAL users can change their password through this cmdlet.
             
             if ($WhatIf) {
                 Write-Warning $errorMessage
-                Write-Warning "WhatIf: The password change operation would be blocked due to the authentication source restriction."
+                Write-Warning "WhatIf: The password change operation would be blocked due to the authentication source restriction. Cannot display API request"
                 return
             }
             else {
                 $objStatus = [pscustomobject]@{
                     Email     = $Global:HPEGreenLakeSession.username
-                    Status    = "Failed"
+                    Status    = "Warning"
                     Details   = $errorMessage
                     Exception = $null
                 }
                 
-                Write-Warning $errorMessage
                 [void] $UserPasswordChangeStatus.add($objStatus)
                 
                 $UserPasswordChangeStatus = Invoke-RepackageObjectWithType -RawObject $UserPasswordChangeStatus -ObjectName "ObjStatus.ESDE" 
@@ -9753,33 +9438,13 @@ Only LOCAL users can change their password through this cmdlet.
 
                 if (-not $WhatIf) {
                     $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { 
-                        $_.Exception.Message 
-                    } else {    
-                        Get-HPEGLErrorMessage -ExceptionObject $_ -DefaultMessage "User password change failed!"
-                    }
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "User password change failed!" }
                     
-                    # Build technical diagnostics
-                    $technicalInfo = @()
-                    if ($Global:HPECOMInvokeReturnData.errorCode) {
-                        $technicalInfo += "Code: $($Global:HPECOMInvokeReturnData.errorCode)"
-                    }
-                    if ($Global:HPECOMInvokeReturnData.httpStatusCode -or $Global:HPECOMInvokeReturnData.StatusCode) {
-                        $statusCode = if ($Global:HPECOMInvokeReturnData.httpStatusCode) { 
-                            $Global:HPECOMInvokeReturnData.httpStatusCode 
-                        } else { 
-                            $Global:HPECOMInvokeReturnData.StatusCode 
-                        }
-                        $technicalInfo += "HTTP $statusCode"
-                    }
-                    if ($technicalInfo.Count -eq 0) {
-                        $technicalInfo += $_.Exception.GetType().Name
-                    }
-                    $objStatus.Exception = $technicalInfo -join " | "
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 }
             }
 
-            [void] $UserPasswordChangeStatus.add($objStatus)
+            if (-not $WhatIf) { [void] $UserPasswordChangeStatus.add($objStatus) }
 
         } 
         else {
@@ -9792,7 +9457,7 @@ Only LOCAL users can change their password through this cmdlet.
     }
     end {
 
-        if (-not $WhatIf) {
+        if ($UserPasswordChangeStatus.Count -gt 0) {
 
             $UserPasswordChangeStatus = Invoke-RepackageObjectWithType -RawObject $UserPasswordChangeStatus -ObjectName "ObjStatus.ESDE" 
             Return $UserPasswordChangeStatus
@@ -9930,10 +9595,10 @@ Export-ModuleMember -Function 'Get-HPEGLUser', 'New-HPEGLUser', 'Send-HPEGLUserI
 
 
 # SIG # Begin signature block
-# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCHrVCnUy1H+oHy
-# lCRd5wo08fYiirtQSCsgPWn9GOJLr6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAYmFqUb+m+Ne4q
+# 7EDLd+bwDGMChkHHWTlZuYRzg11QFqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -10029,154 +9694,147 @@ Export-ModuleMember -Function 'Get-HPEGLUser', 'New-HPEGLUser', 'Send-HPEGLUserI
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgSXhByX3ehKFOAF80DvEobniTOoZaV+65AQET7ZK+JREwDQYJKoZIhvcNAQEB
-# BQAEggIAowxX4/YiuinzDYape8PvTPvJC/LZefb3F3ClVW1Ernq3rXm4aDOYhn+G
-# tob5xSJhAffM5/DA7DDTj4RmNtx76onuxe0devFhm4AZk9kzNuk3AquhNq5+SfgV
-# 4FKiigyH5TaoOuAQ+u5/PC/9Xl8J3jQzqQl9YBv15gaVl1HveI4DWNdd84xihzyC
-# 85tcs22WgZ52NaTpRQW0ykzOb7j6ACLmWsxUgxjGXHACoCz+VbJdwNfM19I6FCc0
-# 6wdIJGzslRJizCMFR7D+cCQUAKICxcx9B37c2mhumO3ZgC/nF+Cdqh+rfp9jwDPK
-# Y3nWd7PgLa75Iinj3tGOOgTRQTDVrv4ZLJTv/xQOmxoB6gvnmI2yyHeVoAQ6X6a0
-# uzgTH37fcSujpq6EPUV84suneP91e3Owh6xB+vv6nIwUjb4m/Vr56AyxNTNLZheh
-# D6gbt2qcnNIIWu1OB+xyupZMPcLCzdjUi1ZpuEoq1jXtbgUsfhBtgyaT98bAL3wQ
-# JTU7cFzlOcG7cHzeqB+CVVOR5gTsevarSwMw0IAeLPeQQKHvhWJjIpoIjPK4j679
-# FuAO0NRymEz8SqIJgzJ2LT/uDO19kbqRbQDynj8Oeab0nCLUsrJfGLgyx9ZS6zLg
-# g78cPH5EiBccscfG/Z3rzzr2mHKYjoLP6cY2zIPwzqV4N3QaEtChghjoMIIY5AYK
-# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwv0X4tkcQd92YuqWIr6Ww2/92kNJt6XDVyjI6
-# nng+cLsR5ZH3Tc/5kllAXCpJe1plAhRFp0kkIVHvuH3L76n0QGnMhXl/WxgPMjAy
-# NjAxMzAxMDU0MzBaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
-# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
-# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
-# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
-# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
-# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
-# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
-# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
-# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
-# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
-# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
-# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
-# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
-# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
-# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
-# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
-# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
-# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
-# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
-# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
-# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
-# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
-# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
-# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
-# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
-# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
-# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
-# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
-# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
-# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
-# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
-# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
-# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
-# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
-# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
-# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
-# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
-# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
-# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
-# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
-# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
-# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
-# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
-# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
-# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
-# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
-# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
-# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
-# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
-# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
-# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
-# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
-# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
-# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
-# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
-# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
-# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
-# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
-# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
-# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
-# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
-# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
-# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
-# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
-# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
-# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
-# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
-# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
-# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
-# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
-# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
-# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
-# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
-# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
-# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
-# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
-# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
-# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
-# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
-# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
-# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
-# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
-# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
-# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
-# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
-# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
-# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
-# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
-# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
-# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
-# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
-# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
-# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
-# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
-# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
-# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
-# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
-# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
-# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
-# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
-# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
-# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
-# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
-# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjYwMTMwMTA1NDMwWjA/BgkqhkiG9w0BCQQxMgQwY327uon1qhRhWJ+nw1r8
-# Y1++CMsQXx9RnT987Bl9AqIpqfCkPhnFh7PcFLZfpS+5MIIBegYLKoZIhvcNAQkQ
-# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
-# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
-# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
-# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
-# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
-# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgBgGRdsIUYW4neb6WCgeQkK6mjp4CpBGKPzN2xF2yelK1u9r2Sa9zG0qdyRcBzJ
-# Hzet/biy/JB69eA7sajHRKSiyGDM/WTMEAAJpt6doHjovD5hj7LPUx/AGSpqfzCz
-# RQ5sm35b9ccPhIOCLjf1Qui6Pg58VYFWZOV7shM6DDfgD/3j+GGetvD4W5EROjGX
-# +ueOh6SKmB7wlmyD7ED1YM3v7+G7gbsY/AMFpvvzjml4Mjc6jgTtAzs+C6/hFXML
-# EgOkO50ifF8iq0AJHrYVCmoMLRwbeGsVoFZSBbvtd+tWACUWwZlHoiBTF6y8kv6X
-# bWJMpqvixxs77H5EIxQBFARtCHop+b2ONDoM2o6ZgVr2OYmDqOw4ggHtM90LvoKj
-# t7bpRPo2SdjeGEPCRryH+rc8eY5gPKImMIRP0XtZ+RtVLZbBFsaxpW3aBxDXjK9c
-# BTn1ciNOqbQ6dEHmlOkeqHzy3YUSCSSOZHlHBaSoEqJOPoQzkmUd3Jwm0SgPweB5
-# 7eCmzcn6jRppUXhkKnQlRQtZheMgrXi0Qccph/o83vWv4r9vrRhoixkQyPt6TLo8
-# vnid/lDcGqJ0BwRefamWyzWTMBSuDbbMizIEh5lj0DrxhrjI0X7c0Ze5VQYjcP9F
-# WmTb8l0kQXZLn+1pR/S5x8iqj78YVIU/62ogh0rgBJzs1A==
+# IgQg4UzNQglpsZ6ioi9yHtim9IXpka4iBrvjhLDy5fK52/swDQYJKoZIhvcNAQEB
+# BQAEggIAGfm11HDW11gErKn5zvPrJHnOww2tzWksrYndrdmvvPq13k4dDD9QTU70
+# gG1tE9iyu/mdXZFCE2mT9uLNo/ZM2+r8mwEhKdzq2RurVseUJyhNdtoQl247d9rS
+# huvMLXNF4v+Qx6vcLADE8IV1vxeRS2KRmZfAraaKEmJ7Ecs+WRZT6tJw73G0+UT5
+# p0C/4YrZtTJPquyx4GcASmlCDGgaIhGiB/r4dnDvr+B1JQmj0N0HbjfJbxmqtTGN
+# Q5ZyAsMrSNtITm4dkEEwS6+AtteJOw6leIECWkyTaSqx9IS92+odPug0KS96U4k/
+# BnJf+VhrYQJdq3A9j1l2ORZRX2IR4vyUWAfoHJQEK4ZYItVwnQxCeLgDfaTozUDu
+# R69uGZtK7rdZQCtnjYyct3GhVjpudLW+8DnkEhsqDeTP/pN2rxzsXG17hXKN2YNU
+# xJDRl8FHBDyLwLI+cMyKnxsfd3BPJJn5tTDtOIFuYdiBqU1trPHaF7KzaUF5XbnQ
+# +F7qtM8hR5J8Q7ZCVDEdxo/FHm7S+OxVapZobBx5aNLyfRUXDTr0vBvDcqWaSTFS
+# zJ/ky0NDngA9eqq0Ecgb6Qzy+4My5dygrd/maA4hLYn5B+xt7c+CsxM0gtsw4X6k
+# h1dbxqw3KkdGwSPQPqJybDi0wuQ4/n9g1PLCcejhof/Ahj5rgpahgheXMIIXkwYK
+# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMKkc10KOqs6qs1d+KXd5lcLt6L/tId32Qi/vd8FGSlEp
+# jnAVFDJw0t3po9jHubNZVQIQXsKKA3vm25Z3wfQEkyt8fRgPMjAyNjAzMTcxNDM4
+# MDNaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
+# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
+# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
+# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
+# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
+# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
+# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
+# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
+# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
+# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
+# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
+# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
+# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
+# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
+# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
+# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
+# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
+# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
+# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
+# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
+# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
+# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
+# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
+# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
+# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
+# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
+# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
+# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
+# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
+# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
+# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
+# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
+# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
+# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
+# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
+# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
+# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
+# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
+# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
+# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
+# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
+# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
+# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
+# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
+# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
+# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
+# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
+# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
+# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
+# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
+# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
+# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
+# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
+# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
+# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
+# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
+# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
+# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
+# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
+# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
+# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
+# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
+# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
+# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
+# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
+# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
+# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
+# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
+# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
+# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
+# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
+# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
+# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
+# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
+# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
+# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
+# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
+# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
+# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
+# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
+# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
+# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
+# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
+# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
+# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
+# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
+# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
+# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
+# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
+# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
+# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
+# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
+# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
+# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
+# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
+# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
+# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
+# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
+# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
+# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMzE3
+# MTQzODAzWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQw7VRdYKo/hvpQnJXbGl+ZPU+1
+# Bp1r5mZwyMklXYWd7cP5327hqLlMRpGK2giQ3GcdMA0GCSqGSIb3DQEBAQUABIIC
+# AGHGZJV8P3MhvOtMIKjrsYt6Br4jv4kx+64ga3EImner7m8Rql7F9J8KlXHK0vm7
+# 8XX0cA3HHOzf7G+9AHEKsM7ddCQ5jfD1brZ/vIbpBhEMxJykNG/RuAudoKxVNm1E
+# U+VKqSIUWUGJ1szNGKcTFhudSIooTh/2TzAKZkK8/uNgWLHXUyV8YeCM5VKyXGCL
+# 4UOuvl1iiHqil3v/9kjNZvblroRFWAjw2zCg5fvThOA4H8snMY/KUpSoTBpe/Dac
+# ZgurAPHNnu4zXmQkb058+lbQQgYS7xMESRDkaq2pj4dmqZIADgLLiLbHVFY4uchg
+# vxCBbBxCWDTION9dSvA4Oo4uUjDMNIA/yofhHCISqSg91RTYXmnBfLwyqE0s4eMk
+# wnlgDhpIX0J7m2b30jCFOpAwr879OpOBNSfRvqsgBFAjRH/c2SCN6IuW+P2d2lWy
+# e6zCaGyFCCN0bxnqbkPf2ehl5UGkMqc3QHzDZJfxSU12P0VZ4YrwaFKZ6g0nVVt7
+# dHcMfhMXgrMh8ZfKI6fmFSWviB9MCUcJDcux5xcW8PrpfxQZPd2OhhENPYg65MKM
+# 64GTbPcIsS1+8jKe3DKe/tRDa3X+D89dnweirohzrWhe0VHV4a1+FNJE5umpixLa
+# qWNrtG2Q7ubX+WCXmBhppW0dOx/MnSnYDoaBZjGEKqXl
 # SIG # End signature block
