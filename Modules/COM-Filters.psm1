@@ -1,4 +1,4 @@
-#------------------- FUNCTIONS FOR COMPUTE OPS MANAGEMENT FILTERS -----------------------------------------------------------------------------------------------------------------------------------------------
+﻿#------------------- FUNCTIONS FOR COMPUTE OPS MANAGEMENT FILTERS -----------------------------------------------------------------------------------------------------------------------------------------------
 
 using module .\Constants.psm1
 
@@ -70,8 +70,11 @@ Function Get-HPECOMFilter {
         [Parameter (Mandatory)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -92,6 +95,7 @@ Function Get-HPECOMFilter {
 
         [Parameter (ParameterSetName = 'Name')]
         [Parameter (Mandatory, ParameterSetName = 'MatchingResources')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (ParameterSetName = 'MatchingResources')]
@@ -308,8 +312,11 @@ Function New-HPECOMFilter {
         [Parameter (Mandatory)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -333,6 +340,7 @@ Function New-HPECOMFilter {
         [String]$Name,
         
         [Parameter (Mandatory)] 
+        [ValidateNotNullOrEmpty()]
         [String]$Filter,
         
         [String]$FilterTags,
@@ -543,8 +551,11 @@ Function Remove-HPECOMFilter {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -564,6 +575,7 @@ Function Remove-HPECOMFilter {
         [String]$Region,  
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Switch]$WhatIf
@@ -767,8 +779,11 @@ Function Set-HPECOMFilter {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -1036,8 +1051,8 @@ Export-ModuleMember -Function 'Get-HPECOMFilter', 'New-HPECOMFilter', 'Remove-HP
 # SIG # Begin signature block
 # MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBEerH/426ks+p1
-# +UVUXcywqU99ir3feybwUwWc8AtVkaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCyub/uIbx2vUd/
+# 71J2FAeFPCO69Sl+aMgwOa1bl1VOtKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -1138,23 +1153,23 @@ Export-ModuleMember -Function 'Get-HPECOMFilter', 'New-HPECOMFilter', 'Remove-HP
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg4WfjR9nnaUd9gMamUjzc3ueW9QNi4tGXX660Phj4XW8wDQYJKoZIhvcNAQEB
-# BQAEggIAJcesGu69PbMd7W0n6CCmpveDrqTjmy/fs2wZpDBxwdC5I7Zcs4BXadGM
-# /wLjva3dVAbtOzUVUSRAJIT3hXUetjTxm+qTUSIDdjDBvzW3l/2vg8SRro+kAvkK
-# Nq+A6FI4hCnW/rRpRIpSumJm1egNlmfVATpH93YUqyZAa8p5WaqzY6rkLTEIbHRv
-# jH/P/Vru7QxKo7QGgmxdVEcPRtoSMrqWgrwJYDJY5+Np1jeagM1c5J1gsG7zZZMH
-# TrXaS4oA7t9QirzYxSJ41OrtOaPgtq340/QiJTqBrrE3FCa6aki7zKxYElUui9Ou
-# Xba7sHeInr0WOTZaRr2eSQlp8oaAZrAE234HP8FbpP/aFWp8M05ioIXNhOGaQBUp
-# NgaAKJGQKjQIUHmvpiRADstWMSDjSZv8BCoJyfw42c7RPHiXPXJuJCWcs8gyOgRD
-# 8iLg0SpPPXjm/uACnGs0egfbscL7hM+sHce/jNXPRwswsKL24+zAwnlw5H1xbybJ
-# A7R98CbhRW5tLGidtHEmh0NHaIhG6NCcjghmKgZ+aAHxyz5+nXj84Cy2dQwlNgWn
-# gQtF5nTx0g5xqibthr3ADSJQJDHd3rJFXkk6srcqgz4MoQNn8GjPkQcA34EDQJXp
-# gflCLk474qyDuF+2p1lT+aYkF1K5wLTvvMOfcfPJR/nPJ16e3bShgheYMIIXlAYK
+# IgQgoe/KfiNP6eXU2NBe8f8OK46GctWXpajMcNW+giDGs8IwDQYJKoZIhvcNAQEB
+# BQAEggIAIblCjjOM6SKOMXHBLGE4VhwfgwfFCykZqpy6a28oAh73UhCParaoG/4w
+# yOm8UgAN0nNGcZkpRb+553yAVcSJQ7+1r50XGBQLLEy+5jeL2mu8JMeg9hqvlLCx
+# a/Ru9+HAzomNkodK5EuH9wk8bDAJt1VROPsGxmaElwBLO1zcQRqH6CXKnhzw8JKg
+# B5nVWr5fiK4nP2Ev56LhfjEedrHeGbDQFdCEf8bkHGEvMKztHvFzLU8W5p5E2QDY
+# v8oDJqm268pvZOeDyfOitwH/LuTcephpXJJpdCwmrtz/p3hfoubMDsVo9nqrZacR
+# JJq1YRrYkAhSjJm1SrvYvNbt1d7u9F3UEYvvQgWfQgwQufVhiRkHrnAbbBtCiCmi
+# TguRZW0NUvCcNL4ctvddZV0D+VhgrUJEwt3vP/Q/tz8VctXNsg5GpcMFgdc4OEHK
+# JyTHi7WzK0bp/eu1jatSDmvGzHIw5wk30gn2CXzzoVLwRT/jR2Iyqxe177JWopYC
+# B1yi4pJ7WVOhCuYs601AVPOq65gU0RmwA+OegXjVnokyCB7So2vruVVVFU/l5iyh
+# XGYGYpoOHk5/YK8yFGJmoWA4gHuzaDJcj0+oQbPA1P4VnRNAufm33ppchuj7vVyW
+# DcCLV0VYqYwW4pvU00zWKtnbzh8F9gp+gR8jW40FUO8HtW8L/g2hgheYMIIXlAYK
 # KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEML+NqvObTD6UWfSUJFgggKWs3JJg6+4AkLBCZ1BKfs0c
-# 6Qtl6UGXku7aNTJed1WcNwIRAK/7zpcD9XjMGaEDmqkOn9QYDzIwMjYwMzE3MTQy
-# NTA4WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQYJYIZIAWUDBAICBQAEMCj86z7Khtbt7a+1IaKZSeBC1uJPK8pqdk0sDfgUsvVw
+# q3oP4gMgrjOrNZy0pV5+WwIRAIzQU+5cEUOR5F4oy87HqMEYDzIwMjYwNDE1MDkw
+# NzI4WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
 # DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
 # MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
 # NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
@@ -1260,20 +1275,20 @@ Export-ModuleMember -Function 'Get-HPECOMFilter', 'New-HPECOMFilter', 'Remove-HP
 # aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
 # EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
 # NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDMx
-# NzE0MjUwOFowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDQx
+# NTA5MDcyOFowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
 # llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMDksqttcFJDJRlx9VkifOFTP
-# 9ribP2P72zWS69f2sRearmfwexXWkj7KrM9rvrM+CTANBgkqhkiG9w0BAQEFAASC
-# AgB5HjZjN0zyOBx1BRFuK7Old3bungHllscxdf9xIRGY9B3LxBYAwZfxsfmmkxiL
-# ewgeQ1cety5eBThsKgvc2QHCX4AR72KU4SrOvYkW7Jw1ZcGMjMMItzvN/4NtNtZF
-# gVgCq2Z8M247ZE1nnQZ5caCfma5q0hcvJ7eeFxRTU2b+Ir6seVY7lGVFl4eXlv+v
-# exCqMZy+al8P5V+xNfvjwszlWtqe8awwaXp6a9REW8LEvcfUStgEVrFVFbBpvO1K
-# H6wH6aiTPBQxBSq5FdfNoGsseEOUtbG/2kHlASx5Iyea7FimV01gdoH6MovKltB0
-# GVjY6tLMUPz8EprIw8reEzC8np04XDeJbKfIgrrixdrtfnTE+IbJvSZgWzI+R2Fp
-# dYwc9xEbKkmRBccI3uMHydlhoNTgrEqyss4o6iM+CRqdwa8u/EoTF/R1r9jOdi5Q
-# GS+dZoghW4ZuyFyhPg9cxM8IGwhs1XqLTmlsFWL34orFsw45PgvyD8AusEX9qHhS
-# HARUsXkL5KHlEXdA20TQipm2W14Lkvi8Zpa4Xb+esTffcC6Vcv9uzlgjTPoA/G+/
-# gMNEvHCvGd/aJWuV8wPgiXEQuMY1+/Z4PVkXGP3e8bIZ3180SrVA5KlngO2NNd5f
-# UxLEcsRbv67RPOcOazI9cXgESpZc1RqqAEBiJOF6WUXaYw==
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMEKQOheHiIREmxiE54z+ysB6
+# rTulx+GM7/jdJ8e97RGguVJLLNpeE299W49qlOtVlDANBgkqhkiG9w0BAQEFAASC
+# AgBwcXM7UDVup77hmJvMd185QSprYFBrqC4dadkE7chNkTZj6nPHdamdsBHO0NeH
+# jsFCOeNiHVqBwNhuIMOctt6/WUcrTr6yXqgT8rQzUkLpaP9af9B8kojwJofVr5Ky
+# thOp6w+Dn1BEIlolSIveesk3d7tUoD9/rFNxa40T6ldUcB9FLOfYuk5TN/QYBMFe
+# be+w4DMOUGp/qhTRSEYXVlf+1oz7VhAyPR3aelLQVzVhRHV2tt4ht6M4Dv4Uxg4h
+# oPnT6V2wEDsZyhuJNblrh2bgQYKWo1GVSBshE87qu8IXHp2AUNfPQ3U1yx1rs2MO
+# 3ZAJBUjGWzY9EYhL2N61PXJtK3uDzMvyfw6f83hn+UlNIrT532dSRcCATAc4Vk6C
+# mv9klLDpi0iV3bL7I14SBbqWuar2s2wmaD+a+9uWiTmXUFuqAO2VSpddJPTIhTb2
+# xkHIIZFVZixt5hvDa92TfCCTZvGf/PCRnrGkw87ggtL9zbZK8SVOigIpjI/fANwD
+# mcdzlmRMcbs7Fm7rTT0UGcPUtwnuwwn1BcSrjhr/CVsbvtzeCPkbNbSs263d8MCq
+# 6CmKFZJ4ORJaT4sxanclJ4jME6/PMvev0tzBNwESpTQ1K5hiARDuydWxNO61gRn5
+# EJytYDiA5sIiIJvkvB/cRaKNKvDXpd9NsVhIngmfX1DQmA==
 # SIG # End signature block

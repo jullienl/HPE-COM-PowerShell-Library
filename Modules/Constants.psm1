@@ -5,18 +5,24 @@
 #Region Base URL endpoints
 
 [String]$script:HPEGLAPIbaseURL = 'https://global.api.greenlake.hpe.com'
-function Get-HPEGLAPIbaseURL { $script:HPEGLAPIbaseURL }
+function Get-HPEGLAPIbaseURL { if ($Global:HPEGLGlobalApiBaseURL) { $Global:HPEGLGlobalApiBaseURL } else { $script:HPEGLAPIbaseURL } }
 
 # Organizations API
 [String]$script:HPEGLAPIOrgbaseURL = 'https://aquila-org-api.common.cloud.hpe.com'
-function Get-HPEGLAPIOrgbaseURL { $script:HPEGLAPIOrgbaseURL }
+function Get-HPEGLAPIOrgbaseURL { if ($Global:HPEGLOrgApiBaseURL) { $Global:HPEGLOrgApiBaseURL } else { $script:HPEGLAPIOrgbaseURL } }
 
 # Account Management API
 [String]$script:HPEGLUIbaseURL = 'https://aquila-user-api.common.cloud.hpe.com'
-function Get-HPEGLUIbaseURL { $script:HPEGLUIbaseURL }
+function Get-HPEGLUIbaseURL { if ($Global:HPEGLUserApiBaseURL) { $Global:HPEGLUserApiBaseURL } else { $script:HPEGLUIbaseURL } }
 
 [String]$script:HPEOnepassbaseURL = 'https://onepass-enduserservice.it.hpe.com'
-function Get-HPEOnepassbaseURL { $script:HPEOnepassbaseURL }
+function Get-HPEOnepassbaseURL {
+    # Route to the ITG endpoint when connected to a non-production Okta (e.g. pavo uses auth-itg.hpe.com)
+    if ($Global:HPEGLoktaURL -and $Global:HPEGLoktaURL -ne 'https://auth.hpe.com') {
+        return 'https://onepass-itg-enduserservice.it.hpe.com'
+    }
+    $script:HPEOnepassbaseURL
+}
 
 #EndRegion
 
@@ -99,11 +105,9 @@ function Get-COMUserPreferencesUri { $script:COMUserPreferencesUri }
 [String]$COMWebhooksUri = '/compute-ops-mgmt/v1beta1/webhooks'
 function Get-COMWebhooksUri { $script:COMWebhooksUri }
 
-[String]$GLWebhooksUri = $HPEGLAPIbaseURL + '/events/v1beta1/webhooks'
-function Get-GLWebhooksUri { $script:GLWebhooksUri }
+function Get-GLWebhooksUri { "$(Get-HPEGLAPIbaseURL)/events/v1beta1/webhooks" }
 
-[String]$GLSubscriptionsUri = $HPEGLAPIbaseURL + '/events/v1beta1/subscriptions'
-function Get-GLSubscriptionsUri { $script:GLSubscriptionsUri }
+function Get-GLSubscriptionsUri { "$(Get-HPEGLAPIbaseURL)/events/v1beta1/subscriptions" }
 
 [String]$COMEnergyByEntityUri = '/compute-ops-mgmt/v1beta1/energy-by-entity'
 function Get-COMEnergyByEntityUri { $script:COMEnergyByEntityUri }
@@ -121,245 +125,176 @@ function Get-COMUtilizationByEntityUri { $script:COMUtilizationByEntityUri }
 function Get-ccsSettingsUrl { $script:ccsSettingsUrl }
 
 [uri]$AuthRedirecturi = 'https://auth.hpe.com/profile/login/callback'
-function Get-AuthRedirecturi { $script:AuthRedirecturi }
+function Get-AuthRedirecturi { if ($Global:HPEGLoktaURL) { "$Global:HPEGLoktaURL/profile/login/callback" } else { $script:AuthRedirecturi } }
 
-[uri]$SchemaMetadataURI = $HPEOnepassbaseURL + '/v2-get-user-schema-metadata'
-function Get-SchemaMetadataURI { $script:SchemaMetadataURI }
+function Get-SchemaMetadataURI { "$(Get-HPEOnepassbaseURL)/v2-get-user-schema-metadata" }
 
 [String]$OpenidConfiguration = '/.well-known/openid-configuration'
 function Get-OpenidConfiguration { $script:OpenidConfiguration }
 
-[String]$SessionLoadAccountUri = $HPEGLUIbaseURL + '/authn/v1/session/load-account/'
-function Get-SessionLoadAccountUri { $script:SessionLoadAccountUri }
+function Get-SessionLoadAccountUri { "$(Get-HPEGLUIbaseURL)/authn/v1/session/load-account/" }
 
 [String]$AuthnUri = '/api/v1/authn'
 function Get-AuthnUri { $script:AuthnUri }
 
-[String]$AuthnSessionUri = $HPEGLUIbaseURL + '/authn/v1/session'
-function Get-AuthnSessionUri { $script:AuthnSessionUri }
+function Get-AuthnSessionUri { "$(Get-HPEGLUIbaseURL)/authn/v1/session" }
 
-[String]$AuthnEndSessionUri = $HPEGLUIbaseURL + '/authn/v1/session/end-session'
-function Get-AuthnEndSessionUri { $script:AuthnEndSessionUri }
+function Get-AuthnEndSessionUri { "$(Get-HPEGLUIbaseURL)/authn/v1/session/end-session" }
 
-[String]$AuthnSAMLSSOUri = $HPEGLUIbaseURL + '/authn/v1/saml/config'
-function Get-AuthnSAMLSSOUri { $script:AuthnSAMLSSOUri }
+function Get-AuthnSAMLSSOUri { "$(Get-HPEGLUIbaseURL)/authn/v1/saml/config" }
 
-[String]$AuthnSAMLSSOMetadataUri = $HPEGLUIbaseURL + '/authn/v1/saml/sp-metadata/'
-function Get-AuthnSAMLSSOMetadataUri { $script:AuthnSAMLSSOMetadataUri }
+function Get-AuthnSAMLSSOMetadataUri { "$(Get-HPEGLUIbaseURL)/authn/v1/saml/sp-metadata/" }
 
-[String]$SAMLAttributesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/um/saml?domain='
-function Get-SAMLAttributesUri { $script:SAMLAttributesUri }
+function Get-SAMLAttributesUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/um/saml?domain=" }
 
-[String]$SAMLValidateDomainUri = $HPEGLUIbaseURL + '/authn/v1/saml/validate_domain?domain='
-function Get-SAMLValidateDomainUri { $script:SAMLValidateDomainUri }
+function Get-SAMLValidateDomainUri { "$(Get-HPEGLUIbaseURL)/authn/v1/saml/validate_domain?domain=" }
 
-[String]$SAMLValidateMetadataUri = $HPEGLUIbaseURL + '/authn/v1/saml/metadata/manual/'
-function Get-SAMLValidateMetadataUri { $script:SAMLValidateMetadataUri }
+function Get-SAMLValidateMetadataUri { "$(Get-HPEGLUIbaseURL)/authn/v1/saml/metadata/manual/" }
 
-[String]$AuthnSAMLSSOConfigUri = $HPEGLUIbaseURL + '/authn/v1/saml/async/config'
-function Get-AuthnSAMLSSOConfigUri { $script:AuthnSAMLSSOConfigUri }
+function Get-AuthnSAMLSSOConfigUri { "$(Get-HPEGLUIbaseURL)/authn/v1/saml/async/config" }
 
-[String]$AuthnSAMLSSOConfigTaskTrackerUri = $HPEGLUIbaseURL + '/authn/v1/async-task-tracker/'
-function Get-AuthnSAMLSSOConfigTaskTrackerUri { $script:AuthnSAMLSSOConfigTaskTrackerUri }
+function Get-AuthnSAMLSSOConfigTaskTrackerUri { "$(Get-HPEGLUIbaseURL)/authn/v1/async-task-tracker/" }
 
-[String]$AccountSAMLNotifyUsersUri = $HPEGLUIbaseURL + '/accounts/ui/v1/customer/saml/notify/'
-function Get-AccountSAMLNotifyUsersUri { $script:AccountSAMLNotifyUsersUri }
+function Get-AccountSAMLNotifyUsersUri { "$(Get-HPEGLUIbaseURL)/accounts/ui/v1/customer/saml/notify/" }
 
-[String]$AuditLogsUri = $HPEGLAPIbaseURL + '/audit-log/v1/logs'
-function Get-AuditLogsUri { $script:AuditLogsUri }
+function Get-AuditLogsUri { "$(Get-HPEGLAPIbaseURL)/audit-log/v1/logs" }
 
-[String]$NewWorkspaceUri = $HPEGLUIbaseURL + '/accounts/ui/v1/customer/signup'
-function Get-NewWorkspaceUri { $script:NewWorkspaceUri }
+function Get-NewWorkspaceUri { "$(Get-HPEGLUIbaseURL)/accounts/ui/v1/customer/signup" }
 
-[String]$WorkspacesListUri = $HPEGLUIbaseURL + '/accounts/ui/v1/customer/list-accounts'
-function Get-WorkspacesListUri { $script:WorkspacesListUri }
+function Get-WorkspacesListUri { "$(Get-HPEGLUIbaseURL)/accounts/ui/v1/customer/list-accounts" }
 
-[String]$CurrentWorkspaceUri = $HPEGLUIbaseURL + '/accounts/ui/v1/customer/profile/contact'
-function Get-CurrentWorkspaceUri { $script:CurrentWorkspaceUri }
+function Get-CurrentWorkspaceUri { "$(Get-HPEGLUIbaseURL)/accounts/ui/v1/customer/profile/contact" }
 
-[String]$MyUISessionUri = $HPEGLAPIOrgbaseURL + '/internal-sessions/v1alpha1/my-ui-session'
-function Get-MyUISessionUri { $script:MyUISessionUri }
+function Get-MyUISessionUri { "$(Get-HPEGLAPIOrgbaseURL)/internal-sessions/v1alpha1/my-ui-session" }
 
-[String]$WorkspacesUri = $HPEGLAPIbaseURL + '/workspaces/v1/workspaces'
-function Get-Workspacev1Uri { $script:WorkspacesUri }
+function Get-Workspacev1Uri { "$(Get-HPEGLAPIbaseURL)/workspaces/v1/workspaces" }
 
-[String]$WorkspacesV2Uri = $HPEGLAPIOrgbaseURL + '/organizations/v2alpha1/workspaces'
-function Get-Workspacev2Uri { $script:WorkspacesV2Uri }
+function Get-Workspacev2Uri { "$(Get-HPEGLAPIOrgbaseURL)/organizations/v2alpha1/workspaces" }
 
-[String]$WorkspaceMigrationUri = $HPEGLAPIOrgbaseURL + '/internal-identity/v2alpha1/workspaces/'
-function Get-WorkspaceMigrationUri { $script:WorkspaceMigrationUri }
+function Get-WorkspaceMigrationUri { "$(Get-HPEGLAPIOrgbaseURL)/internal-identity/v2alpha1/workspaces/" }
 
-[String]$DomainUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/domain-requests'
-function Get-DomainUri { $script:DomainUri }
+function Get-DomainUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v1alpha1/domain-requests" }
 
-[String]$DomainDeleteUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/domains'
-function Get-DomainDeleteUri { $script:DomainDeleteUri }
+function Get-DomainDeleteUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v1alpha1/domains" }
 
-[String]$SSOConnectionUri = $HPEGLAPIOrgbaseURL + '/identity/v2alpha1/sso-profiles'
-function Get-SSOConnectionUri { $script:SSOConnectionUri }
+function Get-SSOConnectionUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v2alpha1/sso-profiles" }
 
-[String]$IdPValidateMetadataUrlUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/sso-profiles/idp-url'
-function Get-IdPValidateMetadataUrlUri { $script:IdPValidateMetadataUrlUri }
+function Get-IdPValidateMetadataUrlUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v1alpha1/sso-profiles/idp-url" }
 
-[String]$IdPValidateMetadataFileUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/sso-profiles/metadata'
-function Get-IdPValidateMetadataFileUri { $script:IdPValidateMetadataFileUri }
+function Get-IdPValidateMetadataFileUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v1alpha1/sso-profiles/metadata" }
 
-[String]$AuthenticationPolicyUri = $HPEGLAPIOrgbaseURL + '/identity/v1alpha1/sso-authentication-policies'
-function Get-AuthenticationPolicyUri { $script:AuthenticationPolicyUri }
+function Get-AuthenticationPolicyUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v1alpha1/sso-authentication-policies" }
 
-[String]$UsersUri = $HPEGLAPIOrgbaseURL + '/identity/v2beta1/scim/v2/Users'
-function Get-UsersUri { $script:UsersUri }
+function Get-UsersUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v2beta1/scim/v2/Users" }
 
-[String]$UsersWithAuthSourceUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v2/um/users'
-function Get-UsersWithAuthSourceUri { $script:UsersWithAuthSourceUri }
+function Get-UsersWithAuthSourceUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v2/um/users" }
 
-[String]$WorkspaceMembersUri = $HPEGLAPIOrgbaseURL + '/organizations/v2alpha1/workspaces'
-function Get-UserTenantWorkspaceMembershipUri { $script:WorkspaceMembersUri }
+function Get-UserTenantWorkspaceMembershipUri { "$(Get-HPEGLAPIOrgbaseURL)/organizations/v2alpha1/workspaces" }
 
-[String]$WorkspaceUsersUri = $HPEGLAPIOrgbaseURL + '/workspaces/v2alpha1/workspaces'
-function Get-WorkspaceUsersUri { $script:WorkspaceUsersUri }
+function Get-WorkspaceUsersUri { "$(Get-HPEGLAPIOrgbaseURL)/workspaces/v2alpha1/workspaces" }
 
-[String]$UsersRolesUri = $HPEGLAPIOrgbaseURL + '/internal-platform-tenant-ui/v2/roles'
-function Get-UsersRolesUri { $script:UsersRolesUri }
+function Get-UsersRolesUri { "$(Get-HPEGLAPIOrgbaseURL)/internal-platform-tenant-ui/v2/roles" }
 
-[String]$AuthzUsersRolesUri = $HPEGLUIbaseURL + '/authorization/ui/v2/customers/users/'
-function Get-AuthzUsersRolesUri { $script:AuthzUsersRolesUri }
+function Get-AuthzUsersRolesUri { "$(Get-HPEGLUIbaseURL)/authorization/ui/v2/customers/users/" }
 
-[String]$RoleAssignmentsV2Alpha2Uri = $HPEGLAPIOrgbaseURL + '/internal-platform-tenant-ui/v2alpha2/role-assignments'
-function Get-RoleAssignmentsUri { $script:RoleAssignmentsV2Alpha2Uri }
+function Get-RoleAssignmentsUri { "$(Get-HPEGLAPIOrgbaseURL)/internal-platform-tenant-ui/v2alpha2/role-assignments" }
 
-[String]$AuthorizationRoleAssignmentsV2Alpha2Uri = $HPEGLAPIOrgbaseURL + '/authorization/v2alpha2/role-assignments'
-function Get-AuthorizationRoleAssignmentsV2Alpha2Uri { $script:AuthorizationRoleAssignmentsV2Alpha2Uri }
+function Get-AuthorizationRoleAssignmentsV2Alpha2Uri { "$(Get-HPEGLAPIOrgbaseURL)/authorization/v2alpha2/role-assignments" }
 
-[String]$ScimUserGroupsUri = $HPEGLAPIOrgbaseURL + '/identity/v2alpha1/scim/v2/extensions/Users'
-function Get-ScimUserGroupsUri { $script:ScimUserGroupsUri }
+function Get-ScimUserGroupsUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v2alpha1/scim/v2/extensions/Users" }
 
-[String]$CreateUserUri = $HPEGLAPIOrgbaseURL + '/internal-platform-tenant-ui/v2alpha2/users'
-function Get-CreateUserUri { $script:CreateUserUri }
+function Get-CreateUserUri { "$(Get-HPEGLAPIOrgbaseURL)/internal-platform-tenant-ui/v2alpha2/users" }
 
-[String]$InviteUserUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/um/invite-user'
-function Get-InviteUserUri { $script:InviteUserUri }
+function Get-InviteUserUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/um/invite-user" }
 
-[String]$ReInviteUserUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/um/resend-invite'
-function Get-ReInviteUserUri { $script:ReInviteUserUri }
+function Get-ReInviteUserUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/um/resend-invite" }
 
-[String]$UserPreferencesUri = $HPEGLUIbaseURL + '/user-prefs/v1alpha1/preferences'
-function Get-UserPreferencesUri { $script:UserPreferencesUri }
+function Get-UserPreferencesUri { "$(Get-HPEGLUIbaseURL)/user-prefs/v1alpha1/preferences" }
 
-[String]$SaveUserPreferencesUri = $HPEGLUIbaseURL + '/user-prefs/v1alpha1/save-preferences'
-function Get-SaveUserPreferencesUri { $script:SaveUserPreferencesUri }
+function Get-SaveUserPreferencesUri { "$(Get-HPEGLUIbaseURL)/user-prefs/v1alpha1/save-preferences" }
 
-[String]$DevicesUri = $HPEGLAPIbaseURL + '/devices/v1/devices'
-function Get-DevicesUri { $script:DevicesUri }
+function Get-DevicesUri { "$(Get-HPEGLAPIbaseURL)/devices/v1/devices" }
 
-[String]$DevicesUIDoorwayUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/devices'
-function Get-DevicesUIDoorwayUri { $script:DevicesUIDoorwayUri }
+function Get-DevicesUIDoorwayUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/devices" }
 
-[String]$DevicesAddUri = $HPEGLAPIbaseURL + '/devices/v1/devices'
-function Get-DevicesAddUri { $script:DevicesAddUri }
+function Get-DevicesAddUri { "$(Get-HPEGLAPIbaseURL)/devices/v1/devices" }
 
-[String]$DevicesStatsUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/devices/stats'
-function Get-DevicesStatsUri { $script:DevicesStatsUri }
+function Get-DevicesStatsUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/devices/stats" }
 
-[String]$DevicesApplicationInstanceUri = $HPEGLAPIbaseURL + '/devices/v1/devices'
-function Get-DevicesApplicationInstanceUri { $script:DevicesApplicationInstanceUri }
+function Get-DevicesApplicationInstanceUri { "$(Get-HPEGLAPIbaseURL)/devices/v1/devices" }
 
-[String]$DevicesATagsUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/devices/tags'
-function Get-DevicesATagsUri { $script:DevicesATagsUri }
+function Get-DevicesATagsUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/devices/tags" }
 
-[String]$DevicesLocationUri = $HPEGLAPIbaseURL + '/locations/v1/locations'
-# [String]$DevicesLocationUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/locations'
-function Get-DevicesLocationUri { $script:DevicesLocationUri }
+function Get-DevicesLocationUri { "$(Get-HPEGLAPIbaseURL)/locations/v1/locations" }
 
-[String]$LocationsTagsUri = $HPEGLAPIbaseURL + '/locations/v1/locations/tags'
-function Get-LocationsTagsUri { $script:LocationsTagsUri }
+function Get-LocationsTagsUri { "$(Get-HPEGLAPIbaseURL)/locations/v1/locations/tags" }
 
-[String]$SubscriptionsUri = $HPEGLAPIbaseURL + '/subscriptions/v1/subscriptions'
-function Get-SubscriptionsUri { $script:SubscriptionsUri }
+function Get-SubscriptionsUri { "$(Get-HPEGLAPIbaseURL)/subscriptions/v1/subscriptions" }
 
-[String]$LicenseDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/devices'
-function Get-LicenseDevicesUri { $script:LicenseDevicesUri }
+function Get-LicenseDevicesUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/license/devices" }
 
-[String]$AddLicenseDevicesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/customers/license'
-function Get-AddLicenseDevicesUri { $script:AddLicenseDevicesUri }
+function Get-AddLicenseDevicesUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/customers/license" }
 
-[String]$RemoveLicensesUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/unclaim'
-function Get-RemoveLicensesUri { $script:RemoveLicensesUri }
+function Get-RemoveLicensesUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/license/unclaim" }
 
-[String]$PreclaimLicenseUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license'
-function Get-PreclaimLicenseUri { $script:PreclaimLicenseUri }
+function Get-PreclaimLicenseUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/license" }
 
-[String]$LicenseDevicesProductTypeDeviceUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license?product_type=DEVICE'
-function Get-LicenseDevicesProductTypeDeviceUri { $script:LicenseDevicesProductTypeDeviceUri }
+function Get-LicenseDevicesProductTypeDeviceUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/license?product_type=DEVICE" }
 
-[String]$ServiceSubscriptionsListUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/service-subscriptions'
-function Get-ServiceSubscriptionsListUri { $script:ServiceSubscriptionsListUri }
+function Get-ServiceSubscriptionsListUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/license/service-subscriptions" }
 
-[String]$AutoSubscriptionSettingsUri = $HPEGLAPIbaseURL + '/subscriptions/v1/auto-subscription-settings'
-function Get-AutoSubscriptionSettingsUri { $script:AutoSubscriptionSettingsUri }
+function Get-AutoSubscriptionSettingsUri { "$(Get-HPEGLAPIbaseURL)/subscriptions/v1/auto-subscription-settings" }
 
-[String]$AutoReassignmentSettingsUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/license/auto-renewal'
-function Get-AutoReassignmentSettingsUri { $script:AutoReassignmentSettingsUri }
+function Get-AutoReassignmentSettingsUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/license/auto-renewal" }
 
-[String]$ApplicationsProvisionsUri = $HPEGLUIbaseURL + '/ui-doorway/ui/v1/applications/provisions'
-function Get-ApplicationsProvisionsUri { $script:ApplicationsProvisionsUri }
+function Get-ApplicationsProvisionsUri { "$(Get-HPEGLUIbaseURL)/ui-doorway/ui/v1/applications/provisions" }
 
-[String]$RegionsUri = $HPEGLUIbaseURL + '/geo/ui/v1/regions'
-function Get-RegionsUri { $script:RegionsUri }
+function Get-RegionsUri { "$(Get-HPEGLUIbaseURL)/geo/ui/v1/regions" }
 
 # Used by deprecated Get-HPEGLServiceResourceRestrictionPolicy function (legacy RRP endpoint)
-[String]$AuthorizationResourceRestrictionsUri = $HPEGLUIbaseURL + '/authorization/ui/v1/resource_restrictions' 
-function Get-AuthorizationResourceRestrictionsUri { $script:AuthorizationResourceRestrictionsUri }
+function Get-AuthorizationResourceRestrictionsUri { "$(Get-HPEGLUIbaseURL)/authorization/ui/v1/resource_restrictions" }
+function Get-InternalAuthorizationResourcesUri { "$(Get-HPEGLAPIOrgbaseURL)/internal-authorization/v2alpha1/resources" }
 
-[String]$InternalAuthorizationResourcesUri = $HPEGLAPIOrgbaseURL + '/internal-authorization/v2alpha1/resources'
-function Get-InternalAuthorizationResourcesUri { $script:InternalAuthorizationResourcesUri }
+function Get-ScopeGroupsUri { "$(Get-HPEGLAPIOrgbaseURL)/authorization/v2alpha1/scope-groups" }
 
-[String]$ScopeGroupsV2Alpha1Uri = $HPEGLAPIOrgbaseURL + '/authorization/v2alpha1/scope-groups'
-function Get-ScopeGroupsUri { $script:ScopeGroupsV2Alpha1Uri }
-
-[String]$ApplicationsLoginUrlUri = $HPEGLUIbaseURL + '/authn/v1/onboarding/login-url/'
-function Get-ApplicationsLoginUrlUri { $script:ApplicationsLoginUrlUri }
+function Get-ApplicationsLoginUrlUri { "$(Get-HPEGLUIbaseURL)/authn/v1/onboarding/login-url/" }
 
 [String]$ApplicationsAPICredentialsUri = $HPEGLUIbaseURL + '/authn/v1/token-management/credentials'
-function Get-ApplicationsAPICredentialsUri { $script:ApplicationsAPICredentialsUri }
+function Get-ApplicationsAPICredentialsUri {
+    if ($Global:HPEGLUserApiBaseURL) {
+        "$Global:HPEGLUserApiBaseURL/authn/v1/token-management/credentials"
+    }
+    else {
+        $script:ApplicationsAPICredentialsUri
+    }
+}
 
 # Legacy RRP URI - Not currently used (reserved for backward compatibility)
-[String]$ResourceRestrictionsPolicyUsersUri = $HPEGLUIbaseURL + '/authorization/ui/v2/resource_restriction/'
-function Get-ResourceRestrictionsPolicyUsersUri { $script:ResourceRestrictionsPolicyUsersUri }
+function Get-ResourceRestrictionsPolicyUsersUri { "$(Get-HPEGLUIbaseURL)/authorization/ui/v2/resource_restriction/" }
 
-[String]$AuthZApplicationsUri = $HPEGLUIbaseURL + '/authorization/ui/v1/applications/'
-function Get-AuthZApplicationsUri { $script:AuthZApplicationsUri }
+function Get-AuthZApplicationsUri { "$(Get-HPEGLUIbaseURL)/authorization/ui/v1/applications/" }
 
 # [DEPRECATED] Legacy Resource Restriction Policy (RRP) API endpoints
 # HPE GreenLake has replaced RRP with Scope-Based Access Control (SBAC)
 # These constants are maintained for backward compatibility with deprecated functions
 # Use Get-HPEGLServiceScopeFilter and scope group functions instead
-[String]$ResourceRestrictionPolicyUri = $HPEGLUIbaseURL + '/authorization/ui/v1/resource_restriction/'
-function Get-ResourceRestrictionPolicyUri { $script:ResourceRestrictionPolicyUri }
+function Get-ResourceRestrictionPolicyUri { "$(Get-HPEGLUIbaseURL)/authorization/ui/v1/resource_restriction/" }
 
-[String]$SetResourceRestrictionPolicyUri = $HPEGLUIbaseURL + '/authorization/ui/v1/customers/applications'
-function Get-SetResourceRestrictionPolicyUri { $script:SetResourceRestrictionPolicyUri }
+function Get-SetResourceRestrictionPolicyUri { "$(Get-HPEGLUIbaseURL)/authorization/ui/v1/customers/applications" }
 
-[String]$DeleteResourceRestrictionPolicyUri = $HPEGLUIbaseURL + '/authorization/ui/v1/resource_restriction/delete'
-function Get-DeleteResourceRestrictionPolicyUri { $script:DeleteResourceRestrictionPolicyUri }
+function Get-DeleteResourceRestrictionPolicyUri { "$(Get-HPEGLUIbaseURL)/authorization/ui/v1/resource_restriction/delete" }
 
-[String]$ApplicationInstancesUri = $HPEGLUIbaseURL + '/authorization/ui/v1/application_instances'
-function Get-ApplicationInstancesUri { $script:ApplicationInstancesUri }
+function Get-ApplicationInstancesUri { "$(Get-HPEGLUIbaseURL)/authorization/ui/v1/application_instances" }
 
-[String]$ApplicationProvisioningUri = $HPEGLUIbaseURL + '/app-provision/ui/v1/provisions'
-function Get-ApplicationProvisioningUri { $script:ApplicationProvisioningUri }
+function Get-ApplicationProvisioningUri { "$(Get-HPEGLUIbaseURL)/app-provision/ui/v1/provisions" }
 
-[String]$ServiceManagersUri = $HPEGLAPIbaseURL + '/service-catalog/v1beta1/service-managers'
-function Get-ServiceManagersUri { $script:ServiceManagersUri }
+function Get-ServiceManagersUri { "$(Get-HPEGLAPIbaseURL)/service-catalog/v1beta1/service-managers" }
 
-[String]$OrganizationsListUri = $HPEGLAPIOrgbaseURL + '/organizations/v2alpha1/organizations'
-function Get-OrganizationsListUri { $script:OrganizationsListUri }
+function Get-OrganizationsListUri { "$(Get-HPEGLAPIOrgbaseURL)/organizations/v2alpha1/organizations" }
 
-[String]$OrganizationsUsersListUri = $HPEGLAPIOrgbaseURL + '/identity/v2beta1/scim/v2/Users'
-function Get-OrganizationsUsersListUri { $script:OrganizationsUsersListUri }
+function Get-OrganizationsUsersListUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v2beta1/scim/v2/Users" }
 
-[String]$OrganizationsUsersGroupsListUri = $HPEGLAPIOrgbaseURL + '/identity/v2beta1/scim/v2/Groups'
-function Get-OrganizationsUsersGroupsListUri { $script:OrganizationsUsersGroupsListUri }
+function Get-OrganizationsUsersGroupsListUri { "$(Get-HPEGLAPIOrgbaseURL)/identity/v2beta1/scim/v2/Groups" }
 
 
 
@@ -376,10 +311,10 @@ function Get-APIClientCredentialTemplateName { $script:APIClientCredentialTempla
 
 # No Export-ModuleMember to keep functions private
 # SIG # Begin signature block
-# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDfpCpVaoC+lH2z
-# E0eAYhU+GZjOFVIcZc+LshOfcJJ6B6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCZxbMs/yZFP+Fn
+# OD2JS6S/31E41sogh7+PE9zNgnAWbqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -475,147 +410,154 @@ function Get-APIClientCredentialTemplateName { $script:APIClientCredentialTempla
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg3l9qEQvjmlWLYwBISwQsIhpaV5aYnHBH8j51izP+P7owDQYJKoZIhvcNAQEB
-# BQAEggIAhJJWCjNTWRHPro4zeVTxFIarb1QiJFFiaAly7iZeJbH/cn4FiDG1UtHS
-# TbbY1H1L4oWWit6QtU7roiU5eCoRbiMp73WNT4JdkdTluxAlgCDFb0al0K4A4Z4Z
-# 4gZKb41Si9nm3T6RxbFH1xgDeh7j5TEaPEXXimpG6qdvtNnzDKPCKQKORXz7Tyxy
-# tvZwCRF75e9WKmA3mRUAzP0wZZmU/L42QVyYLfdUGGdS9F70Oky/U1j6MW48GpfP
-# LtOpf2GjflNnEV0N5P8KCXFkJihpH/vtpWJawoRAZbOT9Ek8X4iZXccEHmOp3B9B
-# dUxQuFcZ1QsSktrY+Lq5RCEA4aTmGFuZkvztNidnF/LyeHAuEhfJdep4bYsVCRC6
-# NlOug3sgzylCL/YvUaUA6K/A4tT5HptQytdxz6LceBVzpvmW2NV1QkOlQxeClf+V
-# jL2UyTLjT5A9E4PFm70daYZxipFmIfG7Y66gLSwuRVYf7Gz+CqVU197PYZ8qWOAM
-# cn0lJITy7A+AZxDlysl2WKTG7z6VCYbdg6nEvepqItC81eyGrXL08nYuHNMWNqt0
-# JHuEr8PDuYl6sS1DGb2K0LArd323nMmRa/OlLeuE4nV05YI6Z8iAoeU2n0B1C4v8
-# zHUsbdAZfyn2KHiW8aXbs5GCV+qfYs2M0RiQPa2ltlHutmiXTB2hgheXMIIXkwYK
-# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMIo9+nAGmXmsmt/4xPdPgufUSNgfaXTfj7/S+KMa+3oI
-# U2zAnZsGgC6P90pBuR456wIQIRn2hM3V7sAGXZKwTRb5gBgPMjAyNjAzMTcxNDMz
-# MDlaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
-# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
-# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
-# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
-# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
-# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
-# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
-# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
-# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
-# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
-# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
-# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
-# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
-# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
-# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
-# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
-# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
-# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
-# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
-# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
-# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
-# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
-# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
-# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
-# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
-# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
-# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
-# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
-# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
-# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
-# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
-# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
-# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
-# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
-# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
-# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
-# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
-# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
-# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
-# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
-# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
-# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
-# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
-# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
-# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
-# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
-# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
-# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
-# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
-# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
-# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
-# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
-# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
-# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
-# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
-# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
-# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
-# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
-# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
-# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
-# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
-# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
-# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
-# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
-# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
-# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
-# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
-# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
-# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
-# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
-# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
-# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
-# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
-# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
-# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
-# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
-# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
-# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
-# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
-# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
-# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
-# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
-# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
-# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
-# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
-# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
-# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
-# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
-# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
-# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
-# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
-# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
-# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
-# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
-# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
-# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMzE3
-# MTQzMzA5WjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
-# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwuGNUtG1LJ/iKzH/ny1XX6IKp
-# 0Kucc0v9Drj3N2gGdS+C4F5Y7zUKYQXEp3oe8S1yMA0GCSqGSIb3DQEBAQUABIIC
-# AEC+5ti7al1kcpHp4tStWodEFckPaeZO0Jojom/S81X8UfiEJi5/HXdePDwTjtuM
-# 3P985pkQxgiBvERD1s5I7b1F5teAADrcwGzMo2mIKh/DVXqpDXfxrcl9E++Tz+Wx
-# Ew2gBlOxvrbAEXdmGuHDBQ7xqjKG5h86TwrOscd/qMQNnlTQuCGka9yzeVT60vtP
-# 5KNk7y6L3f7ErrsIDrty6W7w3nYo6JGO6EhwtPULAs0ir+ZDHt+6bv/7jz48v/Yi
-# b5cDsSSOxIhTx7y8pvTQKyhGZmi5XYt2cRnBw/69aCbcea5EAmIgFM5RSY3ubkya
-# zzy4o8SzNNKe4RZCL4XrAl2GrQ7CmbhAqayKx2xK99vP81K68v9Y6L/2XehJ3OyU
-# wJXcAENeS8DOKj5MBT4LEdwHqo+8rCG5kdsLuKNVdKma0sF/Z+nzgJcsa3Ad6HhA
-# xA1NSuA4dk5/CQ8di1ffACXhBiSNV2O4S6jnilV6Ji+x8q2mWPy1EFJ9dLHLGWwV
-# EK6/YQ7N463ufF0Et8+MaSMyJLmcgeTYbjhOjL6Z2X9COioAOx089dKM45Z89hv/
-# qQvwcZKnqD3wm9XX3ErAu81ZsoqV4oKMWg7y9TVwEZNGC6pT4mEoKdpuSo5DNex7
-# XuAbXOdrQVf3T4OqBomou8Pu32Bi+T2FVi+bqWDGBXS/
+# IgQgdaBiIHiQboc5hH09SLz6vvDgDl89Y/IXZSWIl+OmEdswDQYJKoZIhvcNAQEB
+# BQAEggIAJygT/dukN8lgvHAfAXgGlpgIAoZhwTjNZldLYf64shu9DkH1qhJe2Yfs
+# 74O0aB9Aetfp/O7ooyw22bVET9cVH3/tdzMAg0LwIqrlZ7B8/wTVLzCtkLG6v+cP
+# mX2YZIR6XE7FX5ifp6KcI84sVzqP7BZljpdDlcfz65GUyLA+kNjeoJVzhiQRkvQL
+# OpqY7piJ5u3kkGU1eNITIWj+lu9dRkJKHmhfHfWsi9ty1h0UI6Z6YGm8RtR5RF0Q
+# We9KxoEjHx030hlU2AvG+IaEXfkcCQK+JImiCpvDDyrxKf1Ltk+JNTL+KdoN/VuI
+# NbdXL8CJsoY/hIkBQ/KTbZE0s0EtdGmZtAiCh007Zp4jWsw8JvjCjJVN5y3qEBSQ
+# L60x4KkufrIfU0WIqAv6wFh57Y1Zg5SVhFJqlAyU+P/ctacbJoWZnOA70OBoHX9u
+# XgkRvYgulGuzlksWexi/6nHPgVe/3jUwLvIvWaKiMHZNgakwUs5bzI/J6crJIwkE
+# c57Jpef9eS0foyw4qik73OsewHaq6LL5Rt+GZd85OkrosdjSi3J4Or2wC80fg0Oe
+# Jlb7KLnlXsyv2WUa88w8KVQTVECjAbd0vXQkosmhDhgrJFE2JQj9ED2b6Uzn0tl1
+# AfNhJfCgOSScN7gt26fiaivvcGN12fUfkAYtzGlwC5iIY/+TX6ChghjoMIIY5AYK
+# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwtOTAWHcH/CztWuV47II0FQ1A0fJEojR97b10
+# 4ZwTiooGZIBCh2MOnruwNygzr/9KAhQELeYUkd2bAxhoT+cOr57Y3ar81hgPMjAy
+# NjA0MTUwOTE1MjFaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
+# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
+# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
+# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
+# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
+# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
+# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
+# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
+# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
+# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
+# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
+# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
+# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
+# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
+# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
+# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
+# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
+# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
+# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
+# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
+# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
+# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
+# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
+# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
+# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
+# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
+# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
+# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
+# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
+# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
+# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
+# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
+# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
+# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
+# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
+# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
+# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
+# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
+# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
+# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
+# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
+# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
+# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
+# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
+# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
+# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
+# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
+# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
+# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
+# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
+# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
+# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
+# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
+# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
+# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
+# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
+# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
+# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
+# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
+# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
+# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
+# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
+# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
+# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
+# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
+# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
+# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
+# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
+# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
+# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
+# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
+# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
+# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
+# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
+# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
+# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
+# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
+# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
+# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
+# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
+# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
+# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
+# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
+# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
+# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
+# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
+# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
+# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
+# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
+# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
+# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
+# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
+# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
+# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
+# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
+# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
+# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
+# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
+# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
+# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
+# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
+# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
+# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
+# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
+# DxcNMjYwNDE1MDkxNTIxWjA/BgkqhkiG9w0BCQQxMgQwMFBKSwGia+qmhfr4tLzO
+# jk4OCC6ur8q7eVWFNqJ2NhkWRkY146fNF29JvEevd2JRMIIBegYLKoZIhvcNAQkQ
+# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
+# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
+# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
+# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
+# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
+# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
+# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
+# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
+# AgB+0WULSN2FNkhda70s/nLDaIzqFtbUA14K3+3vUUsIbNDGP6J4hupXjF2r+iHv
+# X9O0FiLX+LxBw5/QsX3SehJ1t0m9456JigTMyPr9TxEnH7aGTdZgrAcc4hMQXnZn
+# UApnVOr3hvdzEFn38Igbrb/6OWM3AlP4zYEpIx+LeGUtXFP4YAcpad5jjN6CRCDR
+# d4Wolxd0HNDn0ZrFpqqoIKkUo7Jya55gzunu3s4qc3LISuYgV7W6aA8f4qmzTyTO
+# YKeM+rf60090Ryg03QNgFfKM2foBsBBNFq8PDu0lVYOkfSQ1BuclIPLlDPCpGFCk
+# vEQ7jiaaFB9lvFIReMVzp7/fyAxGuA5ufypSVe66q6WgKLckccYvPao/bs3yXV4j
+# qSCrktM1MkEUB57czjRND4nHZy3sopacNLGvSWh3OUPJzUmsVY+U8U1AVIp4yxG8
+# rwoRps9lyZ3l2mw+xD4MSYT2OqGWtJy/ksTToi7ecAvo6NJTWagsRl1sz6WeJseH
+# d+PxrPrO4qNv7d6wsXUD/IY2DB6Fq9w1JAA9srGVpIVbEVJDwkAL515yvssELTOk
+# YCuBL96O9tQFA0KVnwnLixshYDjPerXk2cl+BR+EI8HutM2NGNXOKwrutP4WnBhc
+# MqvHC/jykkwy7kCPdJW3MZlBOXXspY7gfXeWC0ZzHyXdlw==
 # SIG # End signature block

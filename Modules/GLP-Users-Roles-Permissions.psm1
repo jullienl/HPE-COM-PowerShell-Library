@@ -186,7 +186,7 @@ Function Get-HPEGLUser {
     Process {
 
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-       
+
         $ReturnData = @()
 
    
@@ -1111,7 +1111,7 @@ Function New-HPEGLUser {
                             Write-Host "`nThe cmdlet executed for this call will be:" -ForegroundColor Yellow
                             Write-Host "Invoke-HPEGLWebRequest" -ForegroundColor Yellow
                             Write-Host "The URI for this call will be:" -ForegroundColor Yellow
-                            Write-Host "https://aquila-org-api.common.cloud.hpe.com/identity/v2alpha1/scim/v2/Groups/$($Group.id)" -ForegroundColor Yellow
+                            Write-Host "$(Get-HPEGLAPIOrgbaseURL)/identity/v2alpha1/scim/v2/Groups/$($Group.id)" -ForegroundColor Yellow
                             Write-Host "The Method of this call will be:" -ForegroundColor Yellow
                             Write-Host "PATCH" -ForegroundColor Yellow
                             Write-Host "The Body would include:" -ForegroundColor Yellow
@@ -1293,7 +1293,6 @@ Function Remove-HPEGLUser {
     Process {   
 
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
-        
 
         # Build object for the output
         $objStatus = [pscustomobject]@{
@@ -1548,11 +1547,13 @@ Function Get-HPEGLRole {
         [Parameter (Mandatory, ParameterSetName = 'ApplicationName')]
         [Parameter (Mandatory, ParameterSetName = 'AssignedUsers-ApplicationName')]
         [Parameter (Mandatory, ParameterSetName = 'Permissions-ApplicationName')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServiceName,
     
         [Parameter (ParameterSetName = 'ApplicationName')]
         [Parameter (Mandatory, ParameterSetName = 'AssignedUsers-ApplicationName')]
         [Parameter (Mandatory, ParameterSetName = 'Permissions-ApplicationName')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServiceRole,
 
         [Parameter (ParameterSetName = 'ArubaCentral')]
@@ -2564,6 +2565,7 @@ Function Add-HPEGLRoleToUser {
                 @()
             }
         })]
+        [ValidateNotNullOrEmpty()]
         [String]$RoleName,
 
         [Parameter(ValueFromPipelineByPropertyName)]
@@ -3019,10 +3021,12 @@ Function Remove-HPEGLRoleFromUser {
                 @()
             }
         })]
+        [ValidateNotNullOrEmpty()]
         [String]$RoleName,
 
         [Parameter(Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'ById')]
         [Alias('id')]
+        [ValidateNotNullOrEmpty()]
         [String]$RoleAssignmentId,
 
         [Switch]$WhatIf
@@ -3331,6 +3335,7 @@ Function Set-HPEGLUserRole {
                 @()
             }
         })]
+        [ValidateNotNullOrEmpty()]
         [String]$RoleName,
 
         [Parameter(Mandatory = $false)]
@@ -3825,6 +3830,7 @@ Function Get-HPEGLUserGroup {
         [Parameter (Mandatory = $false, ParameterSetName = 'Default')]
         [Parameter (Mandatory = $true, ParameterSetName = 'ShowUsers')]
         [Parameter (Mandatory = $true, ParameterSetName = 'ShowRoles')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (Mandatory = $true, ParameterSetName = 'ShowUsers')]
@@ -4297,6 +4303,7 @@ Function New-HPEGLUserGroup {
     Param( 
                     
         [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
             
         [Parameter(ValueFromPipelineByPropertyName)]
@@ -4306,9 +4313,11 @@ Function New-HPEGLUserGroup {
         [String[]]$UserEmail,
 
         [Parameter(ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$RoleName,
 
         [Parameter(ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$ScopeName,
 
         [Switch]$WhatIf
@@ -4589,6 +4598,7 @@ Function Remove-HPEGLUserGroup {
                     
         [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias("displayName")]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Switch]$WhatIf
@@ -4829,9 +4839,11 @@ Function Set-HPEGLUserGroup {
                     
         [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias("displayName")]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter(ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$NewName,
 
         [Parameter(ValueFromPipelineByPropertyName)]
@@ -5128,6 +5140,7 @@ Function Add-HPEGLRoleToUserGroup {
                     
         [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('displayName', 'Name')]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
             
         [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
@@ -5150,6 +5163,7 @@ Function Add-HPEGLRoleToUserGroup {
                 @()
             }
         })]
+        [ValidateNotNullOrEmpty()]
         [String]$RoleName,
 
         [Parameter(ValueFromPipelineByPropertyName)]
@@ -5439,6 +5453,7 @@ Function Remove-HPEGLRoleFromUserGroup {
                     
         [Parameter(Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'ByName')]
         [Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'ById')]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
             
         [Parameter(Mandatory, ParameterSetName = 'ByName')]
@@ -5462,10 +5477,12 @@ Function Remove-HPEGLRoleFromUserGroup {
                 @()
             }
         })]
+        [ValidateNotNullOrEmpty()]
         [String]$RoleName,
 
         [Parameter(Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'ById')]
         [Alias('id')]
+        [ValidateNotNullOrEmpty()]
         [String]$RoleAssignmentId,
 
         [Switch]$WhatIf
@@ -5744,6 +5761,7 @@ Function Add-HPEGLUserToUserGroup {
     param(
         [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, Position = 0)]
         [Alias("Name", "displayName")]
+        [ValidateNotNullOrEmpty()]
         [string]$GroupName,
 
         [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
@@ -5848,7 +5866,7 @@ Function Add-HPEGLUserToUserGroup {
                         $userObjects += @{
                             display = $User.displayName
                             value   = $User.id
-                            '$ref'  = "https://aquila-user-api.common.cloud.hpe.com/identity/v2alpha1/scim/v2/Users/$($User.id)"
+                            '$ref'  = "$(if ($Global:HPEGLOrgApiBaseURL) { $Global:HPEGLOrgApiBaseURL } else { 'https://aquila-org-api.common.cloud.hpe.com' })/identity/v2alpha1/scim/v2/Users/$($User.id)"
                         }
                         "[{0}] Found user '{1}' (ID: {2})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $email, $User.id | Write-Verbose
                     }
@@ -6102,6 +6120,7 @@ Function Remove-HPEGLUserFromUserGroup {
     param(
         [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, Position = 0)]
         [Alias("Name", "displayName")]
+        [ValidateNotNullOrEmpty()]
         [string]$GroupName,
 
         [Parameter(Mandatory, ValueFromPipelineByPropertyName)]
@@ -6541,14 +6560,17 @@ Function Get-HPEGLScopeGroup {
         [Parameter (ParameterSetName = 'Default')]
         [Parameter (Mandatory, ParameterSetName = 'ShowScopes')]
         [Parameter (Mandatory, ParameterSetName = 'ShowRoleAssignments')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
             
         [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'Service')]
         [Alias('Application_name')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServiceName,
 
         [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'Service')]
         [Alias('Application_id')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServiceId,
 
         [Parameter (ParameterSetName = 'ShowScopes')]
@@ -6872,6 +6894,7 @@ Function New-HPEGLScopeGroup {
                     
         [Parameter (Mandatory, ParameterSetName = 'ByName')]
         [Parameter (Mandatory, ParameterSetName = 'FromPipeline')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
             
         [Parameter (ParameterSetName = 'ByName')]
@@ -7376,6 +7399,7 @@ Function Set-HPEGLScopeGroup {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'AddFilters')]
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'RemoveFilters')]
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'ClearFilters')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
             
         [Parameter (ParameterSetName = 'Modify')]
@@ -7892,9 +7916,11 @@ Function Remove-HPEGLScopeGroup {
     Param( 
                 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'Name')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'Id')]
+        [ValidateNotNullOrEmpty()]
         [String]$Id,
 
         [Switch]$Force,
@@ -8120,9 +8146,11 @@ Function Copy-HPEGLScopeGroup {
     Param( 
                     
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (Mandatory)]
+        [ValidateNotNullOrEmpty()]
         [String]$NewName,
             
         [Parameter]
@@ -8754,17 +8782,38 @@ Function Get-HPEGLUserAccountDetails {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
+        $ConnectOnepassWithRetry = {
+            param([string]$Reason)
+
+            $maxConnectAttempts = 2
+            for ($attempt = 1; $attempt -le $maxConnectAttempts; $attempt++) {
+                try {
+                    '[{0}] {1} Attempting to connect to HPE Onepass (attempt {2}/{3})...' -f $MyInvocation.InvocationName.ToString().ToUpper(), $Reason, $attempt, $maxConnectAttempts | Write-Verbose
+                    Connect-HPEOnepass -Verbose:$VerbosePreference | Out-Null
+
+                    if ($Global:HPEGreenLakeSession.onepassToken.access_token) {
+                        '[{0}] Successfully connected to HPE Onepass.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        return
+                    }
+
+                    throw 'No OnePass access token was returned after authentication.'
+                }
+                catch {
+                    if ($attempt -lt $maxConnectAttempts) {
+                        '[{0}] OnePass connection attempt failed. Retrying once...' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        Start-Sleep -Seconds 1
+                        continue
+                    }
+
+                    $ConnectErrorMessage = if ($_.Exception.Message) { $_.Exception.Message } else { $_.ToString() }
+                    throw "Unable to initialize the OnePass session. Run Connect-HPEGL and retry. Last error: $ConnectErrorMessage"
+                }
+            }
+        }
+
         # Check for a valid HPE Onepass session 
         if (-not $Global:HPEGreenLakeSession.onepassToken.access_token) {
-            '[{0}] No active session found for HPE Onepass. Attempting to connect...' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            try {
-                Connect-HPEOnepass -Verbose:$VerbosePreference | Out-Null
-                '[{0}] Successfully connected to HPE Onepass.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            }
-            catch {
-                throw "Session token has expired. Please run Connect-HPEGL to establish a session before using this cmdlet."
-            }
-            # throw "No active session found. Please run Connect-HPEGL to establish a session before using this cmdlet."
+            & $ConnectOnepassWithRetry 'No active OnePass session found.'
         }
 
         if ($Global:HPEGreenLakeSession.onepassToken.creation_time -and $Global:HPEGreenLakeSession.onepassToken.expires_in) {
@@ -8772,13 +8821,7 @@ Function Get-HPEGLUserAccountDetails {
             $expiresIn = [int]$Global:HPEGreenLakeSession.onepassToken.expires_in
             $expiryTime = $creationTime.AddSeconds($expiresIn)
             if ((Get-Date) -ge $expiryTime) {   
-                '[{0}] HPE Onepass session token has expired. Attempting to reconnect...' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose         
-                try {
-                    Connect-HPEOnepass -Verbose:$VerbosePreference | Out-Null
-                }
-                catch {
-                    throw "Session token has expired. Please run Connect-HPEGL to establish a session before using this cmdlet."
-                }
+                & $ConnectOnepassWithRetry 'HPE OnePass session token has expired.'
             }
         }
 
@@ -8789,6 +8832,25 @@ Function Get-HPEGLUserAccountDetails {
     Process {
 
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Federated identities are managed externally, so OnePass account details are not supported.
+        if ($Global:HPEGreenLakeSession -and $Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idpType') {
+            $SessionIdPType = [string]$Global:HPEGreenLakeSession.idpType
+            if (-not [string]::IsNullOrWhiteSpace($SessionIdPType)) {
+                $SessionIdPUrl = $null
+                if ($Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idp') {
+                    $SessionIdPUrl = [string]$Global:HPEGreenLakeSession.idp
+                }
+
+                $SessionIdPDisplay = $SessionIdPType
+                if (-not [string]::IsNullOrWhiteSpace($SessionIdPUrl)) {
+                    $SessionIdPDisplay = "$SessionIdPType ($SessionIdPUrl)"
+                }
+
+                Write-Warning "Your account is federated and is not managed in HPE GreenLake local identity. Detected identity provider: '$SessionIdPDisplay'. OnePass account details are unavailable for this user. Use your company IdP to manage profile/account settings."
+                return
+            }
+        }
 
         # $ReturnData = @() #[System.Collections.ArrayList]::new()
 
@@ -8801,6 +8863,71 @@ Function Get-HPEGLUserAccountDetails {
 
    
         if ($Null -ne $UserAccountDetails ) {
+
+            # OnePass returns this payload for federated users not managed in HPE local identity.
+            $OnePassErrorCode = $null
+            if ($UserAccountDetails -and $UserAccountDetails.PSObject.Properties.Name -contains 'errorCode') {
+                $OnePassErrorCode = [string]$UserAccountDetails.errorCode
+            }
+            elseif ($UserAccountDetails -is [array] -and $UserAccountDetails.Count -gt 0 -and $UserAccountDetails[0].PSObject.Properties.Name -contains 'errorCode') {
+                $OnePassErrorCode = [string]$UserAccountDetails[0].errorCode
+            }
+
+            if ($OnePassErrorCode -eq 'accessToken_not_matches_with_userId') {
+                $DetectedIdPType = $null
+                $DetectedIdPUrl = $null
+                if ($Global:HPEGreenLakeSession) {
+                    if ($Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idpType') {
+                        $DetectedIdPType = [string]$Global:HPEGreenLakeSession.idpType
+                    }
+                    if ($Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idp') {
+                        $DetectedIdPUrl = [string]$Global:HPEGreenLakeSession.idp
+                    }
+                }
+
+                if ([string]::IsNullOrWhiteSpace($DetectedIdPType) -and [string]::IsNullOrWhiteSpace($DetectedIdPUrl) -and $Global:HPEGreenLakeSession.oauth2IdToken) {
+                    try {
+                        $jwtParts = ([string]$Global:HPEGreenLakeSession.oauth2IdToken) -split '\.'
+                        if ($jwtParts.Count -ge 2) {
+                            $payload = $jwtParts[1].Replace('-', '+').Replace('_', '/')
+                            switch ($payload.Length % 4) {
+                                2 { $payload += '==' }
+                                3 { $payload += '=' }
+                            }
+
+                            $json = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($payload))
+                            $claims = $json | ConvertFrom-Json -ErrorAction Stop
+
+                            foreach ($claimName in @('idp_name', 'idp', 'identity_provider')) {
+                                if ($claims.PSObject.Properties.Name -contains $claimName) {
+                                    $candidate = [string]$claims.$claimName
+                                    if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+                                        $DetectedIdPUrl = $candidate
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    catch {
+                        '[{0}] Could not extract IdP details from oauth2IdToken.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    }
+                }
+
+                $DetectedIdP = 'Unknown'
+                if ($DetectedIdPType -and $DetectedIdPUrl) {
+                    $DetectedIdP = "$DetectedIdPType ($DetectedIdPUrl)"
+                }
+                elseif ($DetectedIdPType) {
+                    $DetectedIdP = $DetectedIdPType
+                }
+                elseif ($DetectedIdPUrl) {
+                    $DetectedIdP = $DetectedIdPUrl
+                }
+
+                Write-Warning "Your account is federated and is not managed in HPE GreenLake local identity. Detected identity provider: '$DetectedIdP'. OnePass account details are unavailable for this user. Use your company IdP to manage profile/account settings."
+                return
+            }
 
             if ($raw) {
                 $ReturnData = $UserAccountDetails
@@ -8893,6 +9020,14 @@ Function Set-HPEGLUserAccountDetails {
     .INPUTS
     None. You cannot pipe objects to this Cmdlet.
 
+    .OUTPUTS
+    HPEGreenLake.ObjStatus.ESDE [System.Management.Automation.PSCustomObject]
+
+        Status object with the following properties:
+        - Email: Email address of the user account that was updated
+        - Status: "Complete" or "Failed"
+        - Details: Detailed message about the operation result
+        - Exception: Exception object if an error occurred
     #>
 
 
@@ -8963,17 +9098,38 @@ Function Set-HPEGLUserAccountDetails {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
+        $ConnectOnepassWithRetry = {
+            param([string]$Reason)
+
+            $maxConnectAttempts = 2
+            for ($attempt = 1; $attempt -le $maxConnectAttempts; $attempt++) {
+                try {
+                    '[{0}] {1} Attempting to connect to HPE Onepass (attempt {2}/{3})...' -f $MyInvocation.InvocationName.ToString().ToUpper(), $Reason, $attempt, $maxConnectAttempts | Write-Verbose
+                    Connect-HPEOnepass -Verbose:$VerbosePreference | Out-Null
+
+                    if ($Global:HPEGreenLakeSession.onepassToken.access_token) {
+                        '[{0}] Successfully connected to HPE Onepass.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        return
+                    }
+
+                    throw 'No OnePass access token was returned after authentication.'
+                }
+                catch {
+                    if ($attempt -lt $maxConnectAttempts) {
+                        '[{0}] OnePass connection attempt failed. Retrying once...' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        Start-Sleep -Seconds 1
+                        continue
+                    }
+
+                    $ConnectErrorMessage = if ($_.Exception.Message) { $_.Exception.Message } else { $_.ToString() }
+                    throw "Unable to initialize the OnePass session. Run Connect-HPEGL and retry. Last error: $ConnectErrorMessage"
+                }
+            }
+        }
+
         # Check for a valid HPE Onepass session 
         if (-not $Global:HPEGreenLakeSession.onepassToken.access_token) {
-            '[{0}] No active session found for HPE Onepass. Attempting to connect...' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            try {
-                Connect-HPEOnepass -Verbose:$VerbosePreference | Out-Null
-                '[{0}] Successfully connected to HPE Onepass.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            }
-            catch {
-                throw "Session token has expired. Please run Connect-HPEGL to establish a session before using this cmdlet."
-            }
-            # throw "No active session found. Please run Connect-HPEGL to establish a session before using this cmdlet."
+            & $ConnectOnepassWithRetry 'No active OnePass session found.'
         }
 
         if ($Global:HPEGreenLakeSession.onepassToken.creation_time -and $Global:HPEGreenLakeSession.onepassToken.expires_in) {
@@ -8981,13 +9137,7 @@ Function Set-HPEGLUserAccountDetails {
             $expiresIn = [int]$Global:HPEGreenLakeSession.onepassToken.expires_in
             $expiryTime = $creationTime.AddSeconds($expiresIn)
             if ((Get-Date) -ge $expiryTime) {   
-                '[{0}] HPE Onepass session token has expired. Attempting to reconnect...' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose         
-                try {
-                    Connect-HPEOnepass -Verbose:$VerbosePreference | Out-Null
-                }
-                catch {
-                    throw "Session token has expired. Please run Connect-HPEGL to establish a session before using this cmdlet."
-                }
+                & $ConnectOnepassWithRetry 'HPE OnePass session token has expired.'
             }
         }
 
@@ -9000,6 +9150,24 @@ Function Set-HPEGLUserAccountDetails {
     Process {
 
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Federated identities are managed externally, so OnePass account update is not supported.
+        if ($Global:HPEGreenLakeSession -and $Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idpType') {
+            $SessionIdPType = [string]$Global:HPEGreenLakeSession.idpType
+            if (-not [string]::IsNullOrWhiteSpace($SessionIdPType)) {
+                $SessionIdPUrl = $null
+                if ($Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idp') {
+                    $SessionIdPUrl = [string]$Global:HPEGreenLakeSession.idp
+                }
+
+                $SessionIdPDisplay = $SessionIdPType
+                if (-not [string]::IsNullOrWhiteSpace($SessionIdPUrl)) {
+                    $SessionIdPDisplay = "$SessionIdPType ($SessionIdPUrl)"
+                }
+                Write-Warning "Your account is federated and is not managed in HPE GreenLake local identity. Detected identity provider: '$SessionIdPDisplay'. OnePass account update is unavailable for this user. Use your company IdP to manage profile/account settings."
+                return
+            }
+        }
 
         try {
             $UserAccountDetails = Get-HPEGLUserAccountDetails -Raw 
@@ -9024,6 +9192,78 @@ Function Set-HPEGLUserAccountDetails {
 
 
         # Build payload
+
+        $OnePassErrorCode = $null
+        if ($UserAccountDetails -and $UserAccountDetails.PSObject.Properties.Name -contains 'errorCode') {
+            $OnePassErrorCode = [string]$UserAccountDetails.errorCode
+        }
+        elseif ($UserAccountDetails -is [array] -and $UserAccountDetails.Count -gt 0 -and $UserAccountDetails[0].PSObject.Properties.Name -contains 'errorCode') {
+            $OnePassErrorCode = [string]$UserAccountDetails[0].errorCode
+        }
+
+        if ($OnePassErrorCode -eq 'accessToken_not_matches_with_userId') {
+            $DetectedIdPType = $null
+            $DetectedIdPUrl = $null
+            if ($Global:HPEGreenLakeSession) {
+                if ($Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idpType') {
+                    $DetectedIdPType = [string]$Global:HPEGreenLakeSession.idpType
+                }
+                if ($Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idp') {
+                    $DetectedIdPUrl = [string]$Global:HPEGreenLakeSession.idp
+                }
+            }
+
+            if ([string]::IsNullOrWhiteSpace($DetectedIdPType) -and [string]::IsNullOrWhiteSpace($DetectedIdPUrl) -and $Global:HPEGreenLakeSession.oauth2IdToken) {
+                try {
+                    $jwtParts = ([string]$Global:HPEGreenLakeSession.oauth2IdToken) -split '\.'
+                    if ($jwtParts.Count -ge 2) {
+                        $payload = $jwtParts[1].Replace('-', '+').Replace('_', '/')
+                        switch ($payload.Length % 4) {
+                            2 { $payload += '==' }
+                            3 { $payload += '=' }
+                        }
+
+                        $json = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($payload))
+                        $claims = $json | ConvertFrom-Json -ErrorAction Stop
+
+                        foreach ($claimName in @('idp_name', 'idp', 'identity_provider')) {
+                            if ($claims.PSObject.Properties.Name -contains $claimName) {
+                                $candidate = [string]$claims.$claimName
+                                if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+                                    $DetectedIdPUrl = $candidate
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+                catch {
+                    '[{0}] Could not extract IdP details from oauth2IdToken.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                }
+            }
+
+            $DetectedIdP = 'Unknown'
+            if ($DetectedIdPType -and $DetectedIdPUrl) {
+                $DetectedIdP = "$DetectedIdPType ($DetectedIdPUrl)"
+            }
+            elseif ($DetectedIdPType) {
+                $DetectedIdP = $DetectedIdPType
+            }
+            elseif ($DetectedIdPUrl) {
+                $DetectedIdP = $DetectedIdPUrl
+            }
+
+            $FederatedMessage = "Your account is federated and is not managed in HPE GreenLake local identity. Detected identity provider: '$DetectedIdP'. OnePass account details are unavailable for this user. Use your company IdP to manage profile/account settings."
+            if ($WhatIf) {
+                Write-Warning $FederatedMessage
+                return
+            }
+
+            $objStatus.Status = 'Warning'
+            $objStatus.Details = $FederatedMessage
+            [void] $SetUserAccountDetailsStatus.add($objStatus)
+            return
+        }
 
         $_Profile = @{ 
             email = $Global:HPEGreenLakeSession.username
@@ -9126,26 +9366,17 @@ Function Set-HPEGLUserAccountDetails {
         if ($PSBoundParameters.ContainsKey('Mobilephone')) {
             $_Profile.mobilePhone = $Mobilephone
 
-        } 
-        
-        $payload = @{ 
-            profile = $_Profile
-            # sessionId = $Global:HPEGreenLakeSession.onepassSid  # Auto added by Invoke-HPEGLWebRequest
-                    
         }
 
-        $payload = ConvertTo-Json $payload -Depth 10 
+        $Payload = @{ 
+            profile = $_Profile
+        } | ConvertTo-Json -Depth 10
 
-             
-        # User account details modification
-        
         try {
-            $Response = Invoke-HPEGLWebRequest -Method POST -Body $payload -Uri $Uri -SkipSessionCheck -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
-        
+            $Response = Invoke-HPEGLWebRequest -Method POST -Body $Payload -Uri $Uri -SkipSessionCheck -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
             if (-not $WhatIf) {
-   
                 $objStatus.Status = "Complete"
-                # Extract message from response if it exists, otherwise use a default success message
                 if ($Response.message) {
                     $objStatus.Details = $Response.message
                 }
@@ -9153,23 +9384,16 @@ Function Set-HPEGLUserAccountDetails {
                     $objStatus.Details = "User account details updated successfully"
                 }
             }
-        
         }
         catch {
-
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "User account details update failed!" }
-                
                 $objStatus.Exception = $Global:HPECOMInvokeReturnData
             }
         }
 
         if (-not $WhatIf) { [void] $SetUserAccountDetailsStatus.add($objStatus) }
-   
-    }
-
-    end {
 
         if ($SetUserAccountDetailsStatus.Count -gt 0) {
 
@@ -9231,7 +9455,14 @@ Function Set-HPEGLUserAccountPassword {
 
     Change the HPE GreenLake user account password to a new one for the currently connected user.
 
-  
+    .OUTPUTS
+    HPEGreenLake.ObjStatus.ESDE [System.Management.Automation.PSCustomObject]
+
+        Status object with the following properties:
+        - Email: Email address of the user whose password was changed
+        - Status: "Complete", "Failed", or "Warning"
+        - Details: Detailed message about the operation result
+        - Exception: Exception object if an error occurred
    #>
     [CmdletBinding()]
     Param( 
@@ -9249,17 +9480,38 @@ Function Set-HPEGLUserAccountPassword {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
+        $ConnectOnepassWithRetry = {
+            param([string]$Reason)
+
+            $maxConnectAttempts = 2
+            for ($attempt = 1; $attempt -le $maxConnectAttempts; $attempt++) {
+                try {
+                    '[{0}] {1} Attempting to connect to HPE Onepass (attempt {2}/{3})...' -f $MyInvocation.InvocationName.ToString().ToUpper(), $Reason, $attempt, $maxConnectAttempts | Write-Verbose
+                    Connect-HPEOnepass -Verbose:$VerbosePreference | Out-Null
+
+                    if ($Global:HPEGreenLakeSession.onepassToken.access_token) {
+                        '[{0}] Successfully connected to HPE Onepass.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        return
+                    }
+
+                    throw 'No OnePass access token was returned after authentication.'
+                }
+                catch {
+                    if ($attempt -lt $maxConnectAttempts) {
+                        '[{0}] OnePass connection attempt failed. Retrying once...' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                        Start-Sleep -Seconds 1
+                        continue
+                    }
+
+                    $ConnectErrorMessage = if ($_.Exception.Message) { $_.Exception.Message } else { $_.ToString() }
+                    throw "Unable to initialize the OnePass session. Run Connect-HPEGL and retry. Last error: $ConnectErrorMessage"
+                }
+            }
+        }
+
         # Check for a valid HPE Onepass session 
         if (-not $Global:HPEGreenLakeSession.onepassToken.access_token) {
-            '[{0}] No active session found for HPE Onepass. Attempting to connect...' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            try {
-                Connect-HPEOnepass -Verbose:$VerbosePreference | Out-Null
-                '[{0}] Successfully connected to HPE Onepass.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            }
-            catch {
-                throw "Session token has expired. Please run Connect-HPEGL to establish a session before using this cmdlet."
-            }
-            # throw "No active session found. Please run Connect-HPEGL to establish a session before using this cmdlet."
+            & $ConnectOnepassWithRetry 'No active OnePass session found.'
         }
 
         if ($Global:HPEGreenLakeSession.onepassToken.creation_time -and $Global:HPEGreenLakeSession.onepassToken.expires_in) {
@@ -9267,13 +9519,25 @@ Function Set-HPEGLUserAccountPassword {
             $expiresIn = [int]$Global:HPEGreenLakeSession.onepassToken.expires_in
             $expiryTime = $creationTime.AddSeconds($expiresIn)
             if ((Get-Date) -ge $expiryTime) {   
-                '[{0}] HPE Onepass session token has expired. Attempting to reconnect...' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose         
-                try {
-                    Connect-HPEOnepass -Verbose:$VerbosePreference | Out-Null
+                & $ConnectOnepassWithRetry 'HPE OnePass session token has expired.'
+            }
+        }
+
+        # Federated identities are managed externally, so OnePass password update is not supported.
+        if ($Global:HPEGreenLakeSession -and $Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idpType') {
+            $SessionIdPType = [string]$Global:HPEGreenLakeSession.idpType
+            if (-not [string]::IsNullOrWhiteSpace($SessionIdPType)) {
+                $SessionIdPUrl = $null
+                if ($Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idp') {
+                    $SessionIdPUrl = [string]$Global:HPEGreenLakeSession.idp
                 }
-                catch {
-                    throw "Session token has expired. Please run Connect-HPEGL to establish a session before using this cmdlet."
+
+                $SessionIdPDisplay = $SessionIdPType
+                if (-not [string]::IsNullOrWhiteSpace($SessionIdPUrl)) {
+                    $SessionIdPDisplay = "$SessionIdPType ($SessionIdPUrl)"
                 }
+                Write-Warning "Your account is federated and is not managed in HPE GreenLake local identity. Detected identity provider: '$SessionIdPDisplay'. OnePass password update is unavailable for this user. Use your company IdP to manage password settings."
+                return
             }
         }
 
@@ -9360,7 +9624,107 @@ Only LOCAL users can change their password through this cmdlet.
         
         '[{0}] User is a local user. Password change is allowed.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
 
-        $userid = (Get-HPEGLUserAccountDetails -Raw).id
+        $OnePassUserDetails = $null
+        try {
+            $OnePassUserDetails = Get-HPEGLUserAccountDetails -Raw
+        }
+        catch {
+            $objStatus = [pscustomobject]@{
+                Email     = $Global:HPEGreenLakeSession.username
+                Status    = 'Failed'
+                Details   = if ($_.Exception.Message) { $_.Exception.Message } else { 'Unable to retrieve OnePass user details.' }
+                Exception = $Global:HPECOMInvokeReturnData
+            }
+            [void] $UserPasswordChangeStatus.add($objStatus)
+            $UserPasswordChangeStatus = Invoke-RepackageObjectWithType -RawObject $UserPasswordChangeStatus -ObjectName 'ObjStatus.ESDE'
+            return $UserPasswordChangeStatus
+        }
+
+        $OnePassErrorCode = $null
+        if ($OnePassUserDetails -and $OnePassUserDetails.PSObject.Properties.Name -contains 'errorCode') {
+            $OnePassErrorCode = [string]$OnePassUserDetails.errorCode
+        }
+        elseif ($OnePassUserDetails -is [array] -and $OnePassUserDetails.Count -gt 0 -and $OnePassUserDetails[0].PSObject.Properties.Name -contains 'errorCode') {
+            $OnePassErrorCode = [string]$OnePassUserDetails[0].errorCode
+        }
+
+        if ($OnePassErrorCode -eq 'accessToken_not_matches_with_userId') {
+            $DetectedIdPType = $null
+            $DetectedIdPUrl = $null
+            if ($Global:HPEGreenLakeSession) {
+                if ($Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idpType') {
+                    $DetectedIdPType = [string]$Global:HPEGreenLakeSession.idpType
+                }
+                if ($Global:HPEGreenLakeSession.PSObject.Properties.Name -contains 'idp') {
+                    $DetectedIdPUrl = [string]$Global:HPEGreenLakeSession.idp
+                }
+            }
+
+            if ([string]::IsNullOrWhiteSpace($DetectedIdPType) -and [string]::IsNullOrWhiteSpace($DetectedIdPUrl) -and $Global:HPEGreenLakeSession.oauth2IdToken) {
+                try {
+                    $jwtParts = ([string]$Global:HPEGreenLakeSession.oauth2IdToken) -split '\.'
+                    if ($jwtParts.Count -ge 2) {
+                        $payload = $jwtParts[1].Replace('-', '+').Replace('_', '/')
+                        switch ($payload.Length % 4) {
+                            2 { $payload += '==' }
+                            3 { $payload += '=' }
+                        }
+
+                        $json = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($payload))
+                        $claims = $json | ConvertFrom-Json -ErrorAction Stop
+
+                        foreach ($claimName in @('idp_name', 'idp', 'identity_provider')) {
+                            if ($claims.PSObject.Properties.Name -contains $claimName) {
+                                $candidate = [string]$claims.$claimName
+                                if (-not [string]::IsNullOrWhiteSpace($candidate)) {
+                                    $DetectedIdPUrl = $candidate
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+                catch {
+                    '[{0}] Could not extract IdP details from oauth2IdToken.' -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                }
+            }
+
+            $DetectedIdP = 'Unknown'
+            if ($DetectedIdPType -and $DetectedIdPUrl) {
+                $DetectedIdP = "$DetectedIdPType ($DetectedIdPUrl)"
+            }
+            elseif ($DetectedIdPType) {
+                $DetectedIdP = $DetectedIdPType
+            }
+            elseif ($DetectedIdPUrl) {
+                $DetectedIdP = $DetectedIdPUrl
+            }
+
+            $FederatedMessage = @"
+Password change is not allowed for federated users.
+
+Your account is managed by your company identity provider, not by HPE GreenLake local identity.
+Detected identity provider: '$DetectedIdP'.
+Please use your identity provider process to change your password.
+"@
+
+            if ($WhatIf) {
+                Write-Warning $FederatedMessage
+                return
+            }
+
+            $objStatus = [pscustomobject]@{
+                Email     = $Global:HPEGreenLakeSession.username
+                Status    = 'Warning'
+                Details   = $FederatedMessage
+                Exception = $null
+            }
+            [void] $UserPasswordChangeStatus.add($objStatus)
+            $UserPasswordChangeStatus = Invoke-RepackageObjectWithType -RawObject $UserPasswordChangeStatus -ObjectName 'ObjStatus.ESDE'
+            return $UserPasswordChangeStatus
+        }
+
+        $userid = $OnePassUserDetails.id
         $Uri = (Get-HPEOnepassbaseURL) + "/v2-change-password-okta/" + $userid
         
         $_OldPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($CurrentPassword))
@@ -9595,10 +9959,10 @@ Export-ModuleMember -Function 'Get-HPEGLUser', 'New-HPEGLUser', 'Send-HPEGLUserI
 
 
 # SIG # Begin signature block
-# MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAYmFqUb+m+Ne4q
-# 7EDLd+bwDGMChkHHWTlZuYRzg11QFqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCDIcFHaeTtu1xd
+# Nwt5PvUeyNVqp+L4+PuOHxAUxndw06CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -9694,147 +10058,154 @@ Export-ModuleMember -Function 'Get-HPEGLUser', 'New-HPEGLUser', 'Send-HPEGLUserI
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCG/8wghv7AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg4UzNQglpsZ6ioi9yHtim9IXpka4iBrvjhLDy5fK52/swDQYJKoZIhvcNAQEB
-# BQAEggIAGfm11HDW11gErKn5zvPrJHnOww2tzWksrYndrdmvvPq13k4dDD9QTU70
-# gG1tE9iyu/mdXZFCE2mT9uLNo/ZM2+r8mwEhKdzq2RurVseUJyhNdtoQl247d9rS
-# huvMLXNF4v+Qx6vcLADE8IV1vxeRS2KRmZfAraaKEmJ7Ecs+WRZT6tJw73G0+UT5
-# p0C/4YrZtTJPquyx4GcASmlCDGgaIhGiB/r4dnDvr+B1JQmj0N0HbjfJbxmqtTGN
-# Q5ZyAsMrSNtITm4dkEEwS6+AtteJOw6leIECWkyTaSqx9IS92+odPug0KS96U4k/
-# BnJf+VhrYQJdq3A9j1l2ORZRX2IR4vyUWAfoHJQEK4ZYItVwnQxCeLgDfaTozUDu
-# R69uGZtK7rdZQCtnjYyct3GhVjpudLW+8DnkEhsqDeTP/pN2rxzsXG17hXKN2YNU
-# xJDRl8FHBDyLwLI+cMyKnxsfd3BPJJn5tTDtOIFuYdiBqU1trPHaF7KzaUF5XbnQ
-# +F7qtM8hR5J8Q7ZCVDEdxo/FHm7S+OxVapZobBx5aNLyfRUXDTr0vBvDcqWaSTFS
-# zJ/ky0NDngA9eqq0Ecgb6Qzy+4My5dygrd/maA4hLYn5B+xt7c+CsxM0gtsw4X6k
-# h1dbxqw3KkdGwSPQPqJybDi0wuQ4/n9g1PLCcejhof/Ahj5rgpahgheXMIIXkwYK
-# KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMKkc10KOqs6qs1d+KXd5lcLt6L/tId32Qi/vd8FGSlEp
-# jnAVFDJw0t3po9jHubNZVQIQXsKKA3vm25Z3wfQEkyt8fRgPMjAyNjAzMTcxNDM4
-# MDNaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
-# AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
-# PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
-# IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
-# MGMxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UE
-# AxMyRGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAy
-# MDI1IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDbOVL7i3S35ckN
-# Udj680nGm/v3iwzc7hRDJyYpFeZguz5hF/O3KXxAnuf9SrE1MpaaN0UNYa/jf5ra
-# iInjXLE57SwugXHwXVrPYlFNlzt2EDFud75vJ3lt/ZIRmUKu4bHFZKpulRjp0AZE
-# ILIE5qIVqheGSf4vXl59yiYNKtOcDlWB32m8w77tsz61JbgnMCIhs7aYg/IIR0pi
-# xyY+X5gG56dI/s0nD2JwvW1amfrW4zpbJQ2/hFzIEDP428ls1/mRMzsXjpy8HCnS
-# VliKxlH3znLmxiPh7jJQFs8HHKtPlo0xn77m2KzwYOYcKmrJUtDh4sfCmKbmLBHj
-# 1NER8RO2UQU5FZOQnaE47XPNUBazqO116nXZW0VmhA6EjB1R88dKwDDf3EVV68UQ
-# V/a74NWvWw5XskAJj7FwbyFYh6o8ZVTCSLIFFROADsd4DElvSJCXgYMELpkEDjAY
-# 39qEzEXh+4mw6zXPCQ8FKdeYeSbXwfAeAg8qTbzt0whyFnKObvMZwJhnhuKyhRhY
-# v2hOBr0kJ8UxNz3KXbpcMHTOX2t1LC+I6ZphKVpFqcXzijEBieqAHLpnz3KQ+Bad
-# vtJGLfU3I/fn1aGiT7fp+TLFM+NKsJa8wrunNtGDy18hGVSfGXsblsiuQ+oxsP3M
-# mgHv0wcWAuvmWNTuutwvDL5wR+nMUwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIw
-# ADAdBgNVHQ4EFgQUVZ6552fIkRBJtDZSjXm3JMU/LfgwHwYDVR0jBBgwFoAU729T
-# SunkBnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoG
-# CCsGAQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2
-# U0hBMjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG
-# /WwHATANBgkqhkiG9w0BAQwFAAOCAgEAG34LJIfYCWrFQedRadkkjuul0CqjQ9yK
-# TJXjwu2TlBYWDGkc/1a2NHeWyQQA6TdOzOa43IyJ3tW7EeVAmXgpx1OvlxDZgvL6
-# XnrSl4GAzuQDgcImoap1B3ONfKuWDdgJ1+eOz3D/sE7zFSaUBqr8P49Nlk74yfFr
-# f8ijJiwX4v2BZfhUnFkuWNWzkkqalKiefKwxi/sJqqRCkEOYlZTYXryYstld9TTB
-# dsPL1BBOySBwe+LJAN4HWXqOX9bA5CJI1M1p9hBRHZmwnms8m7U0/M7WG0rB2JSN
-# Z6cfCrkFErUFHv4P5PAb3tQdfhXRb4m8VmnzPd3cbmwDs+32o7n/oBZn7TJ/yc3n
-# wP4cABKEeafLbm3pbuoXpVJFkIikavyFsCN9sGE7gxjwbZT3PBUqnpKWO4qSfF3Z
-# u6KE7fd2KgIawHq2tf77FAp/hCVhKCAW8P1lZIbjKwk9g7H6FuwFMQ40W2v33Ho6
-# AmefJWQOi50if6CZX4Gr5rYb74EtTkBc5VyUTGm6hRBdRkXmnexSt3bVCMX1FrTH
-# hEPTaBLhfCDM362+5j62OE8gLBeYfcREv588ijFlPReDBU/7XtSpRuLlml7hh1p0
-# blaMJMG+2aUzglWi8ZhG/IDJ+ZgknHT/RP6orTnBEmmDirzW84q4JA9oT0f30kJW
-# 98IMGbgqOsQwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3
-# DQEBCwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAX
-# BgNVBAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0
-# ZWQgUm9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJ
-# BgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGln
-# aUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAy
-# NSBDQTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48
-# RsAcrHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4u
-# GjwjqNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNn
-# QxqXmRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFi
-# DNYiOTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZv
-# kgFkriK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLe
-# GkuAhHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJy
-# goLPp66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz
-# 7BX8VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36
-# czwzsucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQb
-# U2rMkpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0
-# qVjPKOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgw
-# BgEB/wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgw
-# FoAU7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQM
-# MAoGCCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDov
-# L29jc3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5k
-# aWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6
-# MDigNqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVk
-# Um9vdEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJ
-# KoZIhvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8Ob
-# XAZz8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU
-# /kXjjytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKC
-# hHyfpzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA
-# 0QF8dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkM
-# x1NKU4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qI
-# ijanrUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5T
-# TLL4ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTpt
-# MSbhdhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+
-# 7RWsWCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQ
-# vLsNz3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdc
-# MIIFjTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBl
-# MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
-# d3cuZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJv
-# b3QgQ0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQG
-# EwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNl
-# cnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0G
-# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7J
-# IT3yithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxS
-# D1Ifxp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb
-# 7iDVySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1ef
-# VFiODCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoY
-# OAMQjdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSa
-# M0C/CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI
-# 8OCiEhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9L
-# BADMfRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfm
-# Q6QYuKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDr
-# McXKchYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15Gkv
-# mB0t9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
-# FgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGL
-# p6chnfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEF
-# BQcwAYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRw
-# Oi8vY2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0Eu
-# Y3J0MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9E
-# aWdpQ2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0G
-# CSqGSIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6p
-# Grsi+IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1W
-# z/n096wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp
-# 8jQ87PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglo
-# hJ9vytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8S
-# uFQtJ37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBp
-# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
-# OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
-# IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMzE3
-# MTQzODAzWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
-# UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQw7VRdYKo/hvpQnJXbGl+ZPU+1
-# Bp1r5mZwyMklXYWd7cP5327hqLlMRpGK2giQ3GcdMA0GCSqGSIb3DQEBAQUABIIC
-# AGHGZJV8P3MhvOtMIKjrsYt6Br4jv4kx+64ga3EImner7m8Rql7F9J8KlXHK0vm7
-# 8XX0cA3HHOzf7G+9AHEKsM7ddCQ5jfD1brZ/vIbpBhEMxJykNG/RuAudoKxVNm1E
-# U+VKqSIUWUGJ1szNGKcTFhudSIooTh/2TzAKZkK8/uNgWLHXUyV8YeCM5VKyXGCL
-# 4UOuvl1iiHqil3v/9kjNZvblroRFWAjw2zCg5fvThOA4H8snMY/KUpSoTBpe/Dac
-# ZgurAPHNnu4zXmQkb058+lbQQgYS7xMESRDkaq2pj4dmqZIADgLLiLbHVFY4uchg
-# vxCBbBxCWDTION9dSvA4Oo4uUjDMNIA/yofhHCISqSg91RTYXmnBfLwyqE0s4eMk
-# wnlgDhpIX0J7m2b30jCFOpAwr879OpOBNSfRvqsgBFAjRH/c2SCN6IuW+P2d2lWy
-# e6zCaGyFCCN0bxnqbkPf2ehl5UGkMqc3QHzDZJfxSU12P0VZ4YrwaFKZ6g0nVVt7
-# dHcMfhMXgrMh8ZfKI6fmFSWviB9MCUcJDcux5xcW8PrpfxQZPd2OhhENPYg65MKM
-# 64GTbPcIsS1+8jKe3DKe/tRDa3X+D89dnweirohzrWhe0VHV4a1+FNJE5umpixLa
-# qWNrtG2Q7ubX+WCXmBhppW0dOx/MnSnYDoaBZjGEKqXl
+# IgQg4OmlEdjL/swsjXao8k9xE0MEfCzbWkit/XjsMYO6/FEwDQYJKoZIhvcNAQEB
+# BQAEggIAnb9CDmKGzo/G+RCAKWWEqI2yZdQzrtwGKBi6KH2ANFBXHRhFpeeKMCxt
+# bjH9L60zffEzW5jAX2ZMejOjjHr10HMcBp36mDuHkbRKCsTeoxSCEZoLf2Vwe3yP
+# HLeTUg2HgtEFNboOddqNj5jCQ+j63iGS6mg73CIbM5JK7kk1w5/CUhoYaj+sGHUy
+# FB/yxpyDcVt/zJqP26aM8nKVSCYbR4emUv604VpnUUPVOMTg0mnCYZnnXEKY8jFD
+# JqKFAudNROocnLjAh20sivLtkjSV4QkaJdgB+GKLnxgXl+sLTdk3mFW4eIxeZW1h
+# eUX8W3aXB1D3dNkFL7s11OSVGGEoLU8hOmiGAPy8gV9oPqYyq5P3Qvdr7kLLyDXU
+# j8nbB6UiL3h7dx1Mt/ajdi3teCFA0JZtq39YkNTeJbzBBPdHKIYbGXWSN7sdxgjU
+# XMxs+iZ3BYi50eR0v/YjnqH14HBoFVat2yw2jkrJ9tKqpLgqH/LhbUshkt+jELc8
+# UBtO8GPO02hXkpPazsSo4FcxbRO2ZauX1WABM0yU0K6ruGIqPCsohIHafaMIpuwO
+# YM8zJoHhCTIkkjCW0SZSbIPItkKf8c4TI+bZs8Y3YOMCx299VrglQ+yqLxvaX/SC
+# LdJOBe+gx4qsY+jujuajmH2Je5uLVqhsKl8i0Jd4NhHPpcyQJFyhghjpMIIY5QYK
+# KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwVXjiivhCzwFI5ALHLtR7LWiQOzE2Yv83j5HK
+# pil2MtqYPxE9M8K+qA5Pv7hiAexjAhUA+LVRrQunnTcwmN+zP2ccptPO3cIYDzIw
+# MjYwNDE1MDkxOTM5WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
+# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
+# yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
+# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFIzNjAeFw0yNTAzMjcwMDAwMDBa
+# Fw0zNjAzMjEyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5XZXN0IFlv
+# cmtzaGlyZTEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
+# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzYwggIiMA0GCSqGSIb3
+# DQEBAQUAA4ICDwAwggIKAoICAQDThJX0bqRTePI9EEt4Egc83JSBU2dhrJ+wY7Jg
+# Reuff5KQNhMuzVytzD+iXazATVPMHZpH/kkiMo1/vlAGFrYN2P7g0Q8oPEcR3h0S
+# ftFNYxxMh+bj3ZNbbYjwt8f4DsSHPT+xp9zoFuw0HOMdO3sWeA1+F8mhg6uS6BJp
+# PwXQjNSHpVTCgd1gOmKWf12HSfSbnjl3kDm0kP3aIUAhsodBYZsJA1imWqkAVqwc
+# Gfvs6pbfs/0GE4BJ2aOnciKNiIV1wDRZAh7rS/O+uTQcb6JVzBVmPP63k5xcZNzG
+# o4DOTV+sM1nVrDycWEYS8bSS0lCSeclkTcPjQah9Xs7xbOBoCdmahSfg8Km8ffq8
+# PhdoAXYKOI+wlaJj+PbEuwm6rHcm24jhqQfQyYbOUFTKWFe901VdyMC4gRwRAq04
+# FH2VTjBdCkhKts5Py7H73obMGrxN1uGgVyZho4FkqXA8/uk6nkzPH9QyHIED3c9C
+# GIJ098hU4Ig2xRjhTbengoncXUeo/cfpKXDeUcAKcuKUYRNdGDlf8WnwbyqUblj4
+# zj1kQZSnZud5EtmjIdPLKce8UhKl5+EEJXQp1Fkc9y5Ivk4AZacGMCVG0e+wwGsj
+# cAADRO7Wga89r/jJ56IDK773LdIsL3yANVvJKdeeS6OOEiH6hpq2yT+jJ/lHa9zE
+# dqFqMwIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUX1jtTDF6omFCjVKAurNhlxmi
+# MpswHQYDVR0OBBYEFIhhjKEqN2SBKGChmzHQjP0sAs5PMA4GA1UdDwEB/wQEAwIG
+# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
+# MEEwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8vc2VjdGln
+# by5jb20vQ1BTMAgGBmeBDAEEAjBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
+# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcmww
+# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
+# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVIzNi5jcnQwIwYIKwYBBQUH
+# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4IBgQAC
+# gT6khnJRIfllqS49Uorh5ZvMSxNEk4SNsi7qvu+bNdcuknHgXIaZyqcVmhrV3PHc
+# mtQKt0blv/8t8DE4bL0+H0m2tgKElpUeu6wOH02BjCIYM6HLInbNHLf6R2qHC1SU
+# sJ02MWNqRNIT6GQL0Xm3LW7E6hDZmR8jlYzhZcDdkdw0cHhXjbOLsmTeS0SeRJ1W
+# JXEzqt25dbSOaaK7vVmkEVkOHsp16ez49Bc+Ayq/Oh2BAkSTFog43ldEKgHEDBbC
+# Iyba2E8O5lPNan+BQXOLuLMKYS3ikTcp/Qw63dxyDCfgqXYUhxBpXnmeSO/WA4Nw
+# dwP35lWNhmjIpNVZvhWoxDL+PxDdpph3+M5DroWGTc1ZuDa1iXmOFAK4iwTnlWDg
+# 3QNRsRa9cnG3FBBpVHnHOEQj4GMkrOHdNDTbonEeGvZ+4nSZXrwCW4Wv2qyGDBLl
+# Kk3kUW1pIScDCpm/chL6aUbnSsrtbepdtbCLiGanKVR/KC1gsR0tC6Q0RfWOI4ow
+# ggYUMIID/KADAgECAhB6I67aU2mWD5HIPlz0x+M/MA0GCSqGSIb3DQEBDAUAMFcx
+# CzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMT
+# JVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjEwMzIy
+# MDAwMDAwWhcNMzYwMzIxMjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIENBIFIzNjCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2Y
+# 2ENBq26CK+z2M34mNOSJjNPvIhKAVD7vJq+MDoGD46IiM+b83+3ecLvBhStSVjeY
+# XIjfa3ajoW3cS3ElcJzkyZlBnwDEJuHlzpbN4kMH2qRBVrjrGJgSlzzUqcGQBaCx
+# pectRGhhnOSwcjPMI3G0hedv2eNmGiUbD12OeORN0ADzdpsQ4dDi6M4YhoGE9cbY
+# 11XxM2AVZn0GiOUC9+XE0wI7CQKfOUfigLDn7i/WeyxZ43XLj5GVo7LDBExSLnh+
+# va8WxTlA+uBvq1KO8RSHUQLgzb1gbL9Ihgzxmkdp2ZWNuLc+XyEmJNbD2OIIq/fW
+# lwBp6KNL19zpHsODLIsgZ+WZ1AzCs1HEK6VWrxmnKyJJg2Lv23DlEdZlQSGdF+z+
+# Gyn9/CRezKe7WNyxRf4e4bwUtrYE2F5Q+05yDD68clwnweckKtxRaF0VzN/w76kO
+# LIaFVhf5sMM/caEZLtOYqYadtn034ykSFaZuIBU9uCSrKRKTPJhWvXk4CllgrwID
+# AQABo4IBXDCCAVgwHwYDVR0jBBgwFoAU9ndq3T/9ARP/FqFsggIv0Ao9FCUwHQYD
+# VR0OBBYEFF9Y7UwxeqJhQo1SgLqzYZcZojKbMA4GA1UdDwEB/wQEAwIBhjASBgNV
+# HRMBAf8ECDAGAQH/AgEAMBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEGA1UdIAQKMAgw
+# BgYEVR0gADBMBgNVHR8ERTBDMEGgP6A9hjtodHRwOi8vY3JsLnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdSb290UjQ2LmNybDB8BggrBgEFBQcB
+# AQRwMG4wRwYIKwYBBQUHMAKGO2h0dHA6Ly9jcnQuc2VjdGlnby5jb20vU2VjdGln
+# b1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRw
+# Oi8vb2NzcC5zZWN0aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEAEtd7IK0ONVgM
+# noEdJVj9TC1ndK/HYiYh9lVUacahRoZ2W2hfiEOyQExnHk1jkvpIJzAMxmEc6ZvI
+# yHI5UkPCbXKspioYMdbOnBWQUn733qMooBfIghpR/klUqNxx6/fDXqY0hSU1OSkk
+# Sivt51UlmJElUICZYBodzD3M/SFjeCP59anwxs6hwj1mfvzG+b1coYGnqsSz2wSK
+# r+nDO+Db8qNcTbJZRAiSazr7KyUJGo1c+MScGfG5QHV+bps8BX5Oyv9Ct36Y4Il6
+# ajTqV2ifikkVtB3RNBUgwu/mSiSUice/Jp/q8BMk/gN8+0rNIE+QqU63JoVMCMPY
+# 2752LmESsRVVoypJVt8/N3qQ1c6FibbcRabo3azZkcIdWGVSAdoLgAIxEKBeNh9A
+# QO1gQrnh1TA8ldXuJzPSuALOz1Ujb0PCyNVkWk7hkhVHfcvBfI8NtgWQupiaAeNH
+# e0pWSGH2opXZYKYG4Lbukg7HpNi/KqJhue2Keak6qH9A8CeEOB7Eob0Zf+fU+CCQ
+# aL0cJqlmnx9HCDxF+3BLbUufrV64EbTI40zqegPZdA+sXCmbcZy6okx/SjwsusWR
+# ItFA3DE8MORZeFb6BmzBtqKJ7l939bbKBy2jvxcJI98Va95Q5JnlKor3m0E7xpMe
+# YRriWklUPsetMSf2NvUQa/E5vVyefQIwggaCMIIEaqADAgECAhA2wrC9fBs656Oz
+# 3TbLyXVoMA0GCSqGSIb3DQEBDAUAMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMK
+# TmV3IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBV
+# U0VSVFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZp
+# Y2F0aW9uIEF1dGhvcml0eTAeFw0yMTAzMjIwMDAwMDBaFw0zODAxMTgyMzU5NTla
+# MFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNV
+# BAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwggIiMA0G
+# CSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQCIndi5RWedHd3ouSaBmlRUwHxJBZvM
+# WhUP2ZQQRLRBQIF3FJmp1OR2LMgIU14g0JIlL6VXWKmdbmKGRDILRxEtZdQnOh2q
+# mcxGzjqemIk8et8sE6J+N+Gl1cnZocew8eCAawKLu4TRrCoqCAT8uRjDeypoGJrr
+# uH/drCio28aqIVEn45NZiZQI7YYBex48eL78lQ0BrHeSmqy1uXe9xN04aG0pKG9k
+# i+PC6VEfzutu6Q3IcZZfm00r9YAEp/4aeiLhyaKxLuhKKaAdQjRaf/h6U13jQEV1
+# JnUTCm511n5avv4N+jSVwd+Wb8UMOs4netapq5Q/yGyiQOgjsP/JRUj0MAT9Yrcm
+# XcLgsrAimfWY3MzKm1HCxcquinTqbs1Q0d2VMMQyi9cAgMYC9jKc+3mW62/yVl4j
+# nDcw6ULJsBkOkrcPLUwqj7poS0T2+2JMzPP+jZ1h90/QpZnBkhdtixMiWDVgh60K
+# mLmzXiqJc6lGwqoUqpq/1HVHm+Pc2B6+wCy/GwCcjw5rmzajLbmqGygEgaj/OLoa
+# nEWP6Y52Hflef3XLvYnhEY4kSirMQhtberRvaI+5YsD3XVxHGBjlIli5u+NrLedI
+# xsE88WzKXqZjj9Zi5ybJL2WjeXuOTbswB7XjkZbErg7ebeAQUQiS/uRGZ58NHs57
+# ZPUfECcgJC+v2wIDAQABo4IBFjCCARIwHwYDVR0jBBgwFoAUU3m/WqorSs9UgOHY
+# m8Cd8rIDZsswHQYDVR0OBBYEFPZ3at0//QET/xahbIICL9AKPRQlMA4GA1UdDwEB
+# /wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMIMBEG
+# A1UdIAQKMAgwBgYEVR0gADBQBgNVHR8ESTBHMEWgQ6BBhj9odHRwOi8vY3JsLnVz
+# ZXJ0cnVzdC5jb20vVVNFUlRydXN0UlNBQ2VydGlmaWNhdGlvbkF1dGhvcml0eS5j
+# cmwwNQYIKwYBBQUHAQEEKTAnMCUGCCsGAQUFBzABhhlodHRwOi8vb2NzcC51c2Vy
+# dHJ1c3QuY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAOvmVB7WhEuOWhxdQRh+S3OyWM
+# 637ayBeR7djxQ8SihTnLf2sABFoB0DFR6JfWS0snf6WDG2gtCGflwVvcYXZJJlFf
+# ym1Doi+4PfDP8s0cqlDmdfyGOwMtGGzJ4iImyaz3IBae91g50QyrVbrUoT0mUGQH
+# bRcF57olpfHhQEStz5i6hJvVLFV/ueQ21SM99zG4W2tB1ExGL98idX8ChsTwbD/z
+# IExAopoe3l6JrzJtPxj8V9rocAnLP2C8Q5wXVVZcbw4x4ztXLsGzqZIiRh5i111T
+# W7HV1AtsQa6vXy633vCAbAOIaKcLAo/IU7sClyZUk62XD0VUnHD+YvVNvIGezjM6
+# CRpcWed/ODiptK+evDKPU2K6synimYBaNH49v9Ih24+eYXNtI38byt5kIvh+8aW8
+# 8WThRpv8lUJKaPn37+YHYafob9Rg7LyTrSYpyZoBmwRWSE4W6iPjB7wJjJpH2930
+# 8ZkpKKdpkiS9WNsf/eeUtvRrtIEiSJHN899L1P4l6zKVsdrUu1FX1T/ubSrsxrYJ
+# D+3f3aKg6yxdbugot06YwGXXiy5UUGZvOu3lXlxA+fC13dQ5OlL2gIb5lmF6Ii8+
+# CQOYDwXM+yd9dbmocQsHjcRPsccUd5E9FiswEqORvz8g3s+jR3SFCgXhN4wz7NgA
+# nOgpCdUo4uDyllU9PzGCBJIwggSOAgEBMGowVTELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
+# AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
+# MQ8XDTI2MDQxNTA5MTkzOVowPwYJKoZIhvcNAQkEMTIEMEUCjYTZ87VgKWtAeyGo
+# GurJqvQ8hK9GLU2Nq+mKAl5ackqCRKh/d1YfZHXQGSUYezCCAXoGCyqGSIb3DQEJ
+# EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
+# eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
+# U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
+# YW1waW5nIFJvb3QgUjQ2AhB6I67aU2mWD5HIPlz0x+M/MIG8BBSFPWMtk4KCYXzQ
+# kDXEkd6SwULaxzCBozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5l
+# dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
+# UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
+# dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
+# ggIAu2veOVlvuXHWR8auz4u3pOirKhOFUH3B2oAfUxVUZQ265xTQL3b5zhILaIH3
+# SO8PvNXvdQY4pGUzp/r6z4r5QIxIoMrcBVhFZ4vtx1EY319vapQu1qrAicz/DVB6
+# g8/lTGcxPE1Ifae7at3Gs6tANFYWPHtR+uwk5Sc0RgEvpyOUWnjbxgLG/y68TX+1
+# mXdU8wm/BxUGrZM1MKbCbEL+5RHTZI/8R6JDxIyaIBAamNWcHbOScWqDwmxmumQu
+# r9WNxbeyMd4GfG5hizQZXJH14XEuNyqMWQpwVq9JfN6WFt1Iqe3yHEtB1cGzOtXt
+# MPOk4ou1s65PjQ0L1UuSiQpNjE8KugV3bKeEW/o7PfiRbNN8mXGaaodCV7O0uii6
+# +KpWCRJn8icSqC2jWeLBpeFkQn/28SWFPBulKr2G89MJlCMvj9tZggmG8zKeL6WZ
+# tcpcPRbW3AQxMzJs7RiO5owXbmKEwfeEbdGidagrbDmmhcAgoz4TZkp5FxrrUL0b
+# sXIKW8vC/yEmLhGLX0a/+Q+RRCjEJOWxm9y1NOM/zj0lqYbIc0FQ7ldm77m9mNmk
+# mPp34MmV25pdnOcAIPE9xAO0VzjJ2738sJqvuhAqXSKj63I9DD24Dzu3QOrNwufS
+# Zzz6qaFsmmhlOex3tdEIk+pzqkaHzPW/KXmoXPUJEj2WOpQ=
 # SIG # End signature block

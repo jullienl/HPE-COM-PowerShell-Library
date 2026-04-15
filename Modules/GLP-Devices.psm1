@@ -128,8 +128,11 @@ Function Get-HPEGLDevice {
         List of device(s) from 'Get-HPECOMServer'.
 
     .OUTPUTS
-    HPE.GreenLake.Device[]
-        A typed array of device objects, or HPE.GreenLake.Device.Tags[] when -ShowTags is used.
+    HPEGreenLake.Device [System.Management.Automation.PSCustomObject]
+        A typed collection of device objects.
+
+    HPEGreenLake.Device.Tags [System.Management.Automation.PSCustomObject]
+        Returned when -ShowTags is used. Contains device tag objects instead of standard device objects.
 
     #>
 
@@ -189,6 +192,7 @@ Function Get-HPEGLDevice {
 
         [Parameter (ParameterSetName = 'Archived')]
         [Parameter (ParameterSetName = 'NotArchived')]
+        [ValidateRange(1, [int]::MaxValue)]
         [int]$Limit,
         
         [Switch]$WhatIf
@@ -1247,11 +1251,13 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         [ValidateNotNullOrEmpty()]
         [PSCredential]$iLOCredential,
 
+        [ValidateNotNullOrEmpty()]
         [string]$ActivationKeyfromCOM,
         
         [Switch]$SkipCertificateValidation,
 
         [Parameter (ParameterSetName = 'EnableProxySettings')]
+        [ValidateNotNullOrEmpty()]
         [String]$IloProxyServer,
   
         [Parameter (ParameterSetName = 'EnableProxySettings')]
@@ -1260,6 +1266,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         [Int]$IloProxyPort,
   
         [Parameter (ParameterSetName = 'EnableProxySettings')]
+        [ValidateNotNullOrEmpty()]
         [String]$IloProxyUserName,
   
         [Parameter (ParameterSetName = 'EnableProxySettings')]
@@ -2648,6 +2655,14 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     end {
 
         if ($iLOConnectionStatus.Count -gt 0) {
+            # When running against a non-production environment (Pavo), append a targeted warning to
+            # every Failed result so the user knows what prerequisites are needed.
+            if ($env:HPE_COMMON_CLOUD_URL -and ($iLOConnectionStatus | Where-Object { $_.Status -eq 'Failed' })) {
+                $pavoWarning = "`n`n[PAVO ENVIRONMENT NOTICE] Connecting an iLO to COM in the Pavo pre-production environment has two additional prerequisites:`n  1. A proxy must be configured on the iLO: pavo-proxy.its.hpecorp.net:8080`n     Use the -IloProxyServer and -IloProxyPort parameters, e.g.:`n       Connect-HPEGLDeviceComputeiLOtoCOM ... -IloProxyServer pavo-proxy.its.hpecorp.net -IloProxyPort 8080`n  2. The iLO must be running an R&D non-production firmware version that supports the Pavo environment."
+                foreach ($item in $iLOConnectionStatus | Where-Object { $_.Status -eq 'Failed' }) {
+                    $item.iLOConnectionDetails = $item.iLOConnectionDetails + $pavoWarning
+                }
+            }
             Return Invoke-RepackageObjectWithType -RawObject $iLOConnectionStatus -ObjectName "Device.Connect.iLO"
         }
     }
@@ -4039,9 +4054,11 @@ System.Collections.ArrayList
     Param( 
  
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ValueFromPipeline)]
+        [ValidateNotNullOrEmpty()]
         [String]$SerialNumber,
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$Tags,
 
         [Switch]$WhatIf
@@ -4086,9 +4103,7 @@ System.Collections.ArrayList
       
         # Add tracking object to the list of object status list
         [void]$InputList.Add($objStatus)
-        if (-not $WhatIf) {
-            [void]$ObjectStatusList.Add($objStatus)
-        }
+        [void]$ObjectStatusList.Add($objStatus)
 
     }
 
@@ -4549,9 +4564,11 @@ System.Collections.ArrayList
  
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ValueFromPipeline, ParameterSetName = "SerialNumberAndTags")]
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ValueFromPipeline, ParameterSetName = "SerialNumberAndAll")]
+        [ValidateNotNullOrEmpty()]
         [String]$SerialNumber,
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = "SerialNumberAndTags")]
+        [ValidateNotNullOrEmpty()]
         [String]$Tags,
 
         [Parameter (ParameterSetName = "SerialNumberAndAll")]
@@ -4597,9 +4614,7 @@ System.Collections.ArrayList
 
         # Add tracking object to the list of object status list
         [void]$InputList.Add($objStatus)
-        if (-not $WhatIf) {
-            [void]$ObjectStatusList.Add($objStatus)
-        }
+        [void]$ObjectStatusList.Add($objStatus)
 
     }
 
@@ -4994,6 +5009,7 @@ Function Get-HPEGLLocation {
         [Parameter(Mandatory, ParameterSetName = "ShowServers")]
         [Parameter(ParameterSetName = "ShowDetails")]
         [Parameter(ParameterSetName = "Name")]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,  
         
         [Parameter(ParameterSetName = "ShowDetails")]
@@ -5318,6 +5334,7 @@ Function New-HPEGLLocation {
 
         [Parameter (Mandatory, ParameterSetName = "Default")]
         [Parameter (Mandatory, ParameterSetName = "ShippingReceiving")]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (ParameterSetName = "Default")]
@@ -5727,57 +5744,75 @@ Function New-HPEGLLocation {
             } | ConvertTo-Json -Depth 5
    
                    
-            # Create Location
-            try {
+            # Create Location (with retry for transient user-propagation errors in newly created workspaces)
+            $maxRetries = 5
+            $retryDelaySec = 10
+            $attempt = 0
+            $createSuccess = $false
 
-                $Response = Invoke-HPEGLWebRequest -Uri $Uri -method 'POST' -body $Payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
-                
-                if (-not $WhatIf) {
+            do {
+                $attempt++
+                try {
 
-                    "[{0}] Location '{1}' successfully created" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
-                    $objStatus.Status = "Complete"
-                    $objStatus.Details = "Location successfully created"
+                    $Response = Invoke-HPEGLWebRequest -Uri $Uri -method 'POST' -body $Payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference    
+                    
+                    if (-not $WhatIf) {
 
-                    # Apply tags if specified
-                    if ($PSBoundParameters.ContainsKey('Tags') -and $Tags) {
-                        $LocationId = if ($Response.id) { $Response.id } else { (Get-HPEGLLocation -Name $Name).id }
-                        if ($LocationId) {
-                            $CreateTagsList = [System.Collections.ArrayList]::new()
-                            $Tags -split ',' | ForEach-Object {
-                                $pair = $_.Trim()
-                                if ($pair -match '^([^=]+)\s*=\s*(.*)$') {
-                                    [void]$CreateTagsList.Add([PSCustomObject]@{ name = $Matches[1].Trim(); value = $Matches[2].Trim() })
+                        "[{0}] Location '{1}' successfully created" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                        $objStatus.Status = "Complete"
+                        $objStatus.Details = "Location successfully created"
+                        $createSuccess = $true
+
+                        # Apply tags if specified
+                        if ($PSBoundParameters.ContainsKey('Tags') -and $Tags) {
+                            $LocationId = if ($Response.id) { $Response.id } else { (Get-HPEGLLocation -Name $Name).id }
+                            if ($LocationId) {
+                                $CreateTagsList = [System.Collections.ArrayList]::new()
+                                $Tags -split ',' | ForEach-Object {
+                                    $pair = $_.Trim()
+                                    if ($pair -match '^([^=]+)\s*=\s*(.*)$') {
+                                        [void]$CreateTagsList.Add([PSCustomObject]@{ name = $Matches[1].Trim(); value = $Matches[2].Trim() })
+                                    }
                                 }
-                            }
-                            if ($CreateTagsList.Count -gt 0) {
-                                try {
-                                    $TagsPayload = [PSCustomObject]@{
-                                        locationId = $LocationId
-                                        createTags = $CreateTagsList
-                                    } | ConvertTo-Json -Depth 5
-                                    Invoke-HPEGLWebRequest -Uri (Get-LocationsTagsUri) -method 'PATCH' -body $TagsPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $false -Verbose:$VerbosePreference | Out-Null
-                                    "[{0}] Tags applied to location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
-                                    $objStatus.Details = "Location successfully created with $($CreateTagsList.Count) tag(s)"
-                                }
-                                catch {
-                                    "[{0}] Failed to apply tags to location '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $_.Exception.Message | Write-Verbose
+                                if ($CreateTagsList.Count -gt 0) {
+                                    try {
+                                        $TagsPayload = [PSCustomObject]@{
+                                            locationId = $LocationId
+                                            createTags = $CreateTagsList
+                                        } | ConvertTo-Json -Depth 5
+                                        Invoke-HPEGLWebRequest -Uri (Get-LocationsTagsUri) -method 'PATCH' -body $TagsPayload -ContentType "application/merge-patch+json" -WhatIfBoolean $false -Verbose:$VerbosePreference | Out-Null
+                                        "[{0}] Tags applied to location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                                        $objStatus.Details = "Location successfully created with $($CreateTagsList.Count) tag(s)"
+                                    }
+                                    catch {
+                                        "[{0}] Failed to apply tags to location '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $_.Exception.Message | Write-Verbose
+                                    }
                                 }
                             }
                         }
+            
                     }
-        
+
+                }
+                catch {
+                    # Detect transient user-propagation error: contact email not yet visible in the workspace
+                    # This can occur immediately after workspace creation before the user directory is fully populated
+                    if ($_.Exception.Message -match 'Contact Email.*not found for account' -and $attempt -lt $maxRetries) {
+                        "[{0}] Contact email not yet visible in workspace (attempt {1}/{2}). Waiting {3}s for user propagation..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $attempt, $maxRetries, $retryDelaySec | Write-Verbose
+                        Start-Sleep -Seconds $retryDelaySec
+                    }
+                    else {
+                        "[{0}] Failed to create location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
+                        if (-not $WhatIf) {
+                            $objStatus.Status = "Failed"
+                            $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Location cannot be created!" }
+                            $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                        }
+                        $createSuccess = $true  # Exit retry loop
+                    }
                 }
 
-            }
-            catch {
-                "[{0}] Failed to create location '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name | Write-Verbose
-                if (-not $WhatIf) {
-                    $objStatus.Status = "Failed"
-                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Location cannot be created!" }
-                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
-                }
-
-            }
+            } until ($createSuccess -or $attempt -ge $maxRetries)
 
         }
         
@@ -6013,9 +6048,11 @@ Function Set-HPEGLLocation {
     Param( 
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (ParameterSetName = "Details")]
+        [ValidateNotNullOrEmpty()]
         [String]$NewName,
 
         [Parameter (ParameterSetName = "Details")]
@@ -6988,6 +7025,7 @@ Function Remove-HPEGLLocation {
     Param( 
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ValueFromPipeline)]
+        [ValidateNotNullOrEmpty()]
         [String]$Name, 
 
         [Switch]$Force,
@@ -7193,6 +7231,7 @@ Function Confirm-HPEGLLocation {
     [CmdletBinding()]
     Param( 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [ValidateSet('6', '12', '18')]
@@ -7501,10 +7540,12 @@ Function Set-HPEGLDeviceLocation {
     Param( 
  
         [Parameter (Mandatory)]
+        [ValidateNotNullOrEmpty()]
         [String]$LocationName,
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$DeviceSerialNumber,
 
         [Switch]$Force,
@@ -7568,9 +7609,7 @@ Function Set-HPEGLDeviceLocation {
     
 
         [void]$InputList.Add($objStatus)
-        if (-not $WhatIf) {
-            [void]$ObjectStatusList.Add($objStatus)
-        }
+        [void]$ObjectStatusList.Add($objStatus)
 
 
     }
@@ -7773,6 +7812,7 @@ Function Remove-HPEGLDeviceLocation {
  
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$DeviceSerialNumber,
 
         [Switch]$WhatIf
@@ -7807,9 +7847,7 @@ Function Remove-HPEGLDeviceLocation {
                   
         }
         [void]$InputList.Add($objStatus)
-        if (-not $WhatIf) {
-            [void]$ObjectStatusList.Add($objStatus)
-        }
+        [void]$ObjectStatusList.Add($objStatus)
 
 
     }
@@ -8002,10 +8040,12 @@ Function Set-HPEGLDeviceServiceDeliveryContact {
     Param( 
  
         [Parameter (Mandatory)]
+        [validatescript({ if ($_ -as [Net.Mail.MailAddress]) { $true } else { Throw "The Parameter value is not an email address. Please correct the value and try again." } })]
         [String]$Email,
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$DeviceSerialNumber,
 
         [Switch]$WhatIf
@@ -8065,9 +8105,7 @@ Function Set-HPEGLDeviceServiceDeliveryContact {
     
 
         [void]$InputList.Add($objStatus)
-        if (-not $WhatIf) {
-            [void]$ObjectStatusList.Add($objStatus)
-        }
+        [void]$ObjectStatusList.Add($objStatus)
 
 
     }
@@ -8300,9 +8338,7 @@ Function Remove-HPEGLDeviceServiceDeliveryContact {
         }
     
         [void]$InputList.Add($objStatus)
-        if (-not $WhatIf) {
-            [void]$ObjectStatusList.Add($objStatus)
-        }
+        [void]$ObjectStatusList.Add($objStatus)
 
 
     }
@@ -8496,10 +8532,10 @@ Export-ModuleMember -Function `
 
 
 # SIG # Begin signature block
-# MIIungYJKoZIhvcNAQcCoIIujzCCLosCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCA6R39tPUlDTBdK
-# 0e3TSXctOO80d7E6cxDnqzQOyCK9CaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDJlt8ozY1ljWct
+# iHkJEE719sATbLKOcoqQgaHSkK3RfqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -8595,154 +8631,147 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCG/4wghv6AgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg3E+lqrrgGj3A3qdLiR+VOOiKULdVp8I86wWP9PgMmf0wDQYJKoZIhvcNAQEB
-# BQAEggIAcGsN6fOQ8R+CMQfT3lED+CS0lQBK7GT4sKQylVdCrr/lnqs9ZayGt9HJ
-# yPh4VLcDBXWQx7n5wKKX5/xQedSeqpn8Dawpxq9Mk9Cm1hK2hWknYFM10ZZrDMPz
-# RXhQsP4Yw59+qwGCFG0yfa0AVvqGsih19AKDb+ARiLC7Skg5nTDNUx2M33VzX2WI
-# KX8YJOL8llY/trAtD1uhkF0z7NiSvePvLplAmARSxHveed+PQFLi1FZtEjSxVUuR
-# J3dFVmaSLUPppaXyAuxsKY3fT79DlHoBIsLserVSPBI9JkDy0zbaPAzteFGzlrZC
-# 8pBp3XkFMKRadVF93ytE+S9DT5oVLoMK4SsDqgrK673JbZmDEnywwUVjPrVBhw8H
-# 2NLV+4Blsjt6fP7vuweIc0WVzC0w59AFDRYOV+6SiTE61e6KMgLOn1746o0sOnCu
-# M/+tEmFs6Oi3ChmzBfGQC62DKTgBrl7vOhe2YcPFJ2Ii5hcqT5nwp762yj/Sn18N
-# US/rFVqPfm4C65DWkhHmv3Fd4VGhJ1sPegOUqE8HBZpPSJzaapm9sVIJJU+OILFU
-# QMKEAmGCvTIR9IAqXG9LJ2jLG6JEzWT4dYDg2KoDOlMdsy5ICj11rSnzgbhcXdzt
-# Ra01rGECI3qQBh3tOqSTVPoYxWyZyQMIMmMGKNfdyshdRnzGW1ShghjoMIIY5AYK
-# KwYBBAGCNwMDATGCGNQwghjQBgkqhkiG9w0BBwKgghjBMIIYvQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQw0zMPjpl322pM82d5YUd1k1JuFXKNeHKcLK3a
-# ++BtJCVePhMqZ+SPylAnM4sHc+h6AhRSo5q1LI8NmXFVRLCC+OXgnNwbMxgPMjAy
-# NjAzMTcxNDMzNTJaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOV2VzdCBZ
-# b3Jrc2hpcmUxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
-# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM2oIITBDCCBmIwggTK
-# oAMCAQICEQCkKTtuHt3XpzQIh616TrckMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
-# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjM2MB4XDTI1MDMyNzAwMDAwMFoX
-# DTM2MDMyMTIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3QgWW9y
-# a3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNjCCAiIwDQYJKoZIhvcN
-# AQEBBQADggIPADCCAgoCggIBANOElfRupFN48j0QS3gSBzzclIFTZ2Gsn7BjsmBF
-# 659/kpA2Ey7NXK3MP6JdrMBNU8wdmkf+SSIyjX++UAYWtg3Y/uDRDyg8RxHeHRJ+
-# 0U1jHEyH5uPdk1ttiPC3x/gOxIc9P7Gn3OgW7DQc4x07exZ4DX4XyaGDq5LoEmk/
-# BdCM1IelVMKB3WA6YpZ/XYdJ9JueOXeQObSQ/dohQCGyh0FhmwkDWKZaqQBWrBwZ
-# ++zqlt+z/QYTgEnZo6dyIo2IhXXANFkCHutL8765NBxvolXMFWY8/reTnFxk3Maj
-# gM5NX6wzWdWsPJxYRhLxtJLSUJJ5yWRNw+NBqH1ezvFs4GgJ2ZqFJ+Dwqbx9+rw+
-# F2gBdgo4j7CVomP49sS7CbqsdybbiOGpB9DJhs5QVMpYV73TVV3IwLiBHBECrTgU
-# fZVOMF0KSEq2zk/LsfvehswavE3W4aBXJmGjgWSpcDz+6TqeTM8f1DIcgQPdz0IY
-# gnT3yFTgiDbFGOFNt6eCidxdR6j9x+kpcN5RwApy4pRhE10YOV/xafBvKpRuWPjO
-# PWRBlKdm53kS2aMh08spx7xSEqXn4QQldCnUWRz3Lki+TgBlpwYwJUbR77DAayNw
-# AANE7taBrz2v+MnnogMrvvct0iwvfIA1W8kp155Lo44SIfqGmrbJP6Mn+Udr3MR2
-# oWozAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBRfWO1MMXqiYUKNUoC6s2GXGaIy
-# mzAdBgNVHQ4EFgQUiGGMoSo3ZIEoYKGbMdCM/SwCzk8wDgYDVR0PAQH/BAQDAgbA
-# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
-# QTA1BgwrBgEEAbIxAQIBAwgwJTAjBggrBgEFBQcCARYXaHR0cHM6Ly9zZWN0aWdv
-# LmNvbS9DUFMwCAYGZ4EMAQQCMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
-# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNybDB6
-# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
-# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjM2LmNydDAjBggrBgEFBQcw
-# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggGBAAKB
-# PqSGclEh+WWpLj1SiuHlm8xLE0SThI2yLuq+75s11y6SceBchpnKpxWaGtXc8dya
-# 1Aq3RuW//y3wMThsvT4fSba2AoSWlR67rA4fTYGMIhgzocsids0ct/pHaocLVJSw
-# nTYxY2pE0hPoZAvRebctbsTqENmZHyOVjOFlwN2R3DRweFeNs4uyZN5LRJ5EnVYl
-# cTOq3bl1tI5poru9WaQRWQ4eynXp7Pj0Fz4DKr86HYECRJMWiDjeV0QqAcQMFsIj
-# JtrYTw7mU81qf4FBc4u4swphLeKRNyn9DDrd3HIMJ+CpdhSHEGleeZ5I79YDg3B3
-# A/fmVY2GaMik1Vm+FajEMv4/EN2mmHf4zkOuhYZNzVm4NrWJeY4UAriLBOeVYODd
-# A1GxFr1ycbcUEGlUecc4RCPgYySs4d00NNuicR4a9n7idJlevAJbha/arIYMEuUq
-# TeRRbWkhJwMKmb9yEvppRudKyu1t6l21sIuIZqcpVH8oLWCxHS0LpDRF9Y4jijCC
-# BhQwggP8oAMCAQICEHojrtpTaZYPkcg+XPTH4z8wDQYJKoZIhvcNAQEMBQAwVzEL
-# MAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMl
-# U2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yMTAzMjIw
-# MDAwMDBaFw0zNjAzMjEyMzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgQ0EgUjM2MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAzZjY
-# Q0GrboIr7PYzfiY05ImM0+8iEoBUPu8mr4wOgYPjoiIz5vzf7d5wu8GFK1JWN5hc
-# iN9rdqOhbdxLcSVwnOTJmUGfAMQm4eXOls3iQwfapEFWuOsYmBKXPNSpwZAFoLGl
-# 5y1EaGGc5LByM8wjcbSF52/Z42YaJRsPXY545E3QAPN2mxDh0OLozhiGgYT1xtjX
-# VfEzYBVmfQaI5QL35cTTAjsJAp85R+KAsOfuL9Z7LFnjdcuPkZWjssMETFIueH69
-# rxbFOUD64G+rUo7xFIdRAuDNvWBsv0iGDPGaR2nZlY24tz5fISYk1sPY4gir99aX
-# AGnoo0vX3Okew4MsiyBn5ZnUDMKzUcQrpVavGacrIkmDYu/bcOUR1mVBIZ0X7P4b
-# Kf38JF7Mp7tY3LFF/h7hvBS2tgTYXlD7TnIMPrxyXCfB5yQq3FFoXRXM3/DvqQ4s
-# hoVWF/mwwz9xoRku05iphp22fTfjKRIVpm4gFT24JKspEpM8mFa9eTgKWWCvAgMB
-# AAGjggFcMIIBWDAfBgNVHSMEGDAWgBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAdBgNV
-# HQ4EFgQUX1jtTDF6omFCjVKAurNhlxmiMpswDgYDVR0PAQH/BAQDAgGGMBIGA1Ud
-# EwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAG
-# BgRVHSAAMEwGA1UdHwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20v
-# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEB
-# BHAwbjBHBggrBgEFBQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdv
-# UHVibGljVGltZVN0YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6
-# Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAS13sgrQ41WAye
-# gR0lWP1MLWd0r8diJiH2VVRpxqFGhnZbaF+IQ7JATGceTWOS+kgnMAzGYRzpm8jI
-# cjlSQ8JtcqymKhgx1s6cFZBSfvfeoyigF8iCGlH+SVSo3HHr98NepjSFJTU5KSRK
-# K+3nVSWYkSVQgJlgGh3MPcz9IWN4I/n1qfDGzqHCPWZ+/Mb5vVyhgaeqxLPbBIqv
-# 6cM74Nvyo1xNsllECJJrOvsrJQkajVz4xJwZ8blAdX5umzwFfk7K/0K3fpjgiXpq
-# NOpXaJ+KSRW0HdE0FSDC7+ZKJJSJx78mn+rwEyT+A3z7Ss0gT5CpTrcmhUwIw9jb
-# vnYuYRKxFVWjKklW3z83epDVzoWJttxFpujdrNmRwh1YZVIB2guAAjEQoF42H0BA
-# 7WBCueHVMDyV1e4nM9K4As7PVSNvQ8LI1WRaTuGSFUd9y8F8jw22BZC6mJoB40d7
-# SlZIYfaildlgpgbgtu6SDsek2L8qomG57Yp5qTqof0DwJ4Q4HsShvRl/59T4IJBo
-# vRwmqWafH0cIPEX7cEttS5+tXrgRtMjjTOp6A9l0D6xcKZtxnLqiTH9KPCy6xZEi
-# 0UDcMTww5Fl4VvoGbMG2oonuX3f1tsoHLaO/Fwkj3xVr3lDkmeUqivebQTvGkx5h
-# GuJaSVQ+x60xJ/Y29RBr8Tm9XJ59AjCCBoIwggRqoAMCAQICEDbCsL18Gzrno7Pd
-# NsvJdWgwDQYJKoZIhvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpO
-# ZXcgSmVyc2V5MRQwEgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVT
-# RVJUUlVTVCBOZXR3b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmlj
-# YXRpb24gQXV0aG9yaXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVow
-# VzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UE
-# AxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJ
-# KoZIhvcNAQEBBQADggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xa
-# FQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZ
-# zEbOOp6YiTx63ywTon434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4
-# f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL
-# 48LpUR/O627pDchxll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUm
-# dRMKbnXWflq+/g36NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZd
-# wuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOc
-# NzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqY
-# ubNeKolzqUbCqhSqmr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqc
-# RY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jG
-# wTzxbMpepmOP1mLnJskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk
-# 9R8QJyAkL6/bAgMBAAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dib
-# wJ3ysgNmyzAdBgNVHQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/
-# BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYD
-# VR0gBAowCDAGBgRVHSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNl
-# cnRydXN0LmNvbS9VU0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNy
-# bDA1BggrBgEFBQcBAQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0
-# cnVzdC5jb20wDQYJKoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzr
-# ftrIF5Ht2PFDxKKFOct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/K
-# bUOiL7g98M/yzRyqUOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdt
-# FwXnuiWl8eFARK3PmLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/Mg
-# TECimh7eXomvMm0/GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNb
-# sdXUC2xBrq9fLrfe8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJ
-# GlxZ5384OKm0r568Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzx
-# ZOFGm/yVQkpo+ffv5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTx
-# mSkop2mSJL1Y2x/955S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP
-# 7d/doqDrLF1u6Ci3TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4J
-# A5gPBcz7J311uahxCweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc
-# 6CkJ1Sji4PKWVT0/MYIEkjCCBI4CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UE
-# ChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1l
-# IFN0YW1waW5nIENBIFIzNgIRAKQpO24e3denNAiHrXpOtyQwDQYJYIZIAWUDBAIC
-# BQCgggH5MBoGCSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUx
-# DxcNMjYwMzE3MTQzMzUyWjA/BgkqhkiG9w0BCQQxMgQwgU4zD81Vhplm4hsXElkR
-# n1aC6hI806mDyr0IazlqLqAg6yPYIJgO53Cdc4ToW3IqMIIBegYLKoZIhvcNAQkQ
-# AgwxggFpMIIBZTCCAWEwFgQUOMkUgRBEtNxmPpPUdEuBQYaptbEwgYcEFMauVOR4
-# hvF8PVUSSIxpw0p6+cLdMG8wW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9T
-# ZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3Rh
-# bXBpbmcgUm9vdCBSNDYCEHojrtpTaZYPkcg+XPTH4z8wgbwEFIU9Yy2TgoJhfNCQ
-# NcSR3pLBQtrHMIGjMIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3
-# IEplcnNleTEUMBIGA1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VS
-# VFJVU1QgTmV0d29yazEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0
-# aW9uIEF1dGhvcml0eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASC
-# AgDP1WzSe3BckX+6008DMzxRwWlC6meKqbvFBzC+ACBpDewAZ/GmzXGj75FTJXvN
-# aTQ1KnnWYw8urowj0hwEjaL368koVuHuSyzv5oPC6PuzCmdRQIUGJ5EGyGjMNNwI
-# sMVkJPd/ZKuk+t9Y1ZQYunnqZ7LLgBkPWioPPI88Ilvm+3xKGyazziY7SRd85VBP
-# 7tteqHKYsux+95xOre+RXGWKUNcplJk4litINcdW3so8L37K9qqYRSpXLwjRDeNj
-# dYK02aPpXijaaKHBTF34kKVsr2kCNUqGnK+aCced9n+tzht1zOaBYUpWRX7QN0nf
-# yLuwah+XlCkU82XgzyiX9iPeDB7ge8qDKduKiGyWJ3hM8dvtVY9zbWq0U6D9duxe
-# 2zkji+4UrrPLiJaMnDn8OlfOhVChEXVmzAfLO06fqIkWn1WAFukCqX7YN8tJCE9M
-# 4BP1G+eDVHxvPmjHXM882LcWcoy1zugBwwRtvZQk6MbZr+J65BxrpdpPQdZ452kd
-# dCPmQE39hIg2DeD7ymF6qC359AvLHOxyipNlySKV7AJuTKHVwgJvaWUZHTOmO9S8
-# 3tqMytnMG4FyzfvK+RqlVgBqA+ZyfU7x4xZPBe2MRcVMFIQl1eWSa2DyoE+GTPTd
-# 3zTKgqP1C4+B65WFXzOknr+70VPf4bBkGN6jROvyGJr2oA==
+# IgQgdAI7reSF+pm2EMg+2i3vK7vGI/b+CBUdn9L9nxdy6gUwDQYJKoZIhvcNAQEB
+# BQAEggIAv5Qs+mJb2pV/ngEzv/05iSMhx2h+nvXyTD3H1h4iy+J5KEyP9hO1x9FD
+# j1WmCBN90oNU5LT2Ub9F6heuidUeuyu/AXYGhvrZahrG46Dkz2jlsTZyUptfwVmA
+# DrPhrD5MTYqv4Ckw6wB9Wd2wEQKTUEAmz6U5P4mB4v2fdMfi5+2uPVbNXJr6rSfG
+# Ail68/Kw96nccMFubd5R0WY5AhITSXPQ6o5r8wVteE8h53tRn+mfr2U1QkG3kNQV
+# qeE2I0QA20N52psI+hfbjUe0/WCPIjsbP7gCjZQdaShTcRvYqB75vlAXwzOWchuG
+# 2Hb0skPrRS90oHNAqVmUp/8nOgjB2CAAMVIw5+QiWqu7x05FUeRbsgXGmm8SaXT/
+# LmsCg85Z/IOg6x2gWgEdScK1FbAiQ/SPJKNkpqyem+5sxGEb4bYnrrkdLbN13hcu
+# Ca1ttw7WakWsv9gBnR4B90QCS6w3qktKRq2EDXVJP9/I7wfhgegnatfthPcN/D8p
+# mmBEtKEESF4Yo70K+yz72tm8Hqn3hLSil/7fW94nJ72/FaHf/HtaK2iwYV2b4SeD
+# Blat7/utkJGeF2M6jQN8t0KKWwzg6JTVFMZhp6iaMwEkwMOC5l6hKSV4Kg8jmKl6
+# 0KfTiw3WREsbSfy6IKDBKyX0YusadvUCQGDSR/RRcuZ3oXQllL2hgheYMIIXlAYK
+# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
+# DQYJYIZIAWUDBAICBQAEMAABUIf3tRHAD7KqcpynPrCvBxCiqbayQk8R58Q6ZZ/i
+# /Oa0tfl6UwoEzvH4WckjGAIRANlopeKvufkVDUGULlAmgNYYDzIwMjYwNDE1MDkx
+# NjA1WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
+# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
+# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
+# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
+# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
+# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
+# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
+# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
+# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
+# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
+# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
+# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
+# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
+# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
+# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
+# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
+# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
+# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
+# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
+# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
+# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
+# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
+# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
+# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
+# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
+# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
+# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
+# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
+# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
+# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
+# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
+# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
+# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
+# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
+# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
+# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
+# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
+# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
+# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
+# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
+# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
+# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
+# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
+# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
+# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
+# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
+# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
+# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
+# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
+# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
+# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
+# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
+# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
+# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
+# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
+# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
+# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
+# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
+# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
+# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
+# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
+# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
+# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
+# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
+# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
+# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
+# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
+# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
+# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
+# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
+# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
+# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
+# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
+# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
+# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
+# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
+# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
+# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
+# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
+# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
+# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
+# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
+# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
+# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
+# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
+# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
+# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
+# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
+# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
+# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
+# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
+# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
+# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
+# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
+# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
+# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
+# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
+# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
+# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
+# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
+# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
+# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
+# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDQx
+# NTA5MTYwNVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMCMXqOJVS4lDineIm4+T0H9W
+# BKomQF5lsycH+bRv6nzW2F/o5jHRYXqvZtf6pHJEOjANBgkqhkiG9w0BAQEFAASC
+# AgCXoGWA0B8ZsabK/y4Xugvp7GNm3mYSBG5O3AK6yGjoccxcusN94uvREp6gBihh
+# +Lm1WPePDGsbxtsDSav5yiBW9YSSlEut1O9KdgIPq9gLHwwnnY0QQoJBFc18zl8v
+# Hm59RYjBAvb0vkk/nVcB06cSRCn2tw3+4xXoCqpS9CqMDvmajMa7jg1AV2ZID7DD
+# jTe7ZnTdXL48SrRDby64iFCaEZK2QOmV9bbfS42xivPeBXpBrBgNCbTDqAYkZoL5
+# nkaHYzJiBkgMrH6ak66PXFtvDDWaLZoASHxGRHtt177zgIOLkKbNqAphA8UlkhSx
+# AOQStfZM6dCfHDzqloVsGBv62BY2wZF//FAOdMuDjTNnfNu4kQceG50ktRxhWpJf
+# BlxSl1dJF2/AA+EqI2RHs3EH/3/bqIShLz7ouZfkDu65hDwY+Ug8rlb4Lv8GoaCa
+# WWsCCG9ya59EhthDpXXP4pS+BW+vukRe5Tfcg+u6/JGN/rchSCKBPBlPpziPWw8p
+# jb9YlhIrSmlwSm3SFv1N8bzwOZ0flkurjRT3J5ogqMTqOBFg6wdHwnh3ZE//mblw
+# lrP4SftjOdUyuWlxSkHs1F7iUKxEyGdY77HxDV6PvZr/qZ7CgMW81RN7rg9cBtoE
+# q0jA8/8WWzLKBH81as6JqM1+0QSxi4jSpVUI7WLKtLVK1A==
 # SIG # End signature block

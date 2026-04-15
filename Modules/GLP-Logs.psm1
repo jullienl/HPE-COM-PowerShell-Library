@@ -74,22 +74,26 @@ function Get-HPEGLAuditLog {
         [Parameter(ParameterSetName = 'Workspace')]
         [Parameter(ParameterSetName = 'Email')]
         [Alias("name")]
+        [ValidateNotNullOrEmpty()]
         [string]$ServiceName,
 
         [Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'Service')]
         [Parameter(ParameterSetName = 'Workspace')]
         [Parameter(ParameterSetName = 'Email')]
         [Alias("Region")]
+        [ValidateNotNullOrEmpty()]
         [string]$ServiceRegion,
 
         [Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'Workspace')]
         [Parameter(ParameterSetName = 'Email')]
         [Alias("company_name")]
+        [ValidateNotNullOrEmpty()]
         [string]$WorkspaceName,
 
         [Parameter(ParameterSetName = 'Workspace')]
         [Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'Email')]
         [Alias("email")]
+        [ValidateNotNullOrEmpty()]
         [string]$UserEmail,
 
         [ValidateSet(
@@ -104,6 +108,7 @@ function Get-HPEGLAuditLog {
         )]
         [string]$Category,
 
+        [ValidateNotNullOrEmpty()]
         [string]$SearchString,
 
         # All ShowLast... switches are exclusive, so we use the same parameter set and validate in the begin block
@@ -327,8 +332,8 @@ Export-ModuleMember -Function 'Get-HPEGLAuditLog' -Alias *
 # SIG # Begin signature block
 # MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCD047rhoR2EBlpt
-# 0xyaCkJppvR4LJEz5vAVtE/oBicZP6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCPmtUWibo+yhaF
+# WPRA5WTLh2NRMYo4Cl4TlrlJjGtFvaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -429,23 +434,23 @@ Export-ModuleMember -Function 'Get-HPEGLAuditLog' -Alias *
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgl3J0ubLC53n3So08MkwrsfSGq8mq9DBkHKmNeHI3HnkwDQYJKoZIhvcNAQEB
-# BQAEggIAHKkG9S0SPinBPGiaOYl9vJWalxuagzFVoMWDReBBaVav3Wf0RrLZJi+s
-# 79akxXLRdSoT8RY1W+Tsl8gCzZbrloLmpNytN9Ttw+FARHAHDYDxqlUZEvfygS/E
-# I48dqNlTKMK6vI9HLt51UdsCvyhdiJnykcaHpHziqem5NEx09OTHHnBMc0449yla
-# GKCWc1uCwTSyBfaYgU4gp2uk59EH/U8yRGu+k+N5QEvoHdo4/ST4kL6BS3QKaL4i
-# ERnWBI7VNtqsq7zs+ARLYQLRLMhU2tuaBnOF6DdW79rDT3qb30f2u5uQT5ZCCM+3
-# lVp4wxUDHm2ZmALKY4XPXp3JCOkifCa4EC4/8eVYYC1ozSN2RPxi/lubR3XpP8jm
-# Pl9o06m+QDh8JweDN316X1FB89WNxHNhohqIRqxQo9623WHChhL2828Vz6DNgQAh
-# 2p9bNsLkj4iomv6DBwpu1S1wggoaC+l/AhlISAr91k6nXXdF8uqknqDe7LPyEwP7
-# yqr2/vzYQjqBq8jzwLjHmI6Pp1FwvkU0xVf660w9x1PdTfHVjS/sSxOt2B1CdEIt
-# 9XZNsymCKN4m88gqOLVudVrEvsUFu40rj6mZjCHhMrTRvXVnNRvqlVKJLWff9Z9V
-# AHoBNbFCA4bkAtu/3dFHGvGI9OsEbYHCZ2fHbXxAv3l2bpvfXk+hgheXMIIXkwYK
+# IgQgnveQ5K/ghFkJKRKNWfZSQ4qQtEIJLTvYAa5AKBhxOs8wDQYJKoZIhvcNAQEB
+# BQAEggIAUKE8LxMtf6PcMxz0rDgiQzvX9yhE+/i3k46gerpvbCofm+1/4gXIxsn4
+# eIM2RtE50E1Pu8LMQwqIyExFvTjN/HIKQ1zc+yv0McFPIGro1b1JzL3lS8AK35XT
+# tOtvzeSBrMi5rxmEXAUmU306a2QyvezV4sy2NW7F6AmBPooh4G8ta34XYQUiZpST
+# IZZ7qo8fZf3TknwpJDaCvlVeSEvWnZX6mykYvsleKg5xaF2WmqjRABKjZRatvVyY
+# 1tObaIHs8zd85uCh/2lfiW29GdvKHIwO1hsL/pjAmR/cRLcvZuU6ICy1IkwFmo3q
+# FqysbtB14nGtXtPOfdaK4uj9vFQ9TB8KX85OmAttoz5pbRNaehwz9F+bHEQcajkK
+# HSxDJJ3srPHvr4Bm7OF/NT8PCz5VRGwTBs7bXxGpy0czhhhbSs0sGFgw76/vI7RT
+# WwqsKOb0vloq9qZLXG4tlTC3YEBNfxeLmOvHwY1nKSX6OMhhOTQ/GBc92FKs05eo
+# 2e0kloRFu88ZfWy3TXL7bepCfUfV9IaiTpgEsPw3L7gJLvydnuKgtD/hgTn9TIaG
+# pwq2e6qiZKJUxPgidL4zLy5LADKE1W0hvh+j4ooE2lsjipx9f7mzMEcyv/hyFC3P
+# xnP9kVzl0dTLkQ5VqSiIfPlAIqeEzdaQHz4PcWw3WvKTZN7TdQyhgheXMIIXkwYK
 # KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMLjJFgWCOUDsECTadYwOVT5Vu7CKSgs0H6O52TKcEcBM
-# rA0PzMtQquibMb6oFPnZ6gIQIVv5FN1vFxayMD5I/4fBchgPMjAyNjAzMTcxNDM0
-# MzhaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# DQYJYIZIAWUDBAICBQAEMDIyJEQGEaiFqv668lBUaftcG6Iy7oGAMXH+KIok3ocn
+# w+5coQxdrKTqx1xy53o8wQIQEtCjKMxIYbkN+yEXnyroOBgPMjAyNjA0MTUwOTE2
+# NTJaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
 # AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
 # PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
 # IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
@@ -551,20 +556,20 @@ Export-ModuleMember -Function 'Get-HPEGLAuditLog' -Alias *
 # MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
 # OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
 # IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMzE3
-# MTQzNDM4WjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwNDE1
+# MDkxNjUyWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
 # UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwO1NgyGGhzgeVQKgrv50f2ni5
-# 5VIWyGCBBeZs2aSOyN1YGn3UvdsBy0vEcERYU+6tMA0GCSqGSIb3DQEBAQUABIIC
-# AEkwqm4sy5ty/iElXntXS9o4FxwcuC9nO4i6UkIOqjGTrlujEsbXxUec8yQ/wZp4
-# IPATDjimBc5+ZhJ7ocXPGtLI3Sr+QotfKSTu4p/FskHSRNdj9BJtPvKKdJTdLRTa
-# k8dRJ3SFJuIe8IgtLxkoZSjnqL3WX1iK+APSG4bQ/7ub3sGbv6nx3PVAZm+Urw56
-# 6i2qyt01pavr8OQFFw5qqR71n0822zm65EggJoTVsg8fXB9YOAp5qz1b0n36UgNg
-# bLneIf0qmbwB4f/z9bE6GzPWq83NUI1tli5ZgTgymgvF10ycDTBkb2Oi8Fdb99zw
-# /+fri0B5A0lc6oZGrLDEmELLm8jvDlqkISYpQqZKV+TGytUIPzKN4/FA73i9EQnN
-# mOluvojlg8N0NLO04nEpd8r+Q3PvZKnQL7o4otfX1vSLvsBileH0crJtahphGKYU
-# xy9N/6dWmUSHJoJ5QvvwkdWfKUvREi+fBjhrr/w2S+0/PMi1T52QgY9K6q7n1VBd
-# Ge48FTq6yrf9qSv4oFRPlj6BQk0S8UBQxUgtNP4F5fzo6FDWcCBwbX0tniKr/8xg
-# j15JzQDDmswngmHALnnsNBnZAxtgOsHIKqzJ+0Pudv/t9UcbgAnbHihBUn5kPWsd
-# 0HWcOjGndKf3y6bpanz4ez5JfE8rBbbLjA0+ceP1OQ7N
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwLcOduoNvMG/mkjzefrYNDn8q
+# YCibUo5CJ/oMHJtSAo8KQRoCsacM9oscieeiFNe5MA0GCSqGSIb3DQEBAQUABIIC
+# AHL1SYx05jSL9ZGsnxVC5kjq9We9h5RyHaBE8UgZWf1UxtZcqqWcApLLKzHcBEhx
+# WtlPpbZAuHgWHPWgPMw+FGPwkqrODRFIcak2hf64eYLi9ZdWly13B+g9/DwS83lI
+# yc7UibPOWAOewMam5Icdu8mb3GBoW9dF8m9FY1BjNvsK5yiJ2PK46B+1VrrOU9Wq
+# Ivi16sDpA8SD74Hw6KDgwo0yuu/f2K2M8af9bGGZ9SVMqnMOTACS6wOV63unJjXE
+# 6K7bzcMnK2H2hwDSQSPMdP7f2ypK81GfOuI5Pkv6+X8JBl0/OC9RADoxPvGIeNVy
+# CfJdZ+N7m2//9O8t9mYM7VlbfyLrcb2GzlOF3DCKeor5piTPKzrqsMrnZXrX3u58
+# DX9n/72/SiscHU4fRaYmXvegaLcUOlyFXQyEmfxAVDUv/a5RUR5LzX18l0JrpdJB
+# xVm6vPW/rZl7S2M4RxschJ6/N20g51yrMA69tQhKG+3bEqY6sOIqr+h1oZW2fBQ6
+# fMumHKDSXoSXURXbniuJG7GueAelTYeBqrG6yj0AD504XSc/YBZu7OgC6hDbnqPH
+# RYfOIpMlyISRoDGPffyO6csHPdIDLdMVslBpBP5vlxsO7EZbVZkcYh9gnYk062YG
+# 3gq3N0hUycSRZGGaO0n2afH/Cu3jLKuAS7RjzcznhwGf
 # SIG # End signature block
