@@ -129,7 +129,7 @@ Get-Command -Module HPECOMCmdlets
 > 💡 **Need More Help?** Check out the [blog tutorials](https://jullienl.github.io/PowerShell-library-for-HPE-GreenLake) for detailed walkthroughs and real-world examples!
 
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 ## Requirements
 
@@ -180,7 +180,7 @@ Get-Command -Module HPECOMCmdlets
     - ⚠️ Limited access to newer IAMv2-specific features (user groups, advanced SBAC, etc.)
     - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.24.md#migration-guide) in release notes for updating deprecated functions 
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 ## Best Practices & Performance Considerations
 
@@ -231,7 +231,7 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
 
 > **Note**: Rate limits vary by API endpoint and are subject to change. For specific limits, consult the [Rate limiting](https://developer.greenlake.hpe.com/docs/greenlake/guides/public/rate-limiting/rate-limiting) page on the HPE GreenLake Developer Portal.
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 ## Supported authentication methods
 
@@ -378,7 +378,7 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
     - 📖 [Okta Identity Engine Overview](https://support.okta.com/help/s/product-hub/oie/overview?language=en_US) - Official Okta documentation
 
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 ## How to Install the Module  
 
@@ -425,7 +425,7 @@ Get-Module HPECOMCmdlets -ListAvailable | Select-Object Name, Version, Path
   > - **-Scope CurrentUser**: Installs to your user profile (`~\Documents\PowerShell\Modules\`) without requiring administrator privileges. Omit this parameter or use `-Scope AllUsers` if you have admin rights and want to install for all users.
   > - **Version Verification**: Step 4 confirms the upgrade succeeded and shows the installation path to verify the correct version is loaded.
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 ## How to Connect to HPE GreenLake and Compute Ops Management
 
@@ -497,7 +497,7 @@ catch {
 
 > **💡 Tip**: For full session object documentation, use `Get-Help Connect-HPEGL -Full` and review the OUTPUTS section.
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
 ### Regional COM Instance Support
@@ -542,7 +542,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
   <img src="Images/SAML_SSO_0.png" alt="Screenshot" width="70%">
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
 #### Example 2: SAML SSO with Okta (push notification with number matching)
@@ -564,7 +564,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
   <img src="Images/SAML_SSO_3.png" alt="Screenshot" width="20%">
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
 #### Example 3: SAML SSO with Microsoft Entra ID (push notification with number matching)
@@ -585,7 +585,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
   <img src="Images/SAML_SSO_2.png" alt="Screenshot" width="20%">
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
 #### Example 4: SAML SSO with PingIdentity (push notification)
@@ -606,7 +606,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
   <img src="Images/SAML_SSO_6.png" alt="Screenshot" width="20%">
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
 #### Example 5: Connect without specifying workspace 
@@ -619,7 +619,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - After successful authentication, you can create a new workspace using `New-HPEGLWorkspace`.
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 #### Example 6: Enable verbose output for troubleshooting
 
@@ -639,7 +639,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 - Useful for diagnosing authentication failures, SSO configuration issues, or timeout problems
 
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
 #### Example 7: Connecting to the Pavo Pre-Production Environment (Optional)
@@ -680,7 +680,7 @@ Connect-HPEGL -SSOEmail "user@company.com" -Workspace "Production"
 - ⚠️ Always clear `HPE_COMMON_CLOUD_URL` before switching back to production — if left set, all subsequent `Connect-HPEGL` calls will target Pavo
 - 💡 These environment variables persist only for the current PowerShell session unless you set them at the system level
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
 ### Global Variables Reference
@@ -712,7 +712,7 @@ $Global:HPECOMLastJobResult | Format-List
 
 All session-scoped variables (`HPEGreenLakeSession`, `HPECOMInvokeReturnData`, `HPECOMLastJobResult`, etc.) are automatically cleared when you run `Disconnect-HPEGL`.
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
 
@@ -746,7 +746,7 @@ For questions about:
 - **Compute Ops Management**: Refer to the [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 - **API Documentation**: Visit the [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 ## Common Issues and Solutions
 
@@ -861,7 +861,7 @@ For questions about:
 - Clear cached authentication sessions in your browser and authenticator apps
 - Retry authentication after the propagation period
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
 ### Identity Provider-Specific Issues
@@ -919,7 +919,7 @@ For questions about:
   - Contact your IT administrator if enrollment is not available
 
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 ## Disclaimer
 
@@ -976,4 +976,4 @@ This library is provided under the **MIT License**.
 - ✅ No warranty provided (use at your own risk)
 - ✅ Attribution required when redistributing
 
-[↑ Back to Top](#)
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
