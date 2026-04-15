@@ -4,11 +4,15 @@ The HPE Compute Ops Management PowerShell library (`HPECOMCmdlets`) offers a com
 
 This library is actively maintained with continuous updates to support new HPE GreenLake features as they are released.
 
+> 💬 **Need help or found a bug?**  
+> - 🐛 [Open a bug report](https://github.com/jullienl/HPE-COM-PowerShell-Library/issues/new/choose) — please include verbose output (`Connect-HPEGL ... –Verbose *> verbose.txt`)  
+> - 💬 [Ask a question in GitHub Discussions](https://github.com/jullienl/HPE-COM-PowerShell-Library/discussions)
+
 ## Latest Release
 
 | Version | Downloads | Status | PowerShell |
 |---------|-----------|--------|------------|
-| 1.0.23 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
+| 1.0.24 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
 
 
 ## Table of Contents
@@ -23,9 +27,18 @@ This library is actively maintained with continuous updates to support new HPE G
 - [Installation](#how-to-install-the-module)
 - [Upgrade](#how-to-upgrade-the-module)
 - [How to Connect to HPE GreenLake and Compute Ops Management](#how-to-connect-to-hpe-greenlake-and-compute-ops-management)
+  - [Session Management](#session-management)
+  - [Authentication Examples](#authentication-examples)
+    - [Example 1: Direct authentication with username and password](#example-1-direct-authentication-with-username-and-password)
+    - [Example 2: SAML SSO with Okta (push notification with number matching)](#example-2-saml-sso-with-okta-push-notification-with-number-matching)
+    - [Example 3: SAML SSO with Microsoft Entra ID (push notification with number matching)](#example-3-saml-sso-with-microsoft-entra-id-push-notification-with-number-matching)
+    - [Example 4: SAML SSO with PingIdentity (push notification)](#example-4-saml-sso-with-pingidentity-push-notification)
+    - [Example 5: Connect without specifying workspace](#example-5-connect-without-specifying-workspace)
+    - [Example 6: Enable verbose output for troubleshooting](#example-6-enable-verbose-output-for-troubleshooting)
+    - [Example 7: Connecting to the Pavo Pre-Production Environment (Optional)](#example-7-connecting-to-the-pavo-pre-production-environment-optional)
   - [Global Variables Reference](#global-variables-reference)
 - [Support](#support)
-- [Troubleshooting](#common-issues-and-solutions)
+- [Common Issues and Solutions](#common-issues-and-solutions)
 - [Disclaimer](#disclaimer)
 - [Additional Resources](#want-more)
 - [License](#license)
@@ -116,6 +129,7 @@ Get-Command -Module HPECOMCmdlets
 > 💡 **Need More Help?** Check out the [blog tutorials](https://jullienl.github.io/PowerShell-library-for-HPE-GreenLake) for detailed walkthroughs and real-world examples!
 
 
+[↑ Back to Top](#)
 
 ## Requirements
 
@@ -154,7 +168,7 @@ Get-Command -Module HPECOMCmdlets
 
 - **Workspace Type Compatibility**:
 
-  - **Enhanced workspaces (IAMv2):** Fully supported since v1.0.23 
+  - **Enhanced workspaces (IAMv2):** Fully supported since v1.0.24 
     - ✅ Complete feature set including new organization management, user groups, and scope-based access control (SBAC)
     - ✅ Advanced identity features: domains, SSO connections, authentication policies
     - ✅ Modern user and role management with improved security
@@ -164,7 +178,9 @@ Get-Command -Module HPECOMCmdlets
     - ✅ Core functionality remains fully operational
     - ⚠️ Some SAML SSO domain functions are deprecated (migration guidance provided)
     - ⚠️ Limited access to newer IAMv2-specific features (user groups, advanced SBAC, etc.)
-    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.23.md#migration-guide) in release notes for updating deprecated functions 
+    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.24.md#migration-guide) in release notes for updating deprecated functions 
+
+[↑ Back to Top](#)
 
 ## Best Practices & Performance Considerations
 
@@ -214,6 +230,8 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
 - The library includes automatic retry logic for some transient errors
 
 > **Note**: Rate limits vary by API endpoint and are subject to change. For specific limits, consult the [Rate limiting](https://developer.greenlake.hpe.com/docs/greenlake/guides/public/rate-limiting/rate-limiting) page on the HPE GreenLake Developer Portal.
+
+[↑ Back to Top](#)
 
 ## Supported authentication methods
 
@@ -360,6 +378,7 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
     - 📖 [Okta Identity Engine Overview](https://support.okta.com/help/s/product-hub/oie/overview?language=en_US) - Official Okta documentation
 
 
+[↑ Back to Top](#)
 
 ## How to Install the Module  
 
@@ -406,78 +425,84 @@ Get-Module HPECOMCmdlets -ListAvailable | Select-Object Name, Version, Path
   > - **-Scope CurrentUser**: Installs to your user profile (`~\Documents\PowerShell\Modules\`) without requiring administrator privileges. Omit this parameter or use `-Scope AllUsers` if you have admin rights and want to install for all users.
   > - **Version Verification**: Step 4 confirms the upgrade succeeded and shows the installation path to verify the correct version is loaded.
 
+[↑ Back to Top](#)
+
 ## How to Connect to HPE GreenLake and Compute Ops Management
 
-The `Connect-HPEGL` cmdlet establishes a connection to HPE GreenLake and its associated Compute Ops Management (COM) services. This connection enables you to manage resources across your HPE GreenLake workspace and all configured COM instances.
+The `Connect-HPEGL` cmdlet establishes a connection to HPE GreenLake and all Compute Ops Management (COM) instances provisioned in your workspace. A single call provides access to:
 
-### Connection Scope
-
-- **Single Connection**: One active connection per PowerShell session via `$Global:HPEGreenLakeSession`
-- **Multi-Region COM Access**: Automatically connects to all COM instances in your workspace (e.g., eu-central, us-west, ap-northeast)
-- **Service Coverage**: Provides access to the HPE GreenLake platform service and all regional COM instances simultaneously
+- **HPE GreenLake platform services** — workspace management, users, subscriptions, devices, and more
+- **All regional COM instances simultaneously** (e.g., eu-central, us-west, ap-northeast) via the `-Region` parameter
+- **One active session** per PowerShell process, stored in `$Global:HPEGreenLakeSession`
 
 ### Session Management
 
-The `Connect-HPEGL` cmdlet creates a persistent session stored in `$Global:HPEGreenLakeSession`, which contains:
+Upon successful connection, `$Global:HPEGreenLakeSession` is created and contains all authentication context:
 
-- **Session Information**: Web request sessions for authentication and API operations
-- **API Credentials**: Temporary unified API client credentials for HPE GreenLake and Compute Ops Management instances
-- **OAuth2 Tokens**: Access tokens, ID tokens, and refresh tokens with automatic refresh capabilities
-- **Workspace Details**: Workspace ID, name, and organization information
-- **Token Metadata**: Creation timestamps and expiration details
+- **Session information**: Web request sessions for authentication and API operations
+- **API credentials**: Temporary unified API client credentials for HPE GreenLake and COM instances
+- **OAuth2 tokens**: Access token (2 h), refresh token, ID token with automatic refresh
+- **Workspace details**: Workspace ID, name, and organization
+- **SSO identity provider metadata**: Name and type of the SSO identity provider (when available), including the IdP tenant URL and the idpType (EntraID, Okta, or PingIdentity)
+- **COM regions**: List of provisioned COM regions and their endpoints
 
-**Token Lifecycle:**
-- **Access Tokens**: Valid for 2 hours with automatic refresh when they expire
-- **Refresh Tokens**: Used to obtain new access tokens without re-authentication
-- **Session Persistence**: Does not persist across PowerShell restarts
-- **Manual Disconnect**: Use `Disconnect-HPEGL` to clear the session and invalidate tokens
+**Token lifecycle:**
+- Access tokens are valid for 2 hours; the library refreshes them automatically when they expire
+- Sessions do not persist across PowerShell restarts
+- Use `Disconnect-HPEGL` to explicitly revoke tokens and clean up API credentials
 
-**View Session Details:**
+**View session details:**
 ```powershell
-# Display current session information
+# Display current session
 $Global:HPEGreenLakeSession
 
 # View API credentials for connected services
 $Global:HPEGreenLakeSession.apiCredentials
 
-# Check token expiration time
+# Check token creation time
 $Global:HPEGreenLakeSession.oauth2TokenCreation
 ```
 
-> **💡 Tip**: For detailed session properties and structure, use `Get-Help Connect-HPEGL -Full` and review the OUTPUTS section.
+**Save and restore sessions (multi-workspace workflows):**
 
-### Global Variables Reference
-
-The module automatically maintains the following global variables throughout your session:
-
-| Variable | Purpose | When Available |
-|----------|---------|----------------|
-| `$Global:HPEGreenLakeSession` | All authentication tokens & session state | After `Connect-HPEGL` |
-| `$Global:HPEGLSchemaMetadata` | Countries (247) & Timezones (~100) | Module import |
-| `$Global:HPESupportedLanguages` | Language options for user preferences | Module import |
-| `$Global:HPECOMRegions` | Available COM regions | After workspace connection |
-| `$Global:HPECOMjobtemplatesUris` | Job template mappings | After first COM operation |
-| `$Global:HPECOMInvokeReturnData` | Last API response (for debugging) | After any API call |
-| `$Global:HPECOMLastJobResult` | Last job cmdlet result (for post-execution inspection) | After any job cmdlet |
-| `$Global:HPECOMCmdletsModuleVersion` | Installed module version | Module import |
-
-**`$Global:HPECOMLastJobResult`** is particularly useful when a job cmdlet output is truncated at the console — the full result (untruncated `message`, `jobUri`, `details`, etc.) is always accessible afterward:
+Use `Save-HPEGLSession` and `Restore-HPEGLSession` to switch between workspaces without re-authenticating:
 
 ```powershell
-# Run a job cmdlet (output may be truncated in the console)
-Invoke-HPECOMServerFirmwareDownload -Region eu-central -Name myserver -FirmwareBaselineReleaseVersion "2025.11.01.00"
+# Connect to first workspace and save the session
+Connect-HPEGL -SSOEmail "user@company.com" -Workspace "Production"
+$prodSession = Save-HPEGLSession
 
-# Inspect the full result at any time after
-$Global:HPECOMLastJobResult.message
-$Global:HPECOMLastJobResult.jobUri
-$Global:HPECOMLastJobResult | Format-List
+# Switch to a second workspace
+Connect-HPEGLWorkspace -Name "Development"   # fast switch — reuses existing OAuth2 tokens
+$devSession = Save-HPEGLSession
+
+# Switch back instantly — tokens are refreshed automatically
+Restore-HPEGLSession -Session $prodSession
+
+# Switch to dev again
+Restore-HPEGLSession -Session $devSession
 ```
 
-All session-scoped variables (`HPEGreenLakeSession`, `HPECOMInvokeReturnData`, `HPECOMLastJobResult`, etc.) are automatically cleared when you run `Disconnect-HPEGL`.
+To handle session expiry in long-running scripts:
+```powershell
+try {
+    Restore-HPEGLSession -Session $prodSession
+}
+catch {
+    # Refresh token expired — fall back to full re-authentication
+    Connect-HPEGL -Credential $cred -Workspace "Production" | Out-Null
+    $prodSession = Save-HPEGLSession
+}
+```
+
+> **💡 Tip**: For full session object documentation, use `Get-Help Connect-HPEGL -Full` and review the OUTPUTS section.
+
+[↑ Back to Top](#)
+
 
 ### Regional COM Instance Support
 
-When connected, you can target specific COM instances using the `-Region` parameter in COM-related cmdlets:
+When connected, use the `-Region` parameter in COM cmdlets to target a specific instance:
 
 ```powershell
 # Manage servers in European COM instance
@@ -489,7 +514,20 @@ Get-HPECOMServer -Region "us-west"
 
 ### Authentication Examples
 
-### Example 1: Direct authentication with username and password
+Choose the authentication method that matches your setup:
+
+Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-password) | [Example 2](#example-2-saml-sso-with-okta-push-notification-with-number-matching) | [Example 3](#example-3-saml-sso-with-microsoft-entra-id-push-notification-with-number-matching) | [Example 4](#example-4-saml-sso-with-pingidentity-push-notification) | [Example 5](#example-5-connect-without-specifying-workspace) | [Example 6](#example-6-enable-verbose-output-for-troubleshooting) | [Example 7](#example-7-connecting-to-the-pavo-pre-production-environment-optional)
+
+| Method | Use when | Parameter | Related example |
+|--------|----------|-----------|-----------------|
+| HPE Account (password only) | No SSO configured; direct authentication | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
+| HPE Account + MFA | HPE Account with Okta Verify or Google Authenticator enabled | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
+| SAML SSO — Okta | Workspace uses Okta as Identity Provider (OIE required) | `-SSOEmail` | [Example 2](#example-2-saml-sso-with-okta-push-notification-with-number-matching) |
+| SAML SSO — Microsoft Entra ID | Workspace uses Entra ID as Identity Provider | `-SSOEmail` | [Example 3](#example-3-saml-sso-with-microsoft-entra-id-push-notification-with-number-matching) |
+| SAML SSO — PingIdentity | Workspace uses PingIdentity as Identity Provider | `-SSOEmail` | [Example 4](#example-4-saml-sso-with-pingidentity-push-notification) |
+| Pavo pre-production | HPE internal testing only | `-SSOEmail` + `$env:HPE_COMMON_CLOUD_URL` | [Example 7](#example-7-connecting-to-the-pavo-pre-production-environment-optional) |
+
+#### Example 1: Direct authentication with username and password
 
 - Bypasses SSO federation and requires an HPE account
 
@@ -504,8 +542,10 @@ Get-HPECOMServer -Region "us-west"
 
   <img src="Images/SAML_SSO_0.png" alt="Screenshot" width="70%">
 
+[↑ Back to Top](#)
 
-### Example 2: SAML SSO with Okta (push notification with number matching)
+
+#### Example 2: SAML SSO with Okta (push notification with number matching)
 
 - Uses Okta SAML federation with Okta Verify push notifications
 - Number matching provides phishing-resistant authentication
@@ -524,8 +564,10 @@ Get-HPECOMServer -Region "us-west"
 
   <img src="Images/SAML_SSO_3.png" alt="Screenshot" width="20%">
 
+[↑ Back to Top](#)
 
-### Example 3: SAML SSO with Microsoft Entra ID (push notification with number matching)
+
+#### Example 3: SAML SSO with Microsoft Entra ID (push notification with number matching)
 - Uses Microsoft Entra ID SAML federation with Microsoft Authenticator
 - Number matching is mandatory and provides phishing-resistant authentication
 
@@ -543,9 +585,10 @@ Get-HPECOMServer -Region "us-west"
 
   <img src="Images/SAML_SSO_2.png" alt="Screenshot" width="20%">
 
+[↑ Back to Top](#)
 
 
-### Example 4: SAML SSO with PingIdentity (push notification)
+#### Example 4: SAML SSO with PingIdentity (push notification)
 - Uses PingIdentity SAML federation with PingID mobile app
 - Supports both push notifications and TOTP codes for flexible authentication
 
@@ -563,9 +606,10 @@ Get-HPECOMServer -Region "us-west"
 
   <img src="Images/SAML_SSO_6.png" alt="Screenshot" width="20%">
 
+[↑ Back to Top](#)
 
 
-### Example 5: Connect without specifying workspace 
+#### Example 5: Connect without specifying workspace 
 
 - If you have not yet created any workspace, you must omit the `-Workspace` parameter. 
 
@@ -575,8 +619,9 @@ Get-HPECOMServer -Region "us-west"
 
 - After successful authentication, you can create a new workspace using `New-HPEGLWorkspace`.
 
+[↑ Back to Top](#)
 
-### Example 6: Enable verbose output for troubleshooting
+#### Example 6: Enable verbose output for troubleshooting
 
 - Use the `-Verbose` parameter to display detailed authentication flow information for debugging connection issues
 
@@ -593,71 +638,82 @@ Get-HPECOMServer -Region "us-west"
 
 - Useful for diagnosing authentication failures, SSO configuration issues, or timeout problems
 
----
 
-### Connecting to Development/Staging Environments (Optional)
+[↑ Back to Top](#)
 
-> **Note**: This section is for HPE internal developers and partners who need to test against HPE GreenLake development, staging, or pre-production environments.
 
-By default, `Connect-HPEGL` connects to the production HPE GreenLake environment. If you need to connect to a development or staging environment, you can override the default API endpoints using environment variables.
+#### Example 7: Connecting to the Pavo Pre-Production Environment (Optional)
 
-**Environment Variables for Custom Endpoints:**
+> **⚠️ Note**: This section is for HPE internal developers and partners only. The only supported non-production environment is **Pavo** (HPE's internal pre-production platform).
 
-| Variable | Description | Production Default |
-|----------|-------------|-------------------|
-| `HPE_COMMON_CLOUD_URL` | HPE GreenLake Common Cloud API endpoint | `https://common.cloud.hpe.com` |
-| `HPE_AUTH_URL` | HPE Authentication/Authorization endpoint | `https://auth.hpe.com` |
-| `HPE_SSO_URL` | HPE SSO endpoint for SAML federation | `https://sso.common.cloud.hpe.com` |
+By default, `Connect-HPEGL` connects to the production HPE GreenLake environment. To connect to Pavo, set the `HPE_COMMON_CLOUD_URL` environment variable before calling `Connect-HPEGL`. Setting this single variable is all that is required — all API endpoints, authentication URLs, and credentials are auto-configured from Pavo's `settings.json`.
 
-**Example: Connect to Development Environment**
+**Environment Variables:**
+
+| Variable | Required | Description | Production Default |
+|----------|----------|-------------|-------------------|
+| `HPE_COMMON_CLOUD_URL` | **Required** | Entry point URL — its `/settings.json` drives all other endpoint auto-configuration | `https://common.cloud.hpe.com` |
+| `HPE_AUTH_URL` | Optional | Overrides the auth endpoint used for the pre-connect TCP connectivity check only | `https://auth.hpe.com` |
+| `HPE_SSO_URL` | Optional | Fallback SSO URL when it cannot be derived from settings (rarely needed for Pavo) | `https://sso.common.cloud.hpe.com` |
+
+**Connect to Pavo:**
 
 ```powershell
-# Set environment variables for development endpoints
-$env:HPE_COMMON_CLOUD_URL = "https://pavo.common.cloud.hpe.com/"
-$env:HPE_AUTH_URL = "https://auth-itg.hpe.com"
-$env:HPE_SSO_URL = "https://dev-sso.common.cloud.hpe.com"
+# Set the Pavo entry-point URL — all other endpoints are auto-configured
+$env:HPE_COMMON_CLOUD_URL = "https://pavo.common.cloud.hpe.com"
 
-# Connect using SSO (environment variables are automatically detected)
-Connect-HPEGL -SSOEmail "user@company.com" -Workspace "TestWorkspace"
-
-# Or connect with credentials
-Connect-HPEGL -Credential (Get-Credential) -Workspace "TestWorkspace"
+# Connect using SSO (typically with your @hpe.com corporate account)
+Connect-HPEGL -SSOEmail "developer@hpe.com" -Workspace "MyDevWorkspace"
 ```
 
-**Example: Connect to Staging Environment**
+**Return to production (clear the env var):**
 
 ```powershell
-# Set environment variables for staging endpoints
-$env:HPE_COMMON_CLOUD_URL = "https://staging-common.cloud.hpe.com"
-$env:HPE_AUTH_URL = "https://staging-auth.hpe.com"
-$env:HPE_SSO_URL = "https://staging-sso.common.cloud.hpe.com"
-
-# Connect to staging
-Connect-HPEGL -SSOEmail "user@company.com" -Workspace "StagingWorkspace"
-```
-
-**Clearing Environment Variables:**
-
-To return to production endpoints, remove the environment variables:
-
-```powershell
-# Clear custom environment variables
-Remove-Item env:HPE_COMMON_CLOUD_URL -ErrorAction SilentlyContinue
-Remove-Item env:HPE_AUTH_URL -ErrorAction SilentlyContinue
-Remove-Item env:HPE_SSO_URL -ErrorAction SilentlyContinue
+Remove-Item Env:\HPE_COMMON_CLOUD_URL -ErrorAction SilentlyContinue
 
 # Next connection will use production endpoints
 Connect-HPEGL -SSOEmail "user@company.com" -Workspace "Production"
 ```
 
 **Important Notes:**
-- ⚠️ Development and staging environments may have different data, user accounts, and configurations than production
-- ⚠️ Test workspaces and resources in non-production environments should not be used for production workflows
-- ⚠️ API behavior in development/staging environments may differ from production
-- ⚠️ Contact your HPE representative for access to non-production environments
+- ⚠️ Pavo data, user accounts, and configurations are separate from production
+- ⚠️ Always clear `HPE_COMMON_CLOUD_URL` before switching back to production — if left set, all subsequent `Connect-HPEGL` calls will target Pavo
 - 💡 These environment variables persist only for the current PowerShell session unless you set them at the system level
 
----
+[↑ Back to Top](#)
+
+
+### Global Variables Reference
+
+The module automatically maintains the following global variables throughout your session:
+
+| Variable | Purpose | When Available |
+|----------|---------|----------------|
+| `$Global:HPEGreenLakeSession` | All authentication tokens & session state | After `Connect-HPEGL` |
+| `$Global:HPEGLSchemaMetadata` | Countries (247) & Timezones (~100) | Module import |
+| `$Global:HPESupportedLanguages` | Language options for user preferences | Module import |
+| `$Global:HPECOMRegions` | Available COM regions | After workspace connection |
+| `$Global:HPECOMjobtemplatesUris` | Job template mappings | After first COM operation |
+| `$Global:HPECOMCmdletsModuleVersion` | Installed module version | Module import |
+| `$Global:HPECOMLastJobResult` | Last job cmdlet result (for post-execution inspection) | After any job cmdlet |
+| `$Global:HPECOMInvokeReturnData` | Last API response (for debugging) | After any API call |
+
+**`$Global:HPECOMLastJobResult`** is particularly useful when a job cmdlet output is truncated at the console — the full result (untruncated `message`, `jobUri`, `details`, etc.) is always accessible afterward:
+
+```powershell
+# Run a job cmdlet (output may be truncated in the console)
+Invoke-HPECOMServerFirmwareDownload -Region eu-central -Name myserver -FirmwareBaselineReleaseVersion "2025.11.01.00"
+
+# Inspect the full result at any time after
+$Global:HPECOMLastJobResult.message
+$Global:HPECOMLastJobResult.jobUri
+$Global:HPECOMLastJobResult | Format-List
+```
+
+All session-scoped variables (`HPEGreenLakeSession`, `HPECOMInvokeReturnData`, `HPECOMLastJobResult`, etc.) are automatically cleared when you run `Disconnect-HPEGL`.
+
+[↑ Back to Top](#)
+
 
 
 ## Support
@@ -682,6 +738,7 @@ This is a **community-supported library** maintained by Lionel Jullien (HPE empl
 - Community contributions are welcome! See the repository for contribution guidelines
 - Share your scripts and use cases in GitHub Discussions
 
+
 ### Official HPE Support
 
 For questions about:
@@ -689,6 +746,7 @@ For questions about:
 - **Compute Ops Management**: Refer to the [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 - **API Documentation**: Visit the [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 
+[↑ Back to Top](#)
 
 ## Common Issues and Solutions
 
@@ -721,12 +779,10 @@ For questions about:
 - Include `-RemoveExistingCredentials` in automation scripts to prevent accumulation
 - Regularly audit and remove unused API credentials from your account
 
----
 
 ### "SSO configuration issue detected" or "Domain not configured for SSO"
 
 **Error Message**: Authentication failed: SSO configuration issue detected. The domain for 'user@domain.com' is not configured for SSO or the SSO setup is incomplete.
-
 
 **Cause**: The email domain is not properly configured for SSO in HPE GreenLake, or the SSO federation setup is incomplete.
 
@@ -753,6 +809,7 @@ For questions about:
     - Refer to the [HPE GreenLake Cloud User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us) for additional configuration details
 
 **Note**: This error occurs before reaching your Identity Provider, indicating a configuration issue at the HPE GreenLake level, not with Okta/Entra ID/PingIdentity.
+
 
 ### "Timeout! MFA push notification was not approved"
 
@@ -804,7 +861,8 @@ For questions about:
 - Clear cached authentication sessions in your browser and authenticator apps
 - Retry authentication after the propagation period
 
----
+[↑ Back to Top](#)
+
 
 ### Identity Provider-Specific Issues
 
@@ -861,16 +919,18 @@ For questions about:
   - Contact your IT administrator if enrollment is not available
 
 
+[↑ Back to Top](#)
+
 ## Disclaimer
 
 Please note that the HPE GreenLake APIs are subject to change. Such changes can impact the functionality of this library. We recommend keeping the library updated to the latest version to ensure compatibility with the latest API changes.
 
 
-## Want more?
+## Additional Resources
 
 🔗 [PowerShell Gallery](https://www.powershellgallery.com/packages/HPECOMCmdlets)
 
-* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.232en_us)
+* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.242en_us)
 * [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 
@@ -916,3 +976,4 @@ This library is provided under the **MIT License**.
 - ✅ No warranty provided (use at your own risk)
 - ✅ Attribution required when redistributing
 
+[↑ Back to Top](#)

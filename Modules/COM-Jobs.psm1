@@ -51,6 +51,12 @@ function Wait-HPECOMJobComplete {
 
     .OUTPUTS
     HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        The completed job resource object with the following key properties:
+        - state: Final state of the job (e.g., "COMPLETE" for success, "ERROR" for failure, "STALLED" for a stalled job)
+        - resultCode: Result code of the job (e.g., "SUCCESS", "FAILURE")
+        - resourceUri: The resource URI of the job
+        - type: The type of job (e.g., "server-power-ops", "firmware-update", etc.)
                 
     #>
 
@@ -60,8 +66,11 @@ function Wait-HPECOMJobComplete {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -405,8 +414,11 @@ Function Get-HPECOMJob {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -436,9 +448,11 @@ Function Get-HPECOMJob {
         [Parameter (ParameterSetName = 'ShowLastThreeMonths')]
         [Parameter (ParameterSetName = 'ShowAll')]
         [Parameter (ParameterSetName = 'JobResourceUri')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (Mandatory, ParameterSetName = 'SourceName')]
+        [ValidateNotNullOrEmpty()]
         [String]$SourceName,
         
         # Pipeline is supported but it requires to change the default parameter set to JobResourceUri but then 
@@ -446,6 +460,7 @@ Function Get-HPECOMJob {
         # So I had to add the parameter set name JobResourceUri to the -Name and -Category parameters to avoid this issue + clear the $Name PS bound parameter if pipeline input
         [Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'JobResourceUri')]
         [Alias('jobUri', 'resourceUri')]
+        [ValidateNotNullOrEmpty()]
         [string]$JobResourceUri,
 
         [Parameter (ParameterSetName = 'ShowPending')]
@@ -842,7 +857,7 @@ Function Start-HPECOMserver {
 
         - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
 
-    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+    HPEGreenLake.COM.Schedules.Status [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
 
@@ -855,8 +870,11 @@ Function Start-HPECOMserver {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -878,6 +896,7 @@ Function Start-HPECOMserver {
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ScheduleSerialNumber')]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (Mandatory, ParameterSetName = 'ScheduleSerialNumber')]
@@ -1378,7 +1397,7 @@ Function Restart-HPECOMserver {
 
         - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
 
-    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+    HPEGreenLake.COM.Schedules.Status [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
 
@@ -1391,8 +1410,11 @@ Function Restart-HPECOMserver {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -1414,6 +1436,7 @@ Function Restart-HPECOMserver {
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ScheduleSerialNumber')]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (Mandatory, ParameterSetName = 'ScheduleSerialNumber')]
@@ -1911,7 +1934,7 @@ Function Stop-HPECOMserver {
 
         - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
 
-    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+    HPEGreenLake.COM.Schedules.Status [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
 
@@ -1924,8 +1947,11 @@ Function Stop-HPECOMserver {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -1947,6 +1973,7 @@ Function Stop-HPECOMserver {
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ScheduleSerialNumber')]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
         
         [Parameter (ParameterSetName = 'SerialNumber')]
@@ -2484,7 +2511,7 @@ function Update-HPECOMServerFirmware {
 
         - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
 
-    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+    HPEGreenLake.COM.Schedules.Status [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
 
@@ -2496,8 +2523,11 @@ function Update-HPECOMServerFirmware {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -2519,10 +2549,12 @@ function Update-HPECOMServerFirmware {
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ScheduleSerialNumber')]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
         
         [Parameter (Mandatory)]
         [Alias('FirmwareBundleReleaseVersion')]
+        [ValidateNotNullOrEmpty()]
         [String]$FirmwareBaselineReleaseVersion,
 
         [Parameter (Mandatory, ParameterSetName = 'ScheduleSerialNumber')]
@@ -3169,7 +3201,7 @@ function Update-HPECOMServeriLOFirmware {
 
         - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
 
-    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+    HPEGreenLake.COM.Schedules.Status [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
 
@@ -3181,8 +3213,11 @@ function Update-HPECOMServeriLOFirmware {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -3203,6 +3238,7 @@ function Update-HPECOMServeriLOFirmware {
         
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)] 
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (ParameterSetName = 'Scheduled')]
@@ -3762,7 +3798,7 @@ function Invoke-HPECOMServerFirmwareDownload {
           its progress using the `state` and `resultCode` properties, or by passing the job object to
           `Wait-HPECOMJobComplete` for blocking/waiting behavior.
 
-    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+    HPEGreenLake.COM.Schedules.Status [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
 
@@ -3774,8 +3810,11 @@ function Invoke-HPECOMServerFirmwareDownload {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -3797,8 +3836,10 @@ function Invoke-HPECOMServerFirmwareDownload {
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ScheduleSerialNumber')]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
+        [ValidateNotNullOrEmpty()]
         [String]$FirmwareBaselineReleaseVersion,
 
         [Parameter (Mandatory, ParameterSetName = 'ScheduleSerialNumber')]
@@ -4513,8 +4554,11 @@ function Invoke-HPECOMGroupServerFirmwareDownload {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -4534,10 +4578,12 @@ function Invoke-HPECOMGroupServerFirmwareDownload {
         [String]$Region,
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [Parameter (Mandatory, ParameterSetName = 'Schedule')]
@@ -5068,6 +5114,12 @@ function Update-HPECOMGroupServerFirmware {
         List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -5089,8 +5141,6 @@ function Update-HPECOMGroupServerFirmware {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
@@ -5103,8 +5153,11 @@ function Update-HPECOMGroupServerFirmware {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -5124,10 +5177,12 @@ function Update-HPECOMGroupServerFirmware {
         [String]$Region,      
                 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [Parameter (ParameterSetName = 'Scheduled')]
@@ -5606,6 +5661,12 @@ function Stop-HPECOMGroupServerFirmware {
         List of jobs from 'Get-HPECOMJob'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -5627,8 +5688,6 @@ function Stop-HPECOMGroupServerFirmware {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     #>
 
     [CmdletBinding(DefaultParameterSetName = 'GroupNameSerial')]
@@ -5637,8 +5696,11 @@ function Stop-HPECOMGroupServerFirmware {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -5895,6 +5957,12 @@ function Invoke-HPECOMGroupServerFirmwareComplianceCheck {
         List of groups from 'Get-HPECOMGroup'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -5916,8 +5984,6 @@ function Invoke-HPECOMGroupServerFirmwareComplianceCheck {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
@@ -5930,8 +5996,11 @@ function Invoke-HPECOMGroupServerFirmwareComplianceCheck {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -5952,6 +6021,7 @@ function Invoke-HPECOMGroupServerFirmwareComplianceCheck {
         
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ValueFromPipeline)]
         [alias('name')]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (Mandatory, ParameterSetName = 'Schedule')]
@@ -6299,8 +6369,11 @@ function Get-HPECOMGroupServerFirmwareCompliance {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -6320,11 +6393,13 @@ function Get-HPECOMGroupServerFirmwareCompliance {
         [String]$Region,      
         
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (ValueFromPipelineByPropertyName, ParameterSetName = 'ServerSerialNumber')]
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'DeviationsServerSerialNumber')]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [Parameter (ParameterSetName = 'DeviationsServerSerialNumber')]
@@ -6530,7 +6605,7 @@ function Invoke-HPECOMServerExternalStorage {
 
         - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
 
-    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+    HPEGreenLake.COM.Schedules.Status [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
 
@@ -6542,8 +6617,11 @@ function Invoke-HPECOMServerExternalStorage {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -6565,6 +6643,7 @@ function Invoke-HPECOMServerExternalStorage {
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ScheduleSerialNumber')]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (Mandatory, ParameterSetName = 'ScheduleSerialNumber')]
@@ -6999,6 +7078,12 @@ function Invoke-HPECOMGroupServerInternalStorageConfiguration {
         List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -7020,8 +7105,6 @@ function Invoke-HPECOMGroupServerInternalStorageConfiguration {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     #>
 
     [CmdletBinding()]
@@ -7030,8 +7113,11 @@ function Invoke-HPECOMGroupServerInternalStorageConfiguration {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -7051,10 +7137,12 @@ function Invoke-HPECOMGroupServerInternalStorageConfiguration {
         [String]$Region,      
                 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [switch]$AllowStorageVolumeDeletion,
@@ -7414,6 +7502,12 @@ function Invoke-HPECOMGroupServerOSInstallation {
         List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.    
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -7434,8 +7528,6 @@ function Invoke-HPECOMGroupServerOSInstallation {
                 - `duration`: The time taken for the job to complete
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
-
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
  
     #>
 
@@ -7445,8 +7537,11 @@ function Invoke-HPECOMGroupServerOSInstallation {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -7467,10 +7562,12 @@ function Invoke-HPECOMGroupServerOSInstallation {
                 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = "GroupNameSerial")]
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = "GroupNameParallel")]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
         
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [Parameter (ParameterSetName = 'GroupNameSerial')]
@@ -7908,6 +8005,12 @@ function Invoke-HPECOMGroupServerBiosConfiguration {
         List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -7929,8 +8032,6 @@ function Invoke-HPECOMGroupServerBiosConfiguration {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     #>
 
     [CmdletBinding()]
@@ -7939,8 +8040,11 @@ function Invoke-HPECOMGroupServerBiosConfiguration {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -7960,10 +8064,12 @@ function Invoke-HPECOMGroupServerBiosConfiguration {
         [String]$Region,      
                 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
         
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [switch]$ParallelConfigurations,
@@ -8333,6 +8439,12 @@ function Invoke-HPECOMGroupServeriLOConfiguration {
         List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -8354,8 +8466,6 @@ function Invoke-HPECOMGroupServeriLOConfiguration {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     #>
 
     [CmdletBinding()]
@@ -8364,8 +8474,11 @@ function Invoke-HPECOMGroupServeriLOConfiguration {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -8385,10 +8498,12 @@ function Invoke-HPECOMGroupServeriLOConfiguration {
         [String]$Region,      
                 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
         
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [switch]$Async,
@@ -8735,6 +8850,12 @@ function Invoke-HPECOMGroupServeriLOConfigurationCompliance {
         List of servers from 'Get-HPECOMServer' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -8756,8 +8877,6 @@ function Invoke-HPECOMGroupServeriLOConfigurationCompliance {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
@@ -8771,8 +8890,11 @@ function Invoke-HPECOMGroupServeriLOConfigurationCompliance {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -8792,10 +8914,12 @@ function Invoke-HPECOMGroupServeriLOConfigurationCompliance {
         [String]$Region,      
         
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [Parameter (Mandatory, ParameterSetName = 'Schedule')]
@@ -9148,8 +9272,11 @@ function Get-HPECOMGroupServeriLOConfigurationCompliance {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -9169,10 +9296,12 @@ function Get-HPECOMGroupServeriLOConfigurationCompliance {
         [String]$Region,      
         
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [switch]$ShowDeviations,
@@ -9311,6 +9440,12 @@ function Invoke-HPECOMGroupServerExternalStorageConfiguration {
     No pipeline input is supported
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -9332,8 +9467,6 @@ function Invoke-HPECOMGroupServerExternalStorageConfiguration {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     #>
 
     [CmdletBinding()]
@@ -9342,8 +9475,11 @@ function Invoke-HPECOMGroupServerExternalStorageConfiguration {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -9363,6 +9499,7 @@ function Invoke-HPECOMGroupServerExternalStorageConfiguration {
         [String]$Region,      
                 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [switch]$Async,
@@ -9596,6 +9733,12 @@ function Invoke-HPECOMGroupServerExternalStorageComplianceCheck {
         List of groups from 'Get-HPECOMGroup'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -9617,8 +9760,6 @@ function Invoke-HPECOMGroupServerExternalStorageComplianceCheck {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
@@ -9631,8 +9772,11 @@ function Invoke-HPECOMGroupServerExternalStorageComplianceCheck {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -9653,6 +9797,7 @@ function Invoke-HPECOMGroupServerExternalStorageComplianceCheck {
         
         [Parameter (Mandatory, ValueFromPipelineByPropertyName, ValueFromPipeline)]
         [alias('name')]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
                 
         [Parameter (Mandatory, ParameterSetName = 'Schedule')]
@@ -10048,33 +10193,24 @@ function Update-HPECOMApplianceFirmware {
         List of appliances from 'Get-HPECOMAppliance'.
 
     .OUTPUTS
-    HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
 
-        - When the job completes, the returned object contains detailed job status information, including:
-            - `state`: The final state of the job, such as:
-                - COMPLETE (job finished successfully)
-                - ERROR (job failed)
-                - STALLED (job is not making progress)
-                - PENDING (job is queued and waiting to start)
-                - RUNNING (job is currently in progress)
-            - `resultCode`: The result of the job execution, such as:
-                - SUCCESS (operation completed successfully)
-                - FAILURE (operation failed)
-                - null (job is still running or in a non-terminal state)
-            - Additional properties may include:
-                - `associatedResource`: The resource associated with the job
-                - `date`: The date and time when the job was created
-                - `jobUri`: The URI of the job resource
-                - `duration`: The time taken for the job to complete
-                - `message`: Any informational or error messages returned by the job
-                - `details`: The full job resource object with all available metadata
-
-        - By default, the cmdlet operates asynchronously and returns the job resource immediately (state = RUNNING or PENDING), allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete`.
-        - If the `-Wait` switch is used, the cmdlet blocks until the job reaches a terminal state and returns the completed job status.
+        The appliance firmware update job resource, returned both in the default mode and after -Wait completes.
+        Key properties include:
+        - state: Current job state (RUNNING, PENDING, COMPLETE, ERROR, STALLED)
+        - resultCode: Result of the job (SUCCESS, FAILURE)
+        - status: Simplified status indicator (e.g., "Complete", "Warning", "Failed")
+        - name: Name of the job template used (e.g., "ApplianceFwUpdate")
+        - associatedResource: The appliance resource associated with the job
+        - date: Date and time when the job was created
+        - jobUri: URI of the job resource
+        - duration: Time taken for the job to complete
+        - message: Any informational or error messages returned by the job
+        - region: The COM region code where the job was submitted
 
     HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
 
-        - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
+        The schedule job object returned when `-ScheduleTime` is used.
 
 
     #>
@@ -10086,8 +10222,11 @@ function Update-HPECOMApplianceFirmware {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -10112,6 +10251,7 @@ function Update-HPECOMApplianceFirmware {
         [string]$IPAddress,
         
         [Parameter (Mandatory)]
+        [ValidateNotNullOrEmpty()]
         [String]$ApplianceFirmwareBundleReleaseVersion,
 
         [Parameter (ParameterSetName = 'Scheduled')]
@@ -10531,8 +10671,11 @@ function Update-HPECOMGroupApplianceFirmware {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -10552,10 +10695,12 @@ function Update-HPECOMGroupApplianceFirmware {
         [String]$Region,      
                 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
         [Alias('name', 'IPAddress')]
+        [ValidateNotNullOrEmpty()]
         [String]$ApplianceName,
 
         [Parameter (ParameterSetName = 'Scheduled')]
@@ -11255,6 +11400,12 @@ function Invoke-HPECOMGroupApplianceSettings {
         List of appliances from 'Get-HPECOMAppliance' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -11276,8 +11427,6 @@ function Invoke-HPECOMGroupApplianceSettings {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     #>
 
     [CmdletBinding()]
@@ -11286,8 +11435,11 @@ function Invoke-HPECOMGroupApplianceSettings {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -11307,10 +11459,12 @@ function Invoke-HPECOMGroupApplianceSettings {
         [String]$Region,      
                 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
         [Alias('name', 'IPAddress')]
+        [ValidateNotNullOrEmpty()]
         [String]$ApplianceName,
 
         [switch]$Async,
@@ -11844,6 +11998,12 @@ function Copy-HPECOMGroupApplianceServerProfileTemplate {
         List of appliances from 'Get-HPECOMAppliance' or 'Get-HPECOMGroup -ShowMembers'.
 
     .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - If the -Async switch is used, the cmdlet returns the job resource immediately, allowing you to monitor
+          its progress using the `state` and `resultCode` properties, or by passing the job object to
+          `Wait-HPECOMJobComplete` for blocking/waiting behavior.
+
     HPEGreenLake.COM.Jobs.Status [System.Management.Automation.PSCustomObject]
 
         - When the job completes, the returned object contains detailed job status information, including:
@@ -11865,8 +12025,6 @@ function Copy-HPECOMGroupApplianceServerProfileTemplate {
                 - `message`: Any informational or error messages returned by the job
                 - `details`: The full job resource object with all available metadata
 
-        - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
-
     #>
 
     [CmdletBinding()]
@@ -11875,8 +12033,11 @@ function Copy-HPECOMGroupApplianceServerProfileTemplate {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -11896,10 +12057,12 @@ function Copy-HPECOMGroupApplianceServerProfileTemplate {
         [String]$Region,      
                 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
+        [ValidateNotNullOrEmpty()]
         [String]$GroupName,
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName)] 
         [Alias('name', 'IPAddress')]
+        [ValidateNotNullOrEmpty()]
         [String]$ApplianceName,
 
         [switch]$Async,
@@ -12401,8 +12564,11 @@ function Get-HPECOMIloSecuritySatus {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -12423,6 +12589,7 @@ function Get-HPECOMIloSecuritySatus {
 
         [Parameter (ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ByName')]
         # [Alias('name')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [switch]$WhatIf
@@ -12656,8 +12823,11 @@ function Enable-HPECOMIloIgnoreRiskSetting {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -12678,6 +12848,7 @@ function Enable-HPECOMIloIgnoreRiskSetting {
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [Parameter (ParameterSetName = 'Custom')]
@@ -13143,8 +13314,11 @@ function Disable-HPECOMIloIgnoreRiskSetting {
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)] 
         [ValidateScript({
                 # First check if there's an active session with COM regions
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 # Then validate the region
                 if (($_ -in $Global:HPECOMRegions.region)) {
@@ -13165,6 +13339,7 @@ function Disable-HPECOMIloIgnoreRiskSetting {
 
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$ServerName,
 
         [Parameter (ParameterSetName = 'Custom')]
@@ -13756,7 +13931,7 @@ Function Set-HPECOMServerUIDIndicator {
 
         - If the `-Async` switch is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete` for blocking/waiting behavior.
 
-    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+    HPEGreenLake.COM.Schedules.Status [System.Management.Automation.PSCustomObject]
 
         - The schedule job object that includes the schedule details when `-ScheduleTime` is used.
 
@@ -13768,8 +13943,11 @@ Function Set-HPECOMServerUIDIndicator {
 
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
         [ValidateScript({
-                if (-not $Global:HPEGreenLakeSession -or -not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
-                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use HPE GreenLake cmdlets."
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
                 }
                 if (($_ -in $Global:HPECOMRegions.region)) {
                     $true
@@ -13789,6 +13967,7 @@ Function Set-HPECOMServerUIDIndicator {
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'SerialNumber')]
         [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'ScheduleSerialNumber')]
         [Alias('ServerSerialNumber', 'serial', 'serialnumber')]
+        [ValidateNotNullOrEmpty()]
         [String]$Name,
 
         [Parameter (Mandatory)]
@@ -14287,8 +14466,8 @@ Export-ModuleMember -Function `
 # SIG # Begin signature block
 # MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBP4fcJae4/YqeM
-# zB4m8nZRAZ+JGwbWC86aDkE8zoVLh6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAO5E+EiOtNr5ze
+# N69JOdyPZJ7Fu8F07Qal+PRqk9EeUqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -14389,23 +14568,23 @@ Export-ModuleMember -Function `
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgs58PqOCb2JM9Gyx/P2FMKNHfd7QNXyCvKEHe8K1FZxUwDQYJKoZIhvcNAQEB
-# BQAEggIAT+z8h6xdADOoafKsIDjuAaRTSF0p64PLcaal+ZYC/FoVm9CEh5b7++MZ
-# ZBKUtLiAZK2ls/36RI0mvIXwUelD7vYhNZeliZZGsq9931I0KH96jWC9IYy3WKAK
-# pjnVYR7LmSvz+1DJQAPB5/nhsPFh4ono/oxSPidCblUUY4ew0sotJVCsDILImKc1
-# CChfh9YEOMefAKeXZ2cBvG2UQb4a80YnslFgcjcnhKU2jQ9iT/n19zLuEYxa7alS
-# HZBXHDbmE/zHhTC5Xt1WWwVTle1p7HeQXvsA+tnicl40FRZQi0DBNGvJaC7Zn7W9
-# 8dJzTzuF03XLk5PJb5HaWvsjsRGRo3uZaAVpdYloQU5m6rIMyTaRd239j8sI00n9
-# 1fvndgpyF3pADHWemKpM8Tlv2HGSs4pHEG1rIt+gJMokDxpo+QTBU/Z50cTDa+26
-# HEq1j8XcWGssoGBeh3FaFhMoLFuvUHPyoJ43pPgxy0fCXE3tEx67DPmT+oPkAdzw
-# Rra9cK7uS6TJFVz/ypgS7Rvnsj7xBmtlV69iwgxbfVnnD8D+q0thfysoo8/VB5AA
-# SVFW9ccDhqqYR8J5pjBcZLPSLzRU7jOvI33obPVfKe8RyiN0c4bKSN3zI0hM8KUS
-# 8BA2F1PBbsZuaAAZj8/rnnlBKMT+tBdq4FOUddom3FrrgW2LH7ahgheXMIIXkwYK
+# IgQgW6PB8M2cc7madwp70N4zOomk78vPZ5UEIT6r7+bo3/UwDQYJKoZIhvcNAQEB
+# BQAEggIAtPGI1nVSWPCpwVRk1N/S1LNXN5d9oEQIzjatV7Iu4UC/r1IoaId/mr+7
+# b0iVlqCnJZKxG685xWhA0ZAdLCwRIERN6hRwixVweWMQwkMVeM/dHtP6nn/CsaJu
+# 3srLKQ6BVcjwFPADJsf7Tgnnv7VQdtF3lmmJrD8qYFzHVxCqGLSdeuXda82POPOg
+# D1GWY0kS+K04zPNJ57ShL8HwBg2Z14SLCUZh0LOM+rm4mQ/Oy13D7to+WmsW5Peq
+# 2Q8bcH9nnmYuysLvLnedaj8BqPM/OWKbgHfaHiCNk/AGqMYjThHgf3dk0sdZPCLy
+# 8cJYxx6KmYSnaKQ9ELR+pcM0x03qC10n3tCDCG/0BY/y+NLeO3IwfkuHWBgR3EGL
+# GS4tZghQODaphuU2E9yMNCJOZ369YaRZD/Ma+C8VObwXdjmmu1UZaZ0KmYKRT8xi
+# eyIIag0Nam1VmqoLzSa3ImKrbMPbSoqp42/4pd3cUOcFUy2ngixUbEYmJy7vdHKf
+# T/S72fGhyBvZdqyVpktpCNFfoKPPAW7fjSIbHdGidEgoj8jNK3wH1FFu5TE8k9TN
+# sf4TC1v3gp1OmkrL5F6CeZbRi6iVshnHEGWFJ/t2I20WYw16oG+SAUaOQPp20kpV
+# n4fAVojIE5is/jCnk89e7nDQt7sxvqLGFk3OCFjH4fPegJIv2SOhgheXMIIXkwYK
 # KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMMUzbubCnQL+RjUsKy4kyrVLvqMn9RT1LYjREgwxxX8d
-# fZIdpMb4n4XMaka+9OGVnAIQC79HvLEm7SSSjgmJM4eYpBgPMjAyNjAzMTcxNDI4
-# MDNaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# DQYJYIZIAWUDBAICBQAEMHgCeZHribJ/+VkbiFgu3vETgExODm04t+nLH/V0+TZ2
+# aGy0ru0mrPxhqwJiCqnvrwIQSmSC3GLZC8fSmdgkD04m2BgPMjAyNjA0MTUwOTEw
+# MjBaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
 # AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
 # PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
 # IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
@@ -14511,20 +14690,20 @@ Export-ModuleMember -Function `
 # MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
 # OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
 # IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwMzE3
-# MTQyODAzWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwNDE1
+# MDkxMDIwWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
 # UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwLyNPY41mjTlc12rvb1vNdShD
-# itCqtfCjHr+FHyvsKe1UFCToYDuxfU0CUQtz4zHmMA0GCSqGSIb3DQEBAQUABIIC
-# AIzpdavYFk3uufwWIr+kTbgWLlIm49rIDFFtSDaDJe9AzphaBZrikWIbCgCALaQ6
-# liwJhHbcsrOP+y69rxZG6f1j6Ll2NlUPGUsXrU0pwth6pXs+g8uZ0Q6Oo399resA
-# Y+O0ofI7FVnpCp+S+W8+AZqJFF83PRaLW/NwKA82cQ4MFiwlMWP2PVF5LT0mzRni
-# 9SRKoag0ELYUQFp14cMOfh50czxn66mZvGU4eeBV9JqXGrea3oATGWSBdG6qiwTq
-# wB6okWsLk9MJcpMtZLZ5zkH97g5VYryo92oYsp1lCFXVjL6Aw7S8HG/VuHPRGTZK
-# KU8FAUy/Nr6reUStC3pC4QBuVak7xCOlAhAqEh8XW4lbJzVZXzXqIiyHAV5Yt9ky
-# f16MmKvuIYK28WyRmU6GAjFmqar9m9ZAIzkRy5fHFSkmqMfrIqMNEULN1zOWw+SY
-# Rx8LkYVk71sABOxkDV91cPnHkd6+VjJpBpIhgIy09/UDlMuAULCpJdymmjcNYP3M
-# s9L56gZcSDg3NcYo3AKAfMmZyruDo2SFdXV9jxfBROuHor4vIPnsaeUwRVCa8zEc
-# tX6s7zQ5bBan+HmUY7CR4RxbJNDTEuG9wiffnhnpWClNadvxcXD29lWuuUIpKqff
-# vhHmhGmG0gLKh1zCjJSmguN+dvF/IOHaGcVcBNZGap/n
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQwKw/m0alD7J7JShpqCYlUpAm8
+# ISy8MtIBPyUVVkFS2RITfiQkvknroaus70mTWsS5MA0GCSqGSIb3DQEBAQUABIIC
+# AJMHk3+x47qJrE9OSPq2kxw4I1knAIvojZnQuEafYC3ZWXwviiQC6uWAYKhrqguf
+# 5uYug+8wVKm4vK+tlEBt+fftDTY/oGJvEYXFrTi3qbOU/NPdCWeP2qHL7xtTGwct
+# aiilea8bylmBXEySQp1hkyS7LQwTmN30tFhaig7CcWCPlVlqwCjv6oHCc951NNLk
+# iULJDi32q28XhUOrDKMeVR8mq9yVHxO6huaP7oGKeSzdFpiWyxJJfB8qWDrIJu+Y
+# VdJvFFDV58deYCWevcuD3ihYzEqLk0Jua+gm32E595ziuP/iISmLTZHoTXEF1ZPp
+# 24w1aU7an8xrvy3hHb+dDHiZDcTmncWFziMH0xBjuMXuVIVYZZDiyFlkTf6UBU53
+# QjsII3e5asfooerUaVFz716uW/05VUsSlK4HjWntx+dsopI0YSFwHsw3Iha0tVmR
+# W5eLCM1LNJZCyR0bXb7RUv4xkwzxvLBev8fYCRU2aVEVayw+JZRTpiXs4n6o3cmT
+# tjNKTUY4YDsPZDF+OqrHSTYyQsm7xC3IxXmCJ+OR7PEnTDLfgzI5HnjLZZfj5Om1
+# NTpEOKFExTWT1Uzf/+eA9A4jPUVQqrX8bLPLO8y4L/etdY5SPCt8g9dzTtuKAOYU
+# Ek3AamloFGhGD2Mx/HLIHaNiq5BgOxrNKDfz4cYXryJB
 # SIG # End signature block

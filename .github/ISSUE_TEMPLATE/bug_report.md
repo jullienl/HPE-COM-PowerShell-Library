@@ -35,3 +35,10 @@ assignees: ''
 
 **Error messages:**  
 [Include any error messages or screenshots]
+
+**Verbose output:**  
+For each error encountered, please provide the verbose output to help diagnose the issue. You can capture it to a file by appending `–Verbose *> verbose.txt` to the failing command, for example:
+```powershell
+Connect-HPEGL -Credential $creds –Verbose *> verbose.txt
+```
+Then attach or paste the content of `verbose.txt` here.
