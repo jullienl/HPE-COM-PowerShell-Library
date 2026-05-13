@@ -12,7 +12,7 @@ This library is actively maintained with continuous updates to support new HPE G
 
 | Version | Downloads | Status | PowerShell |
 |---------|-----------|--------|------------|
-| 1.0.24 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
+| 1.0.25 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
 
 
 ## Table of Contents
@@ -168,7 +168,7 @@ Get-Command -Module HPECOMCmdlets
 
 - **Workspace Type Compatibility**:
 
-  - **Enhanced workspaces (IAMv2):** Fully supported since v1.0.24 
+  - **Enhanced workspaces (IAMv2):** Fully supported since v1.0.25 
     - ✅ Complete feature set including new organization management, user groups, and scope-based access control (SBAC)
     - ✅ Advanced identity features: domains, SSO connections, authentication policies
     - ✅ Modern user and role management with improved security
@@ -178,7 +178,7 @@ Get-Command -Module HPECOMCmdlets
     - ✅ Core functionality remains fully operational
     - ⚠️ Some SAML SSO domain functions are deprecated (migration guidance provided)
     - ⚠️ Limited access to newer IAMv2-specific features (user groups, advanced SBAC, etc.)
-    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.24.md#migration-guide) in release notes for updating deprecated functions 
+    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.25.md#migration-guide) in release notes for updating deprecated functions 
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
@@ -930,7 +930,7 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 
 🔗 [PowerShell Gallery](https://www.powershellgallery.com/packages/HPECOMCmdlets)
 
-* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.242en_us)
+* [HPE GreenLake Edge-to-Cloud Platform User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a001.0.252en_us)
 * [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)
 

@@ -121,8 +121,8 @@
     re-authentication, particularly valuable in automated testing and CI/CD pipelines.
     
     Author: HPE
-    Version: 1.2
-    Last Updated: April 2026
+    Version: 1.3
+    Last Updated: May 2026
 
 .PARAMETER OnlyProvision
     When specified, runs only the provisioning workflow (Steps 1-13) without executing the cleanup 
@@ -370,15 +370,59 @@
     instead of the randomly generated default. Useful when you want a predictable workspace name for 
     easier identification or later cleanup.
 
+.WHATSNEW
+    v1.3 - May 2026
+     - Added $UseSSOAuth variable in the Configuration section to switch between federated SSO
+       authentication (Microsoft Entra ID, Okta, PingID) and standard credential-based login.
+       When set to $true, all Connect-HPEGL calls throughout the script use -SSOEmail $MyEmail
+       (no password prompt). When set to $false (default), the original Get-Credential prompt
+       is used. Requires HPECOMCmdlets v1.0.25 or later for full SSO support.
+     - Added Icon key to $WorkspaceConfig in the Configuration section. When set to a valid PNG
+       or JPEG file path (max 1 MB), the script automatically calls Set-HPEGLWorkspace -LogoPath
+       after workspace creation to upload the image as the workspace logo. Leave the value as
+       $null or remove it to skip icon upload.
+
+    v1.2 - April 2026
+     - Optimized cleanup workflow: workspace session is now saved immediately after provisioning
+       via Save-HPEGLSession and restored during cleanup via Restore-HPEGLSession to avoid
+       unnecessary re-authentication delays. Automatically falls back to full re-authentication
+       if the saved session is no longer valid.
+     - Added workspace deletion prerequisites validation: the script now calls
+       Remove-HPEGLWorkspace -ValidatePrerequisites before attempting deletion, reports any
+       blocking resources, and skips deletion when the workspace is not clean.
+     - Added retry logic for workspace deletion: up to 3 attempts with 10-second delays between
+       retries to handle transient API failures.
+     - Improved parking lot device-move tracking: per-device failures are counted and workspace
+       deletion is only attempted when all devices were successfully moved.
+     - Adopted lazy credential acquisition: credentials are only prompted when no valid session
+       exists, reducing unnecessary prompts in cleanup-only mode (-OnlyCleanup).
+
+    v1.1 - March 2026
+     - Added -WorkspaceName parameter to specify the target workspace name at runtime, overriding
+       the randomly generated default. Required when using -OnlyCleanup to target a specific workspace.
+     - Added -OnlyProvision and -OnlyCleanup switch parameters for running individual workflow
+       phases independently.
+     - Added $ParkingLotWorkspace support to move devices to an existing workspace before
+       workspace deletion, enabling cleanup when devices cannot be removed directly.
+     - Improved server onboarding wait logic with configurable timeout (5-minute base + 1 minute
+       per server) and parallel progress tracking using a HashSet for connected IP addresses.
+
+    v1.0 - February 2026
+     - Initial release: complete end-to-end Zero Touch Automation workflow for HPE Compute Ops
+       Management. Covers workspace provisioning, user management, organization join, COM service
+       enablement, location creation, subscription management, server onboarding, device
+       configuration (tags, location, service delivery contact), server settings (BIOS, storage,
+       firmware, iLO), group creation with auto-apply policies, email notification configuration,
+       firmware update scheduling, and optional full environment cleanup.
+
 .LINK
     https://github.com/jullienl/HPE-COM-PowerShell-Library
     https://jullienl.github.io/PowerShell-library-for-HPE-GreenLake
     
-    # Requires -Modules @{ ModuleName = 'HPECOMCmdlets'; ModuleVersion = '1.0.24' }
 #>
 
 #Requires -Version 7.0
-#Requires -Modules @{ ModuleName = 'HPECOMCmdlets'; ModuleVersion = '1.0.24' }
+#Requires -Modules @{ ModuleName = 'HPECOMCmdlets'; ModuleVersion = '1.0.25' }
 
 [CmdletBinding(DefaultParameterSetName = 'Default')]
 param (
@@ -397,21 +441,29 @@ param (
 #Region - CONFIGURATION SECTION - Customize these values for your environment
 # ============================================================================
 
+# HPE GreenLake Credentials
+$MyEmail = "admin@company.com"  # Your HPE GreenLake account email
+
+# Authentication Mode
+# Set to $true if your HPE GreenLake account requires SSO (federated identity: Entra ID, Okta, PingID, etc.)
+# Set to $false to use standard username/password credentials
+$UseSSOAuth = $false
+
 # Workspace Configuration
 # Note: WorkspaceName parameter takes precedence if specified
 
 $WorkspaceConfig = @{
     Name       = if ($WorkspaceName) { $WorkspaceName } else { "Production-Workspace-$(Get-Random -Maximum 9999)" }
+    Email      = $MyEmail
     Type       = 'Standard enterprise workspace'
     Street     = "3000 Hanover Street"
     City       = "Palo Alto"
     State      = "CA"
     PostalCode = "94304"
     Country    = "United States"
-}
+    Icon       = $null # Optional: Set to the file path of a PNG or JPEG image (max 1 MB) to use as the workspace logo. Example: "C:\path\to\icon.png". Leave as $null to skip.
 
-# HPE GreenLake Credentials
-$MyEmail = "admin@company.com"  # Your HPE GreenLake account email
+}
 
 # Additional User to Provision
 $AdditionalUser = @{
@@ -594,8 +646,13 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
 
     Write-Info "Connecting to HPE GreenLake..."
     try {
-        $Credential = Get-Credential -UserName $MyEmail -Message "Enter your HPE GreenLake credentials"
-        Connect-HPEGL -Credential $Credential -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+        if ($UseSSOAuth) {
+            Connect-HPEGL -SSOEmail $MyEmail -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+        }
+        else {
+            $Credential = Get-Credential -UserName $MyEmail -Message "Enter your HPE GreenLake credentials"
+            Connect-HPEGL -Credential $Credential -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+        }
         Write-Success "Connected to HPE GreenLake successfully"
     }
     catch {
@@ -618,6 +675,7 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
         Write-Info "Creating workspace: $($WorkspaceConfig.Name)..."
         $WorkspaceTask = New-HPEGLWorkspace `
             -Name $WorkspaceConfig.Name `
+            -Email $WorkspaceConfig.Email `
             -Type $WorkspaceConfig.Type `
             -Street $WorkspaceConfig.Street `
             -City $WorkspaceConfig.City `
@@ -642,13 +700,36 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
     try {
         Write-Info "Connecting to workspace: $($WorkspaceConfig.Name)..."
     
-        Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+        if ($UseSSOAuth) {
+            Connect-HPEGL -SSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+        }
+        else {
+            Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+        }
 
         Write-Success "Connected to workspace '$($WorkspaceConfig.Name)' successfully"
     }
     catch {
         Write-Failure "Failed to connect to workspace: $($_.Exception.Message)"
         exit 1
+    }
+
+    # Set workspace icon (optional)
+    if ($WorkspaceConfig.Icon) {
+        try {
+            Write-Info "Setting workspace icon..."
+            $IconTask = Set-HPEGLWorkspace -LogoPath $WorkspaceConfig.Icon -ErrorAction Stop
+    
+            if ($IconTask.Status -eq "Complete") {
+                Write-Success "Workspace icon set successfully"
+            }
+            else {
+                Write-Failure "Failed to set workspace icon: $($IconTask.Status) - $($IconTask.Details)"
+            }
+        }
+        catch {
+            Write-Failure "Failed to set workspace icon: $($_.Exception.Message)"
+        }
     }
 
     #EndRegion
@@ -957,7 +1038,7 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
                 -ActivationKeyfromCOM $ActivationKey `
                 -SkipCertificateValidation `
                 -RemoveExistingiLOProxySettings `
-                -ConnectionMonitoringTimeoutSeconds 120 `
+                -ConnectionMonitoringTimeoutSeconds 300 `
                 -ResetiLOIfProxyErrorPersists
         
             if ($ConnectionTask.Status -eq "Complete") {
@@ -1404,12 +1485,17 @@ if (-not $OnlyProvision) {
         else {
             Write-Info "No valid session available, reconnecting to workspace for cleanup..."
          
-            if (-not $Credential) {
+            if (-not $UseSSOAuth -and -not $Credential) {
                 $Credential = Get-Credential -UserName $MyEmail -Message "Enter your HPE GreenLake credentials"
             }
 
             try {
-                Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+                if ($UseSSOAuth) {
+                    Connect-HPEGL -SSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+                }
+                else {
+                    Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+                }
                 $CurrentWorkspaceSession = Save-HPEGLSession
                 Write-Success "Connected to workspace '$($WorkspaceConfig.Name)' for cleanup"
             }
@@ -1468,7 +1554,7 @@ if (-not $OnlyProvision) {
                     # Check if HPEiLOCmdlets module is available
                     if (Get-Module -ListAvailable -Name HPEiLOCmdlets) {
                         Import-Module HPEiLOCmdlets -ErrorAction SilentlyContinue
-                        $connection = Connect-HPEiLO -Address $Server.iLOIP -Credential $iLOCredential -DisableCertificateAuthentication -ErrorAction Stop
+                        $connection = Connect-HPEiLO -Address $Server.iLOIP -Credential $iLOCredential -DisableCertificateAuthentication -ErrorAction Stop -WarningAction SilentlyContinue
                     
                         if ($connection) {
                             $comStatus = Get-HPEiLOComputeOpsManagementStatus -Connection $connection -ErrorAction Stop | Select-Object -ExpandProperty CloudConnectStatus
@@ -1503,7 +1589,27 @@ if (-not $OnlyProvision) {
             $CleanupErrors += "iLO operations: $($_.Exception.Message)"
         }
     
-        # Remove subscriptions
+        # Remove COM service
+        try {
+            Write-Info "Removing Compute Ops Management service..."
+            $Service = Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned -Region $COMRegion
+            if ($Service) {
+                $Service | Remove-HPEGLService -Force | Out-Null
+                Write-Success "Compute Ops Management service removed from region '$COMRegion'"
+                # Wait for service removal to propagate before removing subscriptions
+                Write-Info "Waiting for service removal to propagate..."
+                Start-Sleep -Seconds 10
+            }
+            else {
+                Write-Info "No COM service to remove"
+            }
+        }
+        catch {
+            Write-Failure "Error removing service: $($_.Exception.Message)"
+            $CleanupErrors += "Service removal: $($_.Exception.Message)"
+        }
+    
+        # Remove subscriptions (must be after COM service removal to release consumed quantities)
         try {
             Write-Info "Removing subscription(s)..."
             $Subscriptions = Get-HPEGLSubscription
@@ -1538,26 +1644,6 @@ if (-not $OnlyProvision) {
             $CleanupErrors += "User removal: $($_.Exception.Message)"
         }
     
-        # Remove COM service
-        try {
-            Write-Info "Removing Compute Ops Management service..."
-            $Service = Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned -Region $COMRegion
-            if ($Service) {
-                $Service | Remove-HPEGLService -Force | Out-Null
-                Write-Success "Compute Ops Management service removed from region '$COMRegion'"
-                # No devices to move, just wait for service removal
-                Write-Info "Waiting for service removal to propagate..."
-                Start-Sleep -Seconds 5
-            }
-            else {
-                Write-Info "No COM service to remove"
-            }
-        }
-        catch {
-            Write-Failure "Error removing service: $($_.Exception.Message)"
-            $CleanupErrors += "Service removal: $($_.Exception.Message)"
-        }
-    
         $allDevicesMoved = $false
         # Move devices to parking lot workspace (if configured and devices exist)
         if ($DevicesBeforeCleanup -and $DevicesBeforeCleanup.Count -gt 0) {
@@ -1566,12 +1652,17 @@ if (-not $OnlyProvision) {
                     Write-Info "Moving $($DevicesBeforeCleanup.Count) device(s) to parking lot workspace '$ParkingLotWorkspace'..."
                 
                     # Ensure credentials are available for parking lot connection
-                    if (-not $Credential) {
+                    if (-not $UseSSOAuth -and -not $Credential) {
                         $Credential = Get-Credential -UserName $MyEmail -Message "Enter your HPE GreenLake credentials"
                     }
 
                     # Connect to parking lot workspace
-                    Connect-HPEGL -Credential $Credential -Workspace $ParkingLotWorkspace -NoProgress -WarningAction SilentlyContinue -ErrorAction Stop -RemoveExistingCredentials | Out-Null
+                    if ($UseSSOAuth) {
+                        Connect-HPEGL -SSOEmail $MyEmail -Workspace $ParkingLotWorkspace -NoProgress -WarningAction SilentlyContinue -ErrorAction Stop -RemoveExistingCredentials | Out-Null
+                    }
+                    else {
+                        Connect-HPEGL -Credential $Credential -Workspace $ParkingLotWorkspace -NoProgress -WarningAction SilentlyContinue -ErrorAction Stop -RemoveExistingCredentials | Out-Null
+                    }
                     Write-Success "Connected to parking lot workspace '$ParkingLotWorkspace'"
 
                     $deviceMoveFailures = 0
@@ -1623,13 +1714,15 @@ if (-not $OnlyProvision) {
                     }
                     catch {
                         Write-Info "Session restore failed, reconnecting to workspace '$($WorkspaceConfig.Name)'..."
-                        Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+                        if ($UseSSOAuth) { Connect-HPEGL -SSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
+                        else { Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
                         Write-Success "Reconnected to workspace '$($WorkspaceConfig.Name)'"
                     }
                 }
                 else {
                     Write-Info "Reconnecting to workspace '$($WorkspaceConfig.Name)'..."
-                    Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+                    if ($UseSSOAuth) { Connect-HPEGL -SSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
+                    else { Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
                     Write-Success "Reconnected to workspace '$($WorkspaceConfig.Name)'"
                 }
                 

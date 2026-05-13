@@ -2658,7 +2658,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             # When running against a non-production environment (Pavo), append a targeted warning to
             # every Failed result so the user knows what prerequisites are needed.
             if ($env:HPE_COMMON_CLOUD_URL -and ($iLOConnectionStatus | Where-Object { $_.Status -eq 'Failed' })) {
-                $pavoWarning = "`n`n[PAVO ENVIRONMENT NOTICE] Connecting an iLO to COM in the Pavo pre-production environment has two additional prerequisites:`n  1. A proxy must be configured on the iLO: pavo-proxy.its.hpecorp.net:8080`n     Use the -IloProxyServer and -IloProxyPort parameters, e.g.:`n       Connect-HPEGLDeviceComputeiLOtoCOM ... -IloProxyServer pavo-proxy.its.hpecorp.net -IloProxyPort 8080`n  2. The iLO must be running an R&D non-production firmware version that supports the Pavo environment."
+                $pavoWarning = "`n`n[PAVO ENVIRONMENT NOTICE] Connecting an iLO to COM in the Pavo pre-production environment has one additional prerequisite:`n  The iLO must be running an R&D non-production firmware version that supports the Pavo environment."
                 foreach ($item in $iLOConnectionStatus | Where-Object { $_.Status -eq 'Failed' }) {
                     $item.iLOConnectionDetails = $item.iLOConnectionDetails + $pavoWarning
                 }
@@ -8534,8 +8534,8 @@ Export-ModuleMember -Function `
 # SIG # Begin signature block
 # MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDJlt8ozY1ljWct
-# iHkJEE719sATbLKOcoqQgaHSkK3RfqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB8lkY0AwRncPbR
+# nD0lBqKkxQI0IUYg+z7mJMYyWGOQh6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -8636,23 +8636,23 @@ Export-ModuleMember -Function `
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgdAI7reSF+pm2EMg+2i3vK7vGI/b+CBUdn9L9nxdy6gUwDQYJKoZIhvcNAQEB
-# BQAEggIAv5Qs+mJb2pV/ngEzv/05iSMhx2h+nvXyTD3H1h4iy+J5KEyP9hO1x9FD
-# j1WmCBN90oNU5LT2Ub9F6heuidUeuyu/AXYGhvrZahrG46Dkz2jlsTZyUptfwVmA
-# DrPhrD5MTYqv4Ckw6wB9Wd2wEQKTUEAmz6U5P4mB4v2fdMfi5+2uPVbNXJr6rSfG
-# Ail68/Kw96nccMFubd5R0WY5AhITSXPQ6o5r8wVteE8h53tRn+mfr2U1QkG3kNQV
-# qeE2I0QA20N52psI+hfbjUe0/WCPIjsbP7gCjZQdaShTcRvYqB75vlAXwzOWchuG
-# 2Hb0skPrRS90oHNAqVmUp/8nOgjB2CAAMVIw5+QiWqu7x05FUeRbsgXGmm8SaXT/
-# LmsCg85Z/IOg6x2gWgEdScK1FbAiQ/SPJKNkpqyem+5sxGEb4bYnrrkdLbN13hcu
-# Ca1ttw7WakWsv9gBnR4B90QCS6w3qktKRq2EDXVJP9/I7wfhgegnatfthPcN/D8p
-# mmBEtKEESF4Yo70K+yz72tm8Hqn3hLSil/7fW94nJ72/FaHf/HtaK2iwYV2b4SeD
-# Blat7/utkJGeF2M6jQN8t0KKWwzg6JTVFMZhp6iaMwEkwMOC5l6hKSV4Kg8jmKl6
-# 0KfTiw3WREsbSfy6IKDBKyX0YusadvUCQGDSR/RRcuZ3oXQllL2hgheYMIIXlAYK
+# IgQgNHu4V85oJ9VknS02mLcOWIFQIbiPsjdb8384Jq60zkowDQYJKoZIhvcNAQEB
+# BQAEggIAyRdvagLXCC0t8rnZj/5+6IdwWl6jXuYpLKzuZRviEh47Q4GkOGp5EdWP
+# bC2eEq1znVMA47zbpBpWeStXXU1Vuf3upKikt5P9XW3ee4b6qlptqLyaC9AZq6WL
+# u8AjDzTuKho9FmMae/ffPslPi19iuzRQnuh9cs8Dw5jXIvwoxsxRRUUS9k/h54mI
+# 8p5W0NiQHjBIVhbjXh2mh1xeZrT+67TmBulzaGoPcqIpxT9D7CoIscCpXQsz7sMJ
+# iO/uKZYagtt7RbLK1IfCzU1vF1wEShVonuTYW9XD8smz4NcINPssZ6Xe86+u5LNH
+# LUHS+pDi9Y9CGfMwpWPEUx8nydTcJikEa3fSy/7em+f7GJBfWGHibloYrp5En1hQ
+# y3/V/nk8wTGHMGKFQ5nNLXXs7qJu1Amcd7Gi6r8kO2TfDveEhLagap1etRk3dCET
+# 5YYNJ/613v2Z3fJow+mMoQlv70uhR3D9/X7SZrK6R5nROqnhCh3N4y0de0p3FMCB
+# KbZHDMQmgN88LOrMigZ0JB4DWs27E42bTFOQN8YaAd1y2h20NewgM/74ODUD0shI
+# iakb8ztya6yMA8/9M/xFhr7avkH2iOCxmkJcz5ywW0u3FsnQ2ZwZS+hvcf6/b+1p
+# h7CfsJIuecKvClR+95hl1SKGftFiitDHodn0cAvq7l56PyIAG/+hgheYMIIXlAYK
 # KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMAABUIf3tRHAD7KqcpynPrCvBxCiqbayQk8R58Q6ZZ/i
-# /Oa0tfl6UwoEzvH4WckjGAIRANlopeKvufkVDUGULlAmgNYYDzIwMjYwNDE1MDkx
-# NjA1WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQYJYIZIAWUDBAICBQAEMCaHF3w6MBKbLb6LWH1Vm9zB5Fv2KmwmiliKKwGqrFf3
+# j6LRbxVK+SigiFOuCmmKdwIRAOJxvxBMaD6Wsi+fFDNwvu8YDzIwMjYwNTEzMDky
+# NTA5WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
 # DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
 # MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
 # NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
@@ -8758,20 +8758,20 @@ Export-ModuleMember -Function `
 # aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
 # EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
 # NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDQx
-# NTA5MTYwNVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDUx
+# MzA5MjUwOVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
 # llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMCMXqOJVS4lDineIm4+T0H9W
-# BKomQF5lsycH+bRv6nzW2F/o5jHRYXqvZtf6pHJEOjANBgkqhkiG9w0BAQEFAASC
-# AgCXoGWA0B8ZsabK/y4Xugvp7GNm3mYSBG5O3AK6yGjoccxcusN94uvREp6gBihh
-# +Lm1WPePDGsbxtsDSav5yiBW9YSSlEut1O9KdgIPq9gLHwwnnY0QQoJBFc18zl8v
-# Hm59RYjBAvb0vkk/nVcB06cSRCn2tw3+4xXoCqpS9CqMDvmajMa7jg1AV2ZID7DD
-# jTe7ZnTdXL48SrRDby64iFCaEZK2QOmV9bbfS42xivPeBXpBrBgNCbTDqAYkZoL5
-# nkaHYzJiBkgMrH6ak66PXFtvDDWaLZoASHxGRHtt177zgIOLkKbNqAphA8UlkhSx
-# AOQStfZM6dCfHDzqloVsGBv62BY2wZF//FAOdMuDjTNnfNu4kQceG50ktRxhWpJf
-# BlxSl1dJF2/AA+EqI2RHs3EH/3/bqIShLz7ouZfkDu65hDwY+Ug8rlb4Lv8GoaCa
-# WWsCCG9ya59EhthDpXXP4pS+BW+vukRe5Tfcg+u6/JGN/rchSCKBPBlPpziPWw8p
-# jb9YlhIrSmlwSm3SFv1N8bzwOZ0flkurjRT3J5ogqMTqOBFg6wdHwnh3ZE//mblw
-# lrP4SftjOdUyuWlxSkHs1F7iUKxEyGdY77HxDV6PvZr/qZ7CgMW81RN7rg9cBtoE
-# q0jA8/8WWzLKBH81as6JqM1+0QSxi4jSpVUI7WLKtLVK1A==
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMHFMnvuYeiu95Hsf/wTGcIyQ
+# CgNsdzgcR/MS8xLxVKFB4931JFSAu36ZP4eP3nL+zzANBgkqhkiG9w0BAQEFAASC
+# AgCN6z1EvN8wZPnkKSuerP+IVKrlNMd0o36VJFz8yulkZjXKgHkvf3iEGVj2ZlXS
+# qFuV55Mj8xkPfsUu1ZqCPYdKZe7aI697jCYPn7ogC1qm2+QrAE/kMi3IeiMQEyQs
+# 1XQXjAOu4/6x3cVAUGKnP96duuvQzztdSHZM7NDuzeaVpNterjJaYMxkC2veFv15
+# /lSLvOmYOm7NeWOCUustGL03zN0Qh3EPEpiaLkaMZfLHLp7MGouIuE2ym3O8sWdM
+# fDzp+PU9eTKXTSdoP0w17RtyirfKa9qv6+P8lhvG2Q0y7GnktrCor2ykW6kSNjar
+# vQSpyiVOQloe3F+ayR4B5Uunkyx9/cLXe+kkTRNKzAudrXsWNfj5rGgvsd8bZvhe
+# szb9A514sJjQ0Utk2VTzUyI/K/I1qg9CG207u2WhlCE12EZwDCSpDf+1joQ1Tj9q
+# luEVxdD+Amn1tew2a0bzkl+WnVuBUtAStH++cSlH2qA4qLTKT1L7lUrMcJoishfv
+# SA7bU3+4maQeQyJ0Fpxo57ApSKvecDK0upyK3Jvv4IDDOTtbXPLMaVqO/SNyBx7Y
+# TnCwPiSp6buShI8bk2s4onoWb4Vaax/RrExz3n5eRsp+UaS54g3d5Uz2NL59EGa9
+# H33eF/S4CcBk/A3oQ5pi3wdOkz9XG77FhVHLPsWkhbjQuA==
 # SIG # End signature block

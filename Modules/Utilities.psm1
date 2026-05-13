@@ -1,4 +1,4 @@
-#Region ------------------- GENERIC UTILITY FUNCTIONS -------------------------------------------------------------------------------------------------------------------------------------------
+﻿#Region ------------------- GENERIC UTILITY FUNCTIONS -------------------------------------------------------------------------------------------------------------------------------------------
 
 using module .\Constants.psm1
 
@@ -4355,10 +4355,16 @@ For complete Entra ID setup prerequisites, see: $script:HelpUrl
 
                 Start-Sleep -Milliseconds 500
 
-                # Display entropy number in progress bar if number matching is enabled (ALWAYS shown, bypasses NoProgress)
                 if ($entropy -and $entropy -gt 0) {
-                    Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                        -CurrentActivity "Respond '$entropy' to the Microsoft Authenticator notification" -Id 0
+                    if ($NoProgress) {
+                        Write-Host "`n  Action required: Open Microsoft Authenticator and enter the number " -NoNewline -ForegroundColor Cyan
+                        Write-Host $entropy -ForegroundColor Yellow -NoNewline
+                        Write-Host " to authenticate.`n" -ForegroundColor Cyan
+                    }
+                    else {
+                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                            -CurrentActivity "Respond '$entropy' to the Microsoft Authenticator notification" -Id 0
+                    }
                     "[{0}] Number matching active - user must enter: {1}" -f $functionName, $entropy | Write-Verbose
                 }
                 else {
@@ -5095,10 +5101,16 @@ For setup prerequisites, see: $script:HelpUrl
 
                     Start-Sleep -Milliseconds 500
 
-                    # Always show number challenge (bypasses NoProgress for critical info)
                     if ($correctAnswer) {
-                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                            -CurrentActivity "Respond '$correctAnswer' to the Okta Verify notification" -Id 0
+                        if ($NoProgress) {
+                            Write-Host "`n  Action required: Open Okta Verify and select the number " -NoNewline -ForegroundColor Cyan
+                            Write-Host $correctAnswer -ForegroundColor Yellow -NoNewline
+                            Write-Host " to authenticate.`n" -ForegroundColor Cyan
+                        }
+                        else {
+                            Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                                -CurrentActivity "Respond '$correctAnswer' to the Okta Verify notification" -Id 0
+                        }
                         "[{0}] Number challenge active - user must select: {1}" -f $functionName, $correctAnswer | Write-Verbose
                     }
                     else {
@@ -5934,10 +5946,16 @@ For complete PingIdentity setup prerequisites, see: $script:HelpUrl
                     Start-Sleep -Milliseconds 500
 
                     # Show appropriate progress message based on number challenge
-                    # Always show number challenge (bypasses NoProgress for critical info)
                     if ($numberChallenge) {
-                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                            -CurrentActivity "Respond '$numberChallenge' to the PingID notification" -Id 0
+                        if ($NoProgress) {
+                            Write-Host "`n  Action required: Open PingID and select the number " -NoNewline -ForegroundColor Cyan
+                            Write-Host $numberChallenge -ForegroundColor Yellow -NoNewline
+                            Write-Host " to authenticate.`n" -ForegroundColor Cyan
+                        }
+                        else {
+                            Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
+                                -CurrentActivity "Respond '$numberChallenge' to the PingID notification" -Id 0
+                        }
                         "[{0}] Number challenge active - user must select: {1}" -f $functionName, $numberChallenge | Write-Verbose
                     }
                     else {
@@ -6483,7 +6501,7 @@ For complete PingIdentity setup prerequisites, see: $script:HelpUrl
             #EndRegion                  
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 7] Resolve SSO and extract parameters
+            #Region [STEP 7] Resolve SSO and extract parameters from v1alpha1/sso-resolve
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
             "[{0}] [STEP 7] Resolve SSO and extract parameters" -f $functionName | Write-Verbose
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
@@ -6494,260 +6512,159 @@ For complete PingIdentity setup prerequisites, see: $script:HelpUrl
             $ssoResolveUrl = "$(Get-HPEGLAPIOrgbaseURL)/internal-identity/v1alpha1/sso-resolve?login_hint=$($Username)&state=$($Answeredstate)"
             "[{0}] Step 7 - Resolve SSO: '{1}'" -f $functionName, $ssoResolveUrl | Write-Verbose
 
-            $selectorUrl = Get-302RedirectUrl -Url $ssoResolveUrl -Session $Session -StepName "Step 7"       
+            $selectorUrl = Get-302RedirectUrl -Url $ssoResolveUrl -Session $Session -StepName "Step 7"
 
             # Extract and decode the redirect parameter from selector URL
             $Redirect = ($selectorUrl -split '[?&]') | Where-Object { $_ -like 'redirect=*' } | ForEach-Object { $_ -replace '^redirect=', '' }
             $decodedRedirect = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String([System.Web.HttpUtility]::UrlDecode($Redirect)))
             "[{0}] Decoded redirect parameter: '{1}'" -f $functionName, $decodedRedirect | Write-Verbose
 
-            $display = Get-QueryParameter -Url $decodedRedirect -ParamName 'display'
-            $idp = Get-QueryParameter -Url $decodedRedirect -ParamName 'idp'
-            $clientId = Get-QueryParameter -Url $decodedRedirect -ParamName 'client_id'
-            $nonce = Get-QueryParameter -Url $decodedRedirect -ParamName 'nonce'
+            $display        = Get-QueryParameter -Url $decodedRedirect -ParamName 'display'
+            $idp            = Get-QueryParameter -Url $decodedRedirect -ParamName 'idp'
+            $clientId       = Get-QueryParameter -Url $decodedRedirect -ParamName 'client_id'
+            $nonce          = Get-QueryParameter -Url $decodedRedirect -ParamName 'nonce'
             $ccsRedirecturi = Get-QueryParameter -Url $decodedRedirect -ParamName 'redirect_uri'
 
             "[{0}] Extracted display: '{1}'" -f $functionName, [System.Web.HttpUtility]::UrlDecode($display) | Write-Verbose
             "[{0}] Extracted idp: '{1}'" -f $functionName, $idp | Write-Verbose
             "[{0}] Extracted client_id: '{1}'" -f $functionName, $clientId | Write-Verbose
 
-            # Must add a check to ensure the domain is "pre-claimed" for auto-SSO, if not, the process must stop with an error message
+            # Must verify the domain is pre-claimed for SSO
             if ([string]::IsNullOrEmpty($idp) -or [string]::IsNullOrEmpty($clientId) -or [string]::IsNullOrEmpty($nonce) -or [string]::IsNullOrEmpty($ccsRedirecturi)) {
                 if (-not $NoProgress) {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-
                 Write-Error @"
 Authentication failed: SSO configuration issue detected.
 
-The domain for '$Username' is not configured for SSO or the SSO setup is incomplete. 
+The domain for '$Username' is not configured for SSO or the SSO setup is incomplete.
 
-Please verify the email domain is pre-claimed in HPE GreenLake and SSO is properly configured for this domain. 
+Please verify the email domain is pre-claimed in HPE GreenLake and SSO is properly configured for this domain.
 
 Contact your administrator if you need assistance.
 "@ -ErrorAction Stop
             }
 
-            # Early IdP type and display-name detection from the decoded display parameter (available since Step 7)
-            # NOTE: $idp (the raw Okta IDP object ID) must NOT be changed here — it is used verbatim in the Step 8 auth URL.
-            # $idpName is used exclusively for storing the human-readable IdP identifier in the session.
-            $decodedDisplayParam = if ($display) { [System.Web.HttpUtility]::UrlDecode($display) } else { $null }
-            if ($decodedDisplayParam) {
-                if ($decodedDisplayParam -match 'sts\.windows\.net|login\.microsoftonline\.com|login\.windows\.net') {
-                    $idpType = 'EntraID'
-                    $idpName = $decodedDisplayParam.TrimEnd('/')
-                    "[{0}] Detected IdP type 'EntraID' from display parameter; idpName='{1}'" -f $functionName, $idpName | Write-Verbose
-                }
-                elseif ($decodedDisplayParam -match '\.okta\.com|\.oktapreview\.com|okta\.eu') {
-                    $idpType = 'Okta'
-                    $idpName = $decodedDisplayParam.TrimEnd('/')
-                    "[{0}] Detected IdP type 'Okta' from display parameter; idpName='{1}'" -f $functionName, $idpName | Write-Verbose
-                }
-                elseif ($decodedDisplayParam -match 'ping') {
-                    $idpType = 'PingIdentity'
-                    $idpName = $decodedDisplayParam.TrimEnd('/')
-                    "[{0}] Detected IdP type 'PingIdentity' from display parameter; idpName='{1}'" -f $functionName, $idpName | Write-Verbose
-                }
-            }
-
             $completedSteps++
             #EndRegion
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 8] OAuth Authorize with idp to 'https://auth.hpe.com/oauth2/xxxxxxxxxxxxxxxxxxx/v1/authorize?
-            # client_id=xxxxxxxxxxxxxx&
-            # display=https://sts.windows.net/037db3fc-7e83-48ba-8f4e-04d42b37bc28/&
-            # idp=xxxxxxxxxxxxxxxxx&
-            # login_hint=jullienl@4lldxf.onmicrosoft.com&
-            # nonce=xxxxxxxxxxxxxxxxxxx&
-            # prompt=login&
-            # redirect_uri=https://sso.common.cloud.hpe.com/sp/xxxxxxxxxxxxxxxxxx/cb.openid&
-            # response_type=code&
-            # scope=openid profile email ccsidp&
-            # sso_options=false&
-            # state=xxxxxxxxxxxxxxxxx'
+            #Region [STEP 8] OAuth Authorize with idp=... and prompt=login
+            # -> 302 -> https://auth.hpe.com/oauth2/.../v1/authorize?...&idp=...
             # ---------------------------------------------------------------------------------------------------------------------------------------------------------
 
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
             "[{0}] [STEP 8] OAuth Authorize with idp" -f $functionName | Write-Verbose
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
 
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - OAuth Authorize with idp" -Id 0
             $step++
 
-            $queryParams = @{
-                client_id     = $clientId
-                idp           = $idp
-                login_hint    = $Username
-                nonce         = $nonce
-                prompt        = "login" 
-                redirect_uri  = $ccsRedirecturi
-                response_type = "code"
-                scope         = "openid profile email ccsidp"
-                sso_options   = "false"
-                state         = $Answeredstate
-                display       = [System.Web.HttpUtility]::UrlDecode($display)
-            }
+            # v1alpha1/sso-resolve returns the full auth.hpe.com authorize URL (with idp= and prompt=login)
+            # in the decoded 'redirect=' parameter. Call that URL directly — v1alpha1/sso-authorize
+            # no longer honors the idp= and prompt=login parameters (it always returns prompt=none).
+            $logUrl = $decodedRedirect -replace "state=[^&]+", "state=[REDACTED]" -replace "nonce=[^&]+", "nonce=[REDACTED]"
+            "[{0}] Step 8 - OAuth Authorize URL (from sso-resolve redirect): '{1}'" -f $functionName, $logUrl | Write-Verbose
 
-            # Build the query string
-            $queryString = ($queryParams.GetEnumerator() | ForEach-Object { "$($_.Key)=$([System.Web.HttpUtility]::UrlEncode($_.Value.ToString()))" }) -join "&"
+            $redirecturl7 = Get-302RedirectUrl -Url $decodedRedirect -Session $Session -StepName "Step 8"
 
-            # Combine the base URL with the query string
-            $url = "$($authorizeBaseUrl)?$($queryString)"
-
-            "[{0}] About to execute GET request to: {1}" -f $functionName, $url | Write-Verbose
-            "[{0}] Using the query parameters: {1}" -f $functionName, ($queryParams | Out-String) | Write-Verbose
-
-            $redirecturl7 = Get-302RedirectUrl -Url $url -Session $Session -StepName "Step 8"
-                    
-            # Validate that we got a redirect URL
             if ([string]::IsNullOrEmpty($redirecturl7)) {
+                if (-not $NoProgress) {
+                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                }
                 throw "[{0}] Failed to capture redirect URL in Step 8" -f $functionName
             }
 
-            # Log cookies
             Log-Cookies -Domain "https://auth.hpe.com/" -Session $session -Step "in session AFTER STEP 8"
 
-            # Detect Okta from Step 8 redirect URL if not yet detected (auth.hpe.com/sso/idps/<id> is Okta-specific)
-            if (-not $idpType -and $redirecturl7 -match '/sso/idps/') {
-                $idpType = 'Okta'
-                "[{0}] Detected IdP type 'Okta' from IDP routing URL (sso/idps pattern)" -f $functionName | Write-Verbose
-            }
-
             $completedSteps++
-
             #EndRegion
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 9] Follow nextredirection to 'https://auth.hpe.com/sso/idps/0oa1j3ahd46U2O1n4358?stateTokenExternalId=XXXXXXXXXXXXXXXXXXXX'
+            #Region [STEP 9] Follow redirection to auth.hpe.com/sso/idps/{idpId}?stateToken=...
             # ---------------------------------------------------------------------------------------------------------------------------------------------------------
 
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
             "[{0}] [STEP 9] Follow redirection: '{1}'" -f $functionName, $redirecturl7 | Write-Verbose
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
 
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Follow redirection" -Id 0
             $step++
 
             $redirecturl8 = Get-302RedirectUrl -Url $redirecturl7 -Session $Session -StepName "Step 9"
 
-            # Validate that we got a redirect URL
             if ([string]::IsNullOrEmpty($redirecturl8)) {
                 throw "[{0}] Failed to capture redirect URL in Step 9" -f $functionName
             }
 
-            # Log cookies
             Log-Cookies -Domain "https://sso.common.cloud.hpe.com/" -Session $session -Step "in session AFTER STEP 9"
 
-            # Set $idpName from the human-readable IdP URL in the Step 9 redirect display parameter
-            # (the display param in sso.common.cloud.hpe.com carries the actual IdP tenant URL, e.g. https://company.okta.com)
-            # NOTE: $idp (the raw Okta IDP object ID) is NOT changed here.
-            $displayFromRedirect9 = Get-QueryParameter -Url $redirecturl8 -ParamName 'display'
-            if ($displayFromRedirect9) {
-                $decodedDisplayFromRedirect9 = [System.Web.HttpUtility]::UrlDecode($displayFromRedirect9)
-                if ($decodedDisplayFromRedirect9 -match 'https?://') {
-                    $idpName = $decodedDisplayFromRedirect9.TrimEnd('/')
-                    "[{0}] Set idpName from Step 9 redirect display parameter: '{1}'" -f $functionName, $idpName | Write-Verbose
-                    if (-not $idpType) {
-                        if ($decodedDisplayFromRedirect9 -match 'sts\.windows\.net|login\.microsoftonline\.com|login\.windows\.net') {
-                            $idpType = 'EntraID'
-                            "[{0}] Detected IdP type 'EntraID' from Step 9 redirect display parameter" -f $functionName | Write-Verbose
-                        }
-                        elseif ($decodedDisplayFromRedirect9 -match '\.okta\.com|\.oktapreview\.com|okta\.eu') {
-                            $idpType = 'Okta'
-                            "[{0}] Detected IdP type 'Okta' from Step 9 redirect display parameter" -f $functionName | Write-Verbose
-                        }
-                        elseif ($decodedDisplayFromRedirect9 -match 'ping') {
-                            $idpType = 'PingIdentity'
-                            "[{0}] Detected IdP type 'PingIdentity' from Step 9 redirect display parameter" -f $functionName | Write-Verbose
-                        }
-                    }
-                }
-            }
-
             $completedSteps++
-
-            #EndRegion  
+            #EndRegion
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 10] Follow redirection to capture OktaData to 'https://sso.common.cloud.hpe.com/as/authorization.oauth2?
-            # state=MmtyQzAyb0drdmVJMVdrMlgwT2lPK0R1SE5QWWU1R2hwd05pV1NNcXJubXhEemxyb3RaMCtGdXdteVE4emtOVg&
-            # nonce=eU8Bf9Ff2CikdlfJtNMG1tlzwsb78dMh&
-            # code_challenge=9wE8d45To4gRLSPJhPchT0RnAx_vbaC9hXox59Jwh4I&
-            # code_challenge_method=S256&
-            # client_id=prod-auth-glp-federation&
-            # redirect_uri=https://auth.hpe.com/oauth2/v1/authorize/callback&
-            # response_type=code&
-            # display=https://sts.windows.net/037db3fc-7e83-48ba-8f4e-04d42b37bc28/&
-            # login_hint=jullienl@4lldxf.onmicrosoft.com&
-            # scope=email openid profile
+            #Region [STEP 10] Follow redirection to get SAML form or identity selection page (resumeSAML20)
             # ---------------------------------------------------------------------------------------------------------------------------------------------------------
 
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
             "[{0}] [STEP 10] Follow redirection: '{1}'" -f $functionName, $redirecturl8 | Write-Verbose
-            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName, $href | Write-Verbose
+            "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
 
             Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Follow redirection" -Id 0
             $step++
 
             try {
-                # Initial GET request - may return SAML form directly (Legacy IAM) or identity selection page (Enhanced IAM)
+                # GET request - may return SAML form directly (Legacy IAM) or identity selection page (Enhanced IAM)
                 $responseStep10 = Invoke-WebRequest $redirecturl8 -Method Get -WebSession $Session -MaximumRedirection 5 -ErrorAction Stop
-    
+
                 "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $responseStep10.StatusCode, $responseStep10.StatusDescription | Write-Verbose
 
                 # Check what type of response we received
                 $hasSAMLForm = $responseStep10.Content -match 'name="SAMLRequest"'
-                $hasIdentitySelection = $responseStep10.Content -match 'name="subject"' -or 
-                $responseStep10.Content -match 'resumeSAML20' -and $responseStep10.Content -match '<form'
+                $hasIdentitySelection = ($responseStep10.Content -match 'name="subject"') -or
+                                        ($responseStep10.Content -match 'resumeSAML20' -and $responseStep10.Content -match '<form')
 
                 if ($hasSAMLForm) {
                     "[{0}] Direct SAML form received (Legacy IAM or already authenticated)" -f $functionName | Write-Verbose
                 }
                 elseif ($hasIdentitySelection) {
                     "[{0}] Identity selection page detected (Enhanced IAM) - submitting user identity" -f $functionName | Write-Verbose
-                    
-                    # Extract form action URL
+
                     $formActionMatch = ($responseStep10.Content | Select-String -Pattern '<form[^>]*action="([^"]+)"').Matches | Select-Object -First 1
-                    $formAction = if ($formActionMatch) { 
+                    $formAction = if ($formActionMatch) {
                         [System.Web.HttpUtility]::HtmlDecode($formActionMatch.Groups[1].Value)
-                    }
-                    else {
-                        # Use current URL if no action specified
+                    } else {
                         $responseStep10.BaseResponse.RequestMessage.RequestUri.AbsoluteUri
                     }
-                    
+
                     "[{0}] Submitting identity to: {1}" -f $functionName, $formAction | Write-Verbose
-                    
-                    # POST with subject parameter to select user identity
+
                     $identityBody = @{
                         subject                           = $Username
-                        "clear.previous.selected.subject" = ""
-                        "cancel.identifier.selection"     = "false"
+                        'clear.previous.selected.subject' = ''
+                        'cancel.identifier.selection'     = 'false'
                     }
-                    
+
                     $responseStep10 = Invoke-WebRequest -Uri $formAction -Method POST -Body $identityBody `
                         -WebSession $Session -ContentType "application/x-www-form-urlencoded" `
                         -MaximumRedirection 5 -ErrorAction Stop
 
                     "[{0}] Identity submitted successfully - status: {1}" -f $functionName, $responseStep10.StatusCode | Write-Verbose
-                    
-                    # Verify we now have SAML form
+
                     if (-not ($responseStep10.Content -match 'name="SAMLRequest"')) {
                         throw "[{0}] Expected SAML form after identity selection but did not receive it" -f $functionName
                     }
-                    
+
                     "[{0}] SAML form received after identity selection" -f $functionName | Write-Verbose
                 }
                 else {
                     "[{0}] WARNING: Unexpected response type - no SAML form or identity selection detected" -f $functionName | Write-Verbose
                 }
 
-                # Display response for debugging
                 $lastLines = ($responseStep10.Content -split "`r?`n") | Select-Object -Last 30
                 "[{0}] Raw response for Step 10 (last 30 lines):`n{1}" -f $functionName, ($lastLines -join "`n") | Write-Verbose
-
             }
             catch {
                 "[{0}] Error in Step 10: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
@@ -6755,10 +6672,10 @@ Contact your administrator if you need assistance.
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                 }
-                throw "[{0}] Authentication failed: {1}" -f $functionName, $_.Exception.Message                    
+                throw "[{0}] Authentication failed: {1}" -f $functionName, $_.Exception.Message
             }
 
-            # Extract SAMLAction, SAMLRequest, Method, and RelayState with error handling
+            # Extract SAMLAction, SAMLRequest, Method, and RelayState
             try {
                 $SAMLActionMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern 'action="([^"]+)"').Matches | Select-Object -First 1
                 $SAMLActionValue = if ($SAMLActionMatch) { [System.Web.HttpUtility]::HtmlDecode($SAMLActionMatch.Groups[1].Value) } else { $null }
@@ -6772,7 +6689,6 @@ Contact your administrator if you need assistance.
                 $SAMLMethodMatch = ($responseStep10.Content -join "`n" | Select-String -Pattern 'method="([^"]+)"').Matches | Select-Object -First 1
                 $SAMLMethodValue = if ($SAMLMethodMatch) { $SAMLMethodMatch.Groups[1].Value } else { "POST" }
 
-                # Display extracted values
                 "[{0}] Extracted SAMLAction: {1}" -f $functionName, $SAMLActionValue | Write-Verbose
                 "[{0}] Extracted SAMLMethod: '{1}'" -f $functionName, $SAMLMethodValue | Write-Verbose
                 "[{0}] Extracted SAMLRequest: {1}..." -f $functionName, ($SAMLRequestValue ? $SAMLRequestValue.Substring(0, [Math]::Min(100, $SAMLRequestValue.Length)) : "None") | Write-Verbose
@@ -6786,14 +6702,14 @@ Contact your administrator if you need assistance.
                 }
                 "[{0}] SAML form parsing error: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
                 Write-Error @"
-[$functionName] Failed to parse SAML authentication form. 
+[$functionName] Failed to parse SAML authentication form.
 
-The HPE GreenLake SSO page structure may have changed. 
+The HPE GreenLake SSO page structure may have changed.
 
 Error: $($_.Exception.Message)
 "@ -ErrorAction Stop
             }
-            
+
             if (-not $SAMLActionValue -or -not $SAMLMethodValue -or -not $SAMLRequestValue -or -not $RelayStateValue) {
                 if (-not $NoProgress) {
                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
@@ -6802,40 +6718,28 @@ Error: $($_.Exception.Message)
                 "[{0}] Missing required SAML parameters (Action, Method, SAMLRequest, or RelayState)." -f $functionName | Write-Verbose
                 throw "[{0}] Missing required SAML parameters (Action, Method, SAMLRequest, or RelayState)." -f $functionName
             }
-           
-            # Decode base64 SAMLRequest
-            try {
-                $byteArray = [System.Convert]::FromBase64String($SAMLRequestValue)
-                if ($byteArray.Length -gt 1 -and $byteArray[0] -eq 0x78 -and $byteArray[1] -eq 0x9C) {
-                    $memoryStream = New-Object System.IO.MemoryStream(, $byteArray)
-                    $deflateStream = New-Object System.IO.Compression.DeflateStream($memoryStream, [System.IO.Compression.CompressionMode]::Decompress)
-                    $decompressedStream = New-Object System.IO.MemoryStream
-                    $deflateStream.CopyTo($decompressedStream)
-                    $decompressedBytes = $decompressedStream.ToArray()
-                    $xmlString = [System.Text.Encoding]::UTF8.GetString($decompressedBytes)
-                }
-                else {
-                    $xmlString = [System.Text.Encoding]::UTF8.GetString($byteArray)
-                }
-                "[{0}] Decoded SAMLRequest: {1}..." -f $functionName, ($xmlString.Substring(0, [Math]::Min(100, $xmlString.Length))) | Write-Verbose
-            }
-            catch {
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
-                }
-                Write-Error @"
-Error decoding base64 SAMLRequest: $_
 
-Raw SAMLRequest: $SAMLRequestValue
-"@ -ErrorAction Stop
+            # Detect IdP type from the SAMLAction URL
+            if (-not $idpType) {
+                if ($SAMLActionValue -match 'login\.microsoftonline\.com|login\.windows\.net|sts\.windows\.net') {
+                    $idpType = 'EntraID'
+                    "[{0}] Detected IdP type 'EntraID' from SAMLAction URL" -f $functionName | Write-Verbose
+                }
+                elseif ($SAMLActionValue -match '\.okta\.com|\.oktapreview\.com|okta\.eu') {
+                    $idpType = 'Okta'
+                    "[{0}] Detected IdP type 'Okta' from SAMLAction URL" -f $functionName | Write-Verbose
+                }
+                elseif ($SAMLActionValue -match 'ping') {
+                    $idpType = 'PingIdentity'
+                    "[{0}] Detected IdP type 'PingIdentity' from SAMLAction URL" -f $functionName | Write-Verbose
+                }
             }
-           
+
             $completedSteps++
-            #EndRegion             
+            #EndRegion
 
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 11] Submit SAML Authentication Request
+            #Region [STEP 11] Submit SAML Authentication Request to IdP
             # --------------------------------------------------------------------------------------------------------------------------------------------------------------
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
             "[{0}] [STEP 11] Submit SAML Authentication Request: '{1}'" -f $functionName, $SAMLActionValue | Write-Verbose
@@ -6851,19 +6755,13 @@ Raw SAMLRequest: $SAMLRequestValue
                 }
 
                 "[{0}] About to execute {1} request to: '{2}'" -f $functionName, $SAMLMethodValue, $SAMLActionValue | Write-Verbose
-                "[{0}] Using the query parameters: {1}" -f $functionName, ($body | Out-String) | Write-Verbose
 
-                # Use standard Invoke-WebRequest for all providers
-                # PingOne authentication flow doesn't require special cookie handling at this step
-                # Cookies will be managed naturally by the WebRequestSession throughout the flow
                 $responseStep11 = Invoke-WebRequest -Method $SAMLMethodValue -Uri $SAMLActionValue -Body $body `
                     -WebSession $session -ContentType "application/x-www-form-urlencoded" `
                     -MaximumRedirection 1 -ErrorAction Stop
-    
-                "[{0}] Received status code: '{1}' - Description: '{2}'" -f $functionName, $responseStep11.StatusCode, $responseStep11.StatusDescription | Write-Verbose
-    
-                "[{0}] Content for `$responseStep11 starts with: {1}..." -f $functionName, ($responseStep11.Content.Substring(0, [Math]::Min(100, $responseStep11.Content.Length))) | Write-Verbose
 
+                "[{0}] Received status code: '{1}' - Description: '{2}'" -f $functionName, $responseStep11.StatusCode, $responseStep11.StatusDescription | Write-Verbose
+                "[{0}] Content for responseStep11 starts with: {1}..." -f $functionName, ($responseStep11.Content.Substring(0, [Math]::Min(100, $responseStep11.Content.Length))) | Write-Verbose
             }
             catch {
                 if (-not $NoProgress) {
@@ -6879,8 +6777,7 @@ Raw SAMLRequest: $SAMLRequestValue
             #EndRegion
 
 
-            # --------------------------------------------------------------------------------------------------------------------------------------------------------------
-            #Region [STEP 12] Handle IdP Authentication Flow
+            # --------------------------------------------------------------------------------------------------------------------------------------------------------------            #Region [STEP 12] Handle IdP Authentication Flow
 
             "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
             "[{0}] [STEP 12] Handle IdP Authentication Flow" -f $functionName | Write-Verbose
@@ -8147,18 +8044,47 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
         
             $response = Invoke-WebRequest $authzUrl -Method 'GET' -Headers $headers -WebSession $session
 
+            "[{0}] Received response with status code: {1}" -f $functionName, $response.StatusCode | Write-Verbose
             # Log-Cookies -Domain $authzUrl -Session $session -Step "Step 3 (GET $authzUrl)"
-            $stateToken = ($response.Content -split "[`r`n]" | Select-String -Pattern '(?:"stateToken":")(.*?)(?:")').Matches | ForEach-Object { $_.Groups[1].Value }
+            $ssMResult = $response.Content -split "[`r`n]" | Select-String -Pattern '(?:"stateToken":")(.*?)(?:")'
+            $stateToken = if ($ssMResult) { $ssMResult.Matches | ForEach-Object { $_.Groups[1].Value } } else { $null }
         
             if (-not $stateToken) {
+                $finalUrl = $response.BaseResponse.RequestMessage.RequestUri.ToString()
                 "[{0}] Could not extract stateToken from /as/authorization.oauth2 response." -f $functionName | Write-Verbose
-                "[{0}] Response URL (final after redirects): {1}" -f $functionName, $response.BaseResponse.RequestMessage.RequestUri | Write-Verbose
-                "[{0}] Response Content (first 3000 chars for diagnosis):`n{1}" -f $functionName, $response.Content.Substring(0, [Math]::Min(3000, $response.Content.Length)) | Write-Verbose
-                if (-not $NoProgress) {
-                    Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                "[{0}] Response URL (final after redirects): {1}" -f $functionName, $finalUrl | Write-Verbose
+
+                # Pavo SSO broker: /as/authorization.oauth2 does not return the Okta sign-in page directly.
+                # Instead it redirects to a React SPA (/sso/continue?track-id=...) whose JavaScript normally
+                # calls sso-resolve → sso-init → auth-itg.hpe.com/authorize to reach the real Okta page.
+                # Since PowerShell cannot execute JavaScript, we replicate those calls manually.
+                if ($finalUrl -match '[?&]track-id=([^&]+)') {
+                    $trackId = $matches[1]
+                    "[{0}] Detected Pavo SSO broker flow (track-id: {1}). Calling sso-resolve to reach Okta sign-in page..." -f $functionName, $trackId | Write-Verbose
+                    $ssoResolveUrl = "$($Global:HPEGLOrgApiBaseURL)/internal-identity/v1alpha2/sso-resolve?login_hint=$([uri]::EscapeDataString($Username))&track-id=$([uri]::EscapeDataString($trackId))"
+                    "[{0}] About to execute GET request to: '{1}'" -f $functionName, ($ssoResolveUrl -replace '(login_hint=)[^&]+', '$1[REDACTED]') | Write-Verbose
+                    $response = Invoke-WebRequest $ssoResolveUrl -Method 'GET' -Headers $headers -WebSession $session
+                    "[{0}] sso-resolve final URL: {1}" -f $functionName, $response.BaseResponse.RequestMessage.RequestUri | Write-Verbose
+                    $ssMResult = $response.Content -split "[`r`n]" | Select-String -Pattern '(?:"stateToken":")(.*?)(?:")'
+                    $stateToken = if ($ssMResult) { $ssMResult.Matches | ForEach-Object { $_.Groups[1].Value } } else { $null }
+                    if (-not $stateToken) {
+                        "[{0}] Pavo SSO broker: could not extract stateToken after sso-resolve." -f $functionName | Write-Verbose
+                        "[{0}] Response Content (first 3000 chars):`n{1}" -f $functionName, $response.Content.Substring(0, [Math]::Min(3000, $response.Content.Length)) | Write-Verbose
+                        if (-not $NoProgress) {
+                            Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                            Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                        }
+                        throw "[{0}] Authentication failed: Pavo SSO broker: Could not extract stateToken after sso-resolve." -f $functionName
+                    }
                 }
-                throw "[{0}] Authentication failed: Could not extract stateToken from /as/authorization.oauth2 response." -f $functionName
+                else {
+                    "[{0}] Response Content (first 3000 chars for diagnosis):`n{1}" -f $functionName, $response.Content.Substring(0, [Math]::Min(3000, $response.Content.Length)) | Write-Verbose
+                    if (-not $NoProgress) {
+                        Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
+                        Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
+                    }
+                    throw "[{0}] Authentication failed: Could not extract stateToken from /as/authorization.oauth2 response." -f $functionName
+                }
             }
             $stateToken = [System.Text.RegularExpressions.Regex]::Replace($stateToken, "\\x([0-9A-Fa-f]{2})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
             $stateToken = [System.Text.RegularExpressions.Regex]::Replace($stateToken, "\\u([0-9A-Fa-f]{4})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
@@ -9488,10 +9414,19 @@ Please retry your request or verify your credentials. If the issue persists, con
                         # Start-Sleep -Seconds 1
                         $completedSteps++
                         if ($correctAnswer) {
-                            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Respond '$correctAnswer' to the Okta Verify notification." -Id 0
+                            if ($NoProgress) {
+                                Write-Host "`n  Action required: Open Okta Verify and select the number " -NoNewline -ForegroundColor Cyan
+                                Write-Host $correctAnswer -ForegroundColor Yellow -NoNewline
+                                Write-Host " to authenticate.`n" -ForegroundColor Cyan
+                            }
+                            else {
+                                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Respond '$correctAnswer' to the Okta Verify notification." -Id 0
+                            }
                         }
                         else {
-                            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Approve the Okta Verify push notification." -Id 0
+                            if (-not $NoProgress) {
+                                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Approve the Okta Verify push notification." -Id 0
+                            }
                         }
 
                         if (-not $pollHref) {
@@ -10419,11 +10354,13 @@ Please log in to the HPE GreenLake GUI and complete the MFA setup using one of t
                     $maxPolls = 30
                     $pollInterval = 2
                     for ($i = 1; $i -le $maxPolls; $i++) {                        
-                        if ($correctAnswer) {
-                            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Approve the $($preferredAuthenticator.name) push notification on your device by selecting the number '$correctAnswer'." -Id 0
-                        }
-                        else {
-                            Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Approve the $($preferredAuthenticator.name) push notification on your device..." -Id 0
+                        if (-not $NoProgress) {
+                            if ($correctAnswer) {
+                                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Approve the $($preferredAuthenticator.name) push notification on your device by selecting the number '$correctAnswer'." -Id 0
+                            }
+                            else {
+                                Update-ProgressBar -CompletedSteps $completedSteps -TotalSteps $totalSteps -CurrentActivity "Step $step/$totalSteps - Approve the $($preferredAuthenticator.name) push notification on your device..." -Id 0
+                            }
                         }
                         Start-Sleep -Seconds $pollInterval
                         "[{0}] Polling for Okta Verify push status, attempt {1}/{2}..." -f $functionName, $i, $maxPolls | Write-Verbose
@@ -13112,10 +13049,13 @@ Manually remove old credentials via the HPE GreenLake web portal (Manage Workspa
                         try {
                             $indigoConfigUrl = "$($loginUri.Scheme)://$($loginUri.Host)/indigo-config.js"
                             $indigoConfig = Invoke-RestMethod -Uri $indigoConfigUrl -TimeoutSec 10
-                            if ($indigoConfig -match 'REACT_APP_COM_API_ROOT_URL\s*=\s*"([^"]+)"') {
+                            if ($indigoConfig -match "REACT_APP_COM_API_ROOT_URL\s*=\s*'([^']+)'") {
                                 $comApiUrl = $Matches[1].TrimEnd('/')
                             }
                         } catch { }
+                    }
+                    if (-not $comApiUrl) {
+                        $comApiUrl = "https://$($COMInstance.region).api.greenlake.hpe.com"
                     }
                     $Global:HPECOMRegions += [PSCustomObject]@{
                         region    = $COMInstance.region
@@ -14241,8 +14181,8 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # SIG # Begin signature block
 # MIIunwYJKoZIhvcNAQcCoIIukDCCLowCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCr89ulthZFbNPZ
-# cd/ifFbVlLbwk0IT9lcE2XxEtYGJRaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDRuNsGKD3elwou
+# cufAqC5lRKAMoxrs5wBCrtTPxNVCwqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -14343,23 +14283,23 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg9yTlaB7gStsUs0fltW2Z1HhNI+dJLbVHYRzPiZNDHE4wDQYJKoZIhvcNAQEB
-# BQAEggIAfEYGhPxsJPUhfUvqvw0uoMkQHVm1oPPR5m6lVS/vA4DMdGB3n7hZLJjb
-# 6BF6owMIXZPvwVtcSt4OoMkCLB2/0U5oeHaA1KIK8wrhKFt2boxA+AiUyoEYw8WD
-# bl3QnPq+hJ3raSEpupgEO7Dt3Q2oFySJ2Zivrkz1xfdAbJoHQYu7HlGXcKwcpCG2
-# 1qKPQGabkq1/5nNSZDbiXbtvO2v5jqN3zmTnIa3bzPdQ60SlNVnuYTH1EbJb5o63
-# /qAnEj4EthRq1s2zUXltzIhHtY7o13W6OD068oNz/G4jebhMDN3LVE4LO8xJwSDR
-# OrmMgTYAcwLChr3nIjO/1hwImKlLcjFdaVWoBUdI4PS8tXOL8OBIM66uMeR5QEaX
-# Wf4kl0YdEmltxuWZwyWokY1ipNTAIZMMagmamMxqwpOLh83T33Zn+AOxxXMdvfX1
-# nkN4goJiQroRDZSzXVBKqBOOi90jvzEmDl4mD0XbPCzx055jCKs0hqfSFjq5fW4t
-# wrs0C3EC+iIjAWjJK/dHCRBxQA/0nwlxiIobTIm8Gv2H/QvOGMNHS52MWep3wX9V
-# tiHd/UkIVqDwlFqJq5L0oLOKfuRmcJNdxMfX5iwMWSNmMYP3KVw/JGN8Zh0R6jKF
-# xdsGe2xAXOI02aqb8X9lBkoqpjVUtHSCm+v3RqRZ7q8oXgx6BBmhghjpMIIY5QYK
+# IgQg1Fz1gVDck1JulAq+dIHy1613Vsn21ZvKO2ZJ1T3nOEwwDQYJKoZIhvcNAQEB
+# BQAEggIACessq4s94x+pVOqeyJCbJx/JnnBtfosy/kKb9CSX55bc/dX5W9yhoIhu
+# 9by0Ul0bFmR1N4bnEsUzR2+6VlycqbIBaVBrQSapIeWo0dsI1p6CrXLZ9DE5humk
+# +EWS2Lbo2940cFwTbY/ittYyhXJwRLEaBPTZ5ArxXo7vUb7UPD9WCMEy4DqSyxMN
+# dGBKSGZ7gPES2GSN2WffAP8GHatVB7zi7nS1aRrJQgkoK7DPaHwVnZA9X++KoKGC
+# 29uxTd03bS5g8HfoNQ+qgTF/Vo4bclIRIuDj/Y/tY7hUCRvvvoEIwIW84iHGMDG9
+# jWh/jsyZ6lZlMV3sxo5ydHzyUFpp5WSxGc2p1Zhy5fqwL/71fdnH68Vyc7KgaroT
+# Er46rItEKw+8Y6A+PfwlIUpJeq1njJfZFEJ+3HkLITuGM6B0TuUN4KkoQYfKKbGB
+# aWuI4WYqi3MJv2uFSodnsy8amX74TxaBCNs1semO0gGtoHJdyFVnaNEgEikKWgPT
+# UF750Zjoa2JYDJEtNQy1IarNIPwIK+spX2meLzcICQfA7m0Yl6vWA4k0/VimS9af
+# Q3r3QQy5ySOYsXYXVXD+tkYsj5qbhwMPz2I45EggUCR9scNfvx+/OvHpflixQDAd
+# t4RF5sxQKTdFB8sI1W0dzVSmUpdWB0rIRTVSaqPrzoJc0dEjMS2hghjpMIIY5QYK
 # KwYBBAGCNwMDATGCGNUwghjRBgkqhkiG9w0BBwKgghjCMIIYvgIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwnlcZVs+tZORo2vgTYFfnW0+X8V8pLvBLjGDt
-# aZOQkGgVWk4bEfjkdrQCKGijYGohAhUAuD2NVr5J/aS6eFPl1RTzIKtv18kYDzIw
-# MjYwNDE1MDkyMTU2WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
+# AQEwQTANBglghkgBZQMEAgIFAAQwN+mYh72vpY189H49vVuIH4qvLmsYzhB/w5wb
+# X2MVaG0q71SREgv1CdQL10bprTUDAhUAgu1CfVe66Ob6OgPlPT7CtiaMwr8YDzIw
+# MjYwNTEzMDkyNzI2WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDldlc3Qg
 # WW9ya3NoaXJlMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
 # Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNqCCEwQwggZiMIIE
 # yqADAgECAhEApCk7bh7d16c0CIetek63JDANBgkqhkiG9w0BAQwFADBVMQswCQYD
@@ -14467,8 +14407,8 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # BAoTD1NlY3RpZ28gTGltaXRlZDEsMCoGA1UEAxMjU2VjdGlnbyBQdWJsaWMgVGlt
 # ZSBTdGFtcGluZyBDQSBSMzYCEQCkKTtuHt3XpzQIh616TrckMA0GCWCGSAFlAwQC
 # AgUAoIIB+TAaBgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkF
-# MQ8XDTI2MDQxNTA5MjE1NlowPwYJKoZIhvcNAQkEMTIEMEMMK0JZdkCr3yHwei28
-# rOF0o+PuTolY+HUfFrdAdO57m2r/fKcQQ46ow+Pn7x9ecDCCAXoGCyqGSIb3DQEJ
+# MQ8XDTI2MDUxMzA5MjcyNlowPwYJKoZIhvcNAQkEMTIEMDaJd+F0yx5GOerbepdz
+# nThdwbx4r2cyWEvjomMQA0s6tWE0qyj2+0FSCZStGTxjhjCCAXoGCyqGSIb3DQEJ
 # EAIMMYIBaTCCAWUwggFhMBYEFDjJFIEQRLTcZj6T1HRLgUGGqbWxMIGHBBTGrlTk
 # eIbxfD1VEkiMacNKevnC3TBvMFukWTBXMQswCQYDVQQGEwJHQjEYMBYGA1UEChMP
 # U2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0
@@ -14477,15 +14417,15 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # dyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNF
 # UlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNh
 # dGlvbiBBdXRob3JpdHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAE
-# ggIAYH27nPvEG4cNwo5qxh2GeLzdm5Aa8J9UDcJQ5Bki3GhfQ1e65zHNnZTFAi9Y
-# G4USjQ1yO6ems5ZFvA4zLOLogel6tSgp37ZYtJFaz7uku5oJh9ZJHRjlZZaJGgNL
-# 2igFqcc0DTm4AtwAfiJec/UF7Q2c1IIVF+hV7hVorGmuUg3pNeKDAjKoQLJAunYD
-# sWa9qpbOu9AMvelkQADPV6b9f4mZEULhv7An+sbTH9XKIWgTTNNoYilYSVVVTc0/
-# Q85wMZib9M9k5xtW5zoQxuZ+9W3ZD0z11k354GGNAVq764UVOXwjDt/sXEnsyoqw
-# PkA4JjUZVeA+eOWHLlghbHonDBYDp3g3gL1xtgouxvZrCbI9D3LGY4AupncFyV8y
-# f/++KOwQwYYvoTISEAfAqt3kOsUPpDTJILOVbLEuoykLwEZAMXOfj7KLqoy2o97U
-# JBP9BwBnbI+wi8sutSNVYJmwfxg4EbjeKAhbTACx/9GLoZvf369tTsLKSAH7M45l
-# 3TyGzSJrVAc9xsCm3dlWSSdR2ZBB4rLY5R3jyiQ0GIfIPqHtzMa51tUPUwaCKUKr
-# QTXVQmntdl3lrGUN9w5cYjq+XZ8WfgvpZSvXK75ktJOKEuZOblWVf+fb/fF2HVJ+
-# EbB22xnx3wcakP2flJAYQRywWHM4dEdw2R2jgNnm1PqOxwI=
+# ggIAG6aX9nb+GSXxosjH3kmYwxS05HJVCARcfRozZKEHXOPmAsiwKsRZEJvhIPI7
+# ZKirSsCiwfUi0tcOdZEG+vE9YaBeqz1L/LaWLSVRfWf5nLoTAJChpB0dbzukaE73
+# 236vb7LIMsYa08CZbppELDEP5vQH60VgjsUOsfDRTqFq3YTMZhZMhiQktQbABBVQ
+# 4xlbDWwS3VEgGmrSUbI/eNXAVBglFi+c+K0Yyzy+5ZMRg85HU9KukmtikneRomyF
+# KZfgs6JkUTVVYgklEzTKZtHx45TtuFU5bBaJRyUTqBv96k0i1DQrfTgQ77BsYG5j
+# HPSbRW3DAhUXF9KL7Jharma5dqOhoyKTtot1e2ugqnDeHM/Ifj7mU6nz5xK2nTBC
+# gVxcKrjqZ/66syAcC3y4UO6m4LrQY217k7zqBaxW9zZSPWrpsrfrwXN2aDG1rmvS
+# wTL02yq1cyChRZmt6K40A7/oGwlP4l4NFtQz3lcBxSVqtesagzFmeQLvyIN/zopO
+# 2ylhkt1FNitVRy1MCVfJecujwGX7TZbtZbbq4OsO3JxWKXp4I7kw3VbCD6YlC0Nz
+# OEalXF0fars+pXhoRjX72TcxfkkP76k/qSdAsbDQnEFPGwJlrEYCBKQo+TiLeQUJ
+# 0BDjTxYKuKIH9b+N+rFmtZ3omh5xiLtCM4XsJHFZjiFEB+w=
 # SIG # End signature block
