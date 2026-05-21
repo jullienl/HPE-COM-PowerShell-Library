@@ -121,7 +121,7 @@
     re-authentication, particularly valuable in automated testing and CI/CD pipelines.
     
     Author: HPE
-    Version: 1.3
+    Version: 1.4
     Last Updated: May 2026
 
 .PARAMETER OnlyProvision
@@ -191,7 +191,7 @@
     ================================================================================
     ℹ Joining 'company.com' organization...
     ✓ Joined 'company.com' organization successfully
-    ℹ Assigning organization workspace viewer roles to additional user...
+    ℹ Assigning organization workspace viewer role to admin@company.com...
     ✓ Organization workspace viewer role assigned to admin@company.com
     ✓ Workspace session saved for later restoration
 
@@ -371,6 +371,15 @@
     easier identification or later cleanup.
 
 .WHATSNEW
+    v1.4 - May 2026
+     - Changed $AdditionalUser (single hashtable) to $AdditionalUsers (array of hashtables) in
+       the Configuration section, allowing multiple users to be provisioned in Steps 3, 4, and 5.
+       Add additional entries to the array to provision more users.
+     - Replaced post-workspace Connect-HPEGL with Connect-HPEGLWorkspace for a fast token-only
+       workspace switch after creation, avoiding an unnecessary SSO re-authentication round-trip.
+     - Added $SkipToCleanup failsafe in Step 7: if all subscription keys fail, Steps 8-13 are
+       skipped and the script proceeds directly to the cleanup phase.
+
     v1.3 - May 2026
      - Added $UseSSOAuth variable in the Configuration section to switch between federated SSO
        authentication (Microsoft Entra ID, Okta, PingID) and standard credential-based login.
@@ -465,12 +474,19 @@ $WorkspaceConfig = @{
 
 }
 
-# Additional User to Provision
-$AdditionalUser = @{
-    Email            = "operations@company.com"
-    Role             = 'Workspace Administrator'
-    SendWelcomeEmail = $true
-}
+# Additional Users to Provision
+$AdditionalUsers = @(
+    @{
+        Email            = "operations@company.com"
+        Role             = 'Workspace Administrator'
+        SendWelcomeEmail = $true
+    }
+    # @{
+    #     Email            = "another.user@example.com"
+    #     Role             = 'Workspace Administrator'
+    #     SendWelcomeEmail = $true
+    # }
+)
 
 # Organization Name to Join (for SSO, user groups, identity governance) (optional)
 
@@ -696,17 +712,10 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
         exit 1
     }
 
-    # Connect to the new workspace
+    # Connect to the new workspace (fast token-only switch, no SSO re-authentication)
     try {
         Write-Info "Connecting to workspace: $($WorkspaceConfig.Name)..."
-    
-        if ($UseSSOAuth) {
-            Connect-HPEGL -SSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
-        }
-        else {
-            Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
-        }
-
+        Connect-HPEGLWorkspace -Name $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
         Write-Success "Connected to workspace '$($WorkspaceConfig.Name)' successfully"
     }
     catch {
@@ -740,21 +749,23 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
     # ============================================================================
     Write-SectionHeader "STEP 3: User Provisioning"
 
-    try {
-        Write-Info "Creating user: $($AdditionalUser.Email)..."
-        $UserTask = New-HPEGLUser -Email $AdditionalUser.Email -RoleName $AdditionalUser.Role -SendWelcomeEmail:$AdditionalUser.SendWelcomeEmail
-    
-        if ($UserTask.Status -eq "Complete") {
-            Write-Success "User '$($AdditionalUser.Email)' created with role '$($AdditionalUser.Role)'"
+    foreach ($AdditionalUser in $AdditionalUsers) {
+        try {
+            Write-Info "Creating user: $($AdditionalUser.Email)..."
+            $UserTask = New-HPEGLUser -Email $AdditionalUser.Email -RoleName $AdditionalUser.Role -SendWelcomeEmail:$AdditionalUser.SendWelcomeEmail
+        
+            if ($UserTask.Status -eq "Complete") {
+                Write-Success "User '$($AdditionalUser.Email)' created with role '$($AdditionalUser.Role)'"
+            }
+            else {
+                Write-Failure "User creation failed: $($UserTask.Status) - $($UserTask.Details)"
+                exit 1
+            }
         }
-        else {
-            Write-Failure "User creation failed: $($UserTask.Status) - $($UserTask.Details)"
+        catch {
+            Write-Failure "Failed to create user: $($_.Exception.Message)"
             exit 1
         }
-    }
-    catch {
-        Write-Failure "Failed to create user: $($_.Exception.Message)"
-        exit 1
     }
 
     #EndRegion
@@ -789,32 +800,34 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
             }
         }
    
-        # Add the organiization workspace viewer role to the users if organization join was successful
+        # Add the organization workspace viewer role to the users if organization join was successful
 
-        try {
-            Write-Info "Assigning organization workspace viewer roles to additional user..."
+        foreach ($AdditionalUser in $AdditionalUsers) {
+            try {
+                Write-Info "Assigning organization workspace viewer role to $($AdditionalUser.Email)..."
 
-            # Wait for the newly created user to propagate into the organization's user directory
-            $propagationTimeout = 60
-            $propagationElapsed = 0
-            do {
-                $userVisible = Get-HPEGLUser -Email $AdditionalUser.Email -ErrorAction SilentlyContinue
-                if (-not $userVisible) {
-                    Start-Sleep -Seconds 5
-                    $propagationElapsed += 5
+                # Wait for the newly created user to propagate into the organization's user directory
+                $propagationTimeout = 60
+                $propagationElapsed = 0
+                do {
+                    $userVisible = Get-HPEGLUser -Email $AdditionalUser.Email -ErrorAction SilentlyContinue
+                    if (-not $userVisible) {
+                        Start-Sleep -Seconds 5
+                        $propagationElapsed += 5
+                    }
+                } until ($userVisible -or $propagationElapsed -ge $propagationTimeout)
+            
+                $OrgRoleTask2 = Add-HPEGLRoleToUser -RoleName 'Organization workspace viewer' -Email $AdditionalUser.Email
+                if ($OrgRoleTask2.Status -eq "Complete") {
+                    Write-Success "Organization workspace viewer role assigned to $($AdditionalUser.Email)"
                 }
-            } until ($userVisible -or $propagationElapsed -ge $propagationTimeout)
-        
-            $OrgRoleTask2 = Add-HPEGLRoleToUser -RoleName 'Organization workspace viewer' -Email $AdditionalUser.Email
-            if ($OrgRoleTask2.Status -eq "Complete") {
-                Write-Success "Organization workspace viewer role assigned to $($AdditionalUser.Email)"
+                else {
+                    Write-Failure "Failed to assign organization workspace viewer role to $($AdditionalUser.Email): $($OrgRoleTask2.Status) - $($OrgRoleTask2.Details)"
+                }
             }
-            else {
-                Write-Failure "Failed to assign organization workspace viewer role to $($AdditionalUser.Email): $($OrgRoleTask2.Status) - $($OrgRoleTask2.Details)"
+            catch {
+                Write-Failure "Failed to assign organization roles: $($_.Exception.Message)"
             }
-        }
-        catch {
-            Write-Failure "Failed to assign organization roles: $($_.Exception.Message)"
         }
 
     }
@@ -877,12 +890,14 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
             Write-Failure "Failed to assign COM administrator role to $($MyEmail): $($RoleTask1.Status) - $($RoleTask1.Details)"
         }
     
-        $RoleTask2 = Add-HPEGLRoleToUser -RoleName 'Compute Ops Management administrator' -Email $AdditionalUser.Email
-        if ($RoleTask2.Status -eq "Complete") {
-            Write-Success "COM administrator role assigned to $($AdditionalUser.Email)"
-        }
-        else {
-            Write-Failure "Failed to assign COM administrator role to $($AdditionalUser.Email): $($RoleTask2.Status) - $($RoleTask2.Details)"
+        foreach ($AdditionalUser in $AdditionalUsers) {
+            $RoleTask2 = Add-HPEGLRoleToUser -RoleName 'Compute Ops Management administrator' -Email $AdditionalUser.Email
+            if ($RoleTask2.Status -eq "Complete") {
+                Write-Success "COM administrator role assigned to $($AdditionalUser.Email)"
+            }
+            else {
+                Write-Failure "Failed to assign COM administrator role to $($AdditionalUser.Email): $($RoleTask2.Status) - $($RoleTask2.Details)"
+            }
         }
     }
     catch {
@@ -932,6 +947,8 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
     Write-SectionHeader "STEP 7: Add Subscriptions and Configure Policies"
 
     # Add subscription keys
+    $SubscriptionFailed = $false
+    $SubscriptionSucceeded = $false
     foreach ($SubKey in $SubscriptionKeys) {
         if ($SubKey -match "YOUR-SUBSCRIPTION-KEY") {
             Write-Info "Skipping placeholder subscription key. Please update the configuration with valid keys."
@@ -944,14 +961,26 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
         
             if ($SubTask.Status -eq "Complete") {
                 Write-Success "Subscription key added successfully"
+                $SubscriptionSucceeded = $true
             }
             else {
                 Write-Failure "Subscription addition failed: $($SubTask.Status) - $($SubTask.Details)"
+                $SubscriptionFailed = $true
             }
         }
         catch {
             Write-Failure "Failed to add subscription: $($_.Exception.Message)"
+            $SubscriptionFailed = $true
         }
+    }
+
+    # If all subscriptions failed, skip remaining steps and go straight to cleanup
+    if ($SubscriptionFailed -and -not $SubscriptionSucceeded) {
+        Write-Failure "All subscription key(s) failed. Skipping Steps 8-13 and proceeding to cleanup."
+        $SkipToCleanup = $true
+    }
+    else {
+        $SkipToCleanup = $false
     }
 
     # Configure auto-subscription policy
@@ -988,6 +1017,8 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
 
     #EndRegion
 
+
+    if (-not $SkipToCleanup) {
 
     # ============================================================================
     #Region - STEP 8: Server Onboarding
@@ -1442,6 +1473,8 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
     Write-Host "  4. Configure additional automation workflows as required" -ForegroundColor White
 
     #EndRegion
+
+    } # end if (-not $SkipToCleanup)
 }
 
 # ============================================================================
