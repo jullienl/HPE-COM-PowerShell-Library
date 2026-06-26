@@ -84,7 +84,7 @@
         - Disconnects iLOs from Compute Ops Management
         - Removes subscriptions and additional users
         - Disables Compute Ops Management service
-        - Moves devices to parking lot workspace (if configured)
+        - Permanently removes devices from workspace or moves them to a parking lot workspace (if configured)
         - Validates workspace deletion prerequisites
         - Deletes the workspace and confirms cleanup success
 
@@ -113,7 +113,7 @@
     1. Provisioning Phase → Saves workspace session for later reuse
     2. Optional Cleanup Phase → Validates and reuses saved session (or reconnects if needed)
     3. Resource Cleanup → Removes assignments, subscriptions, users, and services
-    4. Device Management → Moves devices to parking lot workspace (if configured)
+    4. Device Management → Permanently removes devices from workspace or moves them to parking lot workspace (if configured)
     5. Session Restoration → Restores saved session (fast path) or reconnects (fallback)
     6. Workspace Deletion → Validates prerequisites and performs clean removal
     
@@ -121,8 +121,8 @@
     re-authentication, particularly valuable in automated testing and CI/CD pipelines.
     
     Author: HPE
-    Version: 1.4
-    Last Updated: May 2026
+    Version: 1.6
+    Last Updated: June 2026
 
 .PARAMETER OnlyProvision
     When specified, runs only the provisioning workflow (Steps 1-13) without executing the cleanup 
@@ -165,59 +165,61 @@
 
     HPE COMPUTE OPS MANAGEMENT - ZERO TOUCH AUTOMATION
     ================================================================================
-    ℹ Started at: 3/17/2026 8:45 AM
-    ℹ Workspace: Production-Workspace-6625
+    ℹ Started at: 5/29/2026 12:42 PM
+    ℹ Workspace: Production-Workspace-8223
 
     STEP 1: Module Import and Authentication
     ================================================================================
     ℹ Validating network connectivity to iLO management interfaces...
-    ✓ HPECOMCmdlets module v1.0.23 imported successfully
+    ✓ HPECOMCmdlets module v1.0.25 1.0.26 imported successfully
     ℹ Connecting to HPE GreenLake...
-    ✓ Connected to HPE GreenLake successfully
-
+    ✓ Connected to HPE GreenLake successfully                                                                               
+                                                                                                                            
     STEP 2: Workspace Creation
     ================================================================================
-    ℹ Creating workspace: Production-Workspace-6625...
-    ✓ Workspace 'Production-Workspace-6625' created successfully
-    ℹ Connecting to workspace: Production-Workspace-6625...
-    ✓ Connected to workspace 'Production-Workspace-6625' successfully
+    ℹ Creating workspace: Production-Workspace-8223...
+    ✓ Workspace 'Production-Workspace-8223' created successfully                                                            
+    ℹ Connecting to workspace: Production-Workspace-8223...
+    ✓ Connected to workspace 'Production-Workspace-8223' successfully                                                       
+    ℹ Setting workspace icon...
+    ✓ Workspace icon set successfully                                                                                       
 
     STEP 3: User Provisioning
     ================================================================================
     ℹ Creating user: operations@company.com...
-    ✓ User 'operations@company.com' created with role 'Workspace Administrator'
+    ✓ User 'operations@company.com' created with role 'Workspace Administrator'                                             
 
     STEP 4: Join organization to enable SSO, user groups, or identity governance
     ================================================================================
     ℹ Joining 'company.com' organization...
-    ✓ Joined 'company.com' organization successfully
+    ✓ Joined 'company.com' organization successfully                                                                         
     ℹ Assigning organization workspace viewer role to admin@company.com...
-    ✓ Organization workspace viewer role assigned to admin@company.com
+    ✓ Organization workspace viewer role assigned to admin@company.com                                                 
     ✓ Workspace session saved for later restoration
 
     STEP 5: Enable Compute Ops Management Service
     ================================================================================
     ℹ Enabling Compute Ops Management in region: us-west...
-    ✓ Compute Ops Management service enabled in region 'us-west'
+    ✓ Compute Ops Management service enabled in region 'us-west'                                                            
     ℹ Assigning COM administrator roles...
-    ✓ COM administrator role assigned to admin@company.com
-    ✓ COM administrator role assigned to operations@company.com
+    ✓ COM administrator role assigned to admin@company.com                                                                          
+    ✓ COM administrator role assigned to operations@company.com                                                             
 
     STEP 6: Location Creation
     ================================================================================
     ℹ Creating location: Primary Data Center...
-    ✓ Location 'Primary Data Center' created successfully
+    ✓ Location 'Primary Data Center' created successfully                                                                   
 
     STEP 7: Add Subscriptions and Configure Policies
     ================================================================================
     ℹ Adding subscription key: xxxxxxxx...
-    ✓ Subscription key added successfully
+    ✓ Subscription key added successfully                                                                                   
     ℹ Configuring auto-subscription policy to ENHANCED tier...
-    ✓ Auto-subscription policy configured to ENHANCED tier
+    ✓ Auto-subscription policy configured to ENHANCED tier                                                                  
     ℹ Enabling auto-reassign subscription policy...
-    ✓ Auto-reassign subscription policy enabled
+    ✓ Auto-reassign subscription policy enabled                                                                             
 
-    STEP 8: Server Onboarding (2 servers)
+    STEP 8: Server Onboarding (3 servers)
     ================================================================================
     ✓ Activation key generated: 8FB6KAS7Z
     ℹ Onboarding server: 192.168.1.100 (DL145 Gen11)...
@@ -226,59 +228,64 @@
     ℹ Onboarding server: 192.168.1.101 (DL145 Gen11)...
     ℹ Connecting iLO 192.168.1.101 to Compute Ops Management...
     ✓ iLO 192.168.1.101 connected to Compute Ops Management
-    ℹ 2 of 2 iLO(s) successfully initiated connection to COM
-    ℹ Waiting for all 2 server(s) to appear as connected in COM (timeout: 7 min)...
-    ✓ iLO 192.168.1.101 is now connected in COM (1/2)
-    ✓ iLO 192.168.1.100 is now connected in COM (2/2)
-
+    ℹ Onboarding server: 192.168.1.102 (DL145 Gen11)...
+    ℹ Connecting iLO 192.168.1.102 to Compute Ops Management...
+    ✓ iLO 192.168.1.102 connected to Compute Ops Management    
+    ℹ 3 of 3 iLO(s) successfully initiated connection to COM
+    ℹ Waiting for all 3 server(s) to appear as connected in COM (timeout: 7 min)...
+    ✓ iLO 192.168.1.100 is now connected in COM (1/3)
+    ✓ iLO 192.168.1.101 is now connected in COM (2/3)                                                                     
+    ✓ iLO 192.168.1.102 is now connected in COM (3/3)                                                                     
+                                                                                                                            
     STEP 9: Device Configuration
     ================================================================================
-    ℹ Found 2 device(s) in workspace
+    ℹ Found 3 device(s) in workspace                                                                                        
     ℹ Setting device location to 'Primary Data Center'...
-    ✓ Device location set to 'Primary Data Center'
+    ✓ Device location set to 'Primary Data Center'                                                                          
     ℹ Adding device tags: Environment=Production, Application=WebServices, Tier=Frontend...
-    ✓ Device tags added successfully
+    ✓ Device tags added successfully                                                                                        
     ℹ Setting service delivery contact to operations@company.com...
-    ✓ Service delivery contact set to operations@company.com
+    ✓ Service delivery contact set to operations@company.com                                                                             
 
     STEP 10: Create Server Settings
     ================================================================================
     ℹ Creating BIOS setting: Production-BIOS-Settings...
-    ✓ BIOS setting 'Production-BIOS-Settings' created successfully
+    ✓ BIOS setting 'Production-BIOS-Settings' created successfully                                                          
     ℹ Creating storage setting: Production-Storage-RAID...
-    ✓ Storage setting 'Production-Storage-RAID' created successfully
+    ✓ Storage setting 'Production-Storage-RAID' created successfully                                                        
     ℹ Creating firmware setting with latest baselines...
-    ℹ Gen10: 2026.01.00.00, Gen11: 2026.01.00.00, Gen12: 2026.01.00.00
-    ✓ Firmware setting 'Production-Firmware-Baseline' created with latest baselines
+    ℹ Gen10: 2026.03.00.00, Gen11: 2026.03.00.00, Gen12: 2026.03.00.00                                                      
+    ✓ Firmware setting 'Production-Firmware-Baseline' created with latest baselines                                         
     ℹ Creating iLO setting: Production-iLO-Settings...
-    ✓ iLO setting 'Production-iLO-Settings' created successfully
+    ✓ iLO setting 'Production-iLO-Settings' created successfully                                                            
 
     STEP 11: Create Group and Add Servers
     ================================================================================
     ℹ Creating group: Production-Web-Servers...
     ✓ Group 'Production-Web-Servers' created successfully with server settings applied (BIOS, iLO, Firmware and Storage settings) and group policies
     ℹ Adding servers to group 'Production-Web-Servers'...
-    ✓ Server added to group 'Production-Web-Servers' — Serial: xxxxxxxxxx, iLO IP: 192.168.1.100
+    ✓ Server added to group 'Production-Web-Servers' — Serial: xxxxxxxxxx, iLO IP: 192.168.1.100                              
     ✓ Server added to group 'Production-Web-Servers' — Serial: xxxxxxxxxx, iLO IP: 192.168.1.101
+    ✓ Server added to group 'Production-Web-Servers' — Serial: xxxxxxxxxx, iLO IP: 192.168.1.102
 
     STEP 12: Enable Email Notifications
     ================================================================================
     ℹ Enabling email notification policies...
-    ✓ Email notification policies enabled successfully
+    ✓ Email notification policies enabled successfully                                                                      
 
     STEP 13: Schedule Firmware Update
     ================================================================================
-    ℹ Scheduling firmware update for group 'Production-Web-Servers' on 4/16/2026 8:51 AM...
-    ✓ Firmware update scheduled for 4/16/2026 8:51 AM
+    ℹ Scheduling firmware update for group 'Production-Web-Servers' on 6/28/2026 12:50 PM...
+    ✓ Firmware update scheduled for 6/28/2026 12:50 PM                                                                      
 
     AUTOMATION COMPLETED
     ================================================================================
     ✓ Zero Touch Automation workflow completed!
-    ℹ Workspace: Production-Workspace-6625
+    ℹ Workspace: Production-Workspace-8223
     ℹ Region: us-west
-    ℹ Servers Onboarded: 2
-    ℹ Duration: 00:06:38
-    ℹ Completed at: 3/17/2026 8:51 AM
+    ℹ Servers Onboarded: 3
+    ℹ Duration: 00:08:14
+    ℹ Completed at: 5/29/2026 12:51 PM
 
     Next Steps:
     1. Log in to HPE GreenLake portal to verify workspace and server configuration
@@ -290,47 +297,47 @@
 
     OPTIONAL CLEANUP
     ================================================================================
-    ℹ You can clean up the environment now (removes workspace and all resources) or keep it active for testing and exploration. To clean up later, run the script with the parameters: -WorkspaceName Production-Workspace-6625 -OnlyCleanup
+    ℹ You can clean up the environment now (removes workspace and all resources) or keep it active for testing and exploration. To clean up later, run the script with the parameters: -WorkspaceName Production-Workspace-8223 -OnlyCleanup
 
 
     Do you want to clean up the environment now? (Y/N): y
 
     ENVIRONMENT CLEANUP
     ================================================================================
-    ℹ Starting cleanup process for workspace: Production-Workspace-6625
+    ℹ Starting cleanup process for workspace: Production-Workspace-8223
     ✓ Workspace session is still valid, proceeding with cleanup...
-    ℹ Found 2 device(s) in workspace
+    ℹ Found 3 device(s) in workspace                                                                                        
     ℹ Removing device assignments from service...
-    ✓ Device(s) removed from service
+    ✓ Device(s) removed from service                                                                                        
     ℹ Disconnecting iLO(s) from Compute Ops Management...
-    ✓ iLO 192.168.1.100 disconnected from COM
-    ✓ iLO 192.168.1.101 disconnected from COM
-    ℹ Removing subscription(s)...
-    ✓ Subscription(s) removed
-    ℹ Removing additional user...
-    ✓ Additional user(s) removed: operations@company.com
+    ℹ iLO 192.168.1.100 is already disconnected from COM (likely unregistered by the service removal step)
+    ℹ iLO 192.168.1.101 is already disconnected from COM (likely unregistered by the service removal step)
+    ℹ iLO 192.168.1.102 is already disconnected from COM (likely unregistered by the service removal step)
     ℹ Removing Compute Ops Management service...
-    ✓ Compute Ops Management service removed from region 'us-west'
+    ✓ Compute Ops Management service removed from region 'us-west'                                                          
     ℹ Waiting for service removal to propagate...
-    ℹ Moving 2 device(s) to parking lot workspace 'MyParkingLotWorkspace'...
-    ✓ Connected to parking lot workspace 'MyParkingLotWorkspace'
-    ✓ Device 'xxxxxxxxxx' with iLO IP 192.168.1.100 moved to parking lot
-    ✓ Device 'xxxxxxxxxx' with iLO IP 192.168.1.101 moved to parking lot
-    ℹ Waiting for device moves to propagate...
-    ℹ Restoring workspace session for 'Production-Workspace-6625'...
-    ✓ Workspace session restored for 'Production-Workspace-6625'
-    ℹ Validating workspace deletion prerequisites...
-    ✓ Workspace is clean and ready for deletion
-    ℹ Deleting workspace 'Production-Workspace-6625'...
-    ✓ Workspace 'Production-Workspace-6625' deleted successfully
+    ℹ Removing subscription(s)...
+    ✓ Subscription(s) removed                                                                                               
+    ℹ Removing additional user...
+    ✓ Additional user(s) removed: lionel.jullien@hpe.com                                                                    
+    ℹ No parking lot workspace configured. Permanently removing 3 device(s) from workspace...
+    ✓ Device 'xxxxxxxxxx' permanently removed from workspace                                                                
+    ✓ Device 'xxxxxxxxxx' permanently removed from workspace                                                                
+    ✓ Device 'xxxxxxxxxx' permanently removed from workspace                                                                
+    ℹ Restoring workspace session for 'Production-Workspace-8223'...
+    ✓ Workspace session restored for 'Production-Workspace-8223'                                                            
+    ℹ Validating workspace deletion prerequisites...                                                                        
+    ✓ Workspace is clean and ready for deletion                                                                             
+    ℹ Deleting workspace 'Production-Workspace-8223'...
+    ✓ Workspace 'Production-Workspace-8223' deleted successfully                                                            
 
     CLEANUP COMPLETED
     ================================================================================
     ✓ Environment cleanup completed successfully!
-    ℹ Workspace: Production-Workspace-6625
-    ℹ Cleanup Duration: 00:01:35
-    ℹ Completed at: 3/17/2026 8:53 AM
-    ℹ Total Script Duration (Provisioning + Cleanup): 00:08:13
+    ℹ Workspace: Production-Workspace-8223
+    ℹ Cleanup Duration: 00:01:12
+    ℹ Completed at: 5/29/2026 12:56 PM
+    ℹ Total Script Duration (Provisioning + Cleanup): 00:09:26
 
 .EXAMPLE
     .\COM-Zero-Touch-Automation.ps1 -OnlyProvision
@@ -371,6 +378,40 @@
     easier identification or later cleanup.
 
 .WHATSNEW
+    v1.6 - June 2026
+     - Clarified the $UseSSOAuth authentication mode in the Configuration section to account for
+       password-based SSO (new in HPECOMCmdlets v1.0.26). Set $UseSSOAuth = $true ONLY for
+       PASSWORDLESS SSO accounts (push/TOTP, no password) — this path requires an interactive
+       approval and is not suitable for unattended automation. Set $UseSSOAuth = $false (default)
+       for everything else, including PASSWORD-BASED SSO accounts (Okta, Entra ID, PingID), where
+       federation is auto-detected via -Credential. With a securely stored credential, the
+       password-based SSO path now enables truly unattended SSO automation. No executable logic
+       changed — only the guidance and comments were corrected. Requires HPECOMCmdlets v1.0.26+.
+     - Documented the HPE Secure Gateway onboarding alternative. Step 8 of this script onboards
+       servers by their iLO IP using Connect-HPEGLDeviceComputeiLOtoCOM (direct connection), which
+       is the right approach for this script. For estates where the iLOs sit behind an HPE Secure
+       Gateway, the module now also provides a native, gateway-driven batch onboarding path
+       (Invoke-HPECOMSecureGatewayServerDiscovery / Get-HPECOMSecureGatewayServerDiscovery /
+       Connect-HPECOMSecureGatewayDiscoveredServer, new in HPECOMCmdlets v1.0.26): it discovers
+       every iLO behind the gateway and onboards them in a single batch job, auto-generating the
+       activation key and updating iLO firmware where required. A note above Step 8 now points to
+       this option. No executable logic changed.
+     - Added activation-key onboarding retry in Step 8. Onboarding can intermittently fail with
+       'ActivationKeyRequired' when a workspace/activation key was just created and the
+       key-to-subscription assignment is still propagating across the COM backend. Each server is
+       now retried up to 3 times (30s apart) when this transient error is returned; all other
+       failures still surface immediately. This pairs with the matching retry now built into
+       Connect-HPEGLDeviceComputeiLOtoCOM (HPECOMCmdlets v1.0.26+).
+     - Added a short delay before setting the workspace icon in Step 2. A brief Start-Sleep is now
+       performed after connecting to a freshly created workspace and before calling
+       Set-HPEGLWorkspace -LogoPath, to ensure the workspace is fully initialized.
+
+    v1.5 - June 2026
+     - When $ParkingLotWorkspace is not configured, devices are now permanently removed from the
+       workspace during cleanup using Remove-HPEGLDevice instead of blocking workspace deletion.
+       If $ParkingLotWorkspace is set, the previous behavior (move to parking lot) is preserved.
+       Requires HPECOMCmdlets v1.0.26 or later.
+
     v1.4 - May 2026
      - Changed $AdditionalUser (single hashtable) to $AdditionalUsers (array of hashtables) in
        the Configuration section, allowing multiple users to be provisioned in Steps 3, 4, and 5.
@@ -383,7 +424,7 @@
     v1.3 - May 2026
      - Added $UseSSOAuth variable in the Configuration section to switch between federated SSO
        authentication (Microsoft Entra ID, Okta, PingID) and standard credential-based login.
-       When set to $true, all Connect-HPEGL calls throughout the script use -SSOEmail $MyEmail
+       When set to $true, all Connect-HPEGL calls throughout the script use -PasswordlessSSOEmail $MyEmail
        (no password prompt). When set to $false (default), the original Get-Credential prompt
        is used. Requires HPECOMCmdlets v1.0.25 or later for full SSO support.
      - Added Icon key to $WorkspaceConfig in the Configuration section. When set to a valid PNG
@@ -431,7 +472,7 @@
 #>
 
 #Requires -Version 7.0
-#Requires -Modules @{ ModuleName = 'HPECOMCmdlets'; ModuleVersion = '1.0.25' }
+#Requires -Modules @{ ModuleName = 'HPECOMCmdlets'; ModuleVersion = '1.0.26' }
 
 [CmdletBinding(DefaultParameterSetName = 'Default')]
 param (
@@ -454,8 +495,16 @@ param (
 $MyEmail = "admin@company.com"  # Your HPE GreenLake account email
 
 # Authentication Mode
-# Set to $true if your HPE GreenLake account requires SSO (federated identity: Entra ID, Okta, PingID, etc.)
-# Set to $false to use standard username/password credentials
+# Set to $true ONLY if your federated (SSO) account uses PASSWORDLESS authentication
+# (Microsoft Authenticator / Okta / PingID push or TOTP — no password). This path calls
+# Connect-HPEGL -PasswordlessSSOEmail and requires an interactive push/TOTP approval,
+# so it is NOT suitable for unattended automation.
+#
+# Set to $false (default) for everything else, including PASSWORD-BASED SSO:
+#  - Standard (non-SSO) username/password accounts
+#  - Password-based SSO accounts (Okta, Entra ID, PingID) — federation is auto-detected [v1.0.26+]
+# This path calls Connect-HPEGL -Credential and, with a securely stored credential,
+# enables truly unattended SSO automation.
 $UseSSOAuth = $false
 
 # Workspace Configuration
@@ -519,7 +568,7 @@ $SubscriptionKeys = @(
     "YOUR-SUBSCRIPTION-KEY-2-HERE"
 )
 
-# Server Configuration (2 servers for this example)
+# Server Configuration (3 servers for this example)
 $Servers = @(
     @{
         iLOIP       = "192.168.1.100"
@@ -534,6 +583,13 @@ $Servers = @(
         iLOPassword = "YouriLOPassword2"
         Model       = "DL360 Gen11"
         Description = "Production Web Server 2"
+    },
+    @{
+        iLOIP       = "192.168.1.102"
+        iLOUsername = "Administrator"
+        iLOPassword = "YouriLOPassword3"
+        Model       = "DL360 Gen11"
+        Description = "Production Web Server 3"
     }
 )
 
@@ -586,9 +642,9 @@ $FirmwareUpdateInDays = 30
 
 # Parking Lot Workspace (for cleanup - optional)
 # If specified, devices will be moved here before workspace deletion
-# If not specified, workspace deletion will be skipped if devices exist
-# $ParkingLotWorkspace = $null  
-$ParkingLotWorkspace = "MyParkingLotWorkspace"  
+# If not specified, devices will be permanently removed from the workspace during cleanup
+$ParkingLotWorkspace = $null  
+# $ParkingLotWorkspace = "MyParkingLotWorkspace"  
 
 #EndRegion
 
@@ -663,7 +719,7 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
     Write-Info "Connecting to HPE GreenLake..."
     try {
         if ($UseSSOAuth) {
-            Connect-HPEGL -SSOEmail $MyEmail -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+            Connect-HPEGL -PasswordlessSSOEmail $MyEmail -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
         }
         else {
             $Credential = Get-Credential -UserName $MyEmail -Message "Enter your HPE GreenLake credentials"
@@ -725,6 +781,9 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
 
     # Set workspace icon (optional)
     if ($WorkspaceConfig.Icon) {
+
+        Start-Sleep -Seconds 5  # Wait a few seconds to ensure workspace is fully initialized before setting the icon
+
         try {
             Write-Info "Setting workspace icon..."
             $IconTask = Set-HPEGLWorkspace -LogoPath $WorkspaceConfig.Icon -ErrorAction Stop
@@ -1025,6 +1084,21 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
     # ============================================================================
     Write-SectionHeader "STEP 8: Server Onboarding ($($Servers.Count) servers)"
 
+    # NOTE - Onboarding approach
+    # This script onboards servers by their iLO IP using Connect-HPEGLDeviceComputeiLOtoCOM with a
+    # direct connection (each iLO reaches Compute Ops Management itself). This is the right approach
+    # for this script, where the iLO IPs are known up front.
+    #
+    # If your iLOs sit behind an HPE Secure Gateway, the module also provides a native, gateway-driven
+    # batch onboarding path (HPECOMCmdlets v1.0.26+) that discovers every iLO behind the gateway and
+    # onboards them in a single job - auto-generating the activation key and updating iLO firmware
+    # where required:
+    #
+    #   $iLO_credential = Get-Credential
+    #   Invoke-HPECOMSecureGatewayServerDiscovery -Region $COMRegion -SecureGateway "sg01.lab"
+    #   Get-HPECOMSecureGatewayServerDiscovery -Region $COMRegion -SecureGateway "sg01.lab" |
+    #       Connect-HPECOMSecureGatewayDiscoveredServer -IloCredential $iLO_credential
+
     $OnboardedServers = @()
     $ActivationKey = $null
 
@@ -1063,14 +1137,37 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
         
             Write-Info "Connecting iLO $($Server.iLOIP) to Compute Ops Management..."
         
-            $ConnectionTask = Connect-HPEGLDeviceComputeiLOtoCOM `
-                -iLOCredential $iLOCredential `
-                -IloIP $Server.iLOIP `
-                -ActivationKeyfromCOM $ActivationKey `
-                -SkipCertificateValidation `
-                -RemoveExistingiLOProxySettings `
-                -ConnectionMonitoringTimeoutSeconds 300 `
-                -ResetiLOIfProxyErrorPersists
+            # Onboarding can intermittently fail with 'ActivationKeyRequired' when a workspace/activation key
+            # was just created and the key-to-subscription assignment is still propagating across the COM backend.
+            # Retry a few times with a short delay before giving up on this server.
+            $MaxOnboardAttempts = 3
+            $OnboardRetryDelaySeconds = 30
+            $ConnectionTask = $null
+
+            for ($OnboardAttempt = 1; $OnboardAttempt -le $MaxOnboardAttempts; $OnboardAttempt++) {
+
+                $ConnectionTask = Connect-HPEGLDeviceComputeiLOtoCOM `
+                    -iLOCredential $iLOCredential `
+                    -IloIP $Server.iLOIP `
+                    -ActivationKeyfromCOM $ActivationKey `
+                    -SkipCertificateValidation `
+                    -RemoveExistingiLOProxySettings `
+                    -ConnectionMonitoringTimeoutSeconds 300 `
+                    -ResetiLOIfProxyErrorPersists
+
+                if ($ConnectionTask.Status -eq "Complete") {
+                    break
+                }
+
+                # Only retry the transient activation-key error; other failures are returned immediately.
+                if ($ConnectionTask.iLOConnectionDetails -match "ActivationKey" -and $OnboardAttempt -lt $MaxOnboardAttempts) {
+                    Write-Info "iLO $($Server.iLOIP): activation key not yet ready (attempt $OnboardAttempt/$MaxOnboardAttempts). Retrying in ${OnboardRetryDelaySeconds}s..."
+                    Start-Sleep -Seconds $OnboardRetryDelaySeconds
+                }
+                else {
+                    break
+                }
+            }
         
             if ($ConnectionTask.Status -eq "Complete") {
                 Write-Success "iLO $($Server.iLOIP) connected to Compute Ops Management"
@@ -1524,7 +1621,7 @@ if (-not $OnlyProvision) {
 
             try {
                 if ($UseSSOAuth) {
-                    Connect-HPEGL -SSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
+                    Connect-HPEGL -PasswordlessSSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
                 }
                 else {
                     Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null
@@ -1691,7 +1788,7 @@ if (-not $OnlyProvision) {
 
                     # Connect to parking lot workspace
                     if ($UseSSOAuth) {
-                        Connect-HPEGL -SSOEmail $MyEmail -Workspace $ParkingLotWorkspace -NoProgress -WarningAction SilentlyContinue -ErrorAction Stop -RemoveExistingCredentials | Out-Null
+                        Connect-HPEGL -PasswordlessSSOEmail $MyEmail -Workspace $ParkingLotWorkspace -NoProgress -WarningAction SilentlyContinue -ErrorAction Stop -RemoveExistingCredentials | Out-Null
                     }
                     else {
                         Connect-HPEGL -Credential $Credential -Workspace $ParkingLotWorkspace -NoProgress -WarningAction SilentlyContinue -ErrorAction Stop -RemoveExistingCredentials | Out-Null
@@ -1724,9 +1821,27 @@ if (-not $OnlyProvision) {
                 }
             }
             else {
-                Write-Failure "Cannot delete workspace: $($DevicesBeforeCleanup.Count) device(s) still present and no parking lot workspace configured"
-                Write-Info "Set the `$ParkingLotWorkspace variable to move devices before workspace deletion"
-                $CleanupErrors += "Workspace has devices but no parking lot configured"
+                # No parking lot configured — permanently remove devices from the workspace
+                try {
+                    Write-Info "No parking lot workspace configured. Permanently removing $($DevicesBeforeCleanup.Count) device(s) from workspace..."
+                    $deviceRemoveFailures = 0
+                    foreach ($device in $DevicesBeforeCleanup) {
+                        try {
+                            Remove-HPEGLDevice -SerialNumber $device.serialNumber -Force | Out-Null
+                            Write-Success "Device '$($device.serialNumber)' permanently removed from workspace"
+                        }
+                        catch {
+                            Write-Failure "Error removing device '$($device.serialNumber)': $($_.Exception.Message)"
+                            $CleanupErrors += "Device removal: $($_.Exception.Message)"
+                            $deviceRemoveFailures++
+                        }
+                    }
+                    $allDevicesMoved = $deviceRemoveFailures -eq 0
+                }
+                catch {
+                    Write-Failure "Error removing devices: $($_.Exception.Message)"
+                    $CleanupErrors += "Device removal: $($_.Exception.Message)"
+                }
             }
         }
     
@@ -1747,14 +1862,14 @@ if (-not $OnlyProvision) {
                     }
                     catch {
                         Write-Info "Session restore failed, reconnecting to workspace '$($WorkspaceConfig.Name)'..."
-                        if ($UseSSOAuth) { Connect-HPEGL -SSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
+                        if ($UseSSOAuth) { Connect-HPEGL -PasswordlessSSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
                         else { Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
                         Write-Success "Reconnected to workspace '$($WorkspaceConfig.Name)'"
                     }
                 }
                 else {
                     Write-Info "Reconnecting to workspace '$($WorkspaceConfig.Name)'..."
-                    if ($UseSSOAuth) { Connect-HPEGL -SSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
+                    if ($UseSSOAuth) { Connect-HPEGL -PasswordlessSSOEmail $MyEmail -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
                     else { Connect-HPEGL -Credential $Credential -Workspace $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue -RemoveExistingCredentials | Out-Null }
                     Write-Success "Reconnected to workspace '$($WorkspaceConfig.Name)'"
                 }
@@ -1840,7 +1955,7 @@ if (-not $OnlyProvision) {
             }
         }
         else {
-            Write-Info "Workspace deletion skipped (devices present, no parking lot configured)"
+            Write-Info "Workspace deletion skipped due to errors during device cleanup"
         }
 
     

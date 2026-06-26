@@ -2054,6 +2054,9 @@ Function Invoke-HPECOMApplianceRefreshSettings {
 
                         "[{0}] Job result: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($JobResult | Out-String) | Write-Verbose
 
+                        # Save last job result for easy post-execution inspection
+                        $Global:HPECOMLastJobResult = $JobResult
+
                         if ($JobResult.resultCode -eq "SUCCESS") {
                             "[{0}] Settings successfully refreshed for appliance '{1}' in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
                             $objStatus.Status = "Complete"
@@ -2334,6 +2337,9 @@ Function Restart-HPECOMAppliance {
 
                     "[{0}] Job result: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($JobResult | Out-String) | Write-Verbose
 
+                    # Save last job result for easy post-execution inspection
+                    $Global:HPECOMLastJobResult = $JobResult
+
                     if ($JobResult.resultCode -eq "SUCCESS") {
                         "[{0}] Appliance '{1}' successfully rebooted in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Name, $Region | Write-Verbose
                         $objStatus.Status = "Complete"
@@ -2381,6 +2387,1356 @@ Function Restart-HPECOMAppliance {
         if ($StatusList.Count -gt 0) {
             $StatusList = Invoke-RepackageObjectWithType -RawObject $StatusList -ObjectName "COM.Appliances.Reboot.Status"
             Return $StatusList
+        }
+    }
+}
+
+
+Function Invoke-HPECOMSecureGatewayServerDiscovery {
+    <#
+    .SYNOPSIS
+    Discover servers behind an HPE Secure Gateway appliance using a network scan.
+
+    .DESCRIPTION
+    This cmdlet triggers a server discovery operation on an HPE Secure Gateway appliance in Compute Ops Management.
+    The discovery runs an nmap network scan from the Secure Gateway across its local subnet to detect HPE iLO devices
+    that are reachable through the gateway but not yet connected to Compute Ops Management.
+
+    Note: Nmap host discovery relies on ICMP and TCP probe packets to identify reachable hosts. In private LR4 networks where 
+    ICMP traffic is blocked, host detection might be affected and some reachable systems might not be identified accurately.
+
+    Note: The scan duration depends on the size of the subnet behind the Secure Gateway. Scanning a large subnet (for
+    example a /16, or networks with many unreachable addresses) can take a long time - from several minutes to much
+    longer. By default the cmdlet waits for the discovery job to complete; use -Async to submit the job and return
+    immediately, then retrieve the results later with 'Get-HPECOMSecureGatewayServerDiscovery'.
+
+    If two network interfaces are configured in the HPE Secure Gateway, the scan uses the secure gateway device network.
+
+    By default, the cmdlet submits the discovery job, waits for it to complete, then retrieves the list of discovered
+    servers, including each server's IP address, iLO generation, iLO firmware version, whether an iLO firmware update is
+    required before the server can be connected to Compute Ops Management, and the iLO certificate fingerprint.
+
+    Use -Async to submit the discovery job and immediately return the job resource without waiting (the list of
+    discovered servers can then be retrieved separately). Use -ScheduleTime (optionally with -Interval) to schedule the
+    discovery to run later or on a recurring basis.
+
+    The returned objects (default mode) are designed to be piped directly to 'Connect-HPEGLDeviceComputeiLOtoCOM' to
+    onboard the discovered iLOs to Compute Ops Management through the Secure Gateway.
+
+    SECURITY NOTICE:
+    The discovery performs an active nmap network scan from the Secure Gateway appliance. This scan probes hosts on
+    the appliance's local subnet (host discovery and TCP port checks) and may trigger intrusion detection/prevention
+    systems (IDS/IPS) or security monitoring alerts. It may also be subject to your organization's network scanning
+    authorization policy. Ensure you are authorized to scan the target network before proceeding. Depending on the
+    size of the subnet, the scan can take a long time to complete. By default, the cmdlet prompts for confirmation
+    before launching the scan. Use -Force to bypass the confirmation prompt.
+
+    Note that, to be connected to Compute Ops Management, iLO must be updated to the following minimum versions:
+    - iLO 5: v3.09 or later
+    - iLO 6: v1.64 or later
+    - iLO 7: v1.12.00 or later
+    Discovered servers running an older iLO firmware are reported with 'iLOUpdateRequired = Yes'.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the Secure Gateway appliance is registered.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER SecureGateway
+    Specifies the HPE Secure Gateway appliance on which to run the server discovery.
+    This parameter accepts either the name (hostname) of the Secure Gateway as a string, or a Secure Gateway object retrieved from 'Get-HPECOMAppliance -Type SecureGateway'.
+
+    .PARAMETER Force
+    Bypasses the confirmation prompt warning about the nmap network scan and launches the discovery immediately.
+
+    .PARAMETER Async
+    Use this parameter to immediately return the asynchronous job resource to monitor (using 'state' and 'resultCode' properties). By default, the cmdlet waits for the discovery job to complete and returns the list of discovered servers.
+
+    .PARAMETER ScheduleTime
+    Specifies the date and time when the server discovery should be executed.
+    This parameter accepts a DateTime object or a string representation of a date and time.
+    If not specified, the discovery is executed immediately.
+
+    Examples for setting the date and time using `Get-Date`:
+    - (Get-Date).AddMonths(6)
+    - (Get-Date).AddDays(15)
+    - (Get-Date).AddHours(3)
+    Example for using a specific date string:
+    - "2024-05-20 08:00:00"
+
+    .PARAMETER Interval
+    Specifies the interval at which the server discovery should be repeated.
+
+    This parameter supports common ISO 8601 period durations such as:
+    - P1D (1 Day)
+    - P1W (1 Week)
+    - P1M (1 Month)
+    - P1Y (1 Year)
+
+    A valid interval must be greater than 15 minutes (PT15M) and less than 1 year (P1Y).
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab"
+
+    Runs an nmap-based server discovery on the Secure Gateway 'sg01.lj.lab' in the 'eu-central' region (after prompting for confirmation) and returns the list of discovered servers.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Type SecureGateway -Name "sg01.lj.lab" | Invoke-HPECOMSecureGatewayServerDiscovery -Force
+
+    Retrieves the Secure Gateway 'sg01.lj.lab' and runs the server discovery without prompting for confirmation.
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -Force |
+        Where-Object iLOUpdateRequired -eq 'No' |
+        Connect-HPEGLDeviceComputeiLOtoCOM -IloCredential $iLO_credential
+
+    Discovers servers behind the Secure Gateway 'sg01.lj.lab', filters out any iLO that requires a firmware update first, and onboards the remaining iLOs to Compute Ops Management through the Secure Gateway.
+
+    .EXAMPLE
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -Force -Async
+
+    Submits the discovery job on the Secure Gateway 'sg01.lj.lab' and immediately returns the job resource to monitor, without waiting for completion.
+
+    .EXAMPLE
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -Force -ScheduleTime (Get-Date).AddHours(6)
+
+    Schedules an nmap-based server discovery on the Secure Gateway 'sg01.lj.lab' to run six hours from now.
+
+    .EXAMPLE
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -Force -ScheduleTime (Get-Date).AddHours(6) -Interval P1W
+
+    Schedules a weekly nmap-based server discovery on the Secure Gateway 'sg01.lj.lab', with the first execution six hours from now.
+
+    .INPUTS
+    System.String
+        The name of a Secure Gateway appliance.
+    HPEGreenLake.COM.Appliances
+        A Secure Gateway object from 'Get-HPECOMAppliance -Type SecureGateway'.
+
+    .OUTPUTS
+    HPEGreenLake.COM.DiscoveredServers [System.Management.Automation.PSCustomObject]
+
+        In the default (synchronous) mode, returns one object per discovered server, with the following properties:
+            - IP - IP address of the discovered iLO (can be piped to 'Connect-HPEGLDeviceComputeiLOtoCOM')
+            - iLOGeneration - iLO generation reported by the discovery (e.g. 'iLO 6')
+            - iLOVersion - iLO firmware version detected
+            - iLOUpdateRequired - 'Yes' if the iLO firmware is below the minimum version required to connect to Compute Ops Management, 'No' if it meets the minimum, 'Unknown' if it could not be determined
+            - CertificateFingerprint - SHA-256 fingerprint of the iLO TLS certificate
+            - SecureGateway - Name of the Secure Gateway used for the discovery
+            - Region - Name of the region where the discovery was run
+            - ApplianceId - Identifier of the Secure Gateway appliance
+
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+
+        - When -Async is used, the cmdlet returns the job resource immediately, allowing you to monitor its progress
+          using the `state` and `resultCode` properties, or by passing the job object to `Wait-HPECOMJobComplete`.
+
+    HPEGreenLake.COM.Schedules [System.Management.Automation.PSCustomObject]
+
+        - When -ScheduleTime is used, the cmdlet returns the schedule object containing the schedule details.
+
+    #>
+
+    [CmdletBinding(DefaultParameterSetName = 'Default')]
+    Param(
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                     Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $Global:HPECOMRegions global variable and create completions
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [Alias('name')]
+        [object]$SecureGateway,
+
+        [Parameter (Mandatory, ParameterSetName = 'Schedule')]
+        [ValidateScript({
+                if ($_ -ge (Get-Date) -and $_ -le (Get-Date).AddYears(1)) {
+                    $true
+                }
+                else {
+                    throw "The ScheduleTime must be within one year from the current date."
+                }
+            })]
+        [DateTime]$ScheduleTime,
+
+        [Parameter (ParameterSetName = 'Schedule')]
+        [ValidateScript({
+                # Validate ISO 8601 duration format
+                if ($_ -notmatch '^P(?!$)(\d+Y)?(\d+M)?(\d+W)?(\d+D)?(T(\d+H)?(\d+M)?(\d+S)?)?$') {
+                    throw "Invalid duration format. Please use an ISO 8601 period interval (e.g., P1D, P1W, P1M, P1Y, PT1H, PT15M)"
+                }
+
+                # Extract duration parts
+                $years   = [int]($matches[1] -replace '\D', '')
+                $months  = [int]($matches[2] -replace '\D', '')
+                $weeks   = [int]($matches[3] -replace '\D', '')
+                $days    = [int]($matches[4] -replace '\D', '')
+                $hours   = [int]($matches[6] -replace '\D', '')
+                $minutes = [int]($matches[7] -replace '\D', '')
+                $seconds = [int]($matches[8] -replace '\D', '')
+
+                # Calculate total duration in seconds (approximate months/years)
+                $totalSeconds = 0
+                if ($years)   { $totalSeconds += $years * 365 * 24 * 3600 }
+                if ($months)  { $totalSeconds += $months * 30 * 24 * 3600 }
+                if ($weeks)   { $totalSeconds += $weeks * 7 * 24 * 3600 }
+                if ($days)    { $totalSeconds += $days * 24 * 3600 }
+                if ($hours)   { $totalSeconds += $hours * 3600 }
+                if ($minutes) { $totalSeconds += $minutes * 60 }
+                if ($seconds) { $totalSeconds += $seconds }
+
+                $minSeconds = 15 * 60
+                $maxSeconds = 365 * 24 * 3600  # 1 year
+
+                if ($totalSeconds -lt $minSeconds) {
+                    throw "The interval must be greater than 15 minutes (PT15M)."
+                }
+                if ($totalSeconds -gt $maxSeconds) {
+                    throw "The interval must be less than 1 year (P1Y)."
+                }
+                return $true
+            })]
+        [String]$Interval,
+
+        [Parameter (ParameterSetName = 'Default')]
+        [Switch]$Async,
+
+        [Switch]$Force,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $DiscoveredList = [System.Collections.ArrayList]::new()
+
+        $_JobTemplateName = 'GatewayDiscoverIlos'
+        $JobTemplateId    = $Global:HPECOMjobtemplatesUris | Where-Object name -eq $_JobTemplateName | ForEach-Object id
+        $JobsUri          = Get-COMJobsUri
+
+        "[{0}] Job template '{1}' ID: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_JobTemplateName, $JobTemplateId | Write-Verbose
+
+        # Minimum iLO firmware versions required to connect a server to Compute Ops Management
+        $_iLOMinimumVersions = @{
+            '5' = [version]'3.09'
+            '6' = [version]'1.64'
+            '7' = [version]'1.12.00'
+        }
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | Out-String) | Write-Verbose
+
+        # Resolve the Secure Gateway resource (accept a name string or a Secure Gateway object)
+        try {
+            if ($SecureGateway -is [string]) {
+                "[{0}] SecureGateway parameter is a string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $ApplianceResource = Get-HPECOMAppliance -Region $Region -Type SecureGateway -Name $SecureGateway -Verbose:$false
+                $SecureGatewayName = $SecureGateway
+            }
+            else {
+                "[{0}] SecureGateway parameter is an object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $SecureGatewayName = $SecureGateway.name
+                $ApplianceResource = Get-HPECOMAppliance -Region $Region -Type SecureGateway -Name $SecureGatewayName -Verbose:$false
+            }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $ApplianceResource) {
+
+            $ErrorMessage = "Secure Gateway '{0}' cannot be found in the '{1}' region!" -f $SecureGatewayName, $Region
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            $Exception = New-Object System.Exception($ErrorMessage)
+            $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'SecureGatewayNotFound', [System.Management.Automation.ErrorCategory]::ObjectNotFound, $SecureGatewayName)
+            $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+        }
+
+        if ($ApplianceResource.applianceType -ne "GATEWAY") {
+
+            $ErrorMessage = "Appliance '{0}': Server discovery is only supported for HPE Secure Gateway appliances. OneView appliances (VM or Synergy) are not supported." -f $SecureGatewayName
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            $Exception = New-Object System.Exception($ErrorMessage)
+            $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'NotASecureGateway', [System.Management.Automation.ErrorCategory]::InvalidOperation, $SecureGatewayName)
+            $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+        }
+
+        if ($ApplianceResource.state -ne "Connected") {
+
+            $ErrorMessage = "Secure Gateway '{0}': The appliance must be in the 'Connected' state to run a server discovery. Current state: '{1}'." -f $SecureGatewayName, $ApplianceResource.state
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            $Exception = New-Object System.Exception($ErrorMessage)
+            $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'SecureGatewayNotConnected', [System.Management.Automation.ErrorCategory]::InvalidOperation, $SecureGatewayName)
+            $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+        }
+
+        if (-not $JobTemplateId) {
+
+            $ErrorMessage = "Job template '$_JobTemplateName' cannot be found in the loaded templates. Ensure you are connected and job templates are loaded."
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            $Exception = New-Object System.Exception($ErrorMessage)
+            $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'JobTemplateNotFound', [System.Management.Automation.ErrorCategory]::ObjectNotFound, $_JobTemplateName)
+            $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+        }
+
+        $_ApplianceResourceUri = $ApplianceResource.resourceUri
+        $_ApplianceDeviceId    = $ApplianceResource.deviceId
+        # The appliance identifier used by the discovered-servers endpoint is the segment that follows 'gateway+' in the resource URI
+        if ($_ApplianceResourceUri -match 'gateway\+(.+)$') {
+            $_ApplianceId = $matches[1]
+        }
+        else {
+            $_ApplianceId = $_ApplianceDeviceId
+        }
+
+        "[{0}] Secure Gateway '{1}' resource URI: '{2}' (appliance ID: '{3}')" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName, $_ApplianceResourceUri, $_ApplianceId | Write-Verbose
+
+        # Warn about the nmap network scan and prompt for confirmation (unless -Force or -WhatIf)
+        if (-not $Force -and -not $WhatIf) {
+
+            Write-Warning ("Server discovery on Secure Gateway '{0}' runs an active nmap network scan across the appliance's local subnet to detect HPE iLO devices. This scan may trigger intrusion detection/prevention systems (IDS/IPS) or security monitoring alerts, and may be subject to your organization's network scanning authorization policy. Depending on the size of the subnet, the scan can take a long time to complete (from several minutes to much longer for large subnets). Ensure you are authorized to scan this network before proceeding." -f $SecureGatewayName)
+
+            $question = "Do you want to start the nmap-based server discovery on Secure Gateway '$SecureGatewayName' in the '$Region' region?"
+            $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Start the server discovery (runs an nmap scan from the Secure Gateway)."
+            $no  = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Cancel the server discovery."
+            $choices = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
+            $decision = $Host.UI.PromptForChoice("Confirm Secure Gateway server discovery", $question, $choices, 1)
+
+            if ($decision -eq 1) {
+                "[{0}] Server discovery cancelled by user for Secure Gateway '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName | Write-Verbose
+                Write-Verbose "Operation cancelled by the user!"
+                return
+            }
+        }
+
+        # Build the job or schedule payload following the working COM job pattern
+        # (immediate job: jobTemplate / resourceId / resourceType / jobParams)
+        if ($ScheduleTime) {
+
+            $Uri = Get-COMSchedulesUri
+
+            $_Body = @{
+                jobTemplateUri = "/api/compute/v1/job-templates/" + $JobTemplateId
+                resourceUri    = $_ApplianceResourceUri
+                data           = @{
+                    discoveryMode = "nmapScan"
+                }
+            }
+
+            $Operation = @{
+                type   = "REST"
+                method = "POST"
+                uri    = "/api/compute/v1/jobs"
+                body   = $_Body
+            }
+
+            $randomNumber = Get-Random -Minimum 000000 -Maximum 999999
+            $ScheduleName = "$($SecureGatewayName)_SecureGatewayServerDiscovery_Schedule_$($randomNumber)"
+            $Description  = "Scheduled task to run nmap-based server discovery on Secure Gateway '$($SecureGatewayName)'"
+
+            if ($Interval) {
+                $Schedule = @{
+                    startAt  = $ScheduleTime.ToString("o")
+                    interval = $Interval
+                }
+            }
+            else {
+                $Schedule = @{
+                    startAt = $ScheduleTime.ToString("o")
+                }
+            }
+
+            $payload = @{
+                name                  = $ScheduleName
+                description           = $Description
+                associatedResourceUri = $_ApplianceResourceUri
+                purpose               = "SECURE_GATEWAY_SERVER_DISCOVERY"
+                schedule              = $Schedule
+                operation             = $Operation
+            }
+        }
+        else {
+
+            $Uri = $JobsUri
+
+            $payload = @{
+                jobTemplate  = $JobTemplateId
+                resourceId   = $_ApplianceDeviceId
+                resourceType = "compute-ops-mgmt/appliance"
+                jobParams    = @{
+                    discoveryMode = "nmapScan"
+                }
+            }
+        }
+
+        $payload = ConvertTo-Json $payload -Depth 10
+
+        try {
+            $Response = Invoke-HPECOMWebRequest -Region $Region -Uri $Uri -method POST -body $payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($WhatIf) {
+            return
+        }
+
+        # Schedule mode: return the created schedule resource
+        if ($ScheduleTime) {
+            "[{0}] Discovery schedule created for Secure Gateway '{1}' in '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName, $Region | Write-Verbose
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $Response -ObjectName "COM.Schedules"
+            Return $ReturnData
+        }
+
+        # Async mode: return the job resource immediately without waiting
+        if ($Async) {
+            "[{0}] Discovery job submitted for Secure Gateway '{1}' in '{2}' region (async)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName, $Region | Write-Verbose
+            $Response | Add-Member -type NoteProperty -name region -value $Region -Force
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $Response -ObjectName "COM.Jobs"
+            Return $ReturnData
+        }
+
+        # Synchronous mode: wait for the discovery job to complete, then retrieve discovered servers
+        "[{0}] Discovery job submitted for Secure Gateway '{1}' in '{2}' region, waiting for completion..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName, $Region | Write-Verbose
+
+        try {
+            $JobResult = Wait-HPECOMJobComplete -Region $Region -Job $Response.resourceUri -Timeout 600 -Verbose:$VerbosePreference
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        "[{0}] Job result: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($JobResult | Out-String) | Write-Verbose
+
+        # Save last job result for easy post-execution inspection
+        $Global:HPECOMLastJobResult = $JobResult
+
+        if ($JobResult.resultCode -ne "SUCCESS") {
+
+            $ErrorMessage = if ($JobResult.message) { $JobResult.message } else { "Server discovery job did not complete successfully on Secure Gateway '$SecureGatewayName'. Result: $($JobResult.resultCode)" }
+            $Exception = New-Object System.Exception($ErrorMessage)
+            $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'DiscoveryJobFailed', [System.Management.Automation.ErrorCategory]::OperationStopped, $SecureGatewayName)
+            $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+        }
+
+        # Retrieve the list of discovered servers
+        $DiscoveredServersUri = "{0}?hide=false&externalManager=None&onboarding=false&applianceID={1}&method=nmapScan" -f (Get-COMDiscoveredServersUri), $_ApplianceId
+
+        try {
+            [Array]$DiscoveredServers = Invoke-HPECOMWebRequest -Method Get -Uri $DiscoveredServersUri -Region $Region -WhatIfBoolean $false -Verbose:$VerbosePreference
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        "[{0}] Discovered {1} server(s) on Secure Gateway '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DiscoveredServers.Count, $SecureGatewayName | Write-Verbose
+
+        foreach ($_server in $DiscoveredServers) {
+
+            # Determine the iLO generation number from the 'ilo' field (e.g. 'iLO 6' -> 6)
+            $_genNumber = $null
+            if ($_server.ilo -and $_server.ilo -match '(\d+)') {
+                $_genNumber = $matches[1]
+                $_iLOGeneration = "iLO $_genNumber"
+            }
+            else {
+                $_iLOGeneration = "Unknown"
+            }
+
+            # Determine whether the iLO firmware needs to be updated before it can connect to Compute Ops Management
+            $_iLOUpdateRequired = "Unknown"
+            if ($_genNumber -and $_iLOMinimumVersions.ContainsKey($_genNumber) -and $_server.iloVersion -and $_server.iloVersion -ne 'N/A') {
+                try {
+                    $_parsedVersion = [version]($_server.iloVersion -replace '[^\d.].*$', '')
+                    $_iLOUpdateRequired = if ($_parsedVersion -ge $_iLOMinimumVersions[$_genNumber]) { "No" } else { "Yes" }
+                }
+                catch {
+                    "[{0}] Could not parse iLO version '{1}' for {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_server.iloVersion, $_server.ip | Write-Verbose
+                }
+            }
+
+            $objDiscovered = [PSCustomObject]@{
+                IP                     = $_server.ip
+                iLOGeneration          = $_iLOGeneration
+                iLOVersion             = $_server.iloVersion
+                iLOUpdateRequired      = $_iLOUpdateRequired
+                CertificateFingerprint = $_server.certificateFingerprint
+                SecureGateway          = $SecureGatewayName
+                Region                 = $Region
+                ApplianceId            = $_ApplianceId
+            }
+
+            [void]$DiscoveredList.Add($objDiscovered)
+        }
+
+    }
+
+    End {
+
+        if ($DiscoveredList.Count -gt 0) {
+            $DiscoveredList = Invoke-RepackageObjectWithType -RawObject $DiscoveredList -ObjectName "COM.DiscoveredServers"
+            Return $DiscoveredList
+        }
+    }
+}
+
+
+Function Get-HPECOMSecureGatewayServerDiscovery {
+    <#
+    .SYNOPSIS
+    Retrieve the servers discovered behind an HPE Secure Gateway appliance.
+
+    .DESCRIPTION
+    This cmdlet returns the list of servers discovered behind an HPE Secure Gateway appliance in Compute Ops Management,
+    as produced by the most recent network (nmap) discovery run with 'Invoke-HPECOMSecureGatewayServerDiscovery'.
+
+    For each discovered server, the cmdlet reports the IP address, iLO generation, iLO firmware version, whether an iLO
+    firmware update is required before the server can be connected to Compute Ops Management, and the iLO certificate
+    fingerprint.
+
+    If no discovery has ever been run on the Secure Gateway, the cmdlet returns a warning recommending that you run
+    'Invoke-HPECOMSecureGatewayServerDiscovery' first. If a discovery has been run but no servers were detected, the
+    cmdlet returns nothing.
+
+    The returned objects are designed to be piped directly to 'Connect-HPEGLDeviceComputeiLOtoCOM' to onboard the
+    discovered iLOs to Compute Ops Management through the Secure Gateway.
+
+    Note that, to be connected to Compute Ops Management, iLO must be updated to the following minimum versions:
+    - iLO 5: v3.09 or later
+    - iLO 6: v1.64 or later
+    - iLO 7: v1.12.00 or later
+    Discovered servers running an older iLO firmware are reported with 'iLOUpdateRequired = Yes'.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the Secure Gateway appliance is registered.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER SecureGateway
+    Specifies the HPE Secure Gateway appliance for which to retrieve the discovered servers.
+    This parameter accepts either the name (hostname) of the Secure Gateway as a string, or a Secure Gateway object retrieved from 'Get-HPECOMAppliance -Type SecureGateway'.
+
+    .PARAMETER ReadyForConnection
+    Returns only the discovered servers whose iLO firmware already meets the minimum version required to connect to Compute Ops Management (i.e. 'iLOUpdateRequired = No').
+    This is a convenience switch that replaces piping the output to 'Where-Object iLOUpdateRequired -eq "No"', making it easy to onboard only the servers that are ready by piping directly to 'Connect-HPEGLDeviceComputeiLOtoCOM'.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab"
+
+    Returns the servers discovered behind the Secure Gateway 'sg01.lj.lab' in the 'eu-central' region.
+
+    .EXAMPLE
+    Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -ReadyForConnection
+
+    Returns only the servers discovered behind the Secure Gateway 'sg01.lj.lab' whose iLO firmware already meets the minimum version required to connect to Compute Ops Management.
+
+    .EXAMPLE
+    Get-HPECOMAppliance -Region eu-central -Type SecureGateway -Name "sg01.lj.lab" | Get-HPECOMSecureGatewayServerDiscovery
+
+    Retrieves the Secure Gateway 'sg01.lj.lab' and returns the servers discovered behind it.
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+    $COM_Activation_Key = New-HPECOMServerActivationKey -Region eu-central -SecureGateway "sg01.lj.lab"
+
+    Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -ReadyForConnection |
+        Connect-HPEGLDeviceComputeiLOtoCOM -IloCredential $iLO_credential -ActivationKeyfromCOM $COM_Activation_Key
+
+    Retrieves the servers discovered behind the Secure Gateway 'sg01.lj.lab', keeps only the iLOs that do not require a firmware update first, and onboards them to Compute Ops Management through the Secure Gateway using a COM activation key.
+    Because the activation key is generated for the Secure Gateway, the onboarded iLOs are automatically configured to connect to Compute Ops Management through that gateway.
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+    $SubscriptionKey = Get-HPEGLSubscription -ShowDeviceSubscriptions -ShowWithAvailableQuantity -ShowValid | Where-Object tier -eq "ENHANCED_PROLIANT" | Select-Object -First 1 -ExpandProperty Key
+
+    Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" |
+        Connect-HPECOMSecureGatewayDiscoveredServer -IloCredential $iLO_credential -SubscriptionKey $SubscriptionKey
+
+    Retrieves all servers discovered behind the Secure Gateway 'sg01.lj.lab' and onboards them to Compute Ops Management through the gateway using 'Connect-HPECOMSecureGatewayDiscoveredServer'.
+
+    Unlike the previous example (which uses 'Connect-HPEGLDeviceComputeiLOtoCOM' with a pre-generated activation key), this approach does not require creating an activation key beforehand: Compute Ops Management generates the Secure Gateway activation key automatically and updates the iLO firmware on any server reported with 'iLOUpdateRequired = Yes' before connecting it. It only requires a valid COM subscription key with available quantity (retrieved here with 'Get-HPEGLSubscription').
+
+    .INPUTS
+    System.String
+        The name of a Secure Gateway appliance.
+    HPEGreenLake.COM.Appliances
+        A Secure Gateway object from 'Get-HPECOMAppliance -Type SecureGateway'.
+
+    .OUTPUTS
+    HPEGreenLake.COM.DiscoveredServers [System.Management.Automation.PSCustomObject]
+
+        Returns one object per discovered server, with the following properties:
+            - IP - IP address of the discovered iLO (can be piped to 'Connect-HPEGLDeviceComputeiLOtoCOM')
+            - iLOGeneration - iLO generation reported by the discovery (e.g. 'iLO 6')
+            - iLOVersion - iLO firmware version detected
+            - iLOUpdateRequired - 'Yes' if the iLO firmware is below the minimum version required to connect to Compute Ops Management, 'No' if it meets the minimum, 'Unknown' if it could not be determined
+            - CertificateFingerprint - SHA-256 fingerprint of the iLO TLS certificate
+            - SecureGateway - Name of the Secure Gateway used for the discovery
+            - Region - Name of the region where the discovery was run
+            - ApplianceId - Identifier of the Secure Gateway appliance
+
+    #>
+
+    [CmdletBinding()]
+    Param(
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                     Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                # Filter region based on $Global:HPECOMRegions global variable and create completions
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [Alias('name')]
+        [object]$SecureGateway,
+
+        [Alias('Ready')]
+        [Switch]$ReadyForConnection,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $DiscoveredList = [System.Collections.ArrayList]::new()
+
+        # Minimum iLO firmware versions required to connect a server to Compute Ops Management
+        $_iLOMinimumVersions = @{
+            '5' = [version]'3.09'
+            '6' = [version]'1.64'
+            '7' = [version]'1.12.00'
+        }
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | Out-String) | Write-Verbose
+
+        # Resolve the Secure Gateway resource (accept a name string or a Secure Gateway object)
+        try {
+            if ($SecureGateway -is [string]) {
+                "[{0}] SecureGateway parameter is a string" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $SecureGatewayName = $SecureGateway
+                $ApplianceResource = Get-HPECOMAppliance -Region $Region -Type SecureGateway -Name $SecureGatewayName -Verbose:$false
+            }
+            else {
+                "[{0}] SecureGateway parameter is an object" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                $SecureGatewayName = $SecureGateway.name
+                $ApplianceResource = Get-HPECOMAppliance -Region $Region -Type SecureGateway -Name $SecureGatewayName -Verbose:$false
+            }
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $ApplianceResource) {
+            "[{0}] Secure Gateway '{1}' cannot be found in the '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName, $Region | Write-Verbose
+            if ($WhatIf) {
+                Write-Warning ("Secure Gateway '{0}' cannot be found in the '{1}' region! Cannot display API request." -f $SecureGatewayName, $Region)
+            }
+            return
+        }
+
+        if ($ApplianceResource.applianceType -ne "GATEWAY") {
+            "[{0}] Appliance '{1}' is not a Secure Gateway" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName | Write-Verbose
+            Write-Warning ("Appliance '{0}': Server discovery is only supported for HPE Secure Gateway appliances. OneView appliances (VM or Synergy) are not supported." -f $SecureGatewayName)
+            return
+        }
+
+        $_ApplianceResourceUri = $ApplianceResource.resourceUri
+        $_ApplianceDeviceId    = $ApplianceResource.deviceId
+        # The appliance identifier used by the discovered-servers endpoint is the segment that follows 'gateway+' in the resource URI
+        if ($_ApplianceResourceUri -match 'gateway\+(.+)$') {
+            $_ApplianceId = $matches[1]
+        }
+        else {
+            $_ApplianceId = $_ApplianceDeviceId
+        }
+
+        "[{0}] Secure Gateway '{1}' resource URI: '{2}' (appliance ID: '{3}')" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName, $_ApplianceResourceUri, $_ApplianceId | Write-Verbose
+
+        # Probe the discovery summary endpoint to determine whether a discovery has ever been run on this Secure Gateway.
+        # The summary resource does not exist until a discovery has been performed, so a failed/empty response means
+        # no discovery has been run yet.
+        if (-not $WhatIf) {
+
+            $SummaryUri = "{0}?applianceID={1}&method=nmapScan" -f (Get-COMDiscoveredServersSummaryUri), $_ApplianceId
+
+            $_DiscoveryHasRun = $false
+            try {
+                $Summary = Invoke-HPECOMWebRequest -Method Get -Uri $SummaryUri -Region $Region -ReturnFullObject -WhatIfBoolean $false -Verbose:$VerbosePreference
+                if ($null -ne $Summary) {
+                    $_DiscoveryHasRun = $true
+                }
+            }
+            catch {
+                "[{0}] No discovery summary available for Secure Gateway '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName, $_.Exception.Message | Write-Verbose
+            }
+
+            if (-not $_DiscoveryHasRun) {
+                "[{0}] No discovery has been run on Secure Gateway '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName | Write-Verbose
+                Write-Warning ("No server discovery has been run yet on Secure Gateway '{0}' in the '{1}' region. Run 'Invoke-HPECOMSecureGatewayServerDiscovery' first to discover servers." -f $SecureGatewayName, $Region)
+                return
+            }
+        }
+
+        # Retrieve the list of discovered servers
+        $DiscoveredServersUri = "{0}?hide=false&externalManager=None&onboarding=false&applianceID={1}&method=nmapScan" -f (Get-COMDiscoveredServersUri), $_ApplianceId
+
+        try {
+            [Array]$DiscoveredServers = Invoke-HPECOMWebRequest -Method Get -Uri $DiscoveredServersUri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($WhatIf) {
+            return
+        }
+
+        "[{0}] Discovered {1} server(s) on Secure Gateway '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DiscoveredServers.Count, $SecureGatewayName | Write-Verbose
+
+        foreach ($_server in $DiscoveredServers) {
+
+            # Determine the iLO generation number from the 'ilo' field (e.g. 'iLO 6' -> 6)
+            $_genNumber = $null
+            if ($_server.ilo -and $_server.ilo -match '(\d+)') {
+                $_genNumber = $matches[1]
+                $_iLOGeneration = "iLO $_genNumber"
+            }
+            else {
+                $_iLOGeneration = "Unknown"
+            }
+
+            # Determine whether the iLO firmware needs to be updated before it can connect to Compute Ops Management
+            $_iLOUpdateRequired = "Unknown"
+            if ($_genNumber -and $_iLOMinimumVersions.ContainsKey($_genNumber) -and $_server.iloVersion -and $_server.iloVersion -ne 'N/A') {
+                try {
+                    $_parsedVersion = [version]($_server.iloVersion -replace '[^\d.].*$', '')
+                    $_iLOUpdateRequired = if ($_parsedVersion -ge $_iLOMinimumVersions[$_genNumber]) { "No" } else { "Yes" }
+                }
+                catch {
+                    "[{0}] Could not parse iLO version '{1}' for {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_server.iloVersion, $_server.ip | Write-Verbose
+                }
+            }
+
+            $objDiscovered = [PSCustomObject]@{
+                IP                     = $_server.ip
+                iLOGeneration          = $_iLOGeneration
+                iLOVersion             = $_server.iloVersion
+                iLOUpdateRequired      = $_iLOUpdateRequired
+                CertificateFingerprint = $_server.certificateFingerprint
+                SecureGateway          = $SecureGatewayName
+                Region                 = $Region
+                ApplianceId            = $_ApplianceId
+            }
+
+            [void]$DiscoveredList.Add($objDiscovered)
+        }
+
+    }
+
+    End {
+
+        # When -ReadyForConnection is set, keep only the servers whose iLO firmware meets the minimum version required to connect to Compute Ops Management
+        if ($ReadyForConnection) {
+            $DiscoveredList = [System.Collections.ArrayList]::new(@($DiscoveredList | Where-Object { $_.iLOUpdateRequired -eq 'No' }))
+        }
+
+        if ($DiscoveredList.Count -gt 0) {
+            $DiscoveredList = Invoke-RepackageObjectWithType -RawObject $DiscoveredList -ObjectName "COM.DiscoveredServers"
+            $DiscoveredList =  $DiscoveredList | Sort-Object -Property IP
+            Return $DiscoveredList
+        }
+    }
+}
+
+
+Function Connect-HPECOMSecureGatewayDiscoveredServer {
+    <#
+    .SYNOPSIS
+    Onboard servers discovered behind an HPE Secure Gateway appliance to Compute Ops Management.
+
+    .DESCRIPTION
+    This cmdlet onboards one or more servers that were discovered behind an HPE Secure Gateway appliance (using
+    'Invoke-HPECOMSecureGatewayServerDiscovery' / 'Get-HPECOMSecureGatewayServerDiscovery') to Compute Ops Management,
+    connecting their iLOs to Compute Ops Management through the Secure Gateway.
+
+    This is the automated, gateway-driven onboarding workflow (the equivalent of the "add multiple servers via Secure
+    Gateway" wizard in the Compute Ops Management UI). Unlike 'Connect-HPEGLDeviceComputeiLOtoCOM' (which connects a
+    single iLO directly and requires a pre-generated activation key), this cmdlet submits a single batch request to
+    Compute Ops Management, which then orchestrates the whole onboarding through the Secure Gateway:
+    - generates the Secure Gateway activation key automatically (no activation key needs to be provided),
+    - updates the iLO firmware on each server whose discovery result reports 'iLOUpdateRequired = Yes' (an iLO below the minimum version cannot connect to Compute Ops Management),
+    - configures DNS and NTP on the iLO when provided,
+    - assigns an optional subscription, location, service delivery contact and tags,
+    - connects each iLO to Compute Ops Management through the Secure Gateway.
+
+    Servers whose discovery reports 'iLOUpdateRequired = Unknown' (the iLO generation or firmware version could not be
+    determined) are skipped with a warning and are not onboarded, because the Secure Gateway cannot safely decide whether
+    a firmware update is required.
+
+    The cmdlet accepts the discovered server objects directly from the pipeline (their IP, certificate fingerprint,
+    Secure Gateway and appliance ID are reused automatically). It accumulates all servers piped in and submits a single
+    onboarding job per Secure Gateway.
+
+    The operation returns a job that you can monitor. By default the cmdlet waits for the onboarding job to complete; use
+    -Async to return the job resource immediately.
+
+    iLO CREDENTIALS:
+    Two modes are supported, matching the Compute Ops Management UI:
+    - Same credential for all iLOs: pass -IloCredential once on the command line; it is applied to every discovered
+      server piped in.
+    - Different credential per iLO: attach an 'IloCredential' property (a PSCredential) to each discovered server object
+      before piping it in; each server then uses its own credential. For example:
+
+          $servers = Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab"
+          foreach ($s in $servers) {
+              $s | Add-Member -NotePropertyName IloCredential -NotePropertyValue (Get-Credential -Message $s.IP)
+          }
+          $servers | Connect-HPECOMSecureGatewayDiscoveredServer -SubscriptionKey "KA5DJYHUU4A2D"
+
+    Note that, to be connected to Compute Ops Management, iLO must be updated to the following minimum versions:
+    - iLO 5: v3.09 or later
+    - iLO 6: v1.64 or later
+    - iLO 7: v1.12.00 or later
+    Servers running an older iLO firmware are updated by the Secure Gateway before onboarding; updating the iLO firmware
+    reboots the iLO.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.) where the Secure Gateway appliance is registered.
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER SecureGateway
+    Specifies the name (hostname/FQDN) of the HPE Secure Gateway appliance through which the discovered servers are onboarded.
+    When the discovered server objects are piped from 'Get-HPECOMSecureGatewayServerDiscovery', this value is supplied automatically.
+
+    .PARAMETER IloIP
+    Specifies the IP address (host) of the discovered iLO to onboard.
+    When the discovered server objects are piped from 'Get-HPECOMSecureGatewayServerDiscovery', this value is supplied automatically from the 'IP' property.
+
+    .PARAMETER IloCredential
+    Specifies the iLO credential (PSCredential) used to onboard the server.
+    Pass it once on the command line to apply the same credential to every server (same-credential mode), or attach an 'IloCredential' property to each piped server object to use a different credential per iLO (per-iLO mode). See the description for details.
+
+    .PARAMETER CertificateFingerprint
+    Specifies the SHA-256 fingerprint of the iLO TLS certificate (as reported by the discovery).
+    When the discovered server objects are piped from 'Get-HPECOMSecureGatewayServerDiscovery', this value is supplied automatically.
+
+    .PARAMETER iLOUpdateRequired
+    Indicates whether the iLO firmware must be updated to the minimum version required to connect to Compute Ops Management ('Yes', 'No' or 'Unknown').
+    When the discovered server objects are piped from 'Get-HPECOMSecureGatewayServerDiscovery', this value is supplied automatically and determines whether the Secure Gateway updates the iLO firmware before onboarding each server: servers reported as 'Yes' have their iLO firmware updated, servers reported as 'No' are onboarded without a firmware update, and servers reported as 'Unknown' (firmware compliance could not be determined) are skipped with a warning. If omitted, no firmware update is requested for that server.
+
+    .PARAMETER ApplianceId
+    Specifies the identifier of the Secure Gateway appliance.
+    When the discovered server objects are piped from 'Get-HPECOMSecureGatewayServerDiscovery', this value is supplied automatically. If omitted, it is resolved from the Secure Gateway name.
+
+    .PARAMETER Dns
+    Specifies the DNS server IP address to configure on the iLO during onboarding.
+
+    .PARAMETER Ntp
+    Specifies the NTP server IP address (or hostname) to configure on the iLO during onboarding.
+
+    .PARAMETER SubscriptionKey
+    Specifies the device subscription key to assign to the onboarded servers.
+    This value can be retrieved using 'Get-HPEGLSubscription -ShowWithAvailableQuantity -ShowValid -FilterBySubscriptionType Server'.
+    If omitted, no subscription is assigned (which requires the workspace automatic device subscription to be enabled; see 'Set-HPEGLDeviceAutoSubscription').
+
+    .PARAMETER LocationName
+    Specifies the name of an existing location to assign to the onboarded servers. The location can be retrieved using 'Get-HPEGLLocation'.
+
+    .PARAMETER ServiceDeliveryContact
+    Specifies the email address of the service delivery contact to assign to the onboarded servers.
+
+    .PARAMETER Tags
+    Specifies one or more tags to assign to the onboarded servers. Tags must use the string format: <Name>=<Value>, <Name>=<Value>.
+
+    Supported tags example:
+        - "Country=US"
+        - "Country=US, App=VMware ESX"
+        - "Country=US, State =TX ,App= Grafana " (surrounding spaces are trimmed)
+
+    .PARAMETER Async
+    Returns the onboarding job resource immediately to monitor (using 'state' and 'resultCode' properties). By default, the cmdlet waits for the onboarding job to complete.
+
+    .PARAMETER Force
+    Bypasses the confirmation prompt that is displayed when one or more iLO firmware updates will be performed (because updating the iLO firmware reboots the iLO).
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+
+    Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -ReadyForConnection |
+        Connect-HPECOMSecureGatewayDiscoveredServer -IloCredential $iLO_credential -SubscriptionKey "KA5DJYHUU4A2D"
+
+    Onboards every discovered server that is ready to connect (iLO firmware already compliant) behind the Secure Gateway 'sg01.lj.lab', using the same iLO credential for all of them, and assigns the specified subscription. Waits for the onboarding job to complete.
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+    $SubscriptionKey = Get-HPEGLSubscription -ShowDeviceSubscriptions -ShowWithAvailableQuantity -ShowValid | Where-Object tier -eq "ENHANCED_PROLIANT" | Select-Object -First 1 -ExpandProperty Key
+
+    Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" |
+        Connect-HPECOMSecureGatewayDiscoveredServer -IloCredential $iLO_credential -SubscriptionKey $SubscriptionKey -Dns 192.168.2.1 -Ntp 1.1.1.1 -LocationName "Houston" -ServiceDeliveryContact "support@example.com" -Tags "App=AI, Country=US" -Force
+
+    Onboards all servers discovered behind the Secure Gateway 'sg01.lj.lab' with a full configuration in a single call: it assigns the subscription, configures the iLO DNS (192.168.2.1) and NTP (1.1.1.1) servers, sets the location to "Houston", the service delivery contact to "support@example.com", and applies the tags 'App=AI' and 'Country=US'.
+
+    Any server whose discovery reports 'iLOUpdateRequired = Yes' has its iLO firmware updated by the Secure Gateway before onboarding (which reboots that iLO). The -Force switch bypasses the confirmation prompt that would otherwise warn about these firmware updates.
+
+    .EXAMPLE
+    $SubscriptionKey = Get-HPEGLSubscription -ShowDeviceSubscriptions -ShowWithAvailableQuantity -ShowValid | Where-Object tier -eq "ENHANCED_PROLIANT" | Select-Object -First 1 -ExpandProperty Key
+
+    $servers = Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab"
+    foreach ($s in $servers) {
+        $s | Add-Member -NotePropertyName IloCredential -NotePropertyValue (Get-Credential -Message $s.IP)
+    }
+    $servers | Connect-HPECOMSecureGatewayDiscoveredServer -SubscriptionKey $SubscriptionKey
+
+    Onboards all servers discovered behind the Secure Gateway 'sg01.lj.lab' using a different iLO credential for each server (per-iLO credential mode).
+
+    Instead of passing a single -IloCredential on the command line, an 'IloCredential' property is attached to each discovered server object (here prompting once per server, using the iLO IP as the prompt message). When the objects are piped in, each server is onboarded with its own credential.
+
+    .EXAMPLE
+    # iLO_credentials.csv content:
+    #   IP,Username,Password
+    #   192.168.1.45,admin,Password123
+    #   192.168.1.46,Administrator,S3cr3t!
+
+    $CsvCredentials = @{}
+    foreach ($row in (Import-Csv -Path .\iLO_credentials.csv)) {
+        $securePassword = ConvertTo-SecureString $row.Password -AsPlainText -Force
+        $CsvCredentials[$row.IP] = [System.Management.Automation.PSCredential]::new($row.Username, $securePassword)
+    }
+
+    $servers = Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab"
+    foreach ($s in $servers) {
+        $s | Add-Member -NotePropertyName IloCredential -NotePropertyValue $CsvCredentials[$s.IP]
+    }
+    $servers | Connect-HPECOMSecureGatewayDiscoveredServer -SubscriptionKey $SubscriptionKey
+
+    Onboards all servers discovered behind the Secure Gateway 'sg01.lj.lab' using per-iLO credentials read from a CSV file (per-iLO credential mode), avoiding any interactive credential prompt.
+
+    The CSV (with 'IP', 'Username' and 'Password' columns) is loaded into a hashtable keyed by iLO IP address. Each discovered server is then matched to its credential by IP and gets an 'IloCredential' property before being piped in. Note that storing iLO passwords in clear text in a CSV file is a security risk; restrict access to the file and delete it after use, or use an encrypted credential store instead.
+
+    .EXAMPLE
+    Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -ReadyForConnection |
+        Connect-HPECOMSecureGatewayDiscoveredServer -IloCredential $iLO_credential -SubscriptionKey $SubscriptionKey -WhatIf
+
+    Shows the raw onboarding REST API request that would be sent to Compute Ops Management, without onboarding anything.
+
+    .INPUTS
+    HPEGreenLake.COM.DiscoveredServers [System.Management.Automation.PSCustomObject]
+        Discovered server objects from 'Get-HPECOMSecureGatewayServerDiscovery' or 'Invoke-HPECOMSecureGatewayServerDiscovery'.
+
+    .OUTPUTS
+    HPEGreenLake.COM.Jobs [System.Management.Automation.PSCustomObject]
+        The onboarding job resource. By default the completed job is returned; with -Async the job is returned immediately.
+
+    #>
+
+    [CmdletBinding()]
+    Param(
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
+                }
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                     Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName, DontShow)]
+        [ValidateNotNullOrEmpty()]
+        [String]$SecureGateway,
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName, DontShow)]
+        [Alias('IP')]
+        [ValidateNotNullOrEmpty()]
+        [String]$IloIP,
+
+        [Parameter (ValueFromPipelineByPropertyName)]
+        [PSCredential]$IloCredential,
+
+        [Parameter (ValueFromPipelineByPropertyName, DontShow)]
+        [String]$CertificateFingerprint,
+
+        [Parameter (ValueFromPipelineByPropertyName, DontShow)]
+        [ValidateSet('Yes', 'No', 'Unknown')]
+        [String]$iLOUpdateRequired,
+
+        [Parameter (ValueFromPipelineByPropertyName, DontShow)]
+        [String]$ApplianceId,
+
+        [ValidateNotNullOrEmpty()]
+        [String]$Dns,
+
+        [ValidateNotNullOrEmpty()]
+        [String]$Ntp,
+
+        [ValidateNotNullOrEmpty()]
+        [String]$SubscriptionKey,
+
+        [ValidateNotNullOrEmpty()]
+        [String]$LocationName,
+
+        [ValidateNotNullOrEmpty()]
+        [String]$ServiceDeliveryContact,
+
+        [ValidateNotNullOrEmpty()]
+        [String]$Tags,
+
+        [Switch]$Async,
+
+        [Switch]$Force,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        # Accumulates one entry per server piped in; servers are grouped per Secure Gateway and submitted as a single onboarding request in the End block
+        $OnboardList = [System.Collections.ArrayList]::new()
+
+        $OnboardUri = "{0}/actions/onboard" -f (Get-COMDiscoveredServersUri)
+
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | Out-String) | Write-Verbose
+
+        # Skip servers whose firmware compliance could not be determined (iLOUpdateRequired = 'Unknown'): their iLO generation
+        # or firmware version is unknown, so the Secure Gateway cannot safely decide whether a firmware update is needed.
+        if ($iLOUpdateRequired -eq 'Unknown') {
+            Write-Warning ("iLO '{0}': Skipped because its firmware compliance could not be determined (iLOUpdateRequired = 'Unknown'). Verify the iLO is reachable and rerun the discovery before onboarding this server." -f $IloIP)
+            return
+        }
+
+        # Resolve the iLO credential (same-credential mode = explicit -IloCredential; per-iLO mode = 'IloCredential' property on the piped object)
+        if (-not $IloCredential) {
+            $ErrorMessage = "iLO '{0}': No iLO credential was provided. Pass -IloCredential to use the same credential for all servers, or attach an 'IloCredential' property to each piped server to use a different credential per iLO." -f $IloIP
+            $Exception = New-Object System.Exception($ErrorMessage)
+            $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'MissingIloCredential', [System.Management.Automation.ErrorCategory]::InvalidArgument, $IloIP)
+            $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+        }
+
+        # Resolve the Secure Gateway appliance ID when it was not provided by the pipeline
+        $_ApplianceId = $ApplianceId
+        if (-not $_ApplianceId) {
+            try {
+                $ApplianceResource = Get-HPECOMAppliance -Region $Region -Type SecureGateway -Name $SecureGateway -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if (-not $ApplianceResource) {
+                $ErrorMessage = "Secure Gateway '{0}' cannot be found in the '{1}' region!" -f $SecureGateway, $Region
+                $Exception = New-Object System.Exception($ErrorMessage)
+                $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'SecureGatewayNotFound', [System.Management.Automation.ErrorCategory]::ObjectNotFound, $SecureGateway)
+                $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+            }
+
+            if ($ApplianceResource.resourceUri -match 'gateway\+(.+)$') {
+                $_ApplianceId = $matches[1]
+            }
+            else {
+                $_ApplianceId = $ApplianceResource.deviceId
+            }
+        }
+
+        # The iLO firmware is updated only when the discovery reported it as below the minimum required version (iLOUpdateRequired = 'Yes')
+        $_iloUpdate = ($iLOUpdateRequired -eq 'Yes')
+
+        $_ilo = [PSCustomObject]@{
+            host                   = $IloIP
+            username               = $IloCredential.UserName
+            password               = $IloCredential.GetNetworkCredential().Password
+            certificateFingerprint = $CertificateFingerprint
+            iloUpdate              = $_iloUpdate
+        }
+
+        [void]$OnboardList.Add([PSCustomObject]@{
+            Region            = $Region
+            SecureGatewayName = $SecureGateway
+            ApplianceId       = $_ApplianceId
+            iLO               = $_ilo
+            UpdateRequired    = $_iloUpdate
+        })
+    }
+
+    End {
+
+        if ($OnboardList.Count -eq 0) {
+            return
+        }
+
+        # Resolve the subscription available seats once (the onboard body expects subscriptionKey + availableSeats)
+        $_Subscriptions = @()
+        if ($SubscriptionKey) {
+            try {
+                $_SubResource = Get-HPEGLSubscription -ShowWithAvailableQuantity -ShowValid -Verbose:$false | Where-Object { $_.key -eq $SubscriptionKey } | Select-Object -First 1
+            }
+            catch {
+                $_SubResource = $null
+            }
+
+            if (-not $_SubResource) {
+                $ErrorMessage = "Subscription key '{0}' cannot be found, is expired, or has no available quantity in the workspace! Retrieve a valid key using 'Get-HPEGLSubscription -ShowWithAvailableQuantity -ShowValid -FilterBySubscriptionType Server'." -f $SubscriptionKey
+                $Exception = New-Object System.Exception($ErrorMessage)
+                $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'SubscriptionNotFound', [System.Management.Automation.ErrorCategory]::ObjectNotFound, $SubscriptionKey)
+                $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+            }
+
+            $_Subscriptions = @([PSCustomObject]@{
+                subscriptionKey = $SubscriptionKey
+                availableSeats  = $_SubResource.availableQuantity
+            })
+        }
+
+        # Resolve the location once
+        $_Location = $null
+        if ($LocationName) {
+            try {
+                $_LocationResource = Get-HPEGLLocation -Name $LocationName -Verbose:$false
+            }
+            catch {
+                $_LocationResource = $null
+            }
+
+            if (-not $_LocationResource) {
+                $ErrorMessage = "Location '{0}' cannot be found in the workspace! Retrieve an existing location using 'Get-HPEGLLocation'." -f $LocationName
+                $Exception = New-Object System.Exception($ErrorMessage)
+                $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'LocationNotFound', [System.Management.Automation.ErrorCategory]::ObjectNotFound, $LocationName)
+                $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+            }
+
+            $_Location = [PSCustomObject]@{ id = $_LocationResource.id }
+        }
+
+        # Build the tags object map (the onboard body expects tags as an object of key/value pairs)
+        # Tags are provided as a string using the format '<Name>=<Value>, <Name>=<Value>' (same as Add-HPEGLDeviceTagToDevice)
+        $_Tags = [PSCustomObject]@{}
+        if ($Tags) {
+            foreach ($tag in $Tags.Split(',')) {
+
+                if ($tag -notmatch '^[\p{L}\p{Nd}_ .:+\-@]+=[\p{L}\p{Nd}_ .:+\-@]+$') {
+                    throw "Tag '$($tag.Trim())' format not supported! Expected format is <Name>=<Value>, <Name>=<Value>!"
+                }
+
+                $tagName = $tag.Split('=')[0].Trim()
+                $tagValue = $tag.Split('=')[1].Trim()
+                $_Tags | Add-Member -NotePropertyName $tagName -NotePropertyValue $tagValue -Force
+            }
+        }
+
+        # Confirm the onboarding only when at least one iLO firmware update will be performed (which reboots the iLO) unless -Force or -WhatIf
+        $_ServersRequiringUpdate = @($OnboardList | Where-Object { $_.UpdateRequired })
+
+        if ($_ServersRequiringUpdate.Count -gt 0 -and -not $Force -and -not $WhatIf) {
+
+            Write-Warning ("{0} of {1} server(s) have an iLO below the minimum required firmware version and will be updated by the Secure Gateway before onboarding. Updating the iLO firmware reboots the iLO." -f $_ServersRequiringUpdate.Count, $OnboardList.Count)
+
+            $question = "Do you want to onboard {0} server(s) and update the iLO firmware on {1} of them?" -f $OnboardList.Count, $_ServersRequiringUpdate.Count
+            $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Onboard the servers (updating the iLO firmware where required)."
+            $no  = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Cancel the onboarding."
+            $choices = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
+            $decision = $Host.UI.PromptForChoice("Confirm Secure Gateway server onboarding", $question, $choices, 1)
+
+            if ($decision -eq 1) {
+                "[{0}] Onboarding cancelled by user" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                return
+            }
+        }
+
+        $ReturnData = [System.Collections.ArrayList]::new()
+
+        # Group the accumulated servers per Secure Gateway and submit one onboarding request per group
+        $Groups = $OnboardList | Group-Object -Property { "{0}|{1}|{2}" -f $_.Region, $_.SecureGatewayName, $_.ApplianceId }
+
+        foreach ($Group in $Groups) {
+
+            $_GroupRegion      = $Group.Group[0].Region
+            $_GroupGatewayName = $Group.Group[0].SecureGatewayName
+            $_GroupApplianceId = $Group.Group[0].ApplianceId
+            $_iloArray         = @($Group.Group | ForEach-Object { $_.iLO })
+
+            $payload = [PSCustomObject]@{
+                secureGateway          = [PSCustomObject]@{
+                    fqdn        = $_GroupGatewayName
+                    applianceID = $_GroupApplianceId
+                }
+                dns                    = if ($Dns) { $Dns } else { "" }
+                ntp                    = if ($Ntp) { $Ntp } else { "" }
+                hideUnselectedServers  = "False"
+                subscriptions          = $_Subscriptions
+                location               = $_Location
+                serviceDeliveryContact = if ($ServiceDeliveryContact) { $ServiceDeliveryContact } else { "" }
+                tags                   = $_Tags
+                ilo                    = $_iloArray
+            }
+
+            $payloadJson = ConvertTo-Json $payload -Depth 10
+
+            try {
+                $Response = Invoke-HPECOMWebRequest -Region $_GroupRegion -Uri $OnboardUri -method POST -body $payloadJson -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if ($WhatIf) {
+                continue
+            }
+
+            $_JobId = $Response.job_id
+            if (-not $_JobId) {
+                $ErrorMessage = "Secure Gateway '{0}': The onboarding request did not return a job identifier." -f $_GroupGatewayName
+                $Exception = New-Object System.Exception($ErrorMessage)
+                $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'OnboardJobNotReturned', [System.Management.Automation.ErrorCategory]::InvalidResult, $_GroupGatewayName)
+                $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+            }
+
+            $_JobUri = "{0}/{1}" -f (Get-COMJobsUri), $_JobId
+
+            # Async mode: return the job resource immediately without waiting
+            if ($Async) {
+                "[{0}] Onboarding job '{1}' submitted for Secure Gateway '{2}' in '{3}' region (async)" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_JobId, $_GroupGatewayName, $_GroupRegion | Write-Verbose
+                try {
+                    $JobResource = Invoke-HPECOMWebRequest -Method Get -Uri $_JobUri -Region $_GroupRegion -WhatIfBoolean $false -Verbose:$VerbosePreference
+                    $JobResource | Add-Member -type NoteProperty -name region -value $_GroupRegion -Force
+                    [void]$ReturnData.Add($JobResource)
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+                continue
+            }
+
+            # Synchronous mode: wait for the onboarding job to complete
+            "[{0}] Onboarding job '{1}' submitted for Secure Gateway '{2}' in '{3}' region, waiting for completion..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $_JobId, $_GroupGatewayName, $_GroupRegion | Write-Verbose
+
+            try {
+                $JobResult = Wait-HPECOMJobComplete -Region $_GroupRegion -Job $_JobUri -Timeout 1800 -Verbose:$VerbosePreference
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            $Global:HPECOMLastJobResult = $JobResult
+            [void]$ReturnData.Add($JobResult)
+        }
+
+        if ($WhatIf) {
+            return
+        }
+
+        if ($ReturnData.Count -gt 0) {
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $ReturnData -ObjectName "COM.Jobs"
+            Return $ReturnData
         }
     }
 }
@@ -2438,13 +3794,13 @@ Function Restart-HPECOMAppliance {
 
 
 # Export only public functions and aliases
-Export-ModuleMember -Function 'Get-HPECOMAppliance', 'Restart-HPECOMAppliance', 'Invoke-HPECOMApplianceRefreshSettings', 'New-HPECOMAppliance', 'Remove-HPECOMAppliance', 'Get-HPECOMApplianceFirmwareBundle', 'Get-HPECOMOneViewServerProfileTemplate' -Alias *
+Export-ModuleMember -Function 'Get-HPECOMAppliance', 'Restart-HPECOMAppliance', 'Invoke-HPECOMApplianceRefreshSettings', 'Invoke-HPECOMSecureGatewayServerDiscovery', 'Get-HPECOMSecureGatewayServerDiscovery', 'Connect-HPECOMSecureGatewayDiscoveredServer', 'New-HPECOMAppliance', 'Remove-HPECOMAppliance', 'Get-HPECOMApplianceFirmwareBundle', 'Get-HPECOMOneViewServerProfileTemplate' -Alias *
 
 # SIG # Begin signature block
 # MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCC3Wa0e8j7j1ymd
-# vbVnl71pwGe/nnexrPLlEUduymzylaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDjCV1cMS5V3Anj
+# jlD5iyoSxOgnYKNJBgbIa1gj9lFqP6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -2545,23 +3901,23 @@ Export-ModuleMember -Function 'Get-HPECOMAppliance', 'Restart-HPECOMAppliance', 
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgWtnPdg7PHj5UMwKgQTbzf0947qU1xFBUU1qwRnqUxYAwDQYJKoZIhvcNAQEB
-# BQAEggIA2P4vlVDi3XMWQTyXCvl99a6i8/mFgW+JIXSvpz4fQsqwCWWn1vAGIrdf
-# z3qx44R4Az4hEjMPSt8fGhBbI6gP6ZdlrESD7/kBOSkL+p/lCaVVQcRHcGrXdMvU
-# a91YF+hjZduAqIpkSRAH5ZFi92yRJfpVVW7WPIIcI78DHpcPRBzEUFTtlWE4PCEK
-# Jl7YjT8NEHAfCJ5mulImhX2STKZ+U+lWN3AbWfh6EEdI4KTNHX7S1FltbKZe5oYA
-# ton301EZ+DR2NnXK7DWKVqc6rdFABOcIvtAtbjnf7AuZIYsndjvBWdyVZ04xZetA
-# aaMyNjtCx4hMAvnYuzZECM0wq4g7S3nQqJ1Vb/uHA2qJ6AtEwtSF65ZIzfVHWbb2
-# BvGKBmO/yjKZxorgVMfIPfyLwdv8s2jLgxdcIqleD5vMBGL/4ndZLfuZpbYICl2W
-# Nt37+NmFHqUYdffo/lvmlDTOHoLXztgxG1+nRplaBjmt9xf4FcxDIG2C3NLw2Zdx
-# quxVXOfycHuZrWKIpRID3Ciy1CN3juX8w1rEd7/kzFpFwiHO7tQhGgizM2roO7ZX
-# hhCixwI92sWUylucDjNIqsya3gkUUGacpNl2SjSM7irKnOEfWk+RKn8LmKk4h26+
-# jsE/ZbRDNuemJxLc++nfwnG7Zm5Ru3QSOPg1jAK7Xr7Eyn/YnRehgheYMIIXlAYK
+# IgQguFYdMeCKtNclwnjhzWvKAblcwWGHtnWBAXYzXmqnR2UwDQYJKoZIhvcNAQEB
+# BQAEggIABfsiVl/Xh/X+g6M2zZpn4xGnHJKBi0FWzZZkcQUMXGgVvs2ErK33gygA
+# YL/seTsbjl8VNPBbq3luuc5qK/iDyIIOI6sIwvtAl484eipVw7YAecT/XayTBRZM
+# 74p6GUrjHR3kymu88S6kzcTSJ2vd2Et5H6VSB1w8170EkzOknBjxDGIeRGegtekC
+# ViyzDAM7/RH8v3xeYDf+uc0j8jnpo2eVi4N+JezGk/Y4hKuE4jbdIUfzbeIzCwRK
+# M0EmeQ9s3z2VZd9DBoxd3mS4yoxGCexXkXxJv6mG7WBDEfYkdda9INa1v+xgUeru
+# R83SSvhiA8v+W1vpEuiHDNNx1NUKlUB3PE2aLe3uTg6GXE4fYEgDs2LZ1OOOlotW
+# EGRvSEXd+msyM7O1e2uuij5nVkdSBVnQHQ+ndfFSXkvAXfRONYpIYrLhG+GaKbDs
+# MwWAah+nyZ+sl0Fjvjbcwnw3K4ifnqQMAyVj0zN3yduaL92aMXuiOnWkgWS483B6
+# 7c2P771xcDDCmtYLYGRBIK6hdpCzGXMGLrNmuVyhe2XrO/FI7gv+AgWWxh3qqNIi
+# t58Pe/FG/JPodiySTEiyIluPw41XKHwDY4UkX7/N1iv2PUpdjEAYbpkoVPu2+8a8
+# bgEyfQsz7Oi6jKkKMsBdLlT+mBbAdzOs5rsGiCIfYPM+yHAK0CihgheYMIIXlAYK
 # KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMFUnA6LBCGJ4cRTH30zMnkpCgMTnUsK5pLUInGY5XgDO
-# +zzVHogUXpMG/u5m3bAf7QIRAI0OZUtVrn6xtRSfiOnYhi8YDzIwMjYwNDE1MDkw
-# NTAxWqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
+# DQYJYIZIAWUDBAICBQAEMB1FT+XJn/zzAG4n80FhV1B96fgwZIj9h+GL2u/901cc
+# 6jxAM5ZHb4wZ6JG7EoXWiQIRAJUDkKuLwEjJMODbk23I7pgYDzIwMjYwNjI2MTM0
+# MjU2WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
 # DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
 # MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
 # NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
@@ -2667,20 +4023,20 @@ Export-ModuleMember -Function 'Get-HPECOMAppliance', 'Restart-HPECOMAppliance', 
 # aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
 # EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
 # NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDQx
-# NTA5MDUwMVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
+# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDYy
+# NjEzNDI1NlowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
 # llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMLsqQ7vAJzAgsxhxScGmSXSF
-# /AXd8xKyxbBkZWGGNJGLyg1OJQ4Tmbc5BfxcSNrIeDANBgkqhkiG9w0BAQEFAASC
-# AgC64QwuGMz9spT7RTxu42eH8mfNHlxSXvsQLIKZdhFg9kRAmSGs5owLo/UI2W6h
-# TSZ9ubfpOapsilN9n9knRtcfmLeWwcd/PmrmMGMpRmMQvpmm3Gqwep8M48+7uwtk
-# rQ/hv3rT+TcRgHO4vmBNthykS9/2aO3ZO0EBcErrcgM5d7Qh2CPLSZrMJaToeZ5I
-# c8TaF3Oo3qSh4VnbXZOdZoP5Co3Xu8sAOdp4NOKr1cd7wAFE6rE323YYIQ8xSdiS
-# jmbvsgBeOf/6DIhVh6eJrSI4hZGM4fkdN77uHOn/yD6JimxsK4nqwf2Sn+HLrjQA
-# a64nHkenbCFkHLEzBsS6QBRdPffyUh1kj0g2YuE5SypoASyjPyMKbb29ts2iKF+g
-# 2UASLt8Sj2m2u5bF2iTMXdEcNDDBSDgaEdDbJfJ9m3P96rcFsgrwtFdWxV3Wj1IT
-# ddo0KJ/kx/+ATbvpo3hgoFJLHwinlsOVt+Qsa2rff1FKQPZuXxSExpcREWM1KEkC
-# yZPMMAIBQzypdZbHGUf3b9lu3m7w8xPRrHBBJass0Ugdmb7MDC2fRavXrkpMTjVZ
-# UWgw8CNxpxxJnaTuSCjUbuHzVofG1ytU+NU78cZfH/nCRGBWeWo37ZK8Fw0/Eher
-# 0Iusg6XJQ8hIiMUrjHZapITq/lMV2HHWVPxO3R36JTnPkg==
+# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMFKQJwIM8IedBZI9/aaw4oRI
+# m6ppfZzhThJ2c4I5XVv3Yh/RGKZX6y+Vlg7Q9tV0/zANBgkqhkiG9w0BAQEFAASC
+# AgAu5izleE1NxnIGrSGfhlCs1ejcAhKgj1Cf47kzJX9uY+bMmk/vy+nhTQVS2vpc
+# hxAPmLRfdisOVL8eDS56WC8mH8eOp9IapuiCwjd6X0PPr6NlryUG/zHGNb4KZNsI
+# tB14wpKMdMLxfj5NPz78fFnvNcJ9r7hGlaGTyGUzpewHcIs59D3H1DrtaJCA17Zl
+# KyLaP48CgWX3KVeH0OZrhm7SnVUmZIBpGNHgcLo4jqkZtvwO+8aSMIsHrBLRijVr
+# C5/lHOkPS5IGxvHiqIlyZWOA/FbCdDjuqBhykfsCRppdqNG/ENCHI5eYzHNTX2DL
+# k/b2I8yCYqaXA3Neyu09xFF3mDNjRNt8ydlGqld0Yt7zMHxjoXDU23DQnWTiy/qE
+# Xk3uoilymyTaXX5gQXziLQOzM4zB7Y57rzkx7bxgqfLXEN5iKubSXbLpa/pdf9Vg
+# oKJ5+40TGgskPoPuJr4dBhyjkyicEfMbPnUYI95MrgXg72nkdWnU2rU17+4UuZbx
+# VpjZBv5nfwqvWG2dob6TY5fwUraqz95CQQHBFBAjqqw9ihCQ5zYi6NhbQosMKHJR
+# V8QS1NQmh3ZbS0qwFv+Y636nDNvAqrf/msH1wif/npM9BxkWcxv0lTNXufvaKsgs
+# DSEPWeFFgNlWrhDjY23Pa4PZdY5gG6Q6roYaFl9VMhSjag==
 # SIG # End signature block
