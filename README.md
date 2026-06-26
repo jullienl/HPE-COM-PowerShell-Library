@@ -280,7 +280,7 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
     
     > <a id="okta-oie-requirement"></a>**<sup>1</sup> Okta - Okta Identity Engine (OIE) required:** Okta SSO requires **Okta Identity Engine (OIE)**. **Okta Classic Engine is not supported** - the library relies on the Okta IDX API (`/idp/idx/*`), which is only available in OIE. **Check your engine:** in the Okta Admin Console, the version number in the page footer (e.g., `2025.12.0`) ends in **E** for OIE or **C** for Classic; if you're on Classic, contact your Okta administrator or Okta support to upgrade. See the [Okta Identity Engine Overview](https://support.okta.com/help/s/product-hub/oie/overview?language=en_US).
     >
-    > <img src="Images/SAML_SSO_0A.png" alt="Screenshot" width="30%">
+    > <img src="Images/SAML_SSO_0A.png" alt="Screenshot" width="70%">
 
     > **<sup>2</sup> Microsoft Entra ID - TOTP support is conditional:** TOTP codes (Microsoft Authenticator one-time codes) are supported **only in password-based flows** (`-Credential`), where the password is verified first and TOTP is presented as a step-up second factor. TOTP is **not** available in the **passwordless** flow (`-PasswordlessSSOEmail`): Entra ID passwordless authentication relies exclusively on Microsoft Authenticator push notifications with mandatory number matching. If your Entra ID policy is passwordless-only, use push approval; if it is password + MFA, you may use either push or a TOTP code.
 
@@ -562,7 +562,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - Upon successful connection, a `$Global:HPEGreenLakeSession` object is created and displayed, containing your authentication context and connection details
 
-  <img src="Images/SAML_SSO_0.png" alt="Screenshot" width="40%">
+  <img src="Images/SAML_SSO_0.png" alt="Screenshot" width="70%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
@@ -580,7 +580,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
   
 - During the authentication process, a verification number (e.g., 59) will be displayed in the PowerShell console
 
-  <img src="Images/SAML_SSO_4.png" alt="Screenshot" width="40%">   
+  <img src="Images/SAML_SSO_4.png" alt="Screenshot" width="70%">   
 
 - Approve the push notification sent to Okta Verify by tapping the matching number on your mobile device.
 
@@ -601,7 +601,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - During the authentication process, a verification number (e.g., 59) will be displayed in the PowerShell console
 
-  <img src="Images/SAML_SSO_1.png" alt="Screenshot" width="40%">
+  <img src="Images/SAML_SSO_1.png" alt="Screenshot" width="70%">
 
 - Approve the push notification sent to Microsoft Authenticator by typing the matching number on your mobile device. 
 
@@ -622,7 +622,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - During the authentication process, a push notification will be sent to your PingID mobile app
 
-  <img src="Images/SAML_SSO_5.png" alt="Screenshot" width="40%">
+  <img src="Images/SAML_SSO_5.png" alt="Screenshot" width="70%">
 
 - Approve the push notification on your mobile device to complete authentication
 
