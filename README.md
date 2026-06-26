@@ -14,7 +14,7 @@ This library is actively maintained with continuous updates to support new HPE G
 |---------|--------------|-----------|--------|------------|
 | 1.0.26 | June 2026 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
 
-📋 **[Release Notes & Changelog](Build-Tools/Release%20notes)** - see what's new in each version.
+📋 **[Release Notes & Changelog](https://github.com/jullienl/HPE-COM-PowerShell-Library/releases)** - see what's new in each version.
 
 
 ## Table of Contents
@@ -189,7 +189,6 @@ Get-Command -Module HPECOMCmdlets
     - ✅ Core functionality remains fully operational
     - ⚠️ Some SAML SSO domain functions are deprecated (migration guidance provided)
     - ⚠️ Limited access to newer IAMv2-specific features (user groups, advanced SBAC, etc.)
-    - 📖 See [Migration Guide](Build-Tools/Release%20notes/1.0.25.md#migration-guide) in release notes for updating deprecated functions 
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
