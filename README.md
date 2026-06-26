@@ -562,7 +562,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - Upon successful connection, a `$Global:HPEGreenLakeSession` object is created and displayed, containing your authentication context and connection details
 
-  <img src="Images/SAML_SSO_0.png" alt="Screenshot" width="70%">
+  <img src="Images/SAML_SSO_0.png" alt="Screenshot" width="80%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
@@ -580,11 +580,11 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
   
 - During the authentication process, a verification number (e.g., 59) will be displayed in the PowerShell console
 
-  <img src="Images/SAML_SSO_4.png" alt="Screenshot" width="70%">   
+  <img src="Images/SAML_SSO_4.png" alt="Screenshot" width="80%">   
 
 - Approve the push notification sent to Okta Verify by tapping the matching number on your mobile device.
 
-  <img src="Images/SAML_SSO_3.png" alt="Screenshot" width="20%">
+  <img src="Images/SAML_SSO_3.png" alt="Screenshot" width="30%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
@@ -601,11 +601,11 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - During the authentication process, a verification number (e.g., 59) will be displayed in the PowerShell console
 
-  <img src="Images/SAML_SSO_1.png" alt="Screenshot" width="70%">
+  <img src="Images/SAML_SSO_1.png" alt="Screenshot" width="80%">
 
 - Approve the push notification sent to Microsoft Authenticator by typing the matching number on your mobile device. 
 
-  <img src="Images/SAML_SSO_2.png" alt="Screenshot" width="20%">
+  <img src="Images/SAML_SSO_2.png" alt="Screenshot" width="30%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
@@ -622,11 +622,11 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - During the authentication process, a push notification will be sent to your PingID mobile app
 
-  <img src="Images/SAML_SSO_5.png" alt="Screenshot" width="70%">
+  <img src="Images/SAML_SSO_5.png" alt="Screenshot" width="80%">
 
 - Approve the push notification on your mobile device to complete authentication
 
-  <img src="Images/SAML_SSO_6.png" alt="Screenshot" width="20%">
+  <img src="Images/SAML_SSO_6.png" alt="Screenshot" width="30%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
