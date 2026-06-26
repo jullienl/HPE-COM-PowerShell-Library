@@ -562,7 +562,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - Upon successful connection, a `$Global:HPEGreenLakeSession` object is created and displayed, containing your authentication context and connection details
 
-  <img src="Images/SAML_SSO_0.png" alt="Screenshot" width="80%">
+  <img src="Images/SAML_SSO_0.png" alt="Screenshot" width="100%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
@@ -580,7 +580,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
   
 - During the authentication process, a verification number (e.g., 59) will be displayed in the PowerShell console
 
-  <img src="Images/SAML_SSO_4.png" alt="Screenshot" width="90%">   
+  <img src="Images/SAML_SSO_4.png" alt="Screenshot" width="100%">   
 
 - Approve the push notification sent to Okta Verify by tapping the matching number on your mobile device.
 
@@ -601,7 +601,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - During the authentication process, a verification number (e.g., 59) will be displayed in the PowerShell console
 
-  <img src="Images/SAML_SSO_1.png" alt="Screenshot" width="90%">
+  <img src="Images/SAML_SSO_1.png" alt="Screenshot" width="100%">
 
 - Approve the push notification sent to Microsoft Authenticator by typing the matching number on your mobile device. 
 
@@ -622,7 +622,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - During the authentication process, a push notification will be sent to your PingID mobile app
 
-  <img src="Images/SAML_SSO_5.png" alt="Screenshot" width="90%">
+  <img src="Images/SAML_SSO_5.png" alt="Screenshot" width="100%">
 
 - Approve the push notification on your mobile device to complete authentication
 
