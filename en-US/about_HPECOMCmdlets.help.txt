@@ -1,0 +1,97 @@
+TOPIC
+    about_HPECOMCmdlets
+
+SHORT DESCRIPTION
+    The HPE Compute Ops Management PowerShell Library (HPECOMCmdlets) lets you
+    manage and automate your HPE GreenLake and Compute Ops Management (COM)
+    environment directly from PowerShell.
+
+LONG DESCRIPTION
+    The HPECOMCmdlets module provides a comprehensive set of cmdlets to interact
+    with HPE GreenLake (GLP) and Compute Ops Management (COM) services. You can
+    onboard and configure servers, manage subscriptions, groups, firmware,
+    settings, schedules, jobs, users, locations, and more, and integrate these
+    operations into your existing automation workflows.
+
+    This module requires PowerShell 7.0 or later.
+
+    GETTING STARTED
+
+    1. Connect to HPE GreenLake (this is always the first step):
+
+           Connect-HPEGL -Credential (Get-Credential) -Workspace "MyWorkspace"
+
+       Other authentication options:
+
+           # Passwordless SSO (Okta, Microsoft Entra ID, Ping Identity)
+           Connect-HPEGL -PasswordlessSSOEmail "user@company.com" -Workspace "MyWorkspace"
+
+           # Password-based SSO with federation auto-detected
+           Connect-HPEGL -Credential (Get-Credential -UserName "user@company.com") -Workspace "MyWorkspace"
+
+       If you omit -Workspace and your account has more than one workspace, use
+       Connect-HPEGLWorkspace to select one after connecting.
+
+    2. Start managing resources. Most COM cmdlets require a -Region parameter:
+
+           Get-HPEGLDevice
+           Get-HPECOMServer -Region "eu-central"
+           Get-HPEGLSubscription
+           Get-HPECOMJob -Region "eu-central"
+
+    3. Disconnect when you are done:
+
+           Disconnect-HPEGL
+
+    DISCOVERING COMMANDS
+
+           # List every cmdlet in the module
+           Get-Command -Module HPECOMCmdlets
+
+           # Get detailed help and examples for a specific cmdlet
+           Get-Help Connect-HPEGL -Full
+           Get-Help Get-HPECOMServer -Examples
+
+    REGIONS
+
+    Compute Ops Management cmdlets operate against a provisioned COM region
+    (for example 'us-west' or 'eu-central'). Retrieve the region codes that are
+    provisioned in your workspace with:
+
+           Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned
+
+    Most cmdlets that accept -Region support Tab completion for the region code.
+
+    VERBOSE OUTPUT AND TROUBLESHOOTING
+
+    Add -Verbose to any cmdlet to see the underlying REST API calls, and use
+    -WhatIf on cmdlets that change state to preview the request without sending
+    it. When reporting an issue, capture verbose output to a file:
+
+           Connect-HPEGL -Credential (Get-Credential) -Verbose *> verbose.txt
+
+    IMPORT BANNER
+
+    When the module is imported in an interactive console, a short getting-started
+    banner is displayed. To suppress it, set the following environment variable
+    before importing the module:
+
+           $env:HPECOMCMDLETS_NO_BANNER = '1'
+
+EXAMPLES
+    # Connect, list servers in a region, then disconnect
+    Connect-HPEGL -Credential (Get-Credential) -Workspace "MyWorkspace"
+    Get-HPECOMServer -Region "eu-central"
+    Disconnect-HPEGL
+
+    # Add tags to all devices in the workspace
+    Get-HPEGLDevice | Add-HPEGLDeviceTagToDevice -Tags "Environment=Production, Location=DataCenter1"
+
+KEYWORDS
+    HPE GreenLake Compute Ops Management COM GLP HPECOMCmdlets
+
+SEE ALSO
+    Connect-HPEGL
+    Disconnect-HPEGL
+    Get-HPECOMServer
+    Online documentation: https://github.com/jullienl/HPE-COM-PowerShell-Library

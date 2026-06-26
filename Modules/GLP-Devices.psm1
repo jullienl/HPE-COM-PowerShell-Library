@@ -994,6 +994,12 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     .PARAMETER IloProxyPassword
     (Optional) Specifies the iLO web proxy password, if applicable, as a SecureString.
 
+    .PARAMETER SecureGateway
+    (Optional) Specifies the name of the HPE Secure Gateway appliance through which the iLO must connect to Compute Ops Management.
+    This parameter is primarily intended to be populated automatically from the pipeline when the input comes from 'Get-HPECOMSecureGatewayServerDiscovery' (whose output objects carry a 'SecureGateway' property).
+    When set, the cmdlet automatically routes the iLO connection through the specified Secure Gateway using the default Secure Gateway port (8080).
+    This parameter has its own parameter set and cannot be combined with '-IloProxyServer', '-IloProxyPort', '-IloProxyUserName', '-IloProxyPassword', '-RemoveExistingiLOProxySettings' or '-ResetiLOIfProxyErrorPersists'. To route through a web proxy or a Secure Gateway manually (for example with proxy authentication or a non-default port), use '-IloProxyServer' and '-IloProxyPort' instead.
+
     .PARAMETER RemoveExistingiLOProxySettings
     If present, this switch parameter removes any existing iLO proxy configuration before connecting to Compute Ops Management. 
     This is useful when an incorrectly configured proxy is preventing the iLO from connecting to the cloud.
@@ -1034,6 +1040,12 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     This is useful when migrating an iLO connection in either direction:
     - Direct -> Secure Gateway: combine with -IloProxyServer and -IloProxyPort to route the reconnection through the Secure Gateway.
     - Secure Gateway -> Direct: combine with -RemoveExistingiLOProxySettings to clear the proxy before reconnecting directly.
+
+    .PARAMETER WhatIf
+    Shows what would happen if the cmdlet runs, without making any changes to the iLO. The cmdlet still contacts the iLO read-only to gather its model, firmware version, serial number, current proxy state and external manager status, and performs all validation checks, then returns a step-by-step report. 
+    The report lists the validation results (iLO reachability, authentication, current proxy state, whether the iLO is currently managed by HPE OneView, and either iLO firmware compatibility with the activation key or the workspace/region/subscription state of the device) followed by the operations that would be performed (proxy or Secure Gateway configuration, HPE OneView handling, an existing Compute Ops Management disconnect when -Force is used, and the Compute Ops Management connection target). 
+    The report also surfaces warnings when a blocker is detected - for example a leftover proxy on a direct connection (suggesting -RemoveExistingiLOProxySettings) or an iLO currently managed by HPE OneView (suggesting -DisconnectiLOfromOneView). 
+    No state-changing operation is executed on the iLO.
     
     .EXAMPLE
     $iLO_credential = Get-Credential 
@@ -1216,6 +1228,87 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
     -IloProxyServer / -IloProxyPort replace the Secure Gateway proxy with a standard corporate web proxy — use this when iLO still needs a proxy to reach COM over the internet. If iLO has unrestricted internet access, use -RemoveExistingiLOProxySettings instead to clear the proxy entirely.
     Because the device service assignment is never removed, group memberships, server settings and policies in COM are fully preserved throughout the migration.
 
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+    Connect-HPEGLDeviceComputeiLOtoCOM -IloIP "192.168.0.21" -IloCredential $iLO_credential -IloProxyServer "sg01.lab" -IloProxyPort 8080 -SkipCertificateValidation -WhatIf
+
+    Previews the operation for the iLO at 192.168.0.21 without making any changes. The cmdlet contacts the iLO read-only to validate it, then returns a step-by-step report of the validation results and the operations that would be performed.
+
+    Sample output:
+
+        WARNING: iLO '192.168.0.21' [iLO 5 v3.10 - SN: MXQ73301YK] - WhatIf report:
+          Validation
+            - iLO network connectivity (ping) : Reachable
+            - iLO authentication / session    : Succeeded
+            - iLO identity                    : iLO 5 v3.10 (SN: MXQ73301YK)
+            - Current iLO proxy               : Disabled
+            - Managed by HPE OneView          : No
+            - Device present in workspace     : Yes
+            - Device assigned to a COM region : Yes ('eu-central')
+            - Device subscription attached    : Yes (key: 'KY767YTUE2JHJ')
+
+          Planned operations
+            - Proxy configuration             : Configure web proxy 'sg01.lab:8080'
+            - HPE OneView                     : Leave unchanged (not managed by HPE OneView)
+            - COM connection                  : Connect to the 'eu-central' COM instance using the workspace ID
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+    $COM_Activation_Key = New-HPECOMServerActivationKey -Region eu-central -SecureGateway "sg01.lj.lab"
+    Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -ReadyForConnection |
+        Connect-HPEGLDeviceComputeiLOtoCOM -IloCredential $iLO_credential -ActivationKeyfromCOM $COM_Activation_Key -SkipCertificateValidation
+
+    Onboards every server discovered behind the Secure Gateway 'sg01.lj.lab' that is ready to connect (iLO firmware already meets the minimum required version).
+    Because the discovered-server objects carry a 'SecureGateway' property, the cmdlet automatically routes each iLO connection through that Secure Gateway on port 8080 - there is no need to specify '-IloProxyServer' or '-IloProxyPort' explicitly.
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+    $COM_Activation_Key = New-HPECOMServerActivationKey -Region eu-central -SecureGateway "sg01.lj.lab"
+    Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -ReadyForConnection |
+        Connect-HPEGLDeviceComputeiLOtoCOM -IloCredential $iLO_credential -ActivationKeyfromCOM $COM_Activation_Key -SkipCertificateValidation -WhatIf
+
+    Previews the onboarding of every server discovered behind the Secure Gateway 'sg01.lj.lab' without making any change. Each iLO is automatically routed through the Secure Gateway on port 8080.
+
+    Sample output (one report per discovered server):
+
+        WARNING: iLO '192.168.1.45' [iLO 5 v3.10 - SN: MXQ73301YK] - WhatIf report:
+          Validation
+            - iLO network connectivity (ping) : Reachable
+            - iLO authentication / session    : Succeeded
+            - iLO identity                    : iLO 5 v3.10 (SN: MXQ73301YK)
+            - Current iLO proxy               : Disabled
+            - Managed by HPE OneView          : No
+            - iLO firmware vs activation key  : Compatible (v3.10 meets the minimum required version)
+
+          Planned operations
+            - Proxy configuration             : Configure Secure Gateway 'sg01.lj.lab:8080'
+            - HPE OneView                     : Leave unchanged (not managed by HPE OneView)
+            - COM connection                  : Connect using the provided activation key
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+    Connect-HPEGLDeviceComputeiLOtoCOM -IloIP "192.168.0.30" -IloCredential $iLO_credential -SkipCertificateValidation -WhatIf
+
+    Previews a direct connection for an iLO that is currently managed by HPE OneView and still has a leftover proxy configured. The report flags both blockers so you know to add '-DisconnectiLOfromOneView' (to override the OneView manager) and '-RemoveExistingiLOProxySettings' (to clear the stale proxy) before running for real.
+
+    Sample output:
+
+        WARNING: iLO '192.168.0.30' [iLO 5 v3.10 - SN: MXQ73302AB] - WhatIf report:
+          Validation
+            - iLO network connectivity (ping) : Reachable
+            - iLO authentication / session    : Succeeded
+            - iLO identity                    : iLO 5 v3.10 (SN: MXQ73302AB)
+            - Current iLO proxy               : Enabled (ProxyServer: 'oldproxy.lab', ProxyPort: '8080')
+            - Managed by HPE OneView          : Yes ('HPE OneView')
+            - Device present in workspace     : Yes
+            - Device assigned to a COM region : Yes ('eu-central')
+            - Device subscription attached    : Yes (key: 'KY767YTUE2JHJ')
+
+          Planned operations
+            - Proxy configuration             : None (direct connection) - WARNING: a proxy is currently configured on the iLO (ProxyServer: 'oldproxy.lab', ProxyPort: '8080'). Use -RemoveExistingiLOProxySettings to clear it, otherwise the direct connection to Compute Ops Management may fail.
+            - HPE OneView                     : WARNING: the iLO is currently managed by HPE OneView. The connection to Compute Ops Management will fail unless you use -DisconnectiLOfromOneView to override the existing manager.
+            - COM connection                  : Connect to the 'eu-central' COM instance using the workspace ID
+
     .INPUTS
     System.Collections.ArrayList
         List of Device(s) with an IP property (iLO IP address).
@@ -1234,7 +1327,7 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         * Exception - Information about any exceptions generated during the operation.
 #>
 
-    [CmdletBinding(DefaultParameterSetName = 'EnableProxySettings')]
+    [CmdletBinding(DefaultParameterSetName = 'SecureGateway')]
     Param( 
  
         [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
@@ -1273,6 +1366,10 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         [ValidateNotNull()]
         [System.Security.SecureString]$IloProxyPassword,
 
+        [Parameter (ParameterSetName = 'SecureGateway', ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [String]$SecureGateway,
+
         [Parameter (ParameterSetName = 'DisableProxySettings')]
         [Switch]$RemoveExistingiLOProxySettings,
         
@@ -1293,7 +1390,9 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
 
         [Parameter (Mandatory = $false)]
         [ValidateRange(30, 600)]
-        [int]$ConnectionMonitoringTimeoutSeconds = 120
+        [int]$ConnectionMonitoringTimeoutSeconds = 120,
+
+        [Switch]$WhatIf
   
     ) 
 
@@ -1358,6 +1457,16 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         }
         
 
+        # Auto-configure Secure Gateway routing when the input is piped from 'Get-HPECOMSecureGatewayServerDiscovery'.
+        # Those discovered-server objects carry a 'SecureGateway' property identifying the gateway the server sits behind.
+        # '-SecureGateway' has its own parameter set (mutually exclusive with the proxy parameters), so route the iLO
+        # connection through that Secure Gateway using the default Secure Gateway port (8080).
+        if ($SecureGateway) {
+            $IloProxyServer = $SecureGateway
+            $IloProxyPort = 8080
+            "[{0}] {1}: Secure Gateway '{2}' detected from pipeline input - routing the iLO connection through proxy '{2}:{3}'." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SecureGateway, $IloProxyPort | Write-Verbose
+        }
+
         #Region----------------------------------------------------------- Create iLO session -----------------------------------------------------------    
       
         # Test network connectivity with iLO
@@ -1366,6 +1475,10 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
         "[{0}] PING iLO '{1}' test result: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $IsILOAccessible.status | Write-Verbose
 
         if ($IsILOAccessible.Status -ne "Success") {
+            if ($WhatIf) {
+                Write-Warning "iLO '$IloIP': iLO is not reachable. Please ensure you are connected to the iLO network. Cannot display the planned operations."
+                return
+            }
             $objStatus.Status = "Warning"
             $objStatus.Details = "iLO is not reachable. Please ensure your are connected to the iLO network."
             [void] $iLOConnectionStatus.add($objStatus)
@@ -1560,6 +1673,39 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
          
         #EndRegion
 
+        #Region----------------------------------------------------------- Detect external manager (HPE OneView) -----------------------------------------------------------
+        # Read the iLO service root to detect whether the system is currently managed by an external manager (e.g. HPE OneView).
+        # When the iLO reports 'HPE OneView' as its external manager, the COM connection fails unless -DisconnectiLOfromOneView is used.
+        $ExternalManager = $null
+        $ExternalManagerName = $null
+
+        "[{0}] {1}: Getting external manager status..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP | Write-Verbose
+
+        $AddURI = "/redfish/v1/"
+
+        try {
+            if ($SkipCertificateValidation) {
+                $ServiceRoot = Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers -SkipCertificateCheck
+            }
+            else {
+                $ServiceRoot = Invoke-RestMethod -Method GET -Uri ($iLObaseURL + $AddURI) -Headers $Headers
+            }
+
+            $ExternalManager = $ServiceRoot.Oem.Hpe.Manager[0].ExternalManager
+
+            if ($ExternalManager -eq "HPE OneView") {
+                $ExternalManagerName = $ServiceRoot.Oem.Hpe.Manager[0].IPManager.ManagerProductName
+                "[{0}] {1}: iLO is currently managed by external manager '{2}' ({3})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP, $ExternalManager, $ExternalManagerName | Write-Verbose
+            }
+            else {
+                "[{0}] {1}: iLO external manager status: '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP, $ExternalManager | Write-Verbose
+            }
+        }
+        catch {
+            "[{0}] {1}: Could not determine external manager status: {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $iLOIP, $_.Exception.Message | Write-Verbose
+        }
+        #EndRegion
+
         
         if ($ActivationKeyfromCOM) {           
             
@@ -1569,11 +1715,15 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             # COM activation key is not supported if iLO5 lower than v3.09 and if iLO6 lower than v1.64.
             if ($iLOGeneration -eq "iLO 5" -and [decimal]$iLOFWVersion -lt [decimal]3.09) {
                 
+                "[{0}] {1} [{2}] The iLO {3} firmware version {4} is NOT compatible with the COM activation key ! iLO cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v3.09" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $iLOGeneration, $iLOFWVersion | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "iLO '$IloIP' [SN: $SerialNumber]: Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v3.09. Please run the cmdlet without the 'ActivationKeyfromCOM' parameter. Cannot display the planned operations."
+                    return
+                }
+
                 $objStatus.iLOConnectionStatus = "Warning"
                 $objStatus.iLOConnectionDetails = "Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v3.09. Please run the cmdlet without the 'ActivationKeyfromCOM' parameter."
-                
-                "[{0}] {1} [{2}] The iLO {3} firmware version {4} is NOT compatible with the COM activation key ! iLO cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v3.09" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $iLOGeneration, $iLOFWVersion | Write-Verbose
-                
                 $objStatus.Status = "Warning"
                 [void]$iLOConnectionStatus.add($objStatus) 
                 return
@@ -1581,12 +1731,15 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             }
             elseif ($iLOGeneration -eq "iLO 6" -and [decimal]$iLOFWVersion -lt [decimal]1.64) {
 
-                
-                $objStatus.iLOConnectionStatus = "Warning"
-                $objStatus.iLOConnectionDetails = "Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v1.64. Please run the cmdlet without the 'ActivationKeyfromCOM' parameter."
-
                 "[{0}] {1} [{2}] The iLO {3} firmware version {4} is NOT compatible with the COM activation key ! iLO cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v1.64" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $iLOGeneration, $iLOFWVersion | Write-Verbose
 
+                if ($WhatIf) {
+                    Write-Warning "iLO '$IloIP' [SN: $SerialNumber]: Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v1.64. Please run the cmdlet without the 'ActivationKeyfromCOM' parameter. Cannot display the planned operations."
+                    return
+                }
+
+                $objStatus.iLOConnectionStatus = "Warning"
+                $objStatus.iLOConnectionDetails = "Server cannot be connected to COM using a COM activation key because the iLO firmware version is lower than v1.64. Please run the cmdlet without the 'ActivationKeyfromCOM' parameter."
                 $objStatus.Status = "Warning"
                 [void]$iLOConnectionStatus.add($objStatus)
                 return
@@ -1609,6 +1762,10 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             
             if ( -not $device) {
                 # Must return a message if device is not found
+                if ($WhatIf) {
+                    Write-Warning "iLO '$IloIP' [SN: $SerialNumber]: This server is not present in the HPE GreenLake workspace, so the planned operations cannot be displayed. To onboard it, first add the device to the workspace with 'Add-HPEGLDeviceCompute', then assign it to a Compute Ops Management region with 'Add-HPEGLDeviceToService' and attach a subscription with 'Add-HPEGLSubscriptionToDevice'. Alternatively, re-run this cmdlet with the '-ActivationKeyfromCOM' parameter (see 'New-HPECOMServerActivationKey'), which does not require the device to be pre-registered in the workspace."
+                    return
+                }
                 $objStatus.Status = "Warning"
                 $objStatus.Details = "Device cannot be found in the HPE GreenLake workspace"
                 [void] $iLOConnectionStatus.add($objStatus)
@@ -1617,6 +1774,10 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             }
             elseif (-not $device.region) {
                 # Must return a message if device is not assigned to COM
+                if ($WhatIf) {
+                    Write-Warning "iLO '$IloIP' [SN: $SerialNumber]: This server is not assigned to any Compute Ops Management region, so the planned operations cannot be displayed. Assign it to a region with 'Add-HPEGLDeviceToService -ServiceName 'Compute Ops Management'', then re-run this cmdlet. Alternatively, re-run with the '-ActivationKeyfromCOM' parameter to onboard the server directly using a COM activation key."
+                    return
+                }
                 $objStatus.Status = "Warning"
                 $objStatus.Details = "Device is not assigned to any service instance!"
                 [void] $iLOConnectionStatus.add($objStatus)
@@ -1625,6 +1786,10 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             }
             elseif (-not $device.subscription.key) {
                 # Must return a message if device has no subscription
+                if ($WhatIf) {
+                    Write-Warning "iLO '$IloIP' [SN: $SerialNumber]: This server is not attached to any subscription, so the planned operations cannot be displayed. Attach a valid subscription key with 'Add-HPEGLSubscriptionToDevice', then re-run this cmdlet. Use 'Get-HPEGLSubscription' to list the subscription keys available in your workspace."
+                    return
+                }
                 $objStatus.Status = "Warning"
                 $objStatus.Details = "Device has not been attached to any subscription!"
                 [void] $iLOConnectionStatus.add($objStatus)
@@ -1634,6 +1799,107 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
             #EndRegion
         }       
                 
+
+        # -WhatIf: all read-only discovery and validation have completed successfully.
+        # Produce a step-by-step report of what was checked and what would be performed, without modifying the iLO.
+        if ($WhatIf) {
+
+            $_Report = [System.Collections.Generic.List[string]]::new()
+
+            # --- Validation results (already gathered above through read-only calls) ---
+            $_Report.Add("  Validation")
+            $_Report.Add("    - iLO network connectivity (ping) : Reachable")
+            $_Report.Add("    - iLO authentication / session    : Succeeded")
+            $_Report.Add(("    - iLO identity                    : {0} v{1} (SN: {2})" -f $iLOGeneration, $iLOFWVersion, $SerialNumber))
+
+            if ($ProxySettings -eq "Enabled") {
+                $_Report.Add(("    - Current iLO proxy               : Enabled (ProxyServer: '{0}', ProxyPort: '{1}')" -f $ExistingProxyServer, $ExistingProxyPort))
+            }
+            else {
+                $_Report.Add("    - Current iLO proxy               : Disabled")
+            }
+
+            if ($ExternalManager -eq "HPE OneView") {
+                $_OneViewLabel = if ($ExternalManagerName) { "Yes ('{0}')" -f $ExternalManagerName } else { "Yes" }
+                $_Report.Add(("    - Managed by HPE OneView          : {0}" -f $_OneViewLabel))
+            }
+            elseif ($null -ne $ExternalManager) {
+                $_Report.Add("    - Managed by HPE OneView          : No")
+            }
+            else {
+                $_Report.Add("    - Managed by HPE OneView          : Unknown (could not be determined)")
+            }
+
+            if ($ActivationKeyfromCOM) {
+                $_Report.Add(("    - iLO firmware vs activation key  : Compatible (v{0} meets the minimum required version)" -f $iLOFWVersion))
+            }
+            else {
+                $_Report.Add("    - Device present in workspace     : Yes")
+                $_Report.Add(("    - Device assigned to a COM region : Yes ('{0}')" -f $device.region))
+                $_Report.Add(("    - Device subscription attached    : Yes (key: '{0}')" -f $device.subscription.key))
+            }
+
+            # --- Planned state-changing operations ---
+            $_Report.Add("")
+            $_Report.Add("  Planned operations")
+
+            if ($Force) {
+                $_Report.Add("    - COM disconnect (-Force)         : Disconnect the iLO from its current COM connection before reconnecting")
+            }
+
+            if ($RemoveExistingiLOProxySettings) {
+                if ($ProxySettings -eq "Enabled") {
+                    $_Report.Add(("    - Proxy configuration             : Remove the existing proxy (ProxyServer: '{0}', ProxyPort: '{1}')" -f $ExistingProxyServer, $ExistingProxyPort))
+                    if ($ResetiLOIfProxyErrorPersists) {
+                        $_Report.Add("    - iLO reset                       : Reset the iLO (ForceRestart) if cached proxy errors persist after removal")
+                    }
+                }
+                else {
+                    $_Report.Add("    - Proxy configuration             : None (no proxy currently configured to remove)")
+                }
+            }
+            elseif ($IloProxyServer) {
+                $_ProxyKind = if ($SecureGateway) { "Secure Gateway" } else { "web proxy" }
+                if ($IloProxyUserName) {
+                    $_Report.Add(("    - Proxy configuration             : Configure {0} '{1}:{2}' (authenticated as '{3}')" -f $_ProxyKind, $IloProxyServer, $IloProxyPort, $IloProxyUserName))
+                }
+                else {
+                    $_Report.Add(("    - Proxy configuration             : Configure {0} '{1}:{2}'" -f $_ProxyKind, $IloProxyServer, $IloProxyPort))
+                }
+            }
+            else {
+                if ($ProxySettings -eq "Enabled") {
+                    $_Report.Add(("    - Proxy configuration             : None (direct connection) - WARNING: a proxy is currently configured on the iLO (ProxyServer: '{0}', ProxyPort: '{1}'). Use -RemoveExistingiLOProxySettings to clear it, otherwise the direct connection to Compute Ops Management may fail." -f $ExistingProxyServer, $ExistingProxyPort))
+                }
+                else {
+                    $_Report.Add("    - Proxy configuration             : None (direct connection)")
+                }
+            }
+
+            if ($DisconnectiLOfromOneView) {
+                $_Report.Add("    - HPE OneView                     : Override the existing manager to disconnect the system from HPE OneView")
+            }
+            elseif ($ExternalManager -eq "HPE OneView") {
+                $_Report.Add("    - HPE OneView                     : WARNING: the iLO is currently managed by HPE OneView. The connection to Compute Ops Management will fail unless you use -DisconnectiLOfromOneView to override the existing manager.")
+            }
+            else {
+                $_Report.Add("    - HPE OneView                     : Leave unchanged (not managed by HPE OneView)")
+            }
+
+            if ($ActivationKeyfromCOM) {
+                $_Report.Add(("    - Activation key                  : '{0}'" -f $ActivationKeyfromCOM))
+                $_Report.Add("    - COM connection                  : Connect using the provided activation key")
+            }
+            else {
+                $_Report.Add(("    - Activation key                  : None (using the workspace ID '{0}')" -f $Global:HPEGreenLakeSession.workspaceId))
+                $_Report.Add(("    - COM connection                  : Connect to the '{0}' COM instance using the workspace ID" -f $device.region))
+            }
+
+            Write-Warning ("iLO '{0}' [{1} v{2} - SN: {3}] - WhatIf report:`n{4}" -f $IloIP, $iLOGeneration, $iLOFWVersion, $SerialNumber, ($_Report -join "`n"))
+
+            return
+        }
+
         
         if ($iLOGeneration -eq "iLO 5" -or $iLOGeneration -eq "iLO 6" -or $iLOGeneration -eq "iLO 7") {       
             
@@ -2226,6 +2492,9 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
 
                     $iLOConnectiontoCOMResponse = $null
                     $PollingLoopResetDone = $false  # Guard to prevent infinite reset loops inside the polling loop
+                    $ActivationKeyRetryCount = 0    # Guard to limit retries on transient 'ActivationKeyRequired' backend errors
+                    $MaxActivationKeyRetries = 5    # Max re-issues of EnableCloudConnect when COM reports a transient activation-key error
+                    $ActivationKeyRetryDelaySeconds = 15  # Delay between activation-key retries to allow COM backend propagation
                 
                     do {
                         try {
@@ -2361,6 +2630,30 @@ Function Connect-HPEGLDeviceComputeiLOtoCOM {
                                         }
                                     }
                                     
+                                    # Transient backend state: a freshly generated activation key (or the subscription
+                                    # assignment behind it) may still be propagating across the COM backend, causing the iLO
+                                    # to report 'ActivationKeyRequired'/'ActivationKeyInvalid' even though the key is valid.
+                                    # This is common when onboarding several servers right after creating a workspace/key.
+                                    # Re-issue EnableCloudConnect a few times with a short delay before giving up.
+                                    if ($FailReason -match "ActivationKey" -and $ActivationKeyRetryCount -lt $MaxActivationKeyRetries) {
+                                        $ActivationKeyRetryCount++
+                                        "[{0}] {1} [{2}] '{3}' detected (likely transient COM backend propagation). Re-issuing EnableCloudConnect (activation-key retry {4}/{5}) after {6}s..." -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $FailReason, $ActivationKeyRetryCount, $MaxActivationKeyRetries, $ActivationKeyRetryDelaySeconds | Write-Verbose
+                                        Start-Sleep -Seconds $ActivationKeyRetryDelaySeconds
+
+                                        $iLOConnectiontoCOMResponse = Invoke-RestMethod @PostParams
+                                        Start-Sleep -Seconds 2
+
+                                        # Refresh CloudConnect status so the do-while condition evaluates correctly when we continue
+                                        $RefreshInfo = Invoke-RestMethod @CloudConnectStatusParams
+                                        $CloudConnectStatus = $RefreshInfo.Oem.Hpe.CloudConnect.CloudConnectStatus
+                                        $FailReason = $RefreshInfo.Oem.Hpe.CloudConnect.FailReason
+                                        $WebConnectivity = $RefreshInfo.Oem.Hpe.CloudConnect.ExtendedStatusInfo.WebConnectivity
+                                        "[{0}] {1} [{2}] Post-retry CloudConnect state before resuming monitoring: Status='{3}', FailReason='{4}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $IloIP, $SerialNumber, $CloudConnectStatus, $FailReason | Write-Verbose
+
+                                        $subcounter = 0
+                                        continue  # Resume the inner polling loop to monitor the new connection attempt
+                                    }
+
                                     # Format user-friendly error message
                                     $errorDetail = switch -Regex ($FailReason) {
                                         "ProxyOrFirewall" { "Proxy or Firewall Issue - Check network connectivity and proxy settings" }
@@ -8468,6 +8761,264 @@ Function Remove-HPEGLDeviceServiceDeliveryContact {
     }
 }
 
+Function Remove-HPEGLDevice {
+    <#
+    .SYNOPSIS
+    Permanently remove device(s) from HPE GreenLake.
+
+    .DESCRIPTION
+    This Cmdlet permanently removes (unclaims) one or more devices from the HPE GreenLake workspace.
+    
+    The cmdlet issues a message at runtime to warn the user of the irreversible impact of this action and asks for a confirmation before proceeding with the removal.
+    
+    Use the -Force switch to skip the confirmation prompt.
+
+    .PARAMETER SerialNumber
+    Serial number of the device to be permanently removed from HPE GreenLake. 
+
+    .PARAMETER Force
+    Switch parameter that performs the removal without prompting for confirmation.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to GLP instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    Remove-HPEGLDevice -SerialNumber CN70490RXR
+
+    Permanently removes the device with the serial number 'CN70490RXR' from HPE GreenLake after the user has confirmed the removal.
+
+    .EXAMPLE
+    Remove-HPEGLDevice -SerialNumber CN70490RXR -Force
+
+    Permanently removes the device with the serial number 'CN70490RXR' from HPE GreenLake without prompting for confirmation.
+
+    .EXAMPLE
+    Get-HPEGLDevice -Name CN70490RXR | Remove-HPEGLDevice
+
+    Permanently removes the device with the serial number 'CN70490RXR' from HPE GreenLake after the user has confirmed the removal.
+
+    .EXAMPLE
+    'CN70490RXR', 'CZ12312333' | Remove-HPEGLDevice -Force
+
+    Permanently removes the devices with the serial numbers listed as pipeline input from HPE GreenLake without prompting for confirmation.
+
+    .EXAMPLE
+    Get-HPEGLDevice -FilterByDeviceType SERVER | Remove-HPEGLDevice
+
+    Permanently removes all server devices from HPE GreenLake after the user has confirmed the removal.
+
+    .INPUTS
+    System.String, System.String[]
+        A single string object or a list of string objects that represent the device's serial numbers. 
+    System.Collections.ArrayList
+        List of device(s) from 'Get-HPEGLDevice'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:  
+        * SerialNumber - Serial number of the device to be permanently removed. 
+        * PartNumber - Part number of the device to be permanently removed.
+        * Status - Status of the removal attempt (Failed for HTTP error return; Complete if removal is successful; Warning if no action is needed) 
+        * Details - More information about the status 
+        * Exception - Information about any exceptions generated during the operation.
+    
+   #>
+
+    [CmdletBinding()]
+    Param( 
+ 
+        [Parameter (Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [String]$SerialNumber,
+
+        [Switch]$Force,
+
+        [Switch]$WhatIf
+    ) 
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $Uri = Get-RemoveDevicesUri
+
+        $InputList = [System.Collections.ArrayList]::new()
+        $ObjectStatusList = [System.Collections.ArrayList]::new()
+        $DevicesList = [System.Collections.ArrayList]::new()
+
+    }
+
+    Process {
+        
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # Build object for the output
+        $objStatus = [pscustomobject]@{
+  
+            SerialNumber = $SerialNumber
+            PartNumber   = $Null
+            Status       = $Null
+            Details      = $Null
+            Exception    = $Null
+                  
+        }
+        [void]$InputList.Add($objStatus)
+        [void]$ObjectStatusList.Add($objStatus)
+
+    }
+
+    end {
+
+        try {
+            
+            $devices = Get-HPEGLdevice 
+            
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)                
+        }
+        
+        "[{0}] List of devices to remove: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($InputList.serialnumber | out-string) | Write-Verbose
+
+        foreach ($Object in $InputList) {
+
+            $Device = $Devices | Where-Object serialNumber -eq $Object.SerialNumber
+
+            if ( -not $Device) {
+
+                # Must return a message if device not found
+                $ErrorMessage = "Device '{0}': Resource cannot be found in the workspace!" -f $Object.SerialNumber
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    continue
+                }
+
+                $Object.Status = "Warning"
+                $Object.Details = "Device cannot be found in the workspace!" 
+
+            } 
+            else {         
+
+                # Update PartNumber in the status object
+                $Object.PartNumber = $Device.partNumber
+
+                # Build device list item for the payload
+                $DeviceListItem = [PSCustomObject]@{
+                    serial_number = $Device.serialNumber
+                    part_number   = $Device.partNumber 
+                    device_type   = $Device.deviceType
+                }
+
+                # Building the list of devices to remove
+                [void]$DevicesList.Add($DeviceListItem)
+                    
+            }
+        }
+
+        if ($DevicesList) {
+
+            # Ask for confirmation unless -Force or -WhatIf
+            if (-not $Force -and -not $WhatIf) {
+
+                $deviceSummary = ($DevicesList | ForEach-Object { "    - {0} ({1})" -f $_.serial_number, $_.part_number }) -join "`n"
+                $title = "Remove {0} Device(s) Permanently" -f $DevicesList.Count
+                $question = @"
+Some devices you are trying to remove are tied to subscriptions used in this workspace. Removing devices could interrupt your service.
+
+The following $($DevicesList.Count) device(s) will be permanently removed:
+$deviceSummary
+
+Are you sure you want to proceed?
+"@
+
+                $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Permanently remove the selected device(s) from HPE GreenLake."
+                $no = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Cancel the removal. The device(s) will remain unchanged."
+
+                $choices = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
+                $decision = $Host.UI.PromptForChoice($title, $question, $choices, 1)
+            }
+            else {
+                $decision = 0
+            }
+
+            if ($decision -eq 0) {
+
+                # Build payload
+                $payload = [PSCustomObject]@{
+                    devices = $DevicesList
+
+                } | ConvertTo-Json -Depth 5
+
+                # Remove devices
+                try {
+
+                    Invoke-HPEGLWebRequest -Uri $Uri -method 'POST' -body $payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference | out-Null
+                
+                    if (-not $WhatIf) {
+                    
+                        foreach ($Object in $ObjectStatusList) {
+
+                            $DeviceSet = $DevicesList | Where-Object serial_number -eq $Object.SerialNumber
+
+                            If ($DeviceSet) {
+                              
+                                $Object.Status = "Complete"
+                                $Object.Details = "Device permanently removed from HPE GreenLake"
+
+                            }
+                        }
+                    }
+                }
+                catch {
+                
+                    if (-not $WhatIf) {
+
+                        foreach ($Object in $ObjectStatusList) {
+
+                            $DeviceSet = $DevicesList | Where-Object serial_number -eq $Object.SerialNumber
+
+                            If ($DeviceSet) {
+                              
+                                $Object.Status = "Failed"
+                                $Object.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Device cannot be removed from HPE GreenLake!" }
+                                $Object.Exception = $Global:HPECOMInvokeReturnData
+
+                            }
+                        }
+                    }
+                }
+            }
+            else {
+                
+                'Operation cancelled by user!' | Write-Verbose
+
+                if (-not $WhatIf) {
+                    foreach ($Object in $ObjectStatusList) {
+
+                        $DeviceSet = $DevicesList | Where-Object serial_number -eq $Object.SerialNumber
+
+                        If ($DeviceSet) {
+                            $Object.Status = "Warning"
+                            $Object.Details = "Operation cancelled by the user!"
+                        }
+                    }
+                }
+            }
+        }
+
+        if (-not $WhatIf -and $ObjectStatusList.Count -gt 0) {
+
+            $ObjectStatusList = Invoke-RepackageObjectWithType -RawObject $ObjectStatusList -ObjectName "ObjStatus.SPSDE"   
+            Return $ObjectStatusList
+        }
+
+    }
+}
+
 
 
 # Private functions (not exported)
@@ -8527,15 +9078,16 @@ Export-ModuleMember -Function `
     'Disable-HPEGLDevice', 'Enable-HPEGLDevice', 'Add-HPEGLDeviceTagToDevice', 'Remove-HPEGLDeviceTagFromDevice', `
     'Get-HPEGLLocation', 'New-HPEGLLocation', 'Set-HPEGLLocation', 'Remove-HPEGLLocation', 'Confirm-HPEGLLocation', `
     'Set-HPEGLDeviceLocation', 'Remove-HPEGLDeviceLocation', `
-    'Set-HPEGLDeviceServiceDeliveryContact', 'Remove-HPEGLDeviceServiceDeliveryContact' `
+    'Set-HPEGLDeviceServiceDeliveryContact', 'Remove-HPEGLDeviceServiceDeliveryContact', `
+    'Remove-HPEGLDevice' `
     -Alias *
 
 
 # SIG # Begin signature block
-# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIvsgYJKoZIhvcNAQcCoIIvozCCL58CAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCB8lkY0AwRncPbR
-# nD0lBqKkxQI0IUYg+z7mJMYyWGOQh6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAH5kHIP2YgbPU4
+# IkSUGtQ6npdgXAuAPPQReosR5aEe1aCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -8631,147 +9183,160 @@ Export-ModuleMember -Function `
 # CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
 # v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
 # VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
+# nZ+oA+rbZZyGZkz3xbUYKTGCHRIwgh0OAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
 # BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgNHu4V85oJ9VknS02mLcOWIFQIbiPsjdb8384Jq60zkowDQYJKoZIhvcNAQEB
-# BQAEggIAyRdvagLXCC0t8rnZj/5+6IdwWl6jXuYpLKzuZRviEh47Q4GkOGp5EdWP
-# bC2eEq1znVMA47zbpBpWeStXXU1Vuf3upKikt5P9XW3ee4b6qlptqLyaC9AZq6WL
-# u8AjDzTuKho9FmMae/ffPslPi19iuzRQnuh9cs8Dw5jXIvwoxsxRRUUS9k/h54mI
-# 8p5W0NiQHjBIVhbjXh2mh1xeZrT+67TmBulzaGoPcqIpxT9D7CoIscCpXQsz7sMJ
-# iO/uKZYagtt7RbLK1IfCzU1vF1wEShVonuTYW9XD8smz4NcINPssZ6Xe86+u5LNH
-# LUHS+pDi9Y9CGfMwpWPEUx8nydTcJikEa3fSy/7em+f7GJBfWGHibloYrp5En1hQ
-# y3/V/nk8wTGHMGKFQ5nNLXXs7qJu1Amcd7Gi6r8kO2TfDveEhLagap1etRk3dCET
-# 5YYNJ/613v2Z3fJow+mMoQlv70uhR3D9/X7SZrK6R5nROqnhCh3N4y0de0p3FMCB
-# KbZHDMQmgN88LOrMigZ0JB4DWs27E42bTFOQN8YaAd1y2h20NewgM/74ODUD0shI
-# iakb8ztya6yMA8/9M/xFhr7avkH2iOCxmkJcz5ywW0u3FsnQ2ZwZS+hvcf6/b+1p
-# h7CfsJIuecKvClR+95hl1SKGftFiitDHodn0cAvq7l56PyIAG/+hgheYMIIXlAYK
-# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMCaHF3w6MBKbLb6LWH1Vm9zB5Fv2KmwmiliKKwGqrFf3
-# j6LRbxVK+SigiFOuCmmKdwIRAOJxvxBMaD6Wsi+fFDNwvu8YDzIwMjYwNTEzMDky
-# NTA5WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
-# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
-# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
-# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
-# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
-# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
-# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
-# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
-# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
-# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
-# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
-# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
-# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
-# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
-# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
-# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
-# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
-# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
-# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
-# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
-# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
-# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
-# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
-# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
-# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
-# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
-# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
-# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
-# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
-# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
-# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
-# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
-# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
-# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
-# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
-# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
-# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
-# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
-# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
-# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
-# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
-# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
-# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
-# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
-# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
-# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
-# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
-# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
-# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
-# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
-# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
-# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
-# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
-# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
-# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
-# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
-# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
-# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
-# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
-# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
-# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
-# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
-# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
-# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
-# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
-# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
-# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
-# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
-# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
-# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
-# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
-# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
-# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
-# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
-# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
-# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
-# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
-# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
-# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
-# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
-# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
-# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
-# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
-# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
-# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
-# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
-# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
-# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
-# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
-# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
-# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
-# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
-# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
-# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
-# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
-# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
-# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
-# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
-# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
-# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
-# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDUx
-# MzA5MjUwOVowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
-# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMHFMnvuYeiu95Hsf/wTGcIyQ
-# CgNsdzgcR/MS8xLxVKFB4931JFSAu36ZP4eP3nL+zzANBgkqhkiG9w0BAQEFAASC
-# AgCN6z1EvN8wZPnkKSuerP+IVKrlNMd0o36VJFz8yulkZjXKgHkvf3iEGVj2ZlXS
-# qFuV55Mj8xkPfsUu1ZqCPYdKZe7aI697jCYPn7ogC1qm2+QrAE/kMi3IeiMQEyQs
-# 1XQXjAOu4/6x3cVAUGKnP96duuvQzztdSHZM7NDuzeaVpNterjJaYMxkC2veFv15
-# /lSLvOmYOm7NeWOCUustGL03zN0Qh3EPEpiaLkaMZfLHLp7MGouIuE2ym3O8sWdM
-# fDzp+PU9eTKXTSdoP0w17RtyirfKa9qv6+P8lhvG2Q0y7GnktrCor2ykW6kSNjar
-# vQSpyiVOQloe3F+ayR4B5Uunkyx9/cLXe+kkTRNKzAudrXsWNfj5rGgvsd8bZvhe
-# szb9A514sJjQ0Utk2VTzUyI/K/I1qg9CG207u2WhlCE12EZwDCSpDf+1joQ1Tj9q
-# luEVxdD+Amn1tew2a0bzkl+WnVuBUtAStH++cSlH2qA4qLTKT1L7lUrMcJoishfv
-# SA7bU3+4maQeQyJ0Fpxo57ApSKvecDK0upyK3Jvv4IDDOTtbXPLMaVqO/SNyBx7Y
-# TnCwPiSp6buShI8bk2s4onoWb4Vaax/RrExz3n5eRsp+UaS54g3d5Uz2NL59EGa9
-# H33eF/S4CcBk/A3oQ5pi3wdOkz9XG77FhVHLPsWkhbjQuA==
+# IgQgBxgO0a9zsT89OmMTCc+NZdy54x11dFjQX33RbwV3bngwDQYJKoZIhvcNAQEB
+# BQAEggIAnZio6LqY53LGAxVNGk/++K+l2W7/yUegWlFfJjBEDlEh4n/qvqoM7WkM
+# viFDJL1FotRWigQ0vwcF76iLp5f0Wg8jS9d+kWQl83LNM9/dvQMMym7CXlmVAqM8
+# b+fBKh04Jwstr3BsjjH/eljQrVlYgW7N58nuPBHXP0K2Ub15XYBXJBdkfxE9BXMF
+# WB8wWPc2OVKU3m7PtEqJAotYAUHHICbkoNQhrfymRjBgfKETWXqDk4T1iy1I4AyS
+# cexVyTCJ6yVEyUTw0W7QJBkrMevLXWTio5ScgQHhm/LH1c0L1oHs/n8ncIGIJKTe
+# lPWNB6dtBCzSZgSo96z8KjnO42VsFf5z1OhF8/skkZSQ87tQvBT9vNo0RPXRlp5f
+# DnMPcbN1ak7xYBXhttPg36OyJZs3KSDIVrzbEG7GKJOhKNWbzxcHOpFd8CAaXLub
+# w6AoD4pb4j7jFAUNYNtEGAdEzhKMDemboJR4yJ2REuxdzx2y2/LtdAWzoFQh6UFX
+# rNiDd5JXPmdXF0O1IC2N94IhCFYqtOBzsCUhiAaY/kxHf5Hx8TtagAgebm3is8x5
+# OdtZCWoABLpWY/LoqtN6U9j5/ZiIgNwM/hXvdTAshACoEIAEa9+QtjatpvsDnKkb
+# xmlG3BqnQ+lKQchm2YrPjHjvFGMj9gR1mKum9kpQ8asdAflcxPShghn8MIIZ+AYK
+# KwYBBAGCNwMDATGCGegwghnkBgkqhkiG9w0BBwKgghnVMIIZ0QIBAzEPMA0GCWCG
+# SAFlAwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjEC
+# AQEwQTANBglghkgBZQMEAgIFAAQwwE0WOalBHbafJ9mILig8pLlDoUblQYfVMpaM
+# 9yU632ZkFBtGIz2EW/0CSvrS6UxEAhQY3m6xlwe792GUFqF6EfLN9cf48RgPMjAy
+# NjA2MjYxMzQ2NDRaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOR3JlYXRl
+# ciBMb25kb24xGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2Vj
+# dGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM3oIIUFzCCBuIwggTK
+# oAMCAQICEQDnTvJVsFBP+tum3/f8i6MVMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNV
+# BAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQxMB4XDTI2MDMyNTAwMDAwMFoX
+# DTM3MDYyNDIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0ZXIg
+# TG9uZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNzCCAiIwDQYJKoZIhvcN
+# AQEBBQADggIPADCCAgoCggIBALL/w21L3FDZRS0FEXfZuPtUrefibnRSqOT/NNyJ
+# LOJhXjQfUspqHT+gSSVgbjYThUI/cO+wFQHoOakKQNnSMKdkE8gR69ofXlkk5DAV
+# Y/ZlevliOUmlvrw2Vuz4SU28rHfb/Vgd17eqpRIvJuO6XE8vPpPzn4c4iorszUF6
+# nwuynKEQ/+rqfDmQbFNKsa+5+Z4f4kXwKdUFxUwUDjQWUhiHRwMlUWGF9N91aAvL
+# +9a4sxCgqR/ez8W8HJ/XqvSu1vIeb+J6bDFKKgkv3PJkMMpQ0BsdeXR2FejZXFRX
+# Y1w9dZe6gqyMv7px+TpWbYMefECUV0WxoEMgXUk6RKcLo94uUHOdmfZu4Xe8ghgl
+# yro3/N4VEKTj8dcPPvOBGxFEx1QH6uHKTkWhloGPDScurcZnd8KUtTHl6zmlQDHM
+# 04MwGfsmQViKnYEAYE8RHl5XRE6GTq0ZMb59SIyJX6+CODVic/kW+dhbIS1Z5AP8
+# HaGne/PRG+12QzSneKDJp3Ot+k4GrmmlWT9iy6FNCQ/32K+d4cAZ+Ll7uWbEn6Z6
+# gE+tEu7MyZvzWvPNsRKMkcyyflFW1zpRyzutwypALXc9Qg7sFsYERNXa58KZXqU9
+# Onc/tck6+adQJFM9tW8xOnE//P5I4eDj84IGGKqzgUD37ihC+WST3DfY0YBKWL0Z
+# aubnAgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBQ6dKUMZ8ZCUML9tfzHuyk0gvR6
+# uTAdBgNVHQ4EFgQUYRDpehKvUcSF1PLPpHQPUM0gr/gwDgYDVR0PAQH/BAQDAgbA
+# MAwGA1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMw
+# QTAIBgZngQwBBAIwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBz
+# Oi8vc2VjdGlnby5jb20vQ1BTMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwu
+# c2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjQxLmNybDB6
+# BggrBgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5j
+# b20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjQxLmNydDAjBggrBgEFBQcw
+# AYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggIBAAPq
+# PY3RrM36GXqTpsoHn9TpW5I6z3dkFvc9zPL1W0Egq7j3jtnkbAvRoWeAjGX4ZK4s
+# WsmA+u4EJG8okQmybuS/4tDUI5UIQb21n4hG2vihxShrneWB0VoQ2VLQ3jCCRmRt
+# AQ+/7H7WVKNiH5Pgl4v2ZTOdPsStzpKnl1YuRrmww/+bcZmLqgk909ywIpZqAfub
+# YfbEMYjIckLk90f2mG+L8qaGSS2JJVM02pV5XltZ1fbOFETpRN/PQhwygIv33qUU
+# jJ1fE4ITgw0McMzRqziWdOJP8ocxxw7qXxz1OdRWCalyL1qvUgAFnZTVdSRiMYZK
+# f0wLcQcM/1Xf1W4FW9nff8ERX8RZJGt/TtPuMWmUpf6BCv9Q6o8YyUTtknvZRpSQ
+# 0nLttWXdtwsrN2mMgfMuR//gxVrVXvDzCoK/lbiA6dEZOW53lQwBFtEzwE/FH8Jd
+# hegyYg4PymZOTZrGBEvgsbxe25yEhJ0IdGa1pwCYsarldJhJVMdNcAOU7jyIMqHc
+# czav3wtIXp/SwbXZ3xX0mfsLfANSJ47G4qPgx1atb6GIlTaQXzu/p4fTQeAIUVzZ
+# XT4K984IyfuO7NLjWMtog1wGUpZD98pv+4Mt9Y5bvfPUjaUVjtePy1DVdi0rl5ES
+# NYi0zyOmXVxtA5zzxu1H7RdLZOZugT/XjX69rY9bMIIGpzCCBI+gAwIBAgIRAJCs
+# CHIg/cWnxGtcxw33PQYwDQYJKoZIhvcNAQEMBQAwVzELMAkGA1UEBhMCR0IxGDAW
+# BgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMg
+# VGltZSBTdGFtcGluZyBSb290IFI0NjAeFw0yNjAzMjUwMDAwMDBaFw00MTAzMjQy
+# MzU5NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQx
+# LDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQxMIIC
+# IjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAruRKogGtghxi+WYtW5oDzPDV
+# F8GGSfgbUKh6bONxi0wvrI1S8qbAYfvLr/ky5ILVRg//70pgNKq8xC3/WEQodjEw
+# AP2hmkGShoNAUQps4kd6Wwp74Fo7RlwQ1Mp949ytpWQDvCsYBbZccDmBAJC/ggqi
+# uL/c805fGcMw6TzIgyBWuUx5PGp9YnheSNPXFzaz0MPtREdZYk4WhtM+hazqasMW
+# Vpj0WUAcNhN9vO/FAdWy9Gafdb7lmYLDKTTYjwqAY9P9RfixPPjUaJH6mnBSNBdr
+# X7a0Qdlux0ApS0fc48RW1m+W3tq3HiHzch1FHyhiLzCNjc6MUpcV5xalBvPOw/Ft
+# Qo/AxaJOvPCSsVrx0f/WkMpEm3fvVbrY9+oo9rIKv9ducE6VGfwIAtKYedG0bO4B
+# a1MmlxPcErDqjLwggvrBJu73fwXpkhtE0hzV0psgm2vhQs3pHll9N00SHBdy2qnd
+# EcNuDh+46XouM2hoXCO533YQQOHPEUnMTWOo3hyxx5kjDE5PVqp+x+HS4VAT+WBM
+# G4GzeLr9YvZbU5x5YvLdcR1dErV/QRYK55rp019fZFF2NR+TkSW0WcmQ3b5taGcr
+# Xg49EpzKM6/mEpnSJXg1E13X6GO29rWs/LNvkGzsS8XGoRCGBls6ruofeebSsHAD
+# R3GeIE5gIU927bjokLECAwEAAaOCAW4wggFqMB8GA1UdIwQYMBaAFPZ3at0//QET
+# /xahbIICL9AKPRQlMB0GA1UdDgQWBBQ6dKUMZ8ZCUML9tfzHuyk0gvR6uTAOBgNV
+# HQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUEDDAKBggrBgEF
+# BQcDCDAjBgNVHSAEHDAaMAgGBmeBDAEEAjAOBgwrBgEEAbIxAQIBAwgwTAYDVR0f
+# BEUwQzBBoD+gPYY7aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGlj
+# VGltZVN0YW1waW5nUm9vdFI0Ni5jcmwwfAYIKwYBBQUHAQEEcDBuMEcGCCsGAQUF
+# BzAChjtodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3Rh
+# bXBpbmdSb290UjQ2LnA3YzAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGln
+# by5jb20wDQYJKoZIhvcNAQEMBQADggIBADLeUkdm8Z4DZvjfKHOhqu+hsdXNt+X5
+# F+48PB6PTAJCRgA3qxxO3YbAV7baps4K/+2WWoWUspBkT4T2NXK49NvJAfCsztHS
+# gtqkAQMLX4KjCypJF/+m2Ktrk993g+gcgKdv1yg9C3JmYdJCnnL0ga+pZ/Wo1+rt
+# XZ8dnwO8RCstTN6gYX0ElFi7Y7NpxbdBC1S6bc05V/SA9HC/ojj33W6GdwnpU/iV
+# ylSkdkoHtHeGIhQLT2ZH0qPM9Wdce8v2fZsDCJQQJ8rll7OGLDbsXa2CLf0MRN9T
+# wzifQ3rEuAXOx/TkzkZRFfwL34hf1XqSmaYq2tTMy2LgsPrqC2Z/6ZKb3fgrzU0v
+# phB4wSTWulitY/KlxbvoyKvrBvUCCx4sgeqf8aR65CbvM5MN/d/lahfXipU2NlY0
+# cXcnGS61XpmeGKd8It92/lufApZR9x6o5qMJWe0jq4JsfGMGDpIKx7FzkB8gaeju
+# BUW/CJ9Phc40+xJRonvVewn4S9yJVRWeM47irGbR9YlN3xruM/yZzhk+rAm9AW06
+# nv7ob6RQkAXR+cTxiAPy620FF41NrViYB4UyKpzfx7x8jh4ubTOMz954YIdqyeiq
+# qtsbBwXjWLP0dfMUPA3iIPnPdBKGnodGJTdSlPAMmKJdyvTPqmOXs/LMnf+2Za0Z
+# 6FXsIB9z9aXLMIIGgjCCBGqgAwIBAgIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG
+# 9w0BAQwFADCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDAS
+# BgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdv
+# cmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3Jp
+# dHkwHhcNMjEwMzIyMDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBXMQswCQYDVQQGEwJH
+# QjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1
+# YmxpYyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2MIICIjANBgkqhkiG9w0BAQEFAAOC
+# Ag8AMIICCgKCAgEAiJ3YuUVnnR3d6LkmgZpUVMB8SQWbzFoVD9mUEES0QUCBdxSZ
+# qdTkdizICFNeINCSJS+lV1ipnW5ihkQyC0cRLWXUJzodqpnMRs46npiJPHrfLBOi
+# fjfhpdXJ2aHHsPHggGsCi7uE0awqKggE/LkYw3sqaBia67h/3awoqNvGqiFRJ+OT
+# WYmUCO2GAXsePHi+/JUNAax3kpqstbl3vcTdOGhtKShvZIvjwulRH87rbukNyHGW
+# X5tNK/WABKf+Gnoi4cmisS7oSimgHUI0Wn/4elNd40BFdSZ1EwpuddZ+Wr7+Dfo0
+# lcHflm/FDDrOJ3rWqauUP8hsokDoI7D/yUVI9DAE/WK3Jl3C4LKwIpn1mNzMyptR
+# wsXKrop06m7NUNHdlTDEMovXAIDGAvYynPt5lutv8lZeI5w3MOlCybAZDpK3Dy1M
+# Ko+6aEtE9vtiTMzz/o2dYfdP0KWZwZIXbYsTIlg1YIetCpi5s14qiXOpRsKqFKqa
+# v9R1R5vj3NgevsAsvxsAnI8Oa5s2oy25qhsoBIGo/zi6GpxFj+mOdh35Xn91y72J
+# 4RGOJEoqzEIbW3q0b2iPuWLA911cRxgY5SJYubvjay3nSMbBPPFsyl6mY4/WYucm
+# yS9lo3l7jk27MAe145GWxK4O3m3gEFEIkv7kRmefDR7Oe2T1HxAnICQvr9sCAwEA
+# AaOCARYwggESMB8GA1UdIwQYMBaAFFN5v1qqK0rPVIDh2JvAnfKyA2bLMB0GA1Ud
+# DgQWBBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0T
+# AQH/BAUwAwEB/zATBgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUd
+# IAAwUAYDVR0fBEkwRzBFoEOgQYY/aHR0cDovL2NybC51c2VydHJ1c3QuY29tL1VT
+# RVJUcnVzdFJTQUNlcnRpZmljYXRpb25BdXRob3JpdHkuY3JsMDUGCCsGAQUFBwEB
+# BCkwJzAlBggrBgEFBQcwAYYZaHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkq
+# hkiG9w0BAQwFAAOCAgEADr5lQe1oRLjlocXUEYfktzsljOt+2sgXke3Y8UPEooU5
+# y39rAARaAdAxUeiX1ktLJ3+lgxtoLQhn5cFb3GF2SSZRX8ptQ6IvuD3wz/LNHKpQ
+# 5nX8hjsDLRhsyeIiJsms9yAWnvdYOdEMq1W61KE9JlBkB20XBee6JaXx4UBErc+Y
+# uoSb1SxVf7nkNtUjPfcxuFtrQdRMRi/fInV/AobE8Gw/8yBMQKKaHt5eia8ybT8Y
+# /Ffa6HAJyz9gvEOcF1VWXG8OMeM7Vy7Bs6mSIkYeYtddU1ux1dQLbEGur18ut97w
+# gGwDiGinCwKPyFO7ApcmVJOtlw9FVJxw/mL1TbyBns4zOgkaXFnnfzg4qbSvnrwy
+# j1NiurMp4pmAWjR+Pb/SIduPnmFzbSN/G8reZCL4fvGlvPFk4Uab/JVCSmj59+/m
+# B2Gn6G/UYOy8k60mKcmaAZsEVkhOFuoj4we8CYyaR9vd9PGZKSinaZIkvVjbH/3n
+# lLb0a7SBIkiRzfPfS9T+JesylbHa1LtRV9U/7m0q7Ma2CQ/t392ioOssXW7oKLdO
+# mMBl14suVFBmbzrt5V5cQPnwtd3UOTpS9oCG+ZZheiIvPgkDmA8FzPsnfXW5qHEL
+# B43ET7HHFHeRPRYrMBKjkb8/IN7Po0d0hQoF4TeMM+zYAJzoKQnVKOLg8pZVPT8x
+# ggSTMIIEjwIBATBqMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExp
+# bWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0Eg
+# UjQxAhEA507yVbBQT/rbpt/3/IujFTANBglghkgBZQMEAgIFAKCCAfowGgYJKoZI
+# hvcNAQkDMQ0GCyqGSIb3DQEJEAEEMBwGCSqGSIb3DQEJBTEPFw0yNjA2MjYxMzQ2
+# NDRaMD8GCSqGSIb3DQEJBDEyBDB59sNg8cmEic1qgQNOWeZ1Vqecf7otECBxKKXk
+# RkkBLTezzAHx8c8PnTFzNuSDF3YwggF7BgsqhkiG9w0BCRACDDGCAWowggFmMIIB
+# YjAWBBTpeBipKNoVCp/hv5zMequ5oA7urDCBiAQUZcMoaW99TlAs/QPHwgaXGMr7
+# 908wcDBbpFkwVzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRl
+# ZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0
+# NgIRAJCsCHIg/cWnxGtcxw33PQYwgbwEFIU9Yy2TgoJhfNCQNcSR3pLBQtrHMIGj
+# MIGOpIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3IEplcnNleTEUMBIG
+# A1UEBxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VSVFJVU1QgTmV0d29y
+# azEuMCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0
+# eQIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASCAgCmGdtmc2SxHZPp
+# iEyNaalVXmgeNFgpyYGgpExf04+xkmn9nT24pP4a6RNKzxIDLDYMDZtuJ4tjxn5e
+# 040qUveXylcEGMWeDeDyv9mlTyqKPr9S18j0193rZT8oe1oASo6dNj/UDYJviFL+
+# aHYU90885B/obDVobDEDKVUqahPv4PJ9JEl7cKQ51Mn8CqJi7sI7+oK2AUU005aQ
+# Y82VS8zoxGWDY/J9XcHUrwwmZoq9novHfe816WEL+PdH/BcDzXVVaMkTsrN9qWek
+# 4l87n0FG9YZrj7e2uN5+VWW25pKnSa151yLzEsAwwlgan5hORoY3P+Dmq4qJF48E
+# ggEEKfRROdxuot9BvmuaW7tWoj+/E9T9UThZa5ymUequwdJECWCWK8+r4kbBzzfs
+# hEogmC1bSyyBDHZRi8tRJdLIG4Cbf+P484GkA4BNmcodeNlkvaPGGVwYICo0EE+2
+# 6PkgO3oEHMqZrTDLf+2+49J85MRiTKAtd+HyEsU6MJbsv68qgoBLhjLRB2g3FA3/
+# NAs7llUbpQuEnX1YqvtzJeQR0OjeqyieJSOF37CSS1SEYu8o0a4u2TvGYHoNLeVF
+# tLR8SIrnmYixay7FglgyVlo/KDwed8gCbVBAjxfrlvQea8TdwoXvnpgb0YMoOZbR
+# EBrdlBSYmnBxlqcDbd1ws+FieAQjcQ==
 # SIG # End signature block

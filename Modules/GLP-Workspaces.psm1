@@ -132,8 +132,29 @@ Function Get-HPEGLWorkspace {
                     
                     # Add account_type (MSP or STANDALONE) from $Global:HPEGLworkspaces
                     $_AccountType = $Global:HPEGLworkspaces | Where-Object platform_customer_id -eq $Global:HPEGreenLakeSession.workspaceId | ForEach-Object account_type
+
+                    # Fallback for the currently connected IAMv2 workspace:
+                    # The /authn/v1/session account list ($Global:HPEGLworkspaces) returns an empty
+                    # account_type for the active IAMv2 workspace, which would leave the WorkspaceType
+                    # column blank only for the current row (other rows come from list-accounts which
+                    # carries account_type). MSP workspaces are always explicitly flagged with
+                    # account_type 'MSP' in the session list, so an empty value here means the workspace
+                    # is a standard (STANDALONE) workspace. Note: being part of an organization does NOT
+                    # change the workspace type - org-member workspaces are still STANDALONE.
+                    if (-not $_AccountType) {
+                        $_AccountType = "STANDALONE"
+                        "[{0}] account_type empty for current workspace in session list; defaulting to STANDALONE" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+                    }
+
                     $CurrentWorkspaceDetails | Add-Member -Type NoteProperty -Name "account_type" -Value $_AccountType -Force
                     $CurrentWorkspaceDetails | Add-Member -Type NoteProperty -Name "current" -Value $True -Force
+
+                    # The Email column is bound to 'created_by', which the contact API does not return
+                    # for newly created / IAMv2 workspaces (it comes back empty). Fall back to the
+                    # workspace contact 'email' so the column is not blank for the current workspace.
+                    if (-not $CurrentWorkspaceDetails.created_by -and $CurrentWorkspaceDetails.email) {
+                        $CurrentWorkspaceDetails | Add-Member -Type NoteProperty -Name "created_by" -Value $CurrentWorkspaceDetails.email -Force
+                    }
                                    
                     "[{0}] Content of current workspace: `n {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($CurrentWorkspaceDetails | Out-String) | Write-Verbose
 
@@ -2921,9 +2942,9 @@ Function New-HPEGLSSOConnection {
             if ($RecoveryAccountSecurePassword -or $OIDC) {
                 $PayloadForLogging = $Payload
                 # Mask recovery password if present
-                $PayloadForLogging = $PayloadForLogging -replace '"password":\s*"[^"]*"', '"password": "********"'
+                $PayloadForLogging = $PayloadForLogging -replace '"password":\s*"[^"]*"', '"password": "[REDACTED]"'
                 # Mask OIDC client secret if present
-                $PayloadForLogging = $PayloadForLogging -replace '"clientSecret":\s*"[^"]*"', '"clientSecret": "********"'
+                $PayloadForLogging = $PayloadForLogging -replace '"clientSecret":\s*"[^"]*"', '"clientSecret": "[REDACTED]"'
                 "[{0}] SSO connection payload (sensitive data masked): {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PayloadForLogging | Write-Verbose
             }
             else {
@@ -2940,9 +2961,9 @@ Function New-HPEGLSSOConnection {
                     $PayloadForWhatIf = $Payload
                     if ($RecoveryAccountSecurePassword -or $OIDC) {
                         # Mask recovery password if present
-                        $PayloadForWhatIf = $PayloadForWhatIf -replace '"password":\s*"[^"]*"', '"password": "********"'
+                        $PayloadForWhatIf = $PayloadForWhatIf -replace '"password":\s*"[^"]*"', '"password": "[REDACTED]"'
                         # Mask OIDC client secret if present
-                        $PayloadForWhatIf = $PayloadForWhatIf -replace '"clientSecret":\s*"[^"]*"', '"clientSecret": "********"'
+                        $PayloadForWhatIf = $PayloadForWhatIf -replace '"clientSecret":\s*"[^"]*"', '"clientSecret": "[REDACTED]"'
                     }
                     $Response = Invoke-HPEGLWebRequest -Method 'POST' -Body $PayloadForWhatIf -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
                 }
@@ -3599,7 +3620,7 @@ Function Set-HPEGLSSOConnection {
         if ($Protocol -eq "OIDC") {
             $PayloadForLogging = $Payload
             # Mask OIDC client secret if present
-            $PayloadForLogging = $PayloadForLogging -replace '"clientSecret":\s*"[^"]*"', '"clientSecret": "********"'
+            $PayloadForLogging = $PayloadForLogging -replace '"clientSecret":\s*"[^"]*"', '"clientSecret": "[REDACTED]"'
             "[{0}] SSO connection update payload (sensitive data masked): {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PayloadForLogging | Write-Verbose
         }
         else {
@@ -3619,7 +3640,7 @@ Function Set-HPEGLSSOConnection {
                 $PayloadForWhatIf = $Payload
                 if ($Protocol -eq "OIDC") {
                     # Mask OIDC client secret if present
-                    $PayloadForWhatIf = $PayloadForWhatIf -replace '"clientSecret":\s*"[^"]*"', '"clientSecret": "********"'
+                    $PayloadForWhatIf = $PayloadForWhatIf -replace '"clientSecret":\s*"[^"]*"', '"clientSecret": "[REDACTED]"'
                 }
                 $Response = Invoke-HPEGLWebRequest -Method 'PUT' -Body $PayloadForWhatIf -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
             }
@@ -4237,7 +4258,7 @@ Function New-HPEGLSSOAuthenticationPolicy {
                 "[{0}] About to run a POST {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Uri | Write-Verbose
 
                 # Create masked payload for logging (mask password)
-                $PayloadForLogging = $Payload -replace '"password":\s*"[^"]*"', '"password": "********"'
+                $PayloadForLogging = $Payload -replace '"password":\s*"[^"]*"', '"password": "[REDACTED]"'
                 "[{0}] Recovery account payload (password masked): `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PayloadForLogging | Write-Verbose
     
                 try {
@@ -6490,8 +6511,8 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # SIG # Begin signature block
 # MIItTQYJKoZIhvcNAQcCoIItPjCCLToCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBlwQRatwX+btzc
-# qh2jfPgPfObXy4u/IFiI6oDI90ChsqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDdtOS0bZ6u3EI5
+# 3JmXAoJhg2qzT2aNWRxEnigP364XXKCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
 # jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
 # DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
 # EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
@@ -6592,23 +6613,23 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
 # BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
 # NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgE8l0kjt4IfkZt9QYiin7+GgSnSVBRyGCLvUkaI+FK2swDQYJKoZIhvcNAQEB
-# BQAEggIAZl34TlfxFgoKH84H7ZJdtJRxQcJUnhahS5i9HyLb0T9Kfkgb4omKqeOc
-# Pl64guV4TonpJjnMVqPrGdXPOEZG4w9W39cp9z7coIBhtRMepQlP6LANjFMWZao0
-# rOUDCDVrCYZ6oFu5DdQDlKdjVceJwcBMrKoUChiZX40Uio6T+xVuOTRNAUnN1Ta6
-# IUc6+kT8bzIm6CKJ3HLYtEiR5Z/wFsPD01wZxAuH8f+po/bxs3GrJ/9hUnvn44ll
-# gLal+eU479AC9a6/bhzQfcqXllWHmCyrqyMUjlaupYzCoI0E2xXntEBEFMLHBtwJ
-# srmqt6YQEoRRk6Q88EldM1i04PsCOji2uHNDGbC0HFAyLrmKo5DlsqUlhDvqcq+R
-# ut9m+LAXcx0sG9qjCcXjfGUk2UnHydSkX6A6zsSxJzUmcv1brEPNfdd9XWgGrbYV
-# Pxk0zWb7KpGeMK5EtOG70l9IEzmQI5h+7TAkx2nv4DgRoYCpbaNY3xv4Mv4ql52A
-# tfk2N6YlghoH577kGukLBG+lTuAQBP1EMkXiWtVETgHpb4TgAoNcL8Q88yKjN7q/
-# BrTaU7e0uuwthBKqClLkx+HIEKJYybBDNMG45SxzwJWt9yxbUtkyfRfGg/Ww3ifE
-# 09F0KVRLOrOafh9XWtLLYvMCj6FcHi154Wk6+91Oz/kcwUW6T8GhgheXMIIXkwYK
+# IgQg5g9gGYh0gGd23g1Si2GbSj//ap5zOxLP2Dcl760G8VIwDQYJKoZIhvcNAQEB
+# BQAEggIAg9VVoosOxhMzbrCcZG8/xS6FXADLhn2fuFb1zlgR5Oc56fHZPUa5ksED
+# Hbr7gdLi19Q2rHtU5XS1LhbsB7dpVV/eLdOHaxgzQN9LCDS7lyOUS16V4j9L7NRS
+# lQvKg5mCznvGwLWF5+3J9hHangPDpJUOy9hbvbbeS/r9CnKeF/219ua89TYNK3Iz
+# PTnYk5j9hi82wkGNov1mUGyXeMQXLKF23pOI34kWZ4Ms3w00rxLJ9ep1n3qPfxo+
+# cT4O3qCsBRY6IIyEMA9MnpRbesj5gEeECoOXHHgnDcAgTzihh/V/yci3F9MSzUxk
+# S0RPlmK96g+95M3+wO7s8EvOgKtuYcyEb0fGrZeiY5mwqFNWX5BEC8tnGwE7y7X8
+# /LuEVZxsaND/WiLq+22iCCh4xPYzFtyZhHdcQ7XrDoXxIh43Y+pXnOML8ejCZuhD
+# r1HirmJ2UJGwPvD0Yd/tazmQjVPrquWAT9IKUNzYrlE1WliVggQCDJhj18LBB13U
+# sNQM6J10TOZP2E9m8f7DUavdLG2QA/zObFhE883FugtZhu89hE8qXLsa0sD0GIGg
+# D8OcQRvRC6aOeLWhr50AQUexPU/g7ErF2ZBsk87SIr9sxKhDwLZaz/Vr2uZ2IiHH
+# NX5kxqUZH3yo7BsbF+SeEv01FkEP9tuR7GFtiu6J6xkANz//YtehgheXMIIXkwYK
 # KwYBBAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCG
 # SAFlAwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMBXfj4CqyWtzZf8jQL2ln6Q3cEJHxFkQcpq9lsip9syk
-# D879H3AI1DbzM1/V1ZK1IgIQIXUUuCpoELbOMtXy7NiEQRgPMjAyNjA1MTMwOTI2
-# MjNaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
+# DQYJYIZIAWUDBAICBQAEMFX5Djzxz6ZA8HEU35TbDZ7PHb6prKvSV02ZToTpBqXc
+# XRmkNgJ13sWs1Br+qS70EQIQRSC7UWaYOMsLEwtdKNakghgPMjAyNjA2MjYxMzQ5
+# MDBaoIITOjCCBu0wggTVoAMCAQICEAwgQ0n50PdZ+5gt5AgbiHswDQYJKoZIhvcN
 # AQEMBQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEw
 # PwYDVQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2
 # IFNIQTI1NiAyMDI1IENBMTAeFw0yNTA2MDQwMDAwMDBaFw0zNjA5MDMyMzU5NTla
@@ -6714,20 +6735,20 @@ Export-ModuleMember -Function 'Get-HPEGLWorkspace', 'New-HPEGLWorkspace', 'Set-H
 # MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMT
 # OERpZ2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2
 # IDIwMjUgQ0ExAhAMIENJ+dD3WfuYLeQIG4h7MA0GCWCGSAFlAwQCAgUAoIHhMBoG
-# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwNTEz
-# MDkyNjIzWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
+# CSqGSIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwNjI2
+# MTM0OTAwWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBRyvP2gEH9JNLAHHGEP5teW
 # UACYdzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCAy8+OxvaLXsm1PHRuM3b2Pi4R2
-# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQw9xSXJ00PMszIHUUDdpBR/fBd
-# tAqrhPPfE/MHiSDmH94XV79tbiSOeG3NMMxbZ0esMA0GCSqGSIb3DQEBAQUABIIC
-# AHcFVdDzXoJBROfQltYkJdS+cxDoS/cGQVIAjpcDtvXhTtPaKkXR5LZM26R+vk4r
-# x4dfHVVa2Zl6mUwA+29cAw47+axy1sc7FcGax5pMw7F05PLiJyDNwN+FXjr7FCmo
-# S5OE38tGjzaN1wopryvdYyKti+G0aHaHizosvlCh0+7rhojU+Vr6pVLfMgqecdU7
-# 21+yuZdfuySMnVIblT+ZJ6osC+tAX4v9nW6JVZ8wuYAt1uIu5xO5sJIWYMcG67HS
-# CmtvIRL+8SR/MPBGzGX9AnFGqv7pbaHosB8gjg2hkWBlRJhj6dWAUU2rGaxJbh11
-# 163Gw7GI2F1N0mJTc2alEEvrYwvRckQbE7FOHwfHVd2tYZuUx2M2Bq0WpA3l0VEL
-# zPGkmi5xuYckEuRxRdIYchVySNNcqmDChUcS+HjvDzE/1sVYZ5ln7s4sGVNdd4py
-# gwqrmpoX+BiSayHD0XyE70dh5FKJ9nm3C5HbLl62Mos+aEse7jOww2qJzH4iYWZA
-# /IluJKh1EINLr3X60o0NwflDNu6Ukju/gdf/ZDA0BBpsBejauQsPt/LR3usrUVfP
-# jZt6iDsvNhiysMrKv+/xT+1Db3WoIRpnA2b+h3f0T1cm1O3Ib8iA1UnG9wUZ/1Ud
-# OI8L4PFS/K3Pb2G9CttvOHk3EzGK5tTIfg9jJsFtHqkU
+# oXie1hLNPKp6nv81wjA/BgkqhkiG9w0BCQQxMgQw7yKwe37gZRGuTnkenNUyKhbs
+# yQprnAwmllm5hNFDLwKjyyjL01La4xKp8eOE7XvEMA0GCSqGSIb3DQEBAQUABIIC
+# AIu0URBt8yjcgTqAJWUY9dsVqu2WfjDvgQaeSd02AqFG21X4rG+rvQytoiY1l+Nd
+# XGrfMRsPfzaYZmgMr3SeYQ5cTecPg1n49A9Y+EDEwD3DV7kG7zOkaUdNDvvNXgaF
+# O0E23GWwbFSrE/px9gqWVt0i8VCCzrTi92AXmcz4TYY6T58ltc40tS98jyVmK0dv
+# 59WQ6EMA5oqtCQOUzF3PJd2hwh+SVFPhINVb9HcJ8gThFaYGcSi9AoG64J0RvU7y
+# JCNc7qoQLgJBqO9aCcw4AKCc755rdag4Q7QKJDh6W6ZXHqoaimD8COrXnKF9PU7h
+# dKtPSna7zXhWgJYezENM24UAsdu9snScQ12CjtFf42lot1Uf96KVP1C5S4PPgT5r
+# /t+cLZbcUJ8vgwkMO8utNdPFBSwaL08mlW0Vp1ZchWfpJ7uTK949CdOCGqXfoL5u
+# 6NfJAPW1c3Gsu7pLJHKQ+k1JpCeHBD5GjafFnIluj/pnj3asA1LwEnJlvltKfs6K
+# eMQ315pNarZiiOeRUqebWugGEim1/jjwmHfus/U4AxSqgaHLvPF3gHAaOOaVgYHk
+# imlvOqUKxToNCa4XhaQsQSMQ6ey3X3n1yd3qtql8vJFhlumamcT1szyEDixofMUX
+# ZJcFMPk/DutvUSRHlkGbMGfj9ImIUJKeE8Dva/0uX+fx
 # SIG # End signature block
