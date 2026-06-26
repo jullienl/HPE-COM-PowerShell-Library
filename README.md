@@ -136,7 +136,7 @@ Connect-HPEGL -PasswordlessSSOEmail "user@company.com" -Workspace "Production" -
 Get-Command -Module HPECOMCmdlets
 ```
 
-> 💡 **Need More Help?** Check out the [blog tutorials](https://jullienl.github.io/PowerShell-library-for-HPE-GreenLake) for detailed walkthroughs and real-world examples!
+> 💡 **Need More Help?** Check out the [Hands-On Lab: HPE Compute Ops Management Zero-Touch Automation](https://hpelabs.github.io/PowerShell-COM-Zero-Touch/) for detailed walkthroughs and real-world examples!
 
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
@@ -801,7 +801,6 @@ This is a **community-supported library** maintained by Lionel Jullien (HPE empl
 
 - **🐛 Bug Reports & Feature Requests**: Open a [new issue](https://github.com/jullienl/HPE-COM-PowerShell-Library/issues) on the GitHub issue tracker
 - **💬 Questions & Discussions**: Join our [GitHub Discussions](https://github.com/jullienl/HPE-COM-PowerShell-Library/discussions) for general questions, tips, and community support
-- **📘 Tutorials & Guides**: Visit my blog for detailed walkthroughs: [PowerShell Library for HPE Compute Ops Management](https://jullienl.github.io/PowerShell-library-for-HPE-GreenLake)
 - **📖 Documentation**: Use `Get-Help <cmdlet-name> -Full` for comprehensive cmdlet documentation
 
 **Response Time:**
@@ -824,6 +823,8 @@ For questions about:
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 ## Common Issues and Solutions
+
+> **Note on `-PasswordlessSSOEmail`**: As of v1.0.26 the `-SSOEmail` parameter was renamed to `-PasswordlessSSOEmail` to distinguish the fully passwordless flow (push/TOTP) from the new password-based SSO flow (`-Credential`). The original `-SSOEmail` name is retained as a backward-compatible alias, so existing scripts continue to work unchanged.
 
 ### "Maximum of 7 personal API clients exceeded"
 
@@ -886,113 +887,12 @@ For questions about:
 **Note**: This error occurs before reaching your Identity Provider, indicating a configuration issue at the HPE GreenLake level, not with Okta/Entra ID/PingIdentity.
 
 
-### "Timeout! MFA push notification was not approved"
+### MFA and Identity Provider sign-in errors
 
-**Error Messages**:
-- `Timeout! Microsoft Authenticator push notification was not approved within 2 minutes`
-- `Timeout! Okta Verify push notification was not approved within 2 minutes`
-- `Timeout! PingID push notification was not approved within 2 minutes`
+For multi-factor authentication and Identity Provider (Okta, Microsoft Entra ID, PingIdentity) sign-in problems - push notifications denied or timed out, authenticator not enrolled, passwordless sign-in not configured, unsupported MFA policies, and similar issues - the library now returns a **detailed, self-explanatory error message** that identifies the exact cause and the step-by-step remediation (including the relevant IdP portal links). Follow the guidance in the returned message.
 
-**Cause**: Authentication timeout while waiting for user to approve the push notification.
-
-**Solutions**:
-- Approve the push notification within the 2-minute timeout period
-- Ensure your mobile device has an active internet connection
-- Verify your authenticator app is open and signed in
-- Use a TOTP code as an alternative (available for Okta and PingIdentity)
-
-### "Microsoft Authenticator push notification was denied"
-
-**Error Message**: Microsoft Authenticator push notification was denied. The user either clicked 'It's not me' or entered an invalid number.
-
-**Cause**: User rejected the authentication request or entered an incorrect verification number.
-
-**Solutions**:
-- Re-run the authentication command and approve the request
-- For Microsoft Entra ID: Carefully enter the exact number displayed in PowerShell
-- Confirm the authentication request is legitimate before approving
-
-### "Authenticator not enrolled" (General Guidance)
-
-**Typical Scenarios**:
-- Okta: "Okta Verify authenticator not found"
-- PingIdentity: PingID not properly enrolled
-- Microsoft Entra ID: Passwordless phone sign-in not configured
-
-**Cause**: Required MFA method is not enrolled for the user account.
-
-**Solutions**:
-- Enroll in your organization's supported authenticator: Okta Verify, Microsoft Authenticator, or PingID
-- For Microsoft Entra ID: Enable passwordless phone sign-in (standard MFA enrollment is insufficient)
-- Configure enrollment through your Identity Provider's self-service portal
-- Refer to the **[Configuring SAML SSO with HPE GreenLake and Passwordless Authentication](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)** guide
-
-### "Configuration changes not propagating" (General Guidance)
-
-**Cause**: Identity Provider configuration changes require time to propagate across systems.
-
-**Solutions**:
-- Allow 15-30 minutes for configuration changes to propagate across all systems
-- Clear cached authentication sessions in your browser and authenticator apps
-- Retry authentication after the propagation period
-
-[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
-
-
-### Identity Provider-Specific Issues
-
-#### Okta Issues
-
-**"Okta Verify authenticator not found"**
-- **Error Message**: `Okta Verify authenticator not found. For Okta setup prerequisites, see: [setup guide]`
-- **Cause**: Okta Verify not enrolled or not configured in your Okta tenant
-- **Solution**: 
-  - Install Okta Verify from your app store
-  - Enroll through your Okta self-service portal
-  - Contact your IT administrator if the app isn't available
-
-**"Multi-factor authentication (TOTP + additional factor) is not supported"**
-- **Error Message**: `Multi-factor authentication (TOTP + additional factor) is not supported. Please configure Okta to use TOTP alone.`
-- **Cause**: Your Okta policy requires TOTP + password (multi-factor)
-- **Solution**: Configure Okta policy to use TOTP alone without additional factors
-
-**"Multi-factor authentication (Push + additional factor) is not supported"**
-- **Error Message**: `Multi-factor authentication (Push + additional factor) is not supported.`
-- **Cause**: Your Okta policy requires push + password (multi-factor)
-- **Solution**: Configure Okta policy to use push alone without additional factors
-
-#### Microsoft Entra ID Issues
-
-**"Microsoft Authenticator passwordless sign-in is not fully configured"**
-- **Error Message**: `Microsoft Authenticator passwordless sign-in is not fully configured. Please wait a few minutes for configuration changes to propagate.`
-- **Cause**: Passwordless phone sign-in not fully configured or changes still propagating
-- **Solution**: 
-  - Wait 15-30 minutes after enrolling passwordless sign-in
-  - Verify enrollment at https://mysignins.microsoft.com
-  - Ensure "Passwordless sign-in" is enabled (not just standard MFA)
-  - Set Microsoft Authenticator as default sign-in method at https://aka.ms/mysecurityinfo
-
-**"AADSTS50012: Invalid client secret is provided"**
-- **Note**: This is a Microsoft Entra ID service error, not generated by the library
-- **Cause**: Invalid credentials or client secret mismatch. In a passwordless flow this error should not occur. In a password-based flow (`-Credential`) it indicates an incorrect password or an Entra ID application configuration issue.
-- **Solution**: Verify the password is correct. If using `-PasswordlessSSOEmail` (passwordless flow), report this as a bug.
-
-#### PingIdentity Issues
-
-**"PingID not configured or enrolled"**
-- **Typical Scenarios**: 
-  - PingID app not installed or not enrolled
-  - User not assigned to PingID in PingOne
-  - PingID authentication policy not configured
-- **Cause**: PingID not properly set up for the user account
-- **Solution**:
-  - Install PingID mobile app from your app store
-  - Complete PingID enrollment through your organization's portal
-  - Verify PingID enrollment through PingOne portal
-  - Confirm your organization's PingOne region (NA/EU/APAC/CA)
-  - Ensure PingID app is up to date
-  - Contact your IT administrator if enrollment is not available
-
+- Run `Connect-HPEGL ... -Verbose` to see the full authentication flow and the detected Identity Provider/MFA method.
+- For a complete walkthrough of enrolling and configuring passwordless (push/TOTP) authentication for each IdP, see the **[Configuring SAML SSO with HPE GreenLake and Passwordless Authentication](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)** guide.
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
