@@ -584,7 +584,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - Approve the push notification sent to Okta Verify by tapping the matching number on your mobile device.
 
-  <img src="Images/SAML_SSO_3.png" alt="Screenshot" width="12%">
+  <img src="Images/SAML_SSO_3.png" alt="Screenshot" width="20%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
@@ -605,7 +605,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - Approve the push notification sent to Microsoft Authenticator by typing the matching number on your mobile device. 
 
-  <img src="Images/SAML_SSO_2.png" alt="Screenshot" width="12%">
+  <img src="Images/SAML_SSO_2.png" alt="Screenshot" width="20%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
@@ -626,7 +626,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - Approve the push notification on your mobile device to complete authentication
 
-  <img src="Images/SAML_SSO_6.png" alt="Screenshot" width="12%">
+  <img src="Images/SAML_SSO_6.png" alt="Screenshot" width="20%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
