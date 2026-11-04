@@ -655,18 +655,21 @@ Function New-HPEGLUser {
 
     .DESCRIPTION
     This cmdlet creates a new user account in the currently connected HPE GreenLake workspace.
-    Users must be created with at least one role assignment as required by HPE GreenLake platform.
-    Users can also be added to user groups for additional permission management.
+    A user can be created with direct role assignments, with membership in one or more user groups
+    (inheriting the roles assigned to those groups), or both. At least one role or one user group must be specified.
     
     When roles are specified, the user is created with those role assignments for the entire workspace or specific scope groups.
-    When both roles and groups are specified, two API calls are made to configure both aspects.
+    When user groups are specified, the user is added to each group after the user is created. If a group membership
+    cannot be completed, the result reports Failed and indicates that the user was created without that membership.
+    A user that already exists without access to the workspace (for example, created earlier without direct roles) is not
+    created again: when only user groups are specified, the cmdlet completes the missing group membership, so a failed run can be repeated.
 
     .PARAMETER Email
     Specifies the email address of the user to create. This will be the username for the new account.
 
     .PARAMETER RoleName
-    REQUIRED. Array of role names to assign to the user. Role names can be retrieved using Get-HPEGLRole.
-    At least one role must be specified.
+    Array of role names to assign directly to the user. Role names can be retrieved using Get-HPEGLRole.
+    Required unless -UserGroupName is specified.
 
     .PARAMETER ScopeName
     Optional array of scope names corresponding to each role. 
@@ -675,7 +678,8 @@ Function New-HPEGLUser {
     When specified, must have the same number of elements as RoleName array.
 
     .PARAMETER UserGroupName
-    Optional array of user group names to add the user to. Group names can be retrieved using Get-HPEGLUserGroup.
+    Array of user group names to add the user to. Group names can be retrieved using Get-HPEGLUserGroup.
+    Required unless -RoleName is specified. When used without -RoleName, the user's permissions come only from the groups.
 
     .PARAMETER SendWelcomeEmail
     Switch to send a welcome email invitation to the new user. By default, no welcome email is sent.
@@ -689,6 +693,16 @@ Function New-HPEGLUser {
 
     Creates a new user with the Workspace Observer role for the entire workspace (default scope).
     No welcome email is sent (default behavior).
+
+    .EXAMPLE
+    New-HPEGLUser -Email john.doe@company.com -UserGroupName 'Engineering Team'
+
+    Creates a new user whose permissions come only from the roles assigned to the Engineering Team group.
+
+    .EXAMPLE
+    'user1@company.com', 'user2@company.com' | New-HPEGLUser -UserGroupName 'Engineering Team'
+
+    Creates multiple users via pipeline and adds each one to the Engineering Team group without direct role assignments.
 
     .EXAMPLE
     New-HPEGLUser -Email john.doe@company.com -RoleName 'Workspace Observer' -ScopeName 'All resources'
@@ -804,14 +818,14 @@ Function New-HPEGLUser {
         * Exception - Error details if the operation failed
     #>
 
-    [CmdletBinding(DefaultParameterSetName = 'WithRoles')]
+    [CmdletBinding()]
     Param(
-        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName, ParameterSetName = 'WithRoles')]
+        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [ValidateNotNullOrEmpty()]
         [validatescript({ if ($_ -as [Net.Mail.MailAddress]) { $true } else { Throw "The Parameter value is not an email address. Please correct the value and try again." } })]
         [String]$Email,
 
-        [Parameter(Mandatory, ValueFromPipelineByPropertyName, ParameterSetName = 'WithRoles')]
+        [Parameter(ValueFromPipelineByPropertyName)]
         [Alias('role_display_name')]
         [ArgumentCompleter({
             param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
@@ -846,7 +860,7 @@ Function New-HPEGLUser {
         })]
         [String[]]$RoleName,
 
-        [Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'WithRoles')]
+        [Parameter(ValueFromPipelineByPropertyName)]
         [ArgumentCompleter({
             param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
             
@@ -874,10 +888,9 @@ Function New-HPEGLUser {
         })]
         [String[]]$ScopeName = @(),
 
-        [Parameter(ValueFromPipelineByPropertyName, ParameterSetName = 'WithRoles')]
+        [Parameter(ValueFromPipelineByPropertyName)]
         [String[]]$UserGroupName,
 
-        [Parameter(ParameterSetName = 'WithRoles')]
         [Switch]$SendWelcomeEmail,
 
         [Switch]$WhatIf
@@ -907,11 +920,29 @@ Function New-HPEGLUser {
             Exception = $Null
         }
 
+        # A user needs permissions from at least one source: direct roles or group membership
+        if (-not $RoleName -and -not $UserGroupName) {
+            $ErrorMessage = "At least one role (-RoleName) or one user group (-UserGroupName) must be specified for user '{0}'!" -f $Email
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            else {
+                $objStatus.Status = "Warning"
+                $objStatus.Details = $ErrorMessage
+                [void]$ObjectStatusList.Add($objStatus)
+                return
+            }
+        }
+
         # Check if user already exists
+        # A user created with group membership only has no workspace access until the group assignment exists,
+        # so group-based requests need the organization-wide lookup; role-based requests keep the workspace lookup.
         # Get-HPEGLUser returns null for non-existent users (doesn't throw)
         # Auth/session errors will propagate and terminate execution
         try {
-            $ExistingUser = Get-HPEGLUser -Email $Email
+            $ExistingUser = if ($UserGroupName) { Get-HPEGLUser -Email $Email -ShowAllUsers } else { Get-HPEGLUser -Email $Email }
         }
         catch {
             # Re-throw authentication/session errors to stop execution
@@ -919,31 +950,44 @@ Function New-HPEGLUser {
             $PSCmdlet.ThrowTerminatingError($_)
         }
         
+        $CompleteGroupMembershipOnly = $false
+
         if ($ExistingUser) {
-            # User already exists
-            if ($WhatIf) {
-                Write-Warning "User '$Email' already exists in the workspace. Cannot display API request."
-                return
+            $HasWorkspaceAccess = $null -ne $ExistingUser.workspace
+
+            if (-not $HasWorkspaceAccess -and $UserGroupName -and -not $RoleName) {
+                # A previous run created the user but did not complete the group membership: finish it instead of creating the user again
+                $CompleteGroupMembershipOnly = $true
+                "[{0}] The user already exists without workspace access; completing group membership only" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
             }
             else {
-                $objStatus.Status = "Warning"
-                $objStatus.Details = "User already exists in the workspace. No action needed."
-                [void]$ObjectStatusList.Add($objStatus)
-                return
+                $ExistsState = if ($HasWorkspaceAccess) { "already exists in the workspace." } else { "already exists in the organization but has no access to this workspace." }
+                if ($WhatIf) {
+                    Write-Warning "User '$Email' $ExistsState Cannot display API request."
+                    return
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = "User $ExistsState No action needed."
+                    [void]$ObjectStatusList.Add($objStatus)
+                    return
+                }
             }
         }
         
-        # User doesn't exist, proceed with creation
-        "[{0}] User lookup completed, proceeding with creation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        if (-not $CompleteGroupMembershipOnly) {
+            # User doesn't exist, proceed with creation
+            "[{0}] User lookup completed, proceeding with creation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+        }
 
         # Default ScopeName to 'All resources' if not provided
-        if ($ScopeName.Count -eq 0) {
+        if ($RoleName -and $ScopeName.Count -eq 0) {
             $ScopeName = @('All resources') * $RoleName.Count
             "[{0}] ScopeName not specified; defaulting all roles to 'All resources' (workspace-wide access)" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
         }
         
         # Validate RoleName and ScopeName arrays match
-        if ($RoleName.Count -ne $ScopeName.Count) {
+        if ($RoleName -and $RoleName.Count -ne $ScopeName.Count) {
             if ($WhatIf) {
                 Write-Warning "RoleName and ScopeName arrays must have the same number of elements. Cannot display API request."
                 return
@@ -1076,26 +1120,35 @@ Function New-HPEGLUser {
         try {
             $UserCreated = $false
             
-            # Create user with roles (roles are required)
-            $Uri = Get-CreateUserUri
-            
-            $Payload = @{
-                user_name        = $Email
-                assignments      = $RoleAssignments
-                sendWelcomeEmail = $SendWelcomeEmail.IsPresent
-                workspaceId      = $WorkspaceId
-            } | ConvertTo-Json -Depth 10
-            
-            "[{0}] Creating user with role assignments" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-            
-            $Response = Invoke-HPEGLWebRequest -Method Post -Uri $Uri -Body $Payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
-            
-            if (-not $WhatIf) {
-                $UserCreated = $true
-                $objStatus.Status = "Complete"
-                $objStatus.Details = "User created successfully with role assignments"
+            if ($CompleteGroupMembershipOnly) {
+                # The user already exists: only the group membership remains to be completed
+                if (-not $WhatIf) {
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "User already exists without workspace access"
+                }
             }
-            
+            else {
+                # Create user with direct roles, or with none when permissions come from groups
+                $Uri = Get-CreateUserUri
+
+                $Payload = @{
+                    user_name        = $Email
+                    assignments      = $RoleAssignments
+                    sendWelcomeEmail = $SendWelcomeEmail.IsPresent
+                    workspaceId      = $WorkspaceId
+                } | ConvertTo-Json -Depth 10
+
+                "[{0}] Creating user with {1} direct role assignment(s)" -f $MyInvocation.InvocationName.ToString().ToUpper(), @($RoleAssignments).Count | Write-Verbose
+
+                $Response = Invoke-HPEGLWebRequest -Method Post -Uri $Uri -Body $Payload -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                if (-not $WhatIf) {
+                    $UserCreated = $true
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = if ($RoleName) { "User created successfully with role assignments" } else { "User created successfully" }
+                }
+            }
+
             # If groups were specified, add user to groups (or show WhatIf for group additions)
             if ($UserGroupName -and $UserGroupName.Count -gt 0) {
                 "[{0}] Adding user to groups after user creation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
@@ -1111,7 +1164,7 @@ Function New-HPEGLUser {
                             Write-Host "`nThe cmdlet executed for this call will be:" -ForegroundColor Yellow
                             Write-Host "Invoke-HPEGLWebRequest" -ForegroundColor Yellow
                             Write-Host "The URI for this call will be:" -ForegroundColor Yellow
-                            Write-Host "$(Get-HPEGLAPIOrgbaseURL)/identity/v2alpha1/scim/v2/Groups/$($Group.id)" -ForegroundColor Yellow
+                            Write-Host "$(Get-HPEGLAPIOrgbaseURL)/identity/v2beta1/scim/v2/Groups/$($Group.id)" -ForegroundColor Yellow
                             Write-Host "The Method of this call will be:" -ForegroundColor Yellow
                             Write-Host "PATCH" -ForegroundColor Yellow
                             Write-Host "The Body would include:" -ForegroundColor Yellow
@@ -1123,21 +1176,27 @@ Function New-HPEGLUser {
                     $GroupFailures = @()
                     foreach ($GroupName in $UserGroupName) {
                         try {
-                            Add-HPEGLUserToUserGroup -GroupName $GroupName -UserEmail $Email -ErrorAction Stop | Out-Null
+                            # Add the user to the group
+                            $Membership = Add-HPEGLUserToUserGroup -GroupName $GroupName -UserEmail $Email -ErrorAction Stop -Verbose:$false
+                            # Already being a member is the desired end state (for example when a previous run was interrupted)
+                            $AlreadyMember = $Membership.Status -eq 'Warning' -and $Membership.Details -match 'already members'
+                            if ($Membership.Status -ne 'Complete' -and -not $AlreadyMember) {
+                                $MembershipDetails = if ($Membership.Details) { $Membership.Details } else { "No successful result was returned." }
+                                $GroupFailures += "$GroupName ($MembershipDetails)"
+                                $objStatus.Exception = $Membership
+                            }
                         }
                         catch {
-                            $GroupFailures += $GroupName
-                            "[{0}] Failed to add user to group '$GroupName': {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+                            $GroupFailures += "$GroupName ($($_.Exception.Message))"
+                            "[{0}] Failed to add user to group '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $GroupName, $_.Exception.Message | Write-Verbose
                         }
                     }
                     if ($GroupFailures.Count -eq 0) {
                         $objStatus.Details += " and added to user groups"
                     }
-                    elseif ($GroupFailures.Count -lt $UserGroupName.Count) {
-                        $objStatus.Details += " but failed to add to group(s): $($GroupFailures -join ', ')"
-                    }
                     else {
-                        $objStatus.Details += " but failed to add to any user groups"
+                        $objStatus.Status = "Failed"
+                        $objStatus.Details += " but could not be added to group(s): $($GroupFailures -join '; ')"
                     }
                 }
             }
@@ -1262,8 +1321,8 @@ Function Remove-HPEGLUser {
 
         "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
 
-        # Determine if workspace is part of an organization
-        $IsPartOfOrganization = $null -ne $HPEGreenLakeSession.organization_id
+        # Determine if workspace is part of an organization (the session stores it as organizationId)
+        $IsPartOfOrganization = [bool]$Global:HPEGreenLakeSession.organizationId
 
         # Determine the URI based on removal type and organization membership
         if ($FromWorkspaceOnly) {
@@ -1312,7 +1371,8 @@ Function Remove-HPEGLUser {
         
         try {
 
-            $Users = Get-HPEGLUser
+            # Organization-level deletion must also see users without access to this workspace (for example users created without direct roles)
+            $Users = if ($IsPartOfOrganization -and -not $FromWorkspaceOnly) { Get-HPEGLUser -ShowAllUsers } else { Get-HPEGLUser }
            
         }
         catch {
@@ -1320,7 +1380,7 @@ Function Remove-HPEGLUser {
             
         }
 
-        "[{0}] List of users to {1}: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $(if ($FromWorkspaceOnly) { "remove from workspace" } else { "delete from organization" }), ($ObjectStatusList.Email | out-string) | Write-Verbose
+        "[{0}] List of users to {1}: `n{2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $(if ($FromWorkspaceOnly -or -not $IsPartOfOrganization) { "remove from workspace" } else { "delete from organization" }), ($ObjectStatusList.Email | out-string) | Write-Verbose
         
 
         foreach ($Object in $ObjectStatusList) {
@@ -1369,11 +1429,12 @@ Function Remove-HPEGLUser {
             else {
                 
                 # Must return a message if account not found
+                $SearchedScope = if ($FromWorkspaceOnly -or -not $IsPartOfOrganization) { "workspace" } else { "organization" }
                 $Object.Status = "Warning"
-                $Object.Details = "User with email '$($Object.Email)' not found in the current workspace. No action needed. To list all users, use: Get-HPEGLUser"
+                $Object.Details = "User with email '$($Object.Email)' not found in the current $SearchedScope. No action needed. To list all users, use: Get-HPEGLUser"
 
                 if ($WhatIf) {
-                    $ErrorMessage = "User with email '{0}' cannot be found in the current workspace. No action needed! To list all users, use: Get-HPEGLUser." -f $Object.Email
+                    $ErrorMessage = "User with email '{0}' cannot be found in the current {1}. No action needed! To list all users, use: Get-HPEGLUser." -f $Object.Email, $SearchedScope
                     Write-Warning "$ErrorMessage Cannot display API request."
                 }       
             }
@@ -3941,7 +4002,7 @@ Function Get-HPEGLUserGroup {
                         "[{0}] Retrieving members for group '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Group.displayName | Write-Verbose
                         
                         # Use SCIM extensions API to get group members
-                        $MembersUri = "{0}/identity/v2alpha1/scim/v2/extensions/Groups/{1}/users?count=100&startIndex=1" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
+                        $MembersUri = "{0}/identity/v2beta1/scim/v2/extensions/Groups/{1}/users?count=100&startIndex=1" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
                         
                         try {
                             $MembersResponse = Invoke-HPEGLWebRequest -Method Get -Uri $MembersUri -WhatIfBoolean $false -Verbose:$VerbosePreference -ErrorAction Stop
@@ -3996,7 +4057,7 @@ Function Get-HPEGLUserGroup {
                         "[{0}] Retrieving member count for group '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Group.displayName | Write-Verbose
                         
                         # Use SCIM extensions API to get group members count
-                        $MembersUri = "{0}/identity/v2alpha1/scim/v2/extensions/Groups/{1}/users?count=100&startIndex=1" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
+                        $MembersUri = "{0}/identity/v2beta1/scim/v2/extensions/Groups/{1}/users?count=100&startIndex=1" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
                         
                         try {
                             $MembersResponse = Invoke-HPEGLWebRequest -Method Get -Uri $MembersUri -WhatIfBoolean $false -Verbose:$VerbosePreference -ErrorAction Stop
@@ -4241,6 +4302,13 @@ Function New-HPEGLUserGroup {
     Optional scope group name for the role assignment. Required when RoleName is specified.
     Use 'All resources' for full access, or specify a scope group name from Get-HPEGLScopeGroup.
 
+    .NOTES
+    The role and scope are validated before creating the group. Role assignment is a separate
+    operation after creation. If it fails, the result reports Failed and retains the created
+    group's Id so the assignment can be retried without recreating the group.
+    With WhatIf, the creation request is displayed and the subsequent role assignment is described;
+    no group or role assignment is created.
+
     .PARAMETER WhatIf 
     Shows the raw REST API call that would be made to GLP instead of sending the request. 
     This option is useful for understanding the inner workings of the native REST API calls used by GLP.
@@ -4349,6 +4417,10 @@ Function New-HPEGLUserGroup {
 
         # Validate that RoleName and ScopeName are used together
         if ($RoleName -and -not $ScopeName) {
+            if ($WhatIf) {
+                Write-Warning "ScopeName parameter is required when RoleName is specified. Cannot display API request."
+                return
+            }
             $objStatus.Status = "Warning"
             $objStatus.Details = "ScopeName parameter is required when RoleName is specified"
             $objStatus.Exception = "Missing required parameter"
@@ -4358,6 +4430,10 @@ Function New-HPEGLUserGroup {
         }
 
         if ($ScopeName -and -not $RoleName) {
+            if ($WhatIf) {
+                Write-Warning "RoleName parameter is required when ScopeName is specified. Cannot display API request."
+                return
+            }
             $objStatus.Status = "Warning"
             $objStatus.Details = "RoleName parameter is required when ScopeName is specified"
             $objStatus.Exception = "Missing required parameter"
@@ -4393,6 +4469,45 @@ Function New-HPEGLUserGroup {
 
         }
 
+        $RoleParameters = @{
+            GroupName = $Name
+            RoleName  = $RoleName
+        }
+        if ($RoleName) {
+            try {
+                $Role = Get-HPEGLRole -Verbose:$false | Where-Object role_display_name -eq $RoleName
+                $ScopeGroup = if ($ScopeName -ne 'All resources') {
+                    Get-HPEGLScopeGroup -Name $ScopeName -Verbose:$false
+                }
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            $ValidationMessage = if (-not $Role) {
+                "Role '$RoleName' not found."
+            }
+            elseif ($ScopeName -ne 'All resources' -and -not $ScopeGroup) {
+                "Scope group '$ScopeName' not found."
+            }
+
+            if ($ValidationMessage) {
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ValidationMessage | Write-Verbose
+                if ($WhatIf) {
+                    Write-Warning "$ValidationMessage Cannot display API request."
+                }
+                else {
+                    $objStatus.Status = "Warning"
+                    $objStatus.Details = $ValidationMessage
+                    [void]$CreateUserGroupStatus.Add($objStatus)
+                }
+                return
+            }
+            if ($ScopeName -ne 'All resources') {
+                $RoleParameters.ScopeGroupName = $ScopeName
+            }
+        }
+
         # Build the SCIM Group payload
         $payload = @{
             schemas     = @(
@@ -4417,6 +4532,10 @@ Function New-HPEGLUserGroup {
 
         try {
             $Response = Invoke-HPEGLWebRequest -Method POST -Uri $Uri -Body $Body -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+            if ($WhatIf -and $RoleName) {
+                Write-Host ("After creation, role '{0}' would be assigned to group '{1}' with scope '{2}' using Add-HPEGLRoleToUserGroup. The assignment request requires the new group's ID." -f $RoleName, $Name, $ScopeName)
+            }
 
             if (-not $WhatIf) {
 
@@ -4473,30 +4592,30 @@ Function New-HPEGLUserGroup {
                 if ($RoleName -and $ScopeName) {
                     "[{0}] Assigning role '{1}' with scope '{2}' to group '{3}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $RoleName, $ScopeName, $Name | Write-Verbose
                     
-                    try {
-                        # Use Add-HPEGLRoleToUserGroup or similar logic
-                        # Get the hpe_principal from the response
-                        $hpePrincipal = $Response.'urn:ietf:params:scim:schemas:extensions:hpe-greenlake:2.0:Group'.hpe_principal
-                        
-                        if ($hpePrincipal) {
-                            # Call helper to assign role
-                            # This would typically be done through Add-HPEGLRoleToUserGroup but since we're creating it now, we'll do it inline
-                            "[{0}] Role assignment for new groups will be available via Set-HPEGLUserGroup or Add-HPEGLRoleToUserGroup cmdlet" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                            $objStatus.Details += ". Note: Use Add-HPEGLRoleToUserGroup to assign roles to this group."
-                        }
+                    $Assignment = Add-HPEGLRoleToUserGroup @RoleParameters -ErrorAction Stop
+                    if ($Assignment -and $Assignment.Status -eq 'Complete') {
+                        $objStatus.Details += ". Role '$RoleName' successfully assigned."
                     }
-                    catch {
-                        "[{0}] Warning: Could not assign role to group: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
-                        $objStatus.Details += ". Warning: Role assignment failed - assign manually using Add-HPEGLRoleToUserGroup."
+                    else {
+                        $objStatus.Status = "Failed"
+                        $AssignmentDetails = if ($Assignment.Details) { $Assignment.Details } else { "Role assignment returned no successful result." }
+                        $objStatus.Details = "User group was created, but role assignment did not complete: $AssignmentDetails"
+                        $objStatus.Exception = $Assignment
                     }
                 }
             }
         }
         catch {
+            if ($WhatIf) {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
             if (-not $WhatIf) {
                 $objStatus.Status = "Failed"
                 
                 $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "User group cannot be created!" }
+                if ($objStatus.Id) {
+                    $objStatus.Details = "User group was created, but its configuration did not complete: $($objStatus.Details)"
+                }
                 
                 $objStatus.Exception = $Global:HPECOMInvokeReturnData
                 
@@ -5651,7 +5770,7 @@ Function Add-HPEGLUserToUserGroup {
 
     The cmdlet validates all inputs before making changes:
     - Verifies the user group exists
-    - Checks each user exists in the workspace
+    - Checks each user exists in the organization (users with no workspace access yet, such as users created without direct roles, are included)
     - Detects users who are already members to avoid duplicates
     - Provides detailed status including any warnings for not-found users or duplicate memberships
 
@@ -5661,7 +5780,7 @@ Function Add-HPEGLUserToUserGroup {
 
     .PARAMETER UserEmail
     One or more user email addresses to add to the group. Users must already exist in the 
-    HPE GreenLake workspace (can be verified using Get-HPEGLUser).
+    HPE GreenLake organization (can be verified using Get-HPEGLUser -ShowAllUsers).
     Multiple email addresses can be provided as an array for bulk addition.
 
     .PARAMETER WhatIf 
@@ -5831,7 +5950,7 @@ Function Add-HPEGLUserToUserGroup {
             $existingMembers = @()
             try {
                 "[{0}] Retrieving existing members for duplicate detection" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                $MembersUri = "{0}/identity/v2alpha1/scim/v2/extensions/Groups/{1}/users?count=100&startIndex=1" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
+                $MembersUri = "{0}/identity/v2beta1/scim/v2/extensions/Groups/{1}/users?count=100&startIndex=1" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
                 $MembersResponse = Invoke-HPEGLWebRequest -Method Get -Uri $MembersUri -WhatIfBoolean $false -Verbose:$VerbosePreference
                 
                 if ($MembersResponse -and $MembersResponse.Resources) {
@@ -5854,7 +5973,7 @@ Function Add-HPEGLUserToUserGroup {
 
             foreach ($email in $UserEmail) {
                 "[{0}] Looking up user '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $email | Write-Verbose
-                $User = Get-HPEGLUser -Email $email -Verbose:$false
+                $User = Get-HPEGLUser -Email $email -ShowAllUsers -Verbose:$false
 
                 if ($User) {
                     # Check if user is already a member
@@ -5863,10 +5982,11 @@ Function Add-HPEGLUserToUserGroup {
                         "[{0}] Warning: User '{1}' is already a member of group '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $email, $GroupName | Write-Verbose
                     }
                     else {
+                        # Same member entry as the HPE GreenLake UI: display name, user reference (user API host) and user ID
                         $userObjects += @{
                             display = $User.displayName
+                            '$ref'  = "{0}/identity/v2beta1/scim/v2/Users/{1}" -f (Get-HPEGLUIbaseURL), $User.id
                             value   = $User.id
-                            '$ref'  = "$(if ($Global:HPEGLOrgApiBaseURL) { $Global:HPEGLOrgApiBaseURL } else { 'https://aquila-org-api.common.cloud.hpe.com' })/identity/v2alpha1/scim/v2/Users/$($User.id)"
                         }
                         "[{0}] Found user '{1}' (ID: {2})" -f $MyInvocation.InvocationName.ToString().ToUpper(), $email, $User.id | Write-Verbose
                     }
@@ -5901,7 +6021,7 @@ Function Add-HPEGLUserToUserGroup {
                     if ($notFoundUsers.Count -gt 0 -and $alreadyMemberUsers.Count -eq 0) {
                         # Only not-found users = Failed
                         $objStatus.Status = "Warning"
-                        $objStatus.Details = "None of the specified users were found in the workspace"
+                        $objStatus.Details = "None of the specified users were found in the organization"
                     }
                     elseif ($alreadyMemberUsers.Count -gt 0 -and $notFoundUsers.Count -eq 0) {
                         # Only already-member users = Warning (not a failure)
@@ -5933,8 +6053,8 @@ Function Add-HPEGLUserToUserGroup {
             $Body = $patchPayload | ConvertTo-Json -Depth 10
             "[{0}] PATCH payload: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Body | Write-Verbose
 
-            # Build URI - using v2alpha1 as shown in the API example
-            $Uri = "{0}/identity/v2alpha1/scim/v2/Groups/{1}" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
+            # Build URI for the group
+            $Uri = "{0}/identity/v2beta1/scim/v2/Groups/{1}" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
 
             # Execute PATCH request
             $Response = Invoke-HPEGLWebRequest -Method PATCH -Uri $Uri -Body $Body -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
@@ -6190,7 +6310,7 @@ Function Remove-HPEGLUserFromUserGroup {
             $existingMembers = @()
             try {
                 "[{0}] Retrieving existing members for validation" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
-                $MembersUri = "{0}/identity/v2alpha1/scim/v2/extensions/Groups/{1}/users?count=100&startIndex=1" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
+                $MembersUri = "{0}/identity/v2beta1/scim/v2/extensions/Groups/{1}/users?count=100&startIndex=1" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
                 $MembersResponse = Invoke-HPEGLWebRequest -Method Get -Uri $MembersUri -WhatIfBoolean $false -Verbose:$VerbosePreference
                 
                 if ($MembersResponse -and $MembersResponse.Resources) {
@@ -6290,8 +6410,8 @@ Function Remove-HPEGLUserFromUserGroup {
             $Body = $patchPayload | ConvertTo-Json -Depth 10
             "[{0}] PATCH payload: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Body | Write-Verbose
 
-            # Build URI - using v2alpha1 as shown in the API example
-            $Uri = "{0}/identity/v2alpha1/scim/v2/Groups/{1}" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
+            # Build URI for the group
+            $Uri = "{0}/identity/v2beta1/scim/v2/Groups/{1}" -f (Get-HPEGLAPIOrgbaseURL), $Group.id
 
             # Execute PATCH request
             $Response = Invoke-HPEGLWebRequest -Method PATCH -Uri $Uri -Body $Body -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
@@ -6427,7 +6547,7 @@ Function Get-HPEGLUserGroupMembership {
         
         "[{0}] User ID for '{1}': {2}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Email, $UserId | Write-Verbose
         
-        # Use SCIM v2alpha1 groups API endpoint
+        # Use SCIM v2beta1 groups API endpoint
         $Uri = (Get-ScimUserGroupsUri) + "/$UserId/groups"
         
         "[{0}] Retrieving user group memberships from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Uri | Write-Verbose
@@ -9970,246 +10090,230 @@ Export-ModuleMember -Function 'Get-HPEGLUser', 'New-HPEGLUser', 'Send-HPEGLUserI
 
 
 # SIG # Begin signature block
-# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIqPwYJKoZIhvcNAQcCoIIqMDCCKiwCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCChCB0FHYPLD1Wa
-# WTqIn+jwMvyHDmVagcoeGJBr5VxaXaCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
-# jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
-# DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
-# EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
-# dmljZXMwHhcNMjEwNTI1MDAwMDAwWhcNMjgxMjMxMjM1OTU5WjBWMQswCQYDVQQG
-# EwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS0wKwYDVQQDEyRTZWN0aWdv
-# IFB1YmxpYyBDb2RlIFNpZ25pbmcgUm9vdCBSNDYwggIiMA0GCSqGSIb3DQEBAQUA
-# A4ICDwAwggIKAoICAQCN55QSIgQkdC7/FiMCkoq2rjaFrEfUI5ErPtx94jGgUW+s
-# hJHjUoq14pbe0IdjJImK/+8Skzt9u7aKvb0Ffyeba2XTpQxpsbxJOZrxbW6q5KCD
-# J9qaDStQ6Utbs7hkNqR+Sj2pcaths3OzPAsM79szV+W+NDfjlxtd/R8SPYIDdub7
-# P2bSlDFp+m2zNKzBenjcklDyZMeqLQSrw2rq4C+np9xu1+j/2iGrQL+57g2extme
-# me/G3h+pDHazJyCh1rr9gOcB0u/rgimVcI3/uxXP/tEPNqIuTzKQdEZrRzUTdwUz
-# T2MuuC3hv2WnBGsY2HH6zAjybYmZELGt2z4s5KoYsMYHAXVn3m3pY2MeNn9pib6q
-# RT5uWl+PoVvLnTCGMOgDs0DGDQ84zWeoU4j6uDBl+m/H5x2xg3RpPqzEaDux5mcz
-# mrYI4IAFSEDu9oJkRqj1c7AGlfJsZZ+/VVscnFcax3hGfHCqlBuCF6yH6bbJDoEc
-# QNYWFyn8XJwYK+pF9e+91WdPKF4F7pBMeufG9ND8+s0+MkYTIDaKBOq3qgdGnA2T
-# OglmmVhcKaO5DKYwODzQRjY1fJy67sPV+Qp2+n4FG0DKkjXp1XrRtX8ArqmQqsV/
-# AZwQsRb8zG4Y3G9i/qZQp7h7uJ0VP/4gDHXIIloTlRmQAOka1cKG8eOO7F/05QID
-# AQABo4IBEjCCAQ4wHwYDVR0jBBgwFoAUoBEKIz6W8Qfs4q8p74Klf9AwpLQwHQYD
-# VR0OBBYEFDLrkpr/NZZILyhAQnAgNpFcF4XmMA4GA1UdDwEB/wQEAwIBhjAPBgNV
-# HRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMDMBsGA1UdIAQUMBIwBgYE
-# VR0gADAIBgZngQwBBAEwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybC5jb21v
-# ZG9jYS5jb20vQUFBQ2VydGlmaWNhdGVTZXJ2aWNlcy5jcmwwNAYIKwYBBQUHAQEE
-# KDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5jb21vZG9jYS5jb20wDQYJKoZI
-# hvcNAQEMBQADggEBABK/oe+LdJqYRLhpRrWrJAoMpIpnuDqBv0WKfVIHqI0fTiGF
-# OaNrXi0ghr8QuK55O1PNtPvYRL4G2VxjZ9RAFodEhnIq1jIV9RKDwvnhXRFAZ/ZC
-# J3LFI+ICOBpMIOLbAffNRk8monxmwFE2tokCVMf8WPtsAO7+mKYulaEMUykfb9gZ
-# pk+e96wJ6l2CxouvgKe9gUhShDHaMuwV5KZMPWw5c9QLhTkg4IUaaOGnSDip0TYl
-# d8GNGRbFiExmfS9jzpjoad+sPKhdnckcW67Y8y90z7h+9teDnRGWYpquRRPaf9xH
-# +9/DUp/mBlXpnYzyOmJRvOwkDynUWICE5EV7WtgwggYaMIIEAqADAgECAhBiHW0M
-# UgGeO5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYD
-# VQQKEw9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENv
-# ZGUgU2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5
-# NTlaMFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzAp
-# BgNVBAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0G
-# CSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjI
-# ztNsfvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NV
-# DgFigOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/3
-# 6F09fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05Zw
-# mRmTnAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm
-# +qxp4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUe
-# dyz8rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz4
-# 4MPZ1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBM
-# dlyh2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQY
-# MBaAFDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritU
-# pimqF6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNV
-# HSUEDDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsG
-# A1UdHwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1
-# YmxpY0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsG
-# AQUFBzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2Rl
-# U2lnbmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0
-# aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURh
-# w1aVcdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0Zd
-# OaWTsyNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajj
-# cw5+w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNc
-# WbWDRF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalO
-# hOfCipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJs
-# zkyeiaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z7
-# 6mKnzAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5J
-# KdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHH
-# j95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2
-# Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/
-# L9Uo2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkq
-# hkiG9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1p
-# dGVkMSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2
-# MB4XDTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMx
-# DjAMBgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJw
-# cmlzZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
-# ZSBDb21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qw
-# cmuCQyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyu
-# cpC7tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ip
-# z4+uJGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4Edtvu
-# muGI4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28Flg
-# kSt9f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOy
-# ecaVpJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3p
-# eg1ku0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7
-# XOBa5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJd
-# isrV7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXR
-# dJNADjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtR
-# u0aQcdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQY
-# MBaAFA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vm
-# oYtOnZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAK
-# BggrBgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUF
-# BwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIw
-# QDA+oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29k
-# ZVNpZ25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjho
-# dHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NB
-# UjM2LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJ
-# KoZIhvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs86
-# 5wyoO3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU
-# 9e6+TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH
-# 6GOfU6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGa
-# ei8nSr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/u
-# CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
-# v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
-# VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
-# BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
-# Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
-# BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
-# NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgr9pgcual/v2kdkHw5rBCN0x6P31+EttSA7tZ030Is4IwDQYJKoZIhvcNAQEB
-# BQAEggIAAerk3AOhdusoSh5KcY+uvZ1lNHNakY7zdsK6PQ0v8YeKo644xfUa1r13
-# Y4Ic7PDHzfXhKApHoIGHulbU7azsMZKuiQeYpRrqdStEZUJB1RKrQHd64RQ1f9Ys
-# 57DXKjp4Gd6myJfgQmk+el0E7v9GfxCZkjWy74TuMcow8EHaQ/gWYzXfifsMlp/6
-# SiQneFX5z6uZVWXCvBy06duG1kLLTkEMg+UqrWua7GG0jAvzAUbhLnlmGhv4eGSy
-# UieY1KHbCRCqBjA5GTpkd6lj5pJCTr6NWO4TmI+NbgDb6BR+5VphrsxLnrJrOuGa
-# 1RPExF4i553Y2xFpgcmpxJtlSGWcdFbgQbZD5JFgDCrCPuJVvV/CIOQqZmNKX5k2
-# F864fnfQHh6pzHZ7+ybksOSpmUV3PXtR3VTyB7OXE3O5T4EV5pZ9LKySkzy2lMRQ
-# C0l5rSSM4srFlGZwf4q610UsOm05QLkgv3t0TavyZjjqPoFvqrz27cc8VqQ5/h7m
-# 0lHqLhFAqM7Q4GavASabIM12m5I/lXCigUiMTIW5Ggd3YIZXoP4P0HjRl7t45QEZ
-# JkmKoTuanE/xsKHchrBbNwdHhLzqGkHRCSPle6quA3BMl/m5X/0KXVE/UJsE0rAU
-# 6X4tPO2SiIdxi/Pc4dD5SO/oflOd9BsyB5fUYqHQIxaFgii/RKuhgheYMIIXlAYK
-# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMI1VMVADGOnJZXvZTreyMpISXhuEsFY1lpkvQrE+xQ8+
-# wX+aPvAuywl9hwfmzIknkAIRAOdL7rNDd60P5/AsZ592lfMYDzIwMjYwNjI2MTM0
-# ODE0WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
-# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
-# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
-# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
-# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
-# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
-# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
-# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
-# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
-# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
-# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
-# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
-# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
-# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
-# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
-# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
-# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
-# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
-# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
-# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
-# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
-# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
-# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
-# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
-# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
-# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
-# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
-# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
-# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
-# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
-# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
-# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
-# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
-# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
-# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
-# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
-# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
-# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
-# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
-# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
-# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
-# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
-# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
-# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
-# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
-# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
-# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
-# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
-# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
-# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
-# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
-# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
-# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
-# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
-# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
-# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
-# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
-# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
-# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
-# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
-# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
-# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
-# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
-# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
-# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
-# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
-# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
-# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
-# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
-# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
-# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
-# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
-# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
-# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
-# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
-# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
-# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
-# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
-# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
-# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
-# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
-# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
-# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
-# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
-# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
-# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
-# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
-# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
-# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
-# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
-# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
-# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
-# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
-# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
-# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
-# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
-# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
-# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
-# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
-# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
-# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDYy
-# NjEzNDgxNFowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
-# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMJiG2wPaDpI0zekSl4JdSNHD
-# 7hIWNhFhHotYd/EYjYCaggx0AWtnhFkbr/8nIEjEXzANBgkqhkiG9w0BAQEFAASC
-# AgDR5jhYFppVfuvl+dfv4d+gnFNqIYGeT4gAcYKEBmPE22TXlDCf6IyGt2pb8Rrf
-# RrMdBShKLwQUWt3pepchi7OQLfDhByjo7SR6GxkBYLms5rmjbg0bucMcHvLH3/CK
-# y/aICdUD8nifNk2QkQw/z/PiGRKmaAj2fdOA5Dg8L9T5sXMd5NFmVzO9Uz1pK1Qi
-# 9j2lZdtYOdfSojUD/uccTHNrAm2/zuRXrjX3ncH96j6ip8ReSoO02VIshc3NLbH7
-# jw/0A9A2A3ErOsvi5VIXuxuJXqZ4QyNLoe3yoKlu3013gEhZTXOCD3O9U2eKxEC/
-# +GX8wJYi8bZUlEh1MkSoaB6zVKnKba11xm3gFtBdISWFAcXfIuyzMIPIrIeldBDt
-# OTkse7Dv4LAzm3Q3MTqzZmY9NyO1/GE1EYMazu1Sa53d27m4B+Wh7pbUg6/GGRKs
-# PI3QSEChUXSyUduES66DF5kuAeG59I+flgnc3uRedsWUoIbs7z36V2035ttjb4Pz
-# mtvLiqxwD0V+6CFzJ1HHJRJOCXFR/X/IWq9r3kfGWyQ5PdMN069Qc6O4oZOzqVj9
-# KLaPAz/eicPfqD4dhQDoGH08g6+mLi4b6eyz0lVldUrEAH1ONxvAMI6+dfDKobPz
-# v32XFvZbXeY1/4cqOLe0mZZHPFNVbqO9kEB+8dWAvNQYHA==
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAmnovikp66ABXi
+# ew39cKroYi83oYTo9cW8jiDzeS4i3qCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
+# O5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYDVQQK
+# Ew9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENvZGUg
+# U2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTla
+# MFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNV
+# BAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0GCSqG
+# SIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjIztNs
+# fvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NVDgFi
+# gOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/36F09
+# fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05ZwmRmT
+# nAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm+qxp
+# 4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUedyz8
+# rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz44MPZ
+# 1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBMdlyh
+# 2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQYMBaA
+# FDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritUpimq
+# F6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUE
+# DDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsGA1Ud
+# HwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1Ymxp
+# Y0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsGAQUF
+# BzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2ln
+# bmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0aWdv
+# LmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURhw1aV
+# cdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0ZdOaWT
+# syNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajjcw5+
+# w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNcWbWD
+# RF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalOhOfC
+# ipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJszkye
+# iaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z76mKn
+# zAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGv
+# spbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHHj95E
+# jza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2Bev6
+# SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/L9Uo
+# 2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkqhkiG
+# 9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVk
+# MSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2MB4X
+# DTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMxDjAM
+# BgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
+# ZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlzZSBD
+# b21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qwcmuC
+# QyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyucpC7
+# tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ipz4+u
+# JGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4EdtvumuGI
+# 4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28FlgkSt9
+# f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOyecaV
+# pJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3peg1k
+# u0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7XOBa
+# 5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJdisrV
+# 7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXRdJNA
+# DjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtRu0aQ
+# cdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQYMBaA
+# FA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vmoYtO
+# nZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAKBggr
+# BgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUFBwIB
+# FhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIwQDA+
+# oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29kZVNp
+# Z25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjhodHRw
+# Oi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NBUjM2
+# LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZI
+# hvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs865wyo
+# O3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU9e6+
+# TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH6GOf
+# U6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGaei8n
+# Sr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/uCIaQ
+# v5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xEv65B
+# oUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAyaVpbA
+# Ytaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPjnZ+o
+# A+rbZZyGZkz3xbUYKTGCHRIwgh0OAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMgQ29k
+# ZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUDBAIB
+# BQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGCNwIB
+# BDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQg
+# Tobz/F2Wfq5mlK5T41OdOKUqOPGojGzzMRfU1D8SNEgwDQYJKoZIhvcNAQEBBQAE
+# ggIAOx2aXkqWWjntuONi+Gp2yF1qWwZrJhQusV30d0QB/JpspZMAuJ0NJVX3s3y5
+# XCreWyaXHenJt8wc+TgwNUsiqC4Qs8S5k+OiDAZB9fY6S5ShOvJsHvQPXW/Pz/Qg
+# LvGsNwFnFd/Y+p5OrkwERrmzw9mt1jNbtJWFSD14Tewf3CG1tUKMoW/pvDULXTJi
+# mSucc3u2Nrpjln7E3IKvSMsndTV4Y1XezkCudzmP0r9l5JwcBGcjfGDJT+8/ANSX
+# iH/l/DEx/xHfB+DjXHOxNBhXsVSijOL99qCrSGwBQuJHJFtu5ezMiB5zadzMqrNA
+# KlREAYuCGLQyiyBtVcOodrhqT3GqUC3BKePgBPRbJ+FU1cKSOyhOrXVjowtbm/ni
+# qqGnZMbD+MBLe+KlEp7ZfAgD9z40aLv6JCHfALgkm3b+58WJ2Ih5ukz5yo/GD9el
+# B2nIZCXMRiC91OBcMFYE6Dp2zsf1AMXEltqvH34wus7SayqcnbdN5SFnkyQuaht9
+# YoIKBLfoJl0H4+nNKreXd8mIvo207z6jMjaYiKezDPorGRriFWs9jcnco1HG79Ys
+# Ftnypfv2yjnlnUO1Lbt9eHdqwXRY4tXnF+opigWIeuNIo7UWoIcEfbRwLuold884
+# +Zj02tTOWmFym33Sb+aqCmtncxOJt4wWomcMRRj5IQBeklGhghn8MIIZ+AYKKwYB
+# BAGCNwMDATGCGegwghnkBgkqhkiG9w0BBwKgghnVMIIZ0QIBAzEPMA0GCWCGSAFl
+# AwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjECAQEw
+# QTANBglghkgBZQMEAgIFAAQw8K/NdXMYgoeQXRWYV49Ja8vVIlqzDRwjT6dGHUvc
+# nN98nSf1XYeYqU+eFsf5lSEtAhQZxAGLLjBoRov5MA+Z85xejjFHXBgPMjAyNjEx
+# MDQwODI2MDdaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOR3JlYXRlciBM
+# b25kb24xGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2VjdGln
+# byBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM3oIIUFzCCBuIwggTKoAMC
+# AQICEQDnTvJVsFBP+tum3/f8i6MVMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNVBAYT
+# AkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28g
+# UHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQxMB4XDTI2MDMyNTAwMDAwMFoXDTM3
+# MDYyNDIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0ZXIgTG9u
+# ZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3RpZ28g
+# UHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNzCCAiIwDQYJKoZIhvcNAQEB
+# BQADggIPADCCAgoCggIBALL/w21L3FDZRS0FEXfZuPtUrefibnRSqOT/NNyJLOJh
+# XjQfUspqHT+gSSVgbjYThUI/cO+wFQHoOakKQNnSMKdkE8gR69ofXlkk5DAVY/Zl
+# evliOUmlvrw2Vuz4SU28rHfb/Vgd17eqpRIvJuO6XE8vPpPzn4c4iorszUF6nwuy
+# nKEQ/+rqfDmQbFNKsa+5+Z4f4kXwKdUFxUwUDjQWUhiHRwMlUWGF9N91aAvL+9a4
+# sxCgqR/ez8W8HJ/XqvSu1vIeb+J6bDFKKgkv3PJkMMpQ0BsdeXR2FejZXFRXY1w9
+# dZe6gqyMv7px+TpWbYMefECUV0WxoEMgXUk6RKcLo94uUHOdmfZu4Xe8ghglyro3
+# /N4VEKTj8dcPPvOBGxFEx1QH6uHKTkWhloGPDScurcZnd8KUtTHl6zmlQDHM04Mw
+# GfsmQViKnYEAYE8RHl5XRE6GTq0ZMb59SIyJX6+CODVic/kW+dhbIS1Z5AP8HaGn
+# e/PRG+12QzSneKDJp3Ot+k4GrmmlWT9iy6FNCQ/32K+d4cAZ+Ll7uWbEn6Z6gE+t
+# Eu7MyZvzWvPNsRKMkcyyflFW1zpRyzutwypALXc9Qg7sFsYERNXa58KZXqU9Onc/
+# tck6+adQJFM9tW8xOnE//P5I4eDj84IGGKqzgUD37ihC+WST3DfY0YBKWL0Zaubn
+# AgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBQ6dKUMZ8ZCUML9tfzHuyk0gvR6uTAd
+# BgNVHQ4EFgQUYRDpehKvUcSF1PLPpHQPUM0gr/gwDgYDVR0PAQH/BAQDAgbAMAwG
+# A1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMwQTAI
+# BgZngQwBBAIwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8v
+# c2VjdGlnby5jb20vQ1BTMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwuc2Vj
+# dGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjQxLmNybDB6Bggr
+# BgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5jb20v
+# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjQxLmNydDAjBggrBgEFBQcwAYYX
+# aHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggIBAAPqPY3R
+# rM36GXqTpsoHn9TpW5I6z3dkFvc9zPL1W0Egq7j3jtnkbAvRoWeAjGX4ZK4sWsmA
+# +u4EJG8okQmybuS/4tDUI5UIQb21n4hG2vihxShrneWB0VoQ2VLQ3jCCRmRtAQ+/
+# 7H7WVKNiH5Pgl4v2ZTOdPsStzpKnl1YuRrmww/+bcZmLqgk909ywIpZqAfubYfbE
+# MYjIckLk90f2mG+L8qaGSS2JJVM02pV5XltZ1fbOFETpRN/PQhwygIv33qUUjJ1f
+# E4ITgw0McMzRqziWdOJP8ocxxw7qXxz1OdRWCalyL1qvUgAFnZTVdSRiMYZKf0wL
+# cQcM/1Xf1W4FW9nff8ERX8RZJGt/TtPuMWmUpf6BCv9Q6o8YyUTtknvZRpSQ0nLt
+# tWXdtwsrN2mMgfMuR//gxVrVXvDzCoK/lbiA6dEZOW53lQwBFtEzwE/FH8Jdhegy
+# Yg4PymZOTZrGBEvgsbxe25yEhJ0IdGa1pwCYsarldJhJVMdNcAOU7jyIMqHcczav
+# 3wtIXp/SwbXZ3xX0mfsLfANSJ47G4qPgx1atb6GIlTaQXzu/p4fTQeAIUVzZXT4K
+# 984IyfuO7NLjWMtog1wGUpZD98pv+4Mt9Y5bvfPUjaUVjtePy1DVdi0rl5ESNYi0
+# zyOmXVxtA5zzxu1H7RdLZOZugT/XjX69rY9bMIIGpzCCBI+gAwIBAgIRAJCsCHIg
+# /cWnxGtcxw33PQYwDQYJKoZIhvcNAQEMBQAwVzELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBSb290IFI0NjAeFw0yNjAzMjUwMDAwMDBaFw00MTAzMjQyMzU5
+# NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAq
+# BgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQxMIICIjAN
+# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAruRKogGtghxi+WYtW5oDzPDVF8GG
+# SfgbUKh6bONxi0wvrI1S8qbAYfvLr/ky5ILVRg//70pgNKq8xC3/WEQodjEwAP2h
+# mkGShoNAUQps4kd6Wwp74Fo7RlwQ1Mp949ytpWQDvCsYBbZccDmBAJC/ggqiuL/c
+# 805fGcMw6TzIgyBWuUx5PGp9YnheSNPXFzaz0MPtREdZYk4WhtM+hazqasMWVpj0
+# WUAcNhN9vO/FAdWy9Gafdb7lmYLDKTTYjwqAY9P9RfixPPjUaJH6mnBSNBdrX7a0
+# Qdlux0ApS0fc48RW1m+W3tq3HiHzch1FHyhiLzCNjc6MUpcV5xalBvPOw/FtQo/A
+# xaJOvPCSsVrx0f/WkMpEm3fvVbrY9+oo9rIKv9ducE6VGfwIAtKYedG0bO4Ba1Mm
+# lxPcErDqjLwggvrBJu73fwXpkhtE0hzV0psgm2vhQs3pHll9N00SHBdy2qndEcNu
+# Dh+46XouM2hoXCO533YQQOHPEUnMTWOo3hyxx5kjDE5PVqp+x+HS4VAT+WBMG4Gz
+# eLr9YvZbU5x5YvLdcR1dErV/QRYK55rp019fZFF2NR+TkSW0WcmQ3b5taGcrXg49
+# EpzKM6/mEpnSJXg1E13X6GO29rWs/LNvkGzsS8XGoRCGBls6ruofeebSsHADR3Ge
+# IE5gIU927bjokLECAwEAAaOCAW4wggFqMB8GA1UdIwQYMBaAFPZ3at0//QET/xah
+# bIICL9AKPRQlMB0GA1UdDgQWBBQ6dKUMZ8ZCUML9tfzHuyk0gvR6uTAOBgNVHQ8B
+# Af8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUEDDAKBggrBgEFBQcD
+# CDAjBgNVHSAEHDAaMAgGBmeBDAEEAjAOBgwrBgEEAbIxAQIBAwgwTAYDVR0fBEUw
+# QzBBoD+gPYY7aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGlt
+# ZVN0YW1waW5nUm9vdFI0Ni5jcmwwfAYIKwYBBQUHAQEEcDBuMEcGCCsGAQUFBzAC
+# hjtodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBp
+# bmdSb290UjQ2LnA3YzAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5j
+# b20wDQYJKoZIhvcNAQEMBQADggIBADLeUkdm8Z4DZvjfKHOhqu+hsdXNt+X5F+48
+# PB6PTAJCRgA3qxxO3YbAV7baps4K/+2WWoWUspBkT4T2NXK49NvJAfCsztHSgtqk
+# AQMLX4KjCypJF/+m2Ktrk993g+gcgKdv1yg9C3JmYdJCnnL0ga+pZ/Wo1+rtXZ8d
+# nwO8RCstTN6gYX0ElFi7Y7NpxbdBC1S6bc05V/SA9HC/ojj33W6GdwnpU/iVylSk
+# dkoHtHeGIhQLT2ZH0qPM9Wdce8v2fZsDCJQQJ8rll7OGLDbsXa2CLf0MRN9Twzif
+# Q3rEuAXOx/TkzkZRFfwL34hf1XqSmaYq2tTMy2LgsPrqC2Z/6ZKb3fgrzU0vphB4
+# wSTWulitY/KlxbvoyKvrBvUCCx4sgeqf8aR65CbvM5MN/d/lahfXipU2NlY0cXcn
+# GS61XpmeGKd8It92/lufApZR9x6o5qMJWe0jq4JsfGMGDpIKx7FzkB8gaejuBUW/
+# CJ9Phc40+xJRonvVewn4S9yJVRWeM47irGbR9YlN3xruM/yZzhk+rAm9AW06nv7o
+# b6RQkAXR+cTxiAPy620FF41NrViYB4UyKpzfx7x8jh4ubTOMz954YIdqyeiqqtsb
+# BwXjWLP0dfMUPA3iIPnPdBKGnodGJTdSlPAMmKJdyvTPqmOXs/LMnf+2Za0Z6FXs
+# IB9z9aXLMIIGgjCCBGqgAwIBAgIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0B
+# AQwFADCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNV
+# BAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsx
+# LjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkw
+# HhcNMjEwMzIyMDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBXMQswCQYDVQQGEwJHQjEY
+# MBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1Ymxp
+# YyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2MIICIjANBgkqhkiG9w0BAQEFAAOCAg8A
+# MIICCgKCAgEAiJ3YuUVnnR3d6LkmgZpUVMB8SQWbzFoVD9mUEES0QUCBdxSZqdTk
+# dizICFNeINCSJS+lV1ipnW5ihkQyC0cRLWXUJzodqpnMRs46npiJPHrfLBOifjfh
+# pdXJ2aHHsPHggGsCi7uE0awqKggE/LkYw3sqaBia67h/3awoqNvGqiFRJ+OTWYmU
+# CO2GAXsePHi+/JUNAax3kpqstbl3vcTdOGhtKShvZIvjwulRH87rbukNyHGWX5tN
+# K/WABKf+Gnoi4cmisS7oSimgHUI0Wn/4elNd40BFdSZ1EwpuddZ+Wr7+Dfo0lcHf
+# lm/FDDrOJ3rWqauUP8hsokDoI7D/yUVI9DAE/WK3Jl3C4LKwIpn1mNzMyptRwsXK
+# rop06m7NUNHdlTDEMovXAIDGAvYynPt5lutv8lZeI5w3MOlCybAZDpK3Dy1MKo+6
+# aEtE9vtiTMzz/o2dYfdP0KWZwZIXbYsTIlg1YIetCpi5s14qiXOpRsKqFKqav9R1
+# R5vj3NgevsAsvxsAnI8Oa5s2oy25qhsoBIGo/zi6GpxFj+mOdh35Xn91y72J4RGO
+# JEoqzEIbW3q0b2iPuWLA911cRxgY5SJYubvjay3nSMbBPPFsyl6mY4/WYucmyS9l
+# o3l7jk27MAe145GWxK4O3m3gEFEIkv7kRmefDR7Oe2T1HxAnICQvr9sCAwEAAaOC
+# ARYwggESMB8GA1UdIwQYMBaAFFN5v1qqK0rPVIDh2JvAnfKyA2bLMB0GA1UdDgQW
+# BBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/
+# BAUwAwEB/zATBgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAw
+# UAYDVR0fBEkwRzBFoEOgQYY/aHR0cDovL2NybC51c2VydHJ1c3QuY29tL1VTRVJU
+# cnVzdFJTQUNlcnRpZmljYXRpb25BdXRob3JpdHkuY3JsMDUGCCsGAQUFBwEBBCkw
+# JzAlBggrBgEFBQcwAYYZaHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkqhkiG
+# 9w0BAQwFAAOCAgEADr5lQe1oRLjlocXUEYfktzsljOt+2sgXke3Y8UPEooU5y39r
+# AARaAdAxUeiX1ktLJ3+lgxtoLQhn5cFb3GF2SSZRX8ptQ6IvuD3wz/LNHKpQ5nX8
+# hjsDLRhsyeIiJsms9yAWnvdYOdEMq1W61KE9JlBkB20XBee6JaXx4UBErc+YuoSb
+# 1SxVf7nkNtUjPfcxuFtrQdRMRi/fInV/AobE8Gw/8yBMQKKaHt5eia8ybT8Y/Ffa
+# 6HAJyz9gvEOcF1VWXG8OMeM7Vy7Bs6mSIkYeYtddU1ux1dQLbEGur18ut97wgGwD
+# iGinCwKPyFO7ApcmVJOtlw9FVJxw/mL1TbyBns4zOgkaXFnnfzg4qbSvnrwyj1Ni
+# urMp4pmAWjR+Pb/SIduPnmFzbSN/G8reZCL4fvGlvPFk4Uab/JVCSmj59+/mB2Gn
+# 6G/UYOy8k60mKcmaAZsEVkhOFuoj4we8CYyaR9vd9PGZKSinaZIkvVjbH/3nlLb0
+# a7SBIkiRzfPfS9T+JesylbHa1LtRV9U/7m0q7Ma2CQ/t392ioOssXW7oKLdOmMBl
+# 14suVFBmbzrt5V5cQPnwtd3UOTpS9oCG+ZZheiIvPgkDmA8FzPsnfXW5qHELB43E
+# T7HHFHeRPRYrMBKjkb8/IN7Po0d0hQoF4TeMM+zYAJzoKQnVKOLg8pZVPT8xggST
+# MIIEjwIBATBqMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0
+# ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQx
+# AhEA507yVbBQT/rbpt/3/IujFTANBglghkgBZQMEAgIFAKCCAfowGgYJKoZIhvcN
+# AQkDMQ0GCyqGSIb3DQEJEAEEMBwGCSqGSIb3DQEJBTEPFw0yNjExMDQwODI2MDda
+# MD8GCSqGSIb3DQEJBDEyBDDFdaht3yjdnSQnTWZjQk7xGf8vPrygboGXgklfpdVU
+# HfDUqHiPqfhraHWEJH5SAKMwggF7BgsqhkiG9w0BCRACDDGCAWowggFmMIIBYjAW
+# BBTpeBipKNoVCp/hv5zMequ5oA7urDCBiAQUZcMoaW99TlAs/QPHwgaXGMr7908w
+# cDBbpFkwVzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEu
+# MCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NgIR
+# AJCsCHIg/cWnxGtcxw33PQYwgbwEFIU9Yy2TgoJhfNCQNcSR3pLBQtrHMIGjMIGO
+# pIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3IEplcnNleTEUMBIGA1UE
+# BxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VSVFJVU1QgTmV0d29yazEu
+# MCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eQIQ
+# NsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASCAgAFKwQh9eZQihVWHucn
+# O/Sc9jmDAlnJe+BZ06Zv2hZ5lFZ2Tyb7ykf7pyyZ/P+9yc8tcjVXVOaAZCO6eQyO
+# wn2FWUCewdfhpMV+sTBzsOBY+ANKK5STIE+jW3M2m/sPctVIAQvQP1XeMo/xtyH3
+# o5XHp2a+t7fvMOiWvbwu2dvRYRU1jX0YFYspyPgnftqSZ09rAHt6WhyGBf13amXT
+# XNPDTROt5d5Xkt7gz7rPXwwqWtcfljIrqOdAfvW5z8DWKhgcZcIOpXYaTYxKEau4
+# dLn81SncN8ceLxjosg/mBTqO4ddzPvQ++RAsswQq174aflg65a+b46C0Puhogzme
+# WPQX/4Lm95yNkz5XONUNAFBM5Ied+0gH9Kr8YCi4gQJ40ZoDMT6ywJj3nA6JOeyE
+# 0de58wrs61FQonLw8kgAOWqQB9kYVZ815DoBOid5OY5vlG4Fakhc2/SXkFmWAgY6
+# pg7fZVFq3NH3HKSuAiTVAT668izrPhvoDrFA4HFyjnYxVEx+nsGgI47qzRDpGkrR
+# JsUARkVPD9lIiKSjvDGnncKRc8m9ShGtt02+f4yWfkkKLF5AINfVFGQiRHP7ITIk
+# zpEcKX1gBuxoTFg5JLKQmhaS8E85VL1NRDB02vP4jW0IjppMHAXk4MI/P9QTSRxr
+# FsPqL5prGYcWpQF04b47UKGDHw==
 # SIG # End signature block
