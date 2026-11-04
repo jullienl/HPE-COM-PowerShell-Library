@@ -12,7 +12,7 @@ This library is actively maintained with continuous updates to support new HPE G
 
 | Version | Last Updated | Downloads | Status | PowerShell |
 |---------|--------------|-----------|--------|------------|
-| 1.0.26 | June 2026 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
+| 1.0.27 | November 2026 | [![PS Gallery][GL-master-psgallery-badge]][GL-master-psgallery-link] | [![Build Status](https://img.shields.io/badge/status-stable-green)](https://github.com/jullienl/HPE-COM-PowerShell-Library) | [![PowerShell 7+](https://img.shields.io/badge/PowerShell-7%2B-blue)](https://github.com/PowerShell/PowerShell) |
 
 📋 **[Release Notes & Changelog](https://github.com/jullienl/HPE-COM-PowerShell-Library/releases)** - see what's new in each version.
 
@@ -21,11 +21,10 @@ This library is actively maintained with continuous updates to support new HPE G
 - [Documentation & Tutorials](#documentation--tutorials)
 - [Quick Start](#quick-start)
 - [Requirements](#requirements)
-- [Best Practices & Performance Considerations](#best-practices--performance-considerations)
 - [Supported Authentication Methods](#supported-authentication-methods)
   - [Single-factor authentication with HPE Account](#single-factor-authentication-with-hpe-account)
   - [Multi-factor authentication (MFA) with HPE Account](#multi-factor-authentication-mfa-with-hpe-account)
-  - [SAML Single Sign-On (SSO) - Passwordless and Password-based](#saml-single-sign-on-sso--passwordless-and-password-based)
+  - [SAML and OIDC Single Sign-On (SSO) - Passwordless and Password-based](#saml-and-oidc-single-sign-on-sso--passwordless-and-password-based)
     - [Okta Identity Engine (OIE) Requirement](#okta-oie-requirement)
 - [Installation](#how-to-install-the-module)
 - [Upgrade](#how-to-upgrade-the-module)
@@ -33,14 +32,15 @@ This library is actively maintained with continuous updates to support new HPE G
   - [Session Management](#session-management)
   - [Authentication Examples](#authentication-examples)
     - [Example 1: Direct authentication with username and password](#example-1-direct-authentication-with-username-and-password)
-    - [Example 2: SAML SSO with Okta (push notification with number matching)](#example-2-saml-sso-with-okta-push-notification-with-number-matching)
-    - [Example 3: SAML SSO with Microsoft Entra ID (push notification with number matching)](#example-3-saml-sso-with-microsoft-entra-id-push-notification-with-number-matching)
-    - [Example 4: SAML SSO with PingIdentity (push notification)](#example-4-saml-sso-with-pingidentity-push-notification)
+    - [Example 2: SSO with Okta (push notification with number matching)](#example-2-sso-with-okta-push-notification-with-number-matching)
+    - [Example 3: SSO with Microsoft Entra ID (push notification with number matching)](#example-3-sso-with-microsoft-entra-id-push-notification-with-number-matching)
+    - [Example 4: SSO with PingIdentity (push notification)](#example-4-sso-with-pingidentity-push-notification)
     - [Example 5: Connect without specifying workspace](#example-5-connect-without-specifying-workspace)
     - [Example 6: Enable verbose output for troubleshooting](#example-6-enable-verbose-output-for-troubleshooting)
     - [Example 7: Connecting to the Pavo Pre-Production Environment (Optional)](#example-7-connecting-to-the-pavo-pre-production-environment-optional)
   - [Global Variables Reference](#global-variables-reference)
 - [Onboarding Servers to Compute Ops Management](#onboarding-servers-to-compute-ops-management)
+- [Best Practices & Performance Considerations](#best-practices--performance-considerations)
 - [Support](#support)
 - [Common Issues and Solutions](#common-issues-and-solutions)
 - [Telemetry](#telemetry)
@@ -56,8 +56,8 @@ This library is actively maintained with continuous updates to support new HPE G
 - 🧪 **[Hands-On Lab: HPE Compute Ops Management Zero-Touch Automation](https://hpelabs.github.io/PowerShell-COM-Zero-Touch/)** - A self-paced, guided lab that takes you through the full server lifecycle with the module - installing HPECOMCmdlets, connecting to HPE GreenLake (credentials or SAML SSO), creating a workspace, provisioning COM, onboarding a server, building settings and groups, checking compliance, scheduling firmware updates, exploring inventory/health/sustainability insights, iLO SSO access, and cleanup
 - 🚀 **[HPE Compute Ops Management Zero Touch Automation Example](https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/Examples/COM-Zero-Touch-Automation.ps1)** - Learn best practices with a complete automation example covering the entire infrastructure deployment lifecycle showcasing workspace creation, zero-touch server onboarding, configuration, firmware updates, and teardown
 - 🔌 **[Bulk iLO Onboarding to Compute Ops Management](https://github.com/jullienl/HPE-Compute-Ops-Management/blob/main/PowerShell/Onboarding/Prepare-and-Connect-iLOs-to-COM-v2.ps1)** - Production-grade, idempotent script to onboard HPE Gen10 and later servers at scale from a CSV file, automating GreenLake authentication, iLO DNS/SNTP configuration, firmware-compliance updates, activation-key generation, COM connection (direct, web proxy, or Secure Gateway), location and tag assignment, and CSV status reporting, with a `-Check` pre-flight mode
-- 🛡️ **[Discover and Onboard iLOs via Secure Gateway](https://github.com/jullienl/HPE-Compute-Ops-Management/blob/main/PowerShell/Onboarding/Discover-and-Onboard-iLOs-via-SecureGateway.ps1)** *(v1.0.26+)* - Secure-Gateway-native onboarding script that discovers every iLO behind an HPE Secure Gateway and onboards them in a single batch job - no CSV of IP addresses and no local firmware staging required (the gateway discovers the iLOs and updates their firmware server-side). Automates GreenLake authentication, COM instance / Secure Gateway / subscription / location validation, optional iLO DNS/NTP, subscription, location, tags and service-delivery contact, shared **or** per-iLO credentials (CSV), with a `-Check` pre-flight triage table and CSV status reporting
-- 🎯 **[Configuring SAML SSO with HPE GreenLake for the Top 3 Identity Providers](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)** - Step-by-step guide to setting up SAML SSO with Microsoft Entra ID, Okta, and Ping Identity, then signing in from HPECOMCmdlets using passwordless (push/TOTP) or password-based (`-Credential`, v1.0.26+) authentication
+- 🛡️ **[Discover and Onboard iLOs via Secure Gateway](https://github.com/jullienl/HPE-Compute-Ops-Management/blob/main/PowerShell/Onboarding/Discover-and-Onboard-iLOs-via-SecureGateway.ps1)** *(v1.0.27+)* - Secure-Gateway-native onboarding script that discovers every iLO behind an HPE Secure Gateway and onboards them in a single batch job - no CSV of IP addresses and no local firmware staging required (the gateway discovers the iLOs and updates their firmware server-side). Automates GreenLake authentication, COM instance / Secure Gateway / subscription / location validation, optional iLO DNS/NTP, subscription, location, tags and service-delivery contact, shared **or** per-iLO credentials (CSV), with a `-Check` pre-flight triage table and CSV status reporting
+- 🎯 **[Configuring SAML SSO with HPE GreenLake for the Top 3 Identity Providers](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)** - Step-by-step guide to setting up SAML SSO with Microsoft Entra ID, Okta, and Ping Identity, then signing in from HPECOMCmdlets using passwordless (push/TOTP) or password-based (`-Credential`, v1.0.27+) authentication
 
 ---
 
@@ -72,7 +72,7 @@ Get up and running in 4 steps:
 
 2. **Connect with your credentials**
     ```powershell
-    # Connect with SSO password-based (Okta, Entra ID, PingID - federation auto-detected) with or without MFA (push/TOTP) [v1.0.26+]
+    # Connect with SSO password-based (Okta, Entra ID, PingID - federation auto-detected) with or without MFA (push/TOTP) [v1.0.27+]
     Connect-HPEGL -Credential (Get-Credential -UserName "user@company.com") -Workspace "MyWorkspace"
 
     # Connect with SSO passwordless (Okta, Entra ID, PingID - push, or TOTP where supported)
@@ -161,7 +161,7 @@ Get-Command -Module HPECOMCmdlets
   - Your organization manages authentication through external IdP
 
   📝 **Create your account:**
-  - Visit: https://common.cloud.hpe.com
+  - Visit the [HPE GreenLake Common Cloud Console](https://common.cloud.hpe.com)
   - Setup guide: [HPE GreenLake Cloud User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html)
 
 
@@ -192,57 +192,6 @@ Get-Command -Module HPECOMCmdlets
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
-## Best Practices & Performance Considerations
-
-### API Rate Limiting
-
-HPE GreenLake APIs implement rate limiting to ensure fair resource allocation and system stability. While most users won't encounter these limits during normal operations, it's important to be aware of them for high-volume scenarios.
-
-**When Rate Limits May Apply:**
-- **Bulk Operations**: Processing hundreds or thousands of resources in rapid succession
-- **Parallel Execution**: Running multiple scripts or PowerShell sessions simultaneously
-- **High-Frequency Automation**: Scheduled tasks running every few minutes
-- **Large-Scale Inventory**: Retrieving detailed information for many servers at once
-
-**Best Practices to Avoid Rate Limiting:**
-
-1. **Batch Your Operations**:
-   ```powershell
-   # Instead of individual calls in a tight loop
-   $servers = Get-HPECOMServer -Region "eu-central"
-   # Then process results without additional API calls
-   $servers | Where-Object { $_.Model -like "*DL380*" }
-   ```
-
-2. **Add Delays for Bulk Operations**:
-   ```powershell
-   # For large-scale operations, add a small delay
-   Get-HPECOMServer -Region "eu-central" | ForEach-Object {
-       Get-HPECOMServerInventory -Region "eu-central" -Name $_.SerialNumber
-       Start-Sleep -Milliseconds 100  # Small delay between calls
-   }
-   ```
-
-3. **Use Filtering Parameters**: Reduce API calls by using cmdlet parameters instead of PowerShell filtering
-   ```powershell
-   # Good: Server-side filtering
-   Get-HPECOMServer -Region "eu-central" -Model "ProLiant DL380 Gen10"
-   
-   # Less efficient: Client-side filtering (more API calls)
-   Get-HPECOMServer -Region "eu-central" | Where-Object { $_.Model -eq "ProLiant DL380 Gen10" }
-   ```
-
-4. **Schedule Automation Wisely**: For scheduled scripts, avoid intervals shorter than 5-10 minutes unless necessary
-
-**If You Encounter Rate Limiting:**
-- Error: `429 (Too Many Requests)` or `Rate limit exceeded`
-- Solution: Wait a few minutes before retrying, or implement exponential backoff in your scripts
-- The library includes automatic retry logic for some transient errors
-
-> **Note**: Rate limits vary by API endpoint and are subject to change. For specific limits, consult the [Rate limiting](https://developer.greenlake.hpe.com/docs/greenlake/guides/public/rate-limiting/rate-limiting) page on the HPE GreenLake Developer Portal.
-
-[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
-
 ## Supported authentication methods
 
 ### Single-factor authentication with HPE Account
@@ -263,28 +212,30 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
     - If your account uses only security keys or biometrics, you must enable Google Authenticator or Okta Verify in your account settings
     - When both methods are available, Okta Verify push notifications take precedence
 
-### SAML Single Sign-On (SSO) - Passwordless and Password-based
+### SAML and OIDC Single Sign-On (SSO) - Passwordless and Password-based
 
-  **New in v1.0.26**: Password-based SSO via `-Credential` is now supported alongside the existing passwordless flow. Use `-PasswordlessSSOEmail` for push/TOTP authentication, or `-Credential` with your federated email address for password-based authentication. Federation is detected automatically.
+  **New in v1.0.27**: OpenID Connect (OIDC) federation is now supported for Okta, Microsoft Entra ID and PingIdentity, in addition to SAML 2.0. The federation protocol configured in HPE GreenLake is detected automatically; the same `-PasswordlessSSOEmail` and `-Credential` parameters work for both.
+
+  **New in v1.0.27**: Password-based SSO via `-Credential` is now supported alongside the existing passwordless flow. Use `-PasswordlessSSOEmail` for push/TOTP authentication, or `-Credential` with your federated email address for password-based authentication. Federation is detected automatically.
         
   - **Supported Identity Providers**:
 
     | Identity Provider      | Implementation                              | Status            | Push Notifications | TOTP Codes                | Number Matching  | Timeout | Cloud Environment     | Requirements                                            | Last Tested |
     |------------------------|---------------------------------------------|-------------------|--------------------|---------------------------|------------------|---------|-----------------------|---------------------------------------------------------|-------------|
-    | **Okta (OIE only)**    | Okta SAML + Okta Verify                     | ✅ Fully Supported | ✅ Yes              | ✅ Yes                     | Optional         | 2 min   | All Okta regions      | **Requires OIE**<sup>1</sup><br>❌ Classic not supported | June-2026   |
-    | **Microsoft Entra ID** | Entra ID SAML + Microsoft Authenticator     | ✅ Fully Supported | ✅ Yes              | ⚠️ Conditional<sup>2</sup> | Mandatory (push) | 2 min   | Commercial cloud only | -                                                       | June-2026   |
-    | **PingIdentity**       | PingOne SSO (SAML) + PingID MFA<sup>3</sup> | ✅ Fully Supported | ✅ Yes              | ✅ Yes                     | Optional         | 2 min   | All PingOne regions   | **Requires a PingOne SSO environment**                  | June-2026   |
+    | **Okta (OIE only)**    | Okta SAML or OIDC + Okta Verify             | ✅ Fully Supported | ✅ Yes              | ✅ Yes                     | Optional         | 2 min   | All Okta regions      | **Requires OIE**<sup>1</sup><br>❌ Classic not supported | Nov-2026    |
+    | **Microsoft Entra ID** | Entra ID SAML or OIDC + Microsoft Authenticator | ✅ Fully Supported | ✅ Yes              | ⚠️ Conditional<sup>2</sup> | Mandatory (push) | 2 min   | Commercial cloud only | -                                                       | Nov-2026    |
+    | **PingIdentity**       | PingOne SSO (SAML or OIDC) + PingID MFA<sup>3</sup> | ✅ Fully Supported | ✅ Yes              | ✅ Yes                     | Optional         | 2 min   | All PingOne regions   | **Requires a PingOne SSO environment**                  | Nov-2026    |
     | **PingIdentity**       | PingFederate SAML + PingID MFA              | ⚠️ Not Tested      | ✅ Expected         | ✅ Expected                | Optional         | 2 min   | All PingOne regions   | -                                                       | June-2026   |
 
     <br>
     
     > <a id="okta-oie-requirement"></a>**<sup>1</sup> Okta - Okta Identity Engine (OIE) required:** Okta SSO requires **Okta Identity Engine (OIE)**. **Okta Classic Engine is not supported** - the library relies on the Okta IDX API (`/idp/idx/*`), which is only available in OIE. **Check your engine:** in the Okta Admin Console, the version number in the page footer (e.g., `2025.12.0`) ends in **E** for OIE or **C** for Classic; if you're on Classic, contact your Okta administrator or Okta support to upgrade. See the [Okta Identity Engine Overview](https://support.okta.com/help/s/product-hub/oie/overview?language=en_US).
     >
-    > <img src="Images/SAML_SSO_0A.png" alt="Screenshot" width="80%">
+    > <img src="Images/SAML_SSO_0A.png" alt="Screenshot of the Okta Admin Console page footer showing a version number ending in E, indicating Okta Identity Engine (OIE)" width="80%">
 
     > **<sup>2</sup> Microsoft Entra ID - TOTP support is conditional:** TOTP codes (Microsoft Authenticator one-time codes) are supported **only in password-based flows** (`-Credential`), where the password is verified first and TOTP is presented as a step-up second factor. TOTP is **not** available in the **passwordless** flow (`-PasswordlessSSOEmail`): Entra ID passwordless authentication relies exclusively on Microsoft Authenticator push notifications with mandatory number matching. If your Entra ID policy is passwordless-only, use push approval; if it is password + MFA, you may use either push or a TOTP code.
 
-    > **<sup>3</sup> PingIdentity - use a PingOne *SSO* environment, not a PingOne *MFA* environment:** In the PingOne admin console you can create either a **PingOne SSO** environment or a standalone **PingOne MFA** environment - these are different services. This library implements the **PingOne SSO** sign-on flow (SAML federation + the PingOne sign-on policy), completing MFA through the **PingID** mobile app (push or TOTP). The standalone **PingOne MFA** service (mobile-SDK / DaVinci-orchestrated MFA) uses a different authentication flow and is **not supported**. Configure HPE GreenLake as a SAML application in a **PingOne SSO** environment and enroll users in **PingID**.
+    > **<sup>3</sup> PingIdentity - use a PingOne *SSO* environment, not a PingOne *MFA* environment:** In the PingOne admin console you can create either a **PingOne SSO** environment or a standalone **PingOne MFA** environment - these are different services. This library implements the **PingOne SSO** sign-on flow (SAML or OIDC federation + the PingOne sign-on policy), completing MFA through the **PingID** mobile app (push or TOTP). The standalone **PingOne MFA** service (mobile-SDK / DaVinci-orchestrated MFA) uses a different authentication flow and is **not supported**. Configure HPE GreenLake as a SAML or OIDC application in a **PingOne SSO** environment and enroll users in **PingID**. For OIDC, set the application's **Token Endpoint Authentication Method** to **Client Secret Post**.
 
     <br>
 
@@ -304,7 +255,7 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
  
   - **⚠️ Unsupported Identity Providers**
     - Identity Providers **not listed in the table above** (such as Google Workspace, Salesforce Identity, IBM Security Verify, Auth0, OneLogin, etc.) are **not supported** by this library.
-    - **Why?** While these providers may support SAML 2.0, their authentication flows differ significantly and have not been tested or implemented in this library.
+    - **Why?** While these providers may support SAML 2.0 or OIDC, their authentication flows differ significantly and have not been tested or implemented in this library.
   
     - **Alternative Authentication Options:**
       1. **HPE Account**: Use direct authentication with or without MFA with Google Authenticator or Okta Verify
@@ -338,13 +289,21 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
       > **Technical Reason**: FIDO2/WebAuthn requires browser-native APIs (navigator.credentials) and direct hardware access that are not available in PowerShell automation environments 
 
   - **SSO Prerequisites**:
-    - ✅ SAML SSO configured in your HPE GreenLake workspace
-    - ✅ Identity Provider configured with HPE GreenLake as a SAML 2.0 application
-    - ✅ User has appropriate application access permissions
-    - ✅ Domain pre-claimed in workspace (use `Get-HPEGLDomain` to verify, `Get-HPEGLSSOConnection` to check configuration)
-    - ✅ **For passwordless flow** (`-PasswordlessSSOEmail`): Passwordless authentication methods enabled in your IdP (push notifications and/or TOTP)
-    - ✅ **For password-based flow** (`-Credential`): User's IdP account has a password enrolled (password-only or password + MFA step-up policy)
-    - ❌ **OpenID Connect (OIDC) federation is not supported**: This library only supports **SAML 2.0** SSO federation. HPE GreenLake also allows configuring workspace SSO via OIDC, but OIDC-federated workspaces cannot be used with `-PasswordlessSSOEmail` or `-Credential` SSO - sign in with native HPE account credentials instead.
+
+    Federation must use **SAML 2.0 or OpenID Connect (OIDC)** with **Okta, Microsoft Entra ID or PingIdentity**. Other identity providers are not supported (see **Unsupported Identity Providers** above); sign in with an HPE Account instead.
+
+    - **In HPE GreenLake**:
+      - ✅ Your email domain is claimed and verified (`Get-HPEGLDomain`)
+      - ✅ An SSO connection (SAML or OIDC) exists for your identity provider (`Get-HPEGLSSOConnection`)
+      - ✅ An authentication policy links the domain to that connection (`Get-HPEGLSSOAuthenticationPolicy`)
+    - **In your identity provider**:
+      - ✅ HPE GreenLake is configured as a SAML 2.0 or OIDC application, and your account is assigned to it
+      - ✅ For `-PasswordlessSSOEmail`: push notifications and/or TOTP are enabled for your account
+      - ✅ For `-Credential`: your account has a password (password only, or password + MFA step-up)
+    - **Identity provider specifics**:
+      - **Okta**: Okta Identity Engine (OIE) is required ([see note 1](#okta-oie-requirement))
+      - **Microsoft Entra ID**: TOTP is available only with `-Credential` (see note 2)
+      - **PingIdentity**: a PingOne **SSO** environment is required (see note 3). For OIDC, set the PingOne application's **Token Endpoint Authentication Method** to **Client Secret Post**; otherwise HPE GreenLake can reject the sign-in with error `HPE_GL_IDENTITY_OIDC_REQUEST_INVALID_4606`, even in a browser.
 
   - **Quick Setup with PowerShell**: Automate the full SAML SSO configuration in your HPE GreenLake workspace - claim a domain, verify it, create the SSO connection, and apply the authentication policy - directly from PowerShell:
 
@@ -384,7 +343,7 @@ HPE GreenLake APIs implement rate limiting to ensure fair resource allocation an
   - **Configuration Guide**:  
 
     > 📘 **[Complete SAML SSO Setup Guide](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)**  
-    > Step-by-step tutorial for configuring SAML SSO with Okta, Microsoft Entra ID, and PingIdentity, then signing in from HPECOMCmdlets using passwordless (push/TOTP) or password-based (`-Credential`, v1.0.26+) authentication. Includes screenshots, troubleshooting tips, and best practices.
+    > Step-by-step tutorial for configuring SAML SSO with Okta, Microsoft Entra ID, and PingIdentity, then signing in from HPECOMCmdlets using passwordless (push/TOTP) or password-based (`-Credential`, v1.0.27+) authentication. Includes screenshots, troubleshooting tips, and best practices.
 
     Additional Resources:
       - 📖 [HPE GreenLake Cloud User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us) - Official HPE documentation for workspace and authentication configuration
@@ -411,7 +370,7 @@ Get-Module HPECOMCmdlets -ListAvailable
 Get-Command -Module HPECOMCmdlets
 ```
 
-##  How to Upgrade the Module 
+## How to Upgrade the Module
 
 If you have already installed the module and need to update it to the latest version, run the following commands:
 
@@ -529,11 +488,11 @@ Get-HPECOMServer -Region "us-west"
 
 Choose the authentication method that matches your setup:
 
-Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-password) | [Example 2](#example-2-saml-sso-with-okta-push-notification-with-number-matching) | [Example 3](#example-3-saml-sso-with-microsoft-entra-id-push-notification-with-number-matching) | [Example 4](#example-4-saml-sso-with-pingidentity-push-notification) | [Example 5](#example-5-connect-without-specifying-workspace) | [Example 6](#example-6-enable-verbose-output-for-troubleshooting) | [Example 7](#example-7-connecting-to-the-pavo-pre-production-environment-optional)
+Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-password) | [Example 2](#example-2-sso-with-okta-push-notification-with-number-matching) | [Example 3](#example-3-sso-with-microsoft-entra-id-push-notification-with-number-matching) | [Example 4](#example-4-sso-with-pingidentity-push-notification) | [Example 5](#example-5-connect-without-specifying-workspace) | [Example 6](#example-6-enable-verbose-output-for-troubleshooting) | [Example 7](#example-7-connecting-to-the-pavo-pre-production-environment-optional)
 
 > **Note:** For password-based SSO (Okta, Entra ID, PingIdentity), use `-Credential` with your federated email address. Federation is detected automatically - no additional parameters are needed.
 
-> **New in v1.0.26:** Password-based SSO authentication is now supported for Okta, Microsoft Entra ID, and PingIdentity via `-Credential`. The `-SSOEmail` parameter has been renamed to `-PasswordlessSSOEmail` (the `-SSOEmail` alias remains fully functional for backward compatibility).
+> **New in v1.0.27:** Password-based SSO authentication is now supported for Okta, Microsoft Entra ID, and PingIdentity via `-Credential`. The `-SSOEmail` parameter has been renamed to `-PasswordlessSSOEmail` (the `-SSOEmail` alias remains fully functional for backward compatibility).
 
 > **Important:** `-PasswordlessSSOEmail` is strictly for passwordless IdP accounts (push/TOTP only). If your IdP requires a password, use `-Credential` - using `-PasswordlessSSOEmail` for a password-based account returns an error and never prompts interactively.
 
@@ -541,12 +500,12 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 |--------|----------|-----------|-----------------|
 | HPE Account (password only) | No SSO configured; direct authentication | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
 | HPE Account + MFA | HPE Account with Okta Verify or Google Authenticator enabled | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
-| SAML SSO - Okta (passwordless) | Workspace uses Okta; account is passwordless (push/TOTP only) | `-PasswordlessSSOEmail` | [Example 2](#example-2-saml-sso-with-okta-push-notification-with-number-matching) |
-| SAML SSO - Microsoft Entra ID (passwordless) | Workspace uses Entra ID; account is passwordless | `-PasswordlessSSOEmail` | [Example 3](#example-3-saml-sso-with-microsoft-entra-id-push-notification-with-number-matching) |
-| SAML SSO - PingIdentity (passwordless) | Workspace uses PingIdentity; account is passwordless | `-PasswordlessSSOEmail` | [Example 4](#example-4-saml-sso-with-pingidentity-push-notification) |
-| SAML SSO - Okta (password-based) | Workspace uses Okta; IdP requires a password | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
-| SAML SSO - Microsoft Entra ID (password-based) | Workspace uses Entra ID; IdP requires a password | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
-| SAML SSO - PingIdentity (password-based) | Workspace uses PingIdentity; IdP requires a password | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
+| SAML/OIDC SSO - Okta (passwordless) | Workspace uses Okta; account is passwordless (push/TOTP only) | `-PasswordlessSSOEmail` | [Example 2](#example-2-sso-with-okta-push-notification-with-number-matching) |
+| SAML/OIDC SSO - Microsoft Entra ID (passwordless) | Workspace uses Entra ID; account is passwordless | `-PasswordlessSSOEmail` | [Example 3](#example-3-sso-with-microsoft-entra-id-push-notification-with-number-matching) |
+| SAML/OIDC SSO - PingIdentity (passwordless) | Workspace uses PingIdentity; account is passwordless | `-PasswordlessSSOEmail` | [Example 4](#example-4-sso-with-pingidentity-push-notification) |
+| SAML/OIDC SSO - Okta (password-based) | Workspace uses Okta; IdP requires a password | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
+| SAML/OIDC SSO - Microsoft Entra ID (password-based) | Workspace uses Entra ID; IdP requires a password | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
+| SAML/OIDC SSO - PingIdentity (password-based) | Workspace uses PingIdentity; IdP requires a password | `-Credential` | [Example 1](#example-1-direct-authentication-with-username-and-password) |
 | Pavo pre-production | HPE internal testing only | `-PasswordlessSSOEmail` + `$env:HPE_COMMON_CLOUD_URL` | [Example 7](#example-7-connecting-to-the-pavo-pre-production-environment-optional) |
 
 #### Example 1: Direct authentication with username and password
@@ -562,14 +521,14 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - Upon successful connection, a `$Global:HPEGreenLakeSession` object is created and displayed, containing your authentication context and connection details
 
-  <img src="Images/SAML_SSO_0.png" alt="Screenshot" width="100%">
+  <img src="Images/SAML_SSO_0.png" alt="Screenshot of the PowerShell console displaying the $Global:HPEGreenLakeSession object after a successful Connect-HPEGL call" width="100%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
-#### Example 2: SAML SSO with Okta (push notification with number matching)
+#### Example 2: SSO with Okta (push notification with number matching)
 
-- Uses Okta SAML federation with Okta Verify push notifications
+- Uses Okta SAML or OIDC federation with Okta Verify push notifications
 - Number matching provides phishing-resistant authentication
 
   ```powershell
@@ -580,17 +539,17 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
   
 - During the authentication process, a verification number (e.g., 59) will be displayed in the PowerShell console
 
-  <img src="Images/SAML_SSO_4.png" alt="Screenshot" width="100%">   
+  <img src="Images/SAML_SSO_4.png" alt="Screenshot of the PowerShell console showing a verification number displayed during Okta push notification authentication" width="100%">
 
 - Approve the push notification sent to Okta Verify by tapping the matching number on your mobile device.
 
-  <img src="Images/SAML_SSO_3.png" alt="Screenshot" width="30%">
+  <img src="Images/SAML_SSO_3.png" alt="Screenshot of the Okta Verify mobile app showing a number matching push notification prompt" width="30%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
-#### Example 3: SAML SSO with Microsoft Entra ID (push notification with number matching)
-- Uses Microsoft Entra ID SAML federation with Microsoft Authenticator
+#### Example 3: SSO with Microsoft Entra ID (push notification with number matching)
+- Uses Microsoft Entra ID SAML or OIDC federation with Microsoft Authenticator
 - Number matching is mandatory and provides phishing-resistant authentication
 
   ```powershell
@@ -601,17 +560,17 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - During the authentication process, a verification number (e.g., 59) will be displayed in the PowerShell console
 
-  <img src="Images/SAML_SSO_1.png" alt="Screenshot" width="100%">
+  <img src="Images/SAML_SSO_1.png" alt="Screenshot of the PowerShell console showing a verification number displayed during Microsoft Entra ID push notification authentication" width="100%">
 
 - Approve the push notification sent to Microsoft Authenticator by typing the matching number on your mobile device. 
 
-  <img src="Images/SAML_SSO_2.png" alt="Screenshot" width="30%">
+  <img src="Images/SAML_SSO_2.png" alt="Screenshot of the Microsoft Authenticator mobile app showing a number matching push notification prompt" width="30%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
-#### Example 4: SAML SSO with PingIdentity (push notification)
-- Uses PingIdentity SAML federation with PingID mobile app
+#### Example 4: SSO with PingIdentity (push notification)
+- Uses PingIdentity SAML or OIDC federation with PingID mobile app
 - Supports both push notifications and TOTP codes for flexible authentication
 
   ```powershell
@@ -622,11 +581,11 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 - During the authentication process, a push notification will be sent to your PingID mobile app
 
-  <img src="Images/SAML_SSO_5.png" alt="Screenshot" width="100%">
+  <img src="Images/SAML_SSO_5.png" alt="Screenshot of the PowerShell console showing a PingID push notification prompt during PingIdentity authentication" width="100%">
 
 - Approve the push notification on your mobile device to complete authentication
 
-  <img src="Images/SAML_SSO_6.png" alt="Screenshot" width="30%">
+  <img src="Images/SAML_SSO_6.png" alt="Screenshot of the PingID mobile app showing a push notification approval prompt" width="30%">
 
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
@@ -652,7 +611,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
   ```
 
 - The verbose output includes:
-  - SAML authentication steps and redirects
+  - SAML or OIDC authentication steps and redirects
   - Identity Provider detection and configuration
   - MFA method selection and status
   - API token generation and validation
@@ -741,7 +700,7 @@ All session-scoped variables (`HPEGreenLakeSession`, `HPECOMInvokeReturnData`, `
 
 The library offers two complementary ways to connect server iLOs to Compute Ops Management. They are not competing - pick the one that matches your environment:
 
-| | `Connect-HPEGLDeviceComputeiLOtoCOM` | `Connect-HPECOMSecureGatewayDiscoveredServer` *(v1.0.26+)* |
+| | `Connect-HPEGLDeviceComputeiLOtoCOM` | `Connect-HPECOMSecureGatewayDiscoveredServer` *(v1.0.27+)* |
 |---|---|---|
 | **Best for** | Any connection type (direct / web proxy / Secure Gateway), migrations, fine-grained control | Bulk onboarding of every iLO **behind an HPE Secure Gateway** |
 | **Input** | Known iLO IP(s) + credential | Discovery results piped from `Get-HPECOMSecureGatewayServerDiscovery` |
@@ -791,6 +750,69 @@ Get-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.l
 [↑ Back to Top](#hpe-compute-ops-management-powershell-library)
 
 
+## Best Practices & Performance Considerations
+
+### API Rate Limiting
+
+HPE GreenLake APIs implement rate limiting to ensure fair resource allocation and system stability. While most users won't encounter these limits during normal operations, it's important to be aware of them for high-volume scenarios.
+
+**When Rate Limits May Apply:**
+- **Bulk Operations**: Processing hundreds or thousands of resources in rapid succession
+- **Parallel Execution**: Running multiple scripts or PowerShell sessions simultaneously
+- **High-Frequency Automation**: Scheduled tasks running every few minutes
+- **Large-Scale Inventory**: Retrieving detailed information for many servers at once
+
+**Best Practices to Avoid Rate Limiting:**
+
+1. **Retrieve once, reuse the results**: Make one call for the data you need and work with it locally, instead of calling the API repeatedly in a loop.
+   ```powershell
+   # Good: one call, then reuse the result as often as needed
+   $servers = Get-HPECOMServer -Region "eu-central"
+   $dl380   = $servers | Where-Object { $_.hardware.model -like "*DL380*" }
+   $offline = $servers | Where-Object { -not $_.state.connected }
+
+   # Avoid: one API call per server inside a loop
+   foreach ($serial in $serialNumbers) { Get-HPECOMServer -Region "eu-central" -Name $serial }
+   ```
+
+2. **Prefer the cmdlet's own filter parameters**: When a cmdlet offers a filter parameter, use it. The filtering is done by HPE GreenLake, so only the matching resources are returned. Use `Where-Object` for criteria the cmdlet cannot filter on.
+   ```powershell
+   # Preferred: filtered by the API, only matching servers are returned
+   Get-HPECOMServer -Region "eu-central" -Model "ProLiant DL380 Gen10"
+
+   # Works, but every server is retrieved and then filtered locally
+   Get-HPECOMServer -Region "eu-central" | Where-Object { $_.hardware.model -eq "ProLiant DL380 Gen10" }
+   ```
+
+3. **Back off and retry when rate limited**: For large bulk operations, catch rate-limit errors and retry with an increasing delay instead of failing or retrying immediately.
+   ```powershell
+   foreach ($server in $servers) {
+       $attempt = 0
+       do {
+           try {
+               Get-HPECOMServerInventory -Region "eu-central" -Name $server.SerialNumber -ErrorAction Stop
+               break
+           }
+           catch {
+               if ($_.Exception.Message -notmatch '429|Too Many Requests|rate limit' -or $attempt -ge 4) { throw }
+               $attempt++
+               Start-Sleep -Seconds ([math]::Pow(2, $attempt))   # 2, 4, 8, 16 seconds
+           }
+       } while ($true)
+   }
+   ```
+
+4. **Schedule Automation Wisely**: For scheduled scripts, avoid intervals shorter than 5-10 minutes unless necessary
+
+**If You Encounter Rate Limiting:**
+- Error: `429 (Too Many Requests)` or `Rate limit exceeded`
+- Solution: Wait a few minutes before retrying, or use a retry with exponential backoff as shown above
+- The library includes automatic retry logic for some transient errors
+
+> **Note**: Rate limits vary by API endpoint and are subject to change. For specific limits, consult the [Rate limiting](https://developer.greenlake.hpe.com/docs/greenlake/guides/public/rate-limiting/rate-limiting) page on the HPE GreenLake Developer Portal.
+
+[↑ Back to Top](#hpe-compute-ops-management-powershell-library)
+
 ## Support
 
 ### Community Support
@@ -824,7 +846,7 @@ For questions about:
 
 ## Common Issues and Solutions
 
-> **Note on `-PasswordlessSSOEmail`**: As of v1.0.26 the `-SSOEmail` parameter was renamed to `-PasswordlessSSOEmail` to distinguish the fully passwordless flow (push/TOTP) from the new password-based SSO flow (`-Credential`). The original `-SSOEmail` name is retained as a backward-compatible alias, so existing scripts continue to work unchanged.
+> **Note on `-PasswordlessSSOEmail`**: As of v1.0.27 the `-SSOEmail` parameter was renamed to `-PasswordlessSSOEmail` to distinguish the fully passwordless flow (push/TOTP) from the new password-based SSO flow (`-Credential`). The original `-SSOEmail` name is retained as a backward-compatible alias, so existing scripts continue to work unchanged.
 
 ### "Maximum of 7 personal API clients exceeded"
 
@@ -869,7 +891,7 @@ For questions about:
    - Confirm your email domain (e.g., `@company.com`) is listed and claimed (verified)
    
 2. **Verify SSO Configuration**:
-   - Ensure SAML SSO is configured for your workspace
+   - Ensure SSO (SAML or OIDC) is configured for your workspace
    - Navigate to **Manage Workspace → SSO configuration → Authentication policy**
    - Confirm the Identity Provider connection is correct
    - Test SSO authentication in a browser first before using PowerShell
@@ -952,7 +974,7 @@ A single successful-connection event looks like this (all values are examples; n
   "name": "HPECOMCmdlets.Connect",
   "properties": {
     "module_name": "HPECOMCmdlets",
-    "module_version": "1.0.26",
+    "module_version": "1.0.27",
     "ps_version": "7.4.6",
     "ps_host": "ConsoleHost",
     "os_platform": "Win32NT",
@@ -983,7 +1005,7 @@ A rejected sign-in event (`HPECOMCmdlets.ConnectRejected`) carries the same base
 {
   "name": "HPECOMCmdlets.ConnectRejected",
   "properties": {
-    "module_version": "1.0.26",
+    "module_version": "1.0.27",
     "os_platform": "Win32NT",
     "environment": "Production",
     "anon_id": "a1b2c3d4e5f60718",
@@ -1038,8 +1060,7 @@ Please note that the HPE GreenLake APIs are subject to change. Such changes can 
 
 ## Additional Resources
 
-🔗 [PowerShell Gallery](https://www.powershellgallery.com/packages/HPECOMCmdlets)
-
+* [HPECOMCmdlets on PowerShell Gallery](https://www.powershellgallery.com/packages/HPECOMCmdlets)
 * [HPE GreenLake Cloud User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us)
 * [HPE Compute Ops Management User Guide](https://www.hpe.com/info/com-ug)
 * [HPE GreenLake Developer Portal](https://developer.greenlake.hpe.com/)

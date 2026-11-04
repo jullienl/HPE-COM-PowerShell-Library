@@ -2399,8 +2399,14 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
 
     .DESCRIPTION
     This cmdlet triggers a server discovery operation on an HPE Secure Gateway appliance in Compute Ops Management.
-    The discovery runs an nmap network scan from the Secure Gateway across its local subnet to detect HPE iLO devices
-    that are reachable through the gateway but not yet connected to Compute Ops Management.
+    Two discovery modes are supported:
+
+    - Automatic (nmap network scan) - the default. The discovery runs an nmap network scan from the Secure Gateway
+      across its local subnet to detect HPE iLO devices that are reachable through the gateway but not yet connected
+      to Compute Ops Management.
+    - Manual (targeted IP addresses) - used when -IPAddress and/or -IPRange are specified. Only the IP addresses you
+      provide (individual addresses and/or expanded ranges) are probed, instead of scanning the whole subnet. This is
+      faster and more precise than the nmap scan and is useful when you already know the iLO addresses.
 
     Note: Nmap host discovery relies on ICMP and TCP probe packets to identify reachable hosts. In private LR4 networks where 
     ICMP traffic is blocked, host detection might be affected and some reachable systems might not be identified accurately.
@@ -2447,6 +2453,19 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
     Specifies the HPE Secure Gateway appliance on which to run the server discovery.
     This parameter accepts either the name (hostname) of the Secure Gateway as a string, or a Secure Gateway object retrieved from 'Get-HPECOMAppliance -Type SecureGateway'.
 
+    .PARAMETER IPAddress
+    Specifies one or more individual IPv4 addresses to probe (manual discovery mode). When this parameter (or -IPRange) is
+    used, the cmdlet performs a targeted discovery of only the specified addresses instead of an nmap subnet scan.
+
+    Example: -IPAddress '192.168.3.105' or -IPAddress '192.168.3.105','192.168.2.10'
+
+    .PARAMETER IPRange
+    Specifies one or more IPv4 address ranges to probe (manual discovery mode). Each range is expressed as 'startIP-endIP'
+    and is expanded to the full list of addresses it contains. Can be combined with -IPAddress; the resulting set of
+    addresses is de-duplicated. A maximum of 4096 addresses is allowed across all ranges and individual addresses.
+
+    Example: -IPRange '192.168.3.10-192.168.3.20' or -IPRange '192.168.3.10-192.168.3.20','192.168.2.10-192.168.2.14'
+
     .PARAMETER Force
     Bypasses the confirmation prompt warning about the nmap network scan and launches the discovery immediately.
 
@@ -2485,6 +2504,31 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
     Runs an nmap-based server discovery on the Secure Gateway 'sg01.lj.lab' in the 'eu-central' region (after prompting for confirmation) and returns the list of discovered servers.
 
     .EXAMPLE
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -IPAddress '192.168.3.105' -Force
+
+    Runs a manual (targeted) server discovery on the Secure Gateway 'sg01.lj.lab', probing only the single IP address '192.168.3.105' instead of scanning the whole subnet.
+
+    .EXAMPLE
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -IPAddress '192.168.1.56','192.168.1.57' -Force
+
+    Runs a manual server discovery on the Secure Gateway 'sg01.lj.lab', probing the two individual IP addresses '192.168.1.56' and '192.168.1.57'.
+
+    .EXAMPLE
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -IPRange '192.168.3.10-192.168.3.20' -Force
+
+    Runs a manual server discovery on the Secure Gateway 'sg01.lj.lab', probing every address in the range 192.168.3.10-192.168.3.20.
+
+    .EXAMPLE
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -IPRange '192.168.3.10-192.168.3.20','192.168.4.10-192.168.4.20' -Force
+
+    Runs a manual server discovery on the Secure Gateway 'sg01.lj.lab', probing every address in both ranges 192.168.3.10-192.168.3.20 and 192.168.4.10-192.168.4.20.
+
+    .EXAMPLE
+    Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -IPAddress '192.168.1.56','192.168.1.57' -IPRange '192.168.3.10-192.168.3.20' -Force
+
+    Runs a manual server discovery on the Secure Gateway 'sg01.lj.lab', probing the two individual IP addresses and every address in the range 192.168.3.10-192.168.3.20 (duplicates are removed automatically).
+
+    .EXAMPLE
     Get-HPECOMAppliance -Region eu-central -Type SecureGateway -Name "sg01.lj.lab" | Invoke-HPECOMSecureGatewayServerDiscovery -Force
 
     Retrieves the Secure Gateway 'sg01.lj.lab' and runs the server discovery without prompting for confirmation.
@@ -2497,6 +2541,14 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
         Connect-HPEGLDeviceComputeiLOtoCOM -IloCredential $iLO_credential
 
     Discovers servers behind the Secure Gateway 'sg01.lj.lab', filters out any iLO that requires a firmware update first, and onboards the remaining iLOs to Compute Ops Management through the Secure Gateway.
+
+    .EXAMPLE
+    $iLO_credential = Get-Credential
+    $DiscoveredServers = Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -IPRange '192.168.3.10-192.168.3.20' -Force
+    $COM_Activation_Key = New-HPECOMServerActivationKey -Region eu-central -SecureGateway "sg01.lj.lab"
+    $DiscoveredServers | Where-Object iLOUpdateRequired -eq 'No' | Connect-HPEGLDeviceComputeiLOtoCOM -IloCredential $iLO_credential -ActivationKeyfromCOM $COM_Activation_Key -SkipCertificateValidation
+
+    Runs a manual server discovery of the IP range 192.168.3.10-192.168.3.20 on the Secure Gateway 'sg01.lj.lab', generates a Secure Gateway activation key, then onboards to Compute Ops Management every discovered iLO whose firmware already meets the minimum version required to connect.
 
     .EXAMPLE
     Invoke-HPECOMSecureGatewayServerDiscovery -Region eu-central -SecureGateway "sg01.lj.lab" -Force -Async
@@ -2576,6 +2628,37 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
         [Alias('name')]
         [object]$SecureGateway,
 
+        [Parameter (ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                foreach ($_ip in $_) {
+                    $_parsed = $null
+                    if (-not [System.Net.IPAddress]::TryParse($_ip, [ref]$_parsed) -or $_parsed.AddressFamily -ne 'InterNetwork') {
+                        throw "Invalid IPv4 address: '$_ip'. Provide a valid IPv4 address (e.g., '192.168.3.105')."
+                    }
+                }
+                $true
+            })]
+        [String[]]$IPAddress,
+
+        [Parameter (ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                foreach ($_range in $_) {
+                    if ($_range -notmatch '^\s*(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3}(?:\.\d{1,3}){3})\s*$') {
+                        throw "Invalid IP range format: '$_range'. Use 'startIP-endIP' (e.g., '192.168.3.10-192.168.3.20')."
+                    }
+                    $_startParsed = $null
+                    $_endParsed   = $null
+                    if (-not [System.Net.IPAddress]::TryParse($matches[1], [ref]$_startParsed) -or $_startParsed.AddressFamily -ne 'InterNetwork') {
+                        throw "Invalid start IPv4 address in range '$_range'."
+                    }
+                    if (-not [System.Net.IPAddress]::TryParse($matches[2], [ref]$_endParsed) -or $_endParsed.AddressFamily -ne 'InterNetwork') {
+                        throw "Invalid end IPv4 address in range '$_range'."
+                    }
+                }
+                $true
+            })]
+        [String[]]$IPRange,
+
         [Parameter (Mandatory, ParameterSetName = 'Schedule')]
         [ValidateScript({
                 if ($_ -ge (Get-Date) -and $_ -le (Get-Date).AddYears(1)) {
@@ -2653,6 +2736,21 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
             '5' = [version]'3.09'
             '6' = [version]'1.64'
             '7' = [version]'1.12.00'
+        }
+
+        # Maximum number of IP addresses allowed for a manual discovery (safeguard against accidental large ranges)
+        $_ManualIPMaxCount = 4096
+
+        # Helpers to expand an IPv4 range ('startIP-endIP') into the list of addresses it contains
+        function ConvertTo-UInt32IPv4 ([string]$IPv4) {
+            $_bytes = ([System.Net.IPAddress]::Parse($IPv4)).GetAddressBytes()
+            [Array]::Reverse($_bytes)
+            return [System.BitConverter]::ToUInt32($_bytes, 0)
+        }
+        function ConvertFrom-UInt32IPv4 ([uint32]$IPv4Int) {
+            $_bytes = [System.BitConverter]::GetBytes($IPv4Int)
+            [Array]::Reverse($_bytes)
+            return ([System.Net.IPAddress]($_bytes)).ToString()
         }
 
     }
@@ -2742,13 +2840,96 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
 
         "[{0}] Secure Gateway '{1}' resource URI: '{2}' (appliance ID: '{3}')" -f $MyInvocation.InvocationName.ToString().ToUpper(), $SecureGatewayName, $_ApplianceResourceUri, $_ApplianceId | Write-Verbose
 
-        # Warn about the nmap network scan and prompt for confirmation (unless -Force or -WhatIf)
+        # Determine the discovery mode: 'manual' when explicit IP addresses/ranges are supplied, otherwise 'nmapScan'
+        $_IsManual      = [bool]($IPAddress -or $IPRange)
+        $_DiscoveryMode = if ($_IsManual) { "manual" } else { "nmapScan" }
+
+        # For manual discovery, build the flat, de-duplicated list of target IPv4 addresses (expanding any ranges)
+        $_ManualIPs = $null
+        if ($_IsManual) {
+
+            $_ManualIPList = [System.Collections.Generic.List[string]]::new()
+
+            if ($IPAddress) {
+                foreach ($_ip in $IPAddress) {
+                    $_ManualIPList.Add($_ip.Trim())
+                }
+            }
+
+            if ($IPRange) {
+                foreach ($_range in $IPRange) {
+                    $null = $_range -match '^\s*(\d{1,3}(?:\.\d{1,3}){3})\s*-\s*(\d{1,3}(?:\.\d{1,3}){3})\s*$'
+                    $_startIP  = $matches[1]
+                    $_endIP    = $matches[2]
+                    $_startInt = ConvertTo-UInt32IPv4 $_startIP
+                    $_endInt   = ConvertTo-UInt32IPv4 $_endIP
+
+                    if ($_endInt -lt $_startInt) {
+                        $ErrorMessage = "Invalid IP range '{0}': the end address must be greater than or equal to the start address." -f $_range
+                        if ($WhatIf) {
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                            return
+                        }
+                        $Exception = New-Object System.Exception($ErrorMessage)
+                        $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'InvalidIPRange', [System.Management.Automation.ErrorCategory]::InvalidArgument, $_range)
+                        $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+                    }
+
+                    for ($_i = $_startInt; $_i -le $_endInt; $_i++) {
+                        $_ManualIPList.Add((ConvertFrom-UInt32IPv4 $_i))
+                        # Guard against unsigned overflow when the range ends at 255.255.255.255
+                        if ($_i -eq [uint32]::MaxValue) { break }
+                    }
+                }
+            }
+
+            # De-duplicate while preserving order
+            $_ManualIPs = [System.Collections.Generic.List[string]]::new()
+            $_seenIPs   = [System.Collections.Generic.HashSet[string]]::new()
+            foreach ($_ip in $_ManualIPList) {
+                if ($_seenIPs.Add($_ip)) {
+                    $_ManualIPs.Add($_ip)
+                }
+            }
+
+            "[{0}] Manual discovery: {1} target IP address(es) resolved" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ManualIPs.Count | Write-Verbose
+
+            if ($_ManualIPs.Count -eq 0) {
+                $ErrorMessage = "Manual discovery requires at least one valid IP address. No target IP addresses were resolved from -IPAddress / -IPRange."
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                $Exception = New-Object System.Exception($ErrorMessage)
+                $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'NoManualIPs', [System.Management.Automation.ErrorCategory]::InvalidArgument, $SecureGatewayName)
+                $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+            }
+
+            if ($_ManualIPs.Count -gt $_ManualIPMaxCount) {
+                $ErrorMessage = "Manual discovery resolved {0} IP addresses, which exceeds the maximum of {1}. Reduce the size or number of ranges specified with -IPRange." -f $_ManualIPs.Count, $_ManualIPMaxCount
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    return
+                }
+                $Exception = New-Object System.Exception($ErrorMessage)
+                $ErrorRecord = New-Object System.Management.Automation.ErrorRecord($Exception, 'TooManyManualIPs', [System.Management.Automation.ErrorCategory]::InvalidArgument, $SecureGatewayName)
+                $PSCmdlet.ThrowTerminatingError($ErrorRecord)
+            }
+        }
+
+        # Warn about the network scan and prompt for confirmation (unless -Force or -WhatIf)
         if (-not $Force -and -not $WhatIf) {
 
-            Write-Warning ("Server discovery on Secure Gateway '{0}' runs an active nmap network scan across the appliance's local subnet to detect HPE iLO devices. This scan may trigger intrusion detection/prevention systems (IDS/IPS) or security monitoring alerts, and may be subject to your organization's network scanning authorization policy. Depending on the size of the subnet, the scan can take a long time to complete (from several minutes to much longer for large subnets). Ensure you are authorized to scan this network before proceeding." -f $SecureGatewayName)
+            if ($_IsManual) {
+                Write-Warning ("Server discovery on Secure Gateway '{0}' will probe {1} specified IP address(es) to detect HPE iLO devices. This probe may trigger intrusion detection/prevention systems (IDS/IPS) or security monitoring alerts, and may be subject to your organization's network scanning authorization policy. Ensure you are authorized to scan these addresses before proceeding." -f $SecureGatewayName, $_ManualIPs.Count)
+                $question = "Do you want to start the manual server discovery on Secure Gateway '$SecureGatewayName' in the '$Region' region?"
+            }
+            else {
+                Write-Warning ("Server discovery on Secure Gateway '{0}' runs an active nmap network scan across the appliance's local subnet to detect HPE iLO devices. This scan may trigger intrusion detection/prevention systems (IDS/IPS) or security monitoring alerts, and may be subject to your organization's network scanning authorization policy. Depending on the size of the subnet, the scan can take a long time to complete (from several minutes to much longer for large subnets). Ensure you are authorized to scan this network before proceeding." -f $SecureGatewayName)
+                $question = "Do you want to start the nmap-based server discovery on Secure Gateway '$SecureGatewayName' in the '$Region' region?"
+            }
 
-            $question = "Do you want to start the nmap-based server discovery on Secure Gateway '$SecureGatewayName' in the '$Region' region?"
-            $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Start the server discovery (runs an nmap scan from the Secure Gateway)."
+            $yes = New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Start the server discovery."
             $no  = New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Cancel the server discovery."
             $choices = [System.Management.Automation.Host.ChoiceDescription[]]($yes, $no)
             $decision = $Host.UI.PromptForChoice("Confirm Secure Gateway server discovery", $question, $choices, 1)
@@ -2766,12 +2947,17 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
 
             $Uri = Get-COMSchedulesUri
 
+            $_Data = @{
+                discoveryMode = $_DiscoveryMode
+            }
+            if ($_IsManual) {
+                $_Data.ips = @($_ManualIPs)
+            }
+
             $_Body = @{
                 jobTemplateUri = "/api/compute/v1/job-templates/" + $JobTemplateId
                 resourceUri    = $_ApplianceResourceUri
-                data           = @{
-                    discoveryMode = "nmapScan"
-                }
+                data           = $_Data
             }
 
             $Operation = @{
@@ -2783,7 +2969,12 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
 
             $randomNumber = Get-Random -Minimum 000000 -Maximum 999999
             $ScheduleName = "$($SecureGatewayName)_SecureGatewayServerDiscovery_Schedule_$($randomNumber)"
-            $Description  = "Scheduled task to run nmap-based server discovery on Secure Gateway '$($SecureGatewayName)'"
+            $Description  = if ($_IsManual) {
+                "Scheduled task to run manual server discovery on Secure Gateway '$($SecureGatewayName)'"
+            }
+            else {
+                "Scheduled task to run nmap-based server discovery on Secure Gateway '$($SecureGatewayName)'"
+            }
 
             if ($Interval) {
                 $Schedule = @{
@@ -2810,13 +3001,18 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
 
             $Uri = $JobsUri
 
+            $_JobParams = @{
+                discoveryMode = $_DiscoveryMode
+            }
+            if ($_IsManual) {
+                $_JobParams.ips = @($_ManualIPs)
+            }
+
             $payload = @{
                 jobTemplate  = $JobTemplateId
                 resourceId   = $_ApplianceDeviceId
                 resourceType = "compute-ops-mgmt/appliance"
-                jobParams    = @{
-                    discoveryMode = "nmapScan"
-                }
+                jobParams    = $_JobParams
             }
         }
 
@@ -2871,8 +3067,17 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
             $PSCmdlet.ThrowTerminatingError($ErrorRecord)
         }
 
-        # Retrieve the list of discovered servers
-        $DiscoveredServersUri = "{0}?hide=false&externalManager=None&onboarding=false&applianceID={1}&method=nmapScan" -f (Get-COMDiscoveredServersUri), $_ApplianceId
+        # Retrieve the list of discovered servers.
+        # Note: the discovered-servers list endpoint requires a 'method' filter that must match the discovery mode used
+        # ('nmapScan' or 'manual'). For manual discovery the endpoint only returns results when queried with just the
+        # 'applianceID' and 'method=manual' parameters - adding the nmap-style filters (hide / externalManager /
+        # onboarding) causes an empty result set - so each mode uses its own query string.
+        if ($_IsManual) {
+            $DiscoveredServersUri = "{0}?applianceID={1}&method=manual" -f (Get-COMDiscoveredServersUri), $_ApplianceId
+        }
+        else {
+            $DiscoveredServersUri = "{0}?hide=false&externalManager=None&onboarding=false&applianceID={1}&method=nmapScan" -f (Get-COMDiscoveredServersUri), $_ApplianceId
+        }
 
         try {
             [Array]$DiscoveredServers = Invoke-HPECOMWebRequest -Method Get -Uri $DiscoveredServersUri -Region $Region -WhatIfBoolean $false -Verbose:$VerbosePreference
@@ -2883,7 +3088,19 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
 
         "[{0}] Discovered {1} server(s) on Secure Gateway '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $DiscoveredServers.Count, $SecureGatewayName | Write-Verbose
 
+        # Collect addresses the Secure Gateway could not discover (marked with a non-empty 'error' field, e.g. 'SG-DIS-00001')
+        $_FailedServers = [System.Collections.Generic.List[string]]::new()
+
         foreach ($_server in $DiscoveredServers) {
+
+            # A non-empty 'error' field means the Secure Gateway failed to discover/reach this address - skip it and report it separately
+            if ($_server.error) {
+                "[{0}] Discovery failed for IP '{1}' on Secure Gateway '{2}' (error code: '{3}')" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_server.ip, $SecureGatewayName, $_server.error | Write-Verbose
+                if ($_server.ip) {
+                    $_FailedServers.Add($_server.ip)
+                }
+                continue
+            }
 
             # Determine the iLO generation number from the 'ilo' field (e.g. 'iLO 6' -> 6)
             $_genNumber = $null
@@ -2919,6 +3136,12 @@ Function Invoke-HPECOMSecureGatewayServerDiscovery {
             }
 
             [void]$DiscoveredList.Add($objDiscovered)
+        }
+
+        # Warn about any addresses the Secure Gateway failed to discover (matches the HPE GreenLake console behavior)
+        if ($_FailedServers.Count -gt 0) {
+            $_failedIPList = $_FailedServers -join ', '
+            Write-Warning ("{0} server(s) failed to be added for onboarding on Secure Gateway '{1}': {2}. Verify the specified IPv4 address(es) are reachable HPE iLO devices behind the Secure Gateway and try again." -f $_FailedServers.Count, $SecureGatewayName, $_failedIPList)
         }
 
     }
@@ -3797,246 +4020,230 @@ Function Connect-HPECOMSecureGatewayDiscoveredServer {
 Export-ModuleMember -Function 'Get-HPECOMAppliance', 'Restart-HPECOMAppliance', 'Invoke-HPECOMApplianceRefreshSettings', 'Invoke-HPECOMSecureGatewayServerDiscovery', 'Get-HPECOMSecureGatewayServerDiscovery', 'Connect-HPECOMSecureGatewayDiscoveredServer', 'New-HPECOMAppliance', 'Remove-HPECOMAppliance', 'Get-HPECOMApplianceFirmwareBundle', 'Get-HPECOMOneViewServerProfileTemplate' -Alias *
 
 # SIG # Begin signature block
-# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIqPwYJKoZIhvcNAQcCoIIqMDCCKiwCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDjCV1cMS5V3Anj
-# jlD5iyoSxOgnYKNJBgbIa1gj9lFqP6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
-# jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
-# DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
-# EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
-# dmljZXMwHhcNMjEwNTI1MDAwMDAwWhcNMjgxMjMxMjM1OTU5WjBWMQswCQYDVQQG
-# EwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS0wKwYDVQQDEyRTZWN0aWdv
-# IFB1YmxpYyBDb2RlIFNpZ25pbmcgUm9vdCBSNDYwggIiMA0GCSqGSIb3DQEBAQUA
-# A4ICDwAwggIKAoICAQCN55QSIgQkdC7/FiMCkoq2rjaFrEfUI5ErPtx94jGgUW+s
-# hJHjUoq14pbe0IdjJImK/+8Skzt9u7aKvb0Ffyeba2XTpQxpsbxJOZrxbW6q5KCD
-# J9qaDStQ6Utbs7hkNqR+Sj2pcaths3OzPAsM79szV+W+NDfjlxtd/R8SPYIDdub7
-# P2bSlDFp+m2zNKzBenjcklDyZMeqLQSrw2rq4C+np9xu1+j/2iGrQL+57g2extme
-# me/G3h+pDHazJyCh1rr9gOcB0u/rgimVcI3/uxXP/tEPNqIuTzKQdEZrRzUTdwUz
-# T2MuuC3hv2WnBGsY2HH6zAjybYmZELGt2z4s5KoYsMYHAXVn3m3pY2MeNn9pib6q
-# RT5uWl+PoVvLnTCGMOgDs0DGDQ84zWeoU4j6uDBl+m/H5x2xg3RpPqzEaDux5mcz
-# mrYI4IAFSEDu9oJkRqj1c7AGlfJsZZ+/VVscnFcax3hGfHCqlBuCF6yH6bbJDoEc
-# QNYWFyn8XJwYK+pF9e+91WdPKF4F7pBMeufG9ND8+s0+MkYTIDaKBOq3qgdGnA2T
-# OglmmVhcKaO5DKYwODzQRjY1fJy67sPV+Qp2+n4FG0DKkjXp1XrRtX8ArqmQqsV/
-# AZwQsRb8zG4Y3G9i/qZQp7h7uJ0VP/4gDHXIIloTlRmQAOka1cKG8eOO7F/05QID
-# AQABo4IBEjCCAQ4wHwYDVR0jBBgwFoAUoBEKIz6W8Qfs4q8p74Klf9AwpLQwHQYD
-# VR0OBBYEFDLrkpr/NZZILyhAQnAgNpFcF4XmMA4GA1UdDwEB/wQEAwIBhjAPBgNV
-# HRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMDMBsGA1UdIAQUMBIwBgYE
-# VR0gADAIBgZngQwBBAEwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybC5jb21v
-# ZG9jYS5jb20vQUFBQ2VydGlmaWNhdGVTZXJ2aWNlcy5jcmwwNAYIKwYBBQUHAQEE
-# KDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5jb21vZG9jYS5jb20wDQYJKoZI
-# hvcNAQEMBQADggEBABK/oe+LdJqYRLhpRrWrJAoMpIpnuDqBv0WKfVIHqI0fTiGF
-# OaNrXi0ghr8QuK55O1PNtPvYRL4G2VxjZ9RAFodEhnIq1jIV9RKDwvnhXRFAZ/ZC
-# J3LFI+ICOBpMIOLbAffNRk8monxmwFE2tokCVMf8WPtsAO7+mKYulaEMUykfb9gZ
-# pk+e96wJ6l2CxouvgKe9gUhShDHaMuwV5KZMPWw5c9QLhTkg4IUaaOGnSDip0TYl
-# d8GNGRbFiExmfS9jzpjoad+sPKhdnckcW67Y8y90z7h+9teDnRGWYpquRRPaf9xH
-# +9/DUp/mBlXpnYzyOmJRvOwkDynUWICE5EV7WtgwggYaMIIEAqADAgECAhBiHW0M
-# UgGeO5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYD
-# VQQKEw9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENv
-# ZGUgU2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5
-# NTlaMFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzAp
-# BgNVBAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0G
-# CSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjI
-# ztNsfvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NV
-# DgFigOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/3
-# 6F09fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05Zw
-# mRmTnAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm
-# +qxp4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUe
-# dyz8rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz4
-# 4MPZ1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBM
-# dlyh2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQY
-# MBaAFDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritU
-# pimqF6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNV
-# HSUEDDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsG
-# A1UdHwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1
-# YmxpY0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsG
-# AQUFBzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2Rl
-# U2lnbmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0
-# aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURh
-# w1aVcdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0Zd
-# OaWTsyNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajj
-# cw5+w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNc
-# WbWDRF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalO
-# hOfCipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJs
-# zkyeiaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z7
-# 6mKnzAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5J
-# KdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHH
-# j95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2
-# Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/
-# L9Uo2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkq
-# hkiG9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1p
-# dGVkMSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2
-# MB4XDTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMx
-# DjAMBgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJw
-# cmlzZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
-# ZSBDb21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qw
-# cmuCQyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyu
-# cpC7tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ip
-# z4+uJGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4Edtvu
-# muGI4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28Flg
-# kSt9f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOy
-# ecaVpJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3p
-# eg1ku0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7
-# XOBa5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJd
-# isrV7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXR
-# dJNADjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtR
-# u0aQcdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQY
-# MBaAFA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vm
-# oYtOnZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAK
-# BggrBgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUF
-# BwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIw
-# QDA+oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29k
-# ZVNpZ25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjho
-# dHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NB
-# UjM2LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJ
-# KoZIhvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs86
-# 5wyoO3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU
-# 9e6+TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH
-# 6GOfU6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGa
-# ei8nSr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/u
-# CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
-# v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
-# VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
-# BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
-# Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
-# BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
-# NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQguFYdMeCKtNclwnjhzWvKAblcwWGHtnWBAXYzXmqnR2UwDQYJKoZIhvcNAQEB
-# BQAEggIABfsiVl/Xh/X+g6M2zZpn4xGnHJKBi0FWzZZkcQUMXGgVvs2ErK33gygA
-# YL/seTsbjl8VNPBbq3luuc5qK/iDyIIOI6sIwvtAl484eipVw7YAecT/XayTBRZM
-# 74p6GUrjHR3kymu88S6kzcTSJ2vd2Et5H6VSB1w8170EkzOknBjxDGIeRGegtekC
-# ViyzDAM7/RH8v3xeYDf+uc0j8jnpo2eVi4N+JezGk/Y4hKuE4jbdIUfzbeIzCwRK
-# M0EmeQ9s3z2VZd9DBoxd3mS4yoxGCexXkXxJv6mG7WBDEfYkdda9INa1v+xgUeru
-# R83SSvhiA8v+W1vpEuiHDNNx1NUKlUB3PE2aLe3uTg6GXE4fYEgDs2LZ1OOOlotW
-# EGRvSEXd+msyM7O1e2uuij5nVkdSBVnQHQ+ndfFSXkvAXfRONYpIYrLhG+GaKbDs
-# MwWAah+nyZ+sl0Fjvjbcwnw3K4ifnqQMAyVj0zN3yduaL92aMXuiOnWkgWS483B6
-# 7c2P771xcDDCmtYLYGRBIK6hdpCzGXMGLrNmuVyhe2XrO/FI7gv+AgWWxh3qqNIi
-# t58Pe/FG/JPodiySTEiyIluPw41XKHwDY4UkX7/N1iv2PUpdjEAYbpkoVPu2+8a8
-# bgEyfQsz7Oi6jKkKMsBdLlT+mBbAdzOs5rsGiCIfYPM+yHAK0CihgheYMIIXlAYK
-# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMB1FT+XJn/zzAG4n80FhV1B96fgwZIj9h+GL2u/901cc
-# 6jxAM5ZHb4wZ6JG7EoXWiQIRAJUDkKuLwEjJMODbk23I7pgYDzIwMjYwNjI2MTM0
-# MjU2WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
-# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
-# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
-# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
-# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
-# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
-# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
-# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
-# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
-# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
-# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
-# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
-# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
-# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
-# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
-# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
-# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
-# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
-# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
-# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
-# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
-# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
-# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
-# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
-# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
-# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
-# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
-# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
-# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
-# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
-# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
-# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
-# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
-# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
-# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
-# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
-# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
-# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
-# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
-# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
-# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
-# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
-# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
-# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
-# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
-# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
-# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
-# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
-# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
-# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
-# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
-# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
-# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
-# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
-# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
-# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
-# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
-# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
-# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
-# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
-# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
-# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
-# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
-# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
-# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
-# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
-# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
-# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
-# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
-# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
-# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
-# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
-# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
-# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
-# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
-# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
-# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
-# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
-# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
-# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
-# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
-# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
-# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
-# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
-# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
-# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
-# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
-# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
-# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
-# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
-# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
-# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
-# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
-# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
-# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
-# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
-# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
-# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
-# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
-# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
-# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDYy
-# NjEzNDI1NlowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
-# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMFKQJwIM8IedBZI9/aaw4oRI
-# m6ppfZzhThJ2c4I5XVv3Yh/RGKZX6y+Vlg7Q9tV0/zANBgkqhkiG9w0BAQEFAASC
-# AgAu5izleE1NxnIGrSGfhlCs1ejcAhKgj1Cf47kzJX9uY+bMmk/vy+nhTQVS2vpc
-# hxAPmLRfdisOVL8eDS56WC8mH8eOp9IapuiCwjd6X0PPr6NlryUG/zHGNb4KZNsI
-# tB14wpKMdMLxfj5NPz78fFnvNcJ9r7hGlaGTyGUzpewHcIs59D3H1DrtaJCA17Zl
-# KyLaP48CgWX3KVeH0OZrhm7SnVUmZIBpGNHgcLo4jqkZtvwO+8aSMIsHrBLRijVr
-# C5/lHOkPS5IGxvHiqIlyZWOA/FbCdDjuqBhykfsCRppdqNG/ENCHI5eYzHNTX2DL
-# k/b2I8yCYqaXA3Neyu09xFF3mDNjRNt8ydlGqld0Yt7zMHxjoXDU23DQnWTiy/qE
-# Xk3uoilymyTaXX5gQXziLQOzM4zB7Y57rzkx7bxgqfLXEN5iKubSXbLpa/pdf9Vg
-# oKJ5+40TGgskPoPuJr4dBhyjkyicEfMbPnUYI95MrgXg72nkdWnU2rU17+4UuZbx
-# VpjZBv5nfwqvWG2dob6TY5fwUraqz95CQQHBFBAjqqw9ihCQ5zYi6NhbQosMKHJR
-# V8QS1NQmh3ZbS0qwFv+Y636nDNvAqrf/msH1wif/npM9BxkWcxv0lTNXufvaKsgs
-# DSEPWeFFgNlWrhDjY23Pa4PZdY5gG6Q6roYaFl9VMhSjag==
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCj82m5lNey2VuT
+# JAd7+rrPybCGB1Ll4i+7RL9AxdasmqCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
+# O5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYDVQQK
+# Ew9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENvZGUg
+# U2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTla
+# MFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNV
+# BAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0GCSqG
+# SIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjIztNs
+# fvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NVDgFi
+# gOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/36F09
+# fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05ZwmRmT
+# nAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm+qxp
+# 4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUedyz8
+# rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz44MPZ
+# 1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBMdlyh
+# 2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQYMBaA
+# FDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritUpimq
+# F6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUE
+# DDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsGA1Ud
+# HwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1Ymxp
+# Y0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsGAQUF
+# BzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2ln
+# bmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0aWdv
+# LmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURhw1aV
+# cdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0ZdOaWT
+# syNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajjcw5+
+# w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNcWbWD
+# RF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalOhOfC
+# ipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJszkye
+# iaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z76mKn
+# zAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGv
+# spbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHHj95E
+# jza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2Bev6
+# SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/L9Uo
+# 2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkqhkiG
+# 9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVk
+# MSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2MB4X
+# DTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMxDjAM
+# BgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
+# ZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlzZSBD
+# b21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qwcmuC
+# QyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyucpC7
+# tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ipz4+u
+# JGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4EdtvumuGI
+# 4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28FlgkSt9
+# f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOyecaV
+# pJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3peg1k
+# u0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7XOBa
+# 5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJdisrV
+# 7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXRdJNA
+# DjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtRu0aQ
+# cdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQYMBaA
+# FA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vmoYtO
+# nZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAKBggr
+# BgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUFBwIB
+# FhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIwQDA+
+# oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29kZVNp
+# Z25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjhodHRw
+# Oi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NBUjM2
+# LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZI
+# hvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs865wyo
+# O3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU9e6+
+# TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH6GOf
+# U6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGaei8n
+# Sr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/uCIaQ
+# v5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xEv65B
+# oUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAyaVpbA
+# Ytaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPjnZ+o
+# A+rbZZyGZkz3xbUYKTGCHRIwgh0OAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMgQ29k
+# ZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUDBAIB
+# BQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGCNwIB
+# BDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQg
+# WcvmUAb0Cm0D5VHoRoaAg4r92r0hr5njA+B7ENA4TqkwDQYJKoZIhvcNAQEBBQAE
+# ggIAO52qBmerRY0NTIslAMP1a3BUfK7OreLV7CMRZwJxOi8tGEOd2h6xeVXuHVjM
+# wsg65YPBbUS1ji5GiFm/74+yuX+/HgXXdjxbnxcC+8dfnSGm3Xk2w2crXdX6uo//
+# WZAA5zkZYgXe8sF369X0WQA5A41SIFNqpJptu/WrHjwnqRsitCnCuY6kl8E26gir
+# o03Urt3kHcGcLUF3WmkuQqNAH5xl5eveUEeyJbAWG/ttVb68XQRXH4YwDpn+IY72
+# oYvnnmLIWAAscqCxmxZZnzPJEYFzuKlt6DcwxE+GciMtcEeJfVPFlH0d7zJ0+lpa
+# lRshWhczj33/N4p1ilvbFvPwHHLkFoyOssWwf2IbQxfrZ/5J+CXqQh3WzSc0CPdS
+# st3w9SLUxvo2aKwrZxyT5o3xSmobUSHX16x5koeixsv9GXi8J0N+b4c+QQWG3UHI
+# 1XT5C6SJLmEym3REX+jZ5C0pg9KCcq2GK+7nvcQvyTccuKtBKE/EEobbJP9eSCGK
+# 6phWlGxWRfmNpOXvTQnqKRKyXr4+ir36SnrcwopSRaKJ4yz9G2XZh04MzHm/waNF
+# iaO1AYsgq1Z3HhslpTxq0oR4vYCkFHGbGoitSyiJ0N687wf6uCoiZ8jzkPplWMoB
+# VpFUjCOa014JG8Qjwpoi+Dg4wRDhQ5Q88Y4w63aWCLy8wZihghn8MIIZ+AYKKwYB
+# BAGCNwMDATGCGegwghnkBgkqhkiG9w0BBwKgghnVMIIZ0QIBAzEPMA0GCWCGSAFl
+# AwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjECAQEw
+# QTANBglghkgBZQMEAgIFAAQwxRaaBqh2hE8Lid+V9QbOjojgW6W2O04YVwPPCuQm
+# LmSTrONR9w0pgoV9BKdWXO27AhQJoE1gYWMRj8kPC/6yqmo75HTAwhgPMjAyNjEx
+# MDQwODE5MzRaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOR3JlYXRlciBM
+# b25kb24xGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2VjdGln
+# byBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM3oIIUFzCCBuIwggTKoAMC
+# AQICEQDnTvJVsFBP+tum3/f8i6MVMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNVBAYT
+# AkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28g
+# UHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQxMB4XDTI2MDMyNTAwMDAwMFoXDTM3
+# MDYyNDIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0ZXIgTG9u
+# ZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3RpZ28g
+# UHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNzCCAiIwDQYJKoZIhvcNAQEB
+# BQADggIPADCCAgoCggIBALL/w21L3FDZRS0FEXfZuPtUrefibnRSqOT/NNyJLOJh
+# XjQfUspqHT+gSSVgbjYThUI/cO+wFQHoOakKQNnSMKdkE8gR69ofXlkk5DAVY/Zl
+# evliOUmlvrw2Vuz4SU28rHfb/Vgd17eqpRIvJuO6XE8vPpPzn4c4iorszUF6nwuy
+# nKEQ/+rqfDmQbFNKsa+5+Z4f4kXwKdUFxUwUDjQWUhiHRwMlUWGF9N91aAvL+9a4
+# sxCgqR/ez8W8HJ/XqvSu1vIeb+J6bDFKKgkv3PJkMMpQ0BsdeXR2FejZXFRXY1w9
+# dZe6gqyMv7px+TpWbYMefECUV0WxoEMgXUk6RKcLo94uUHOdmfZu4Xe8ghglyro3
+# /N4VEKTj8dcPPvOBGxFEx1QH6uHKTkWhloGPDScurcZnd8KUtTHl6zmlQDHM04Mw
+# GfsmQViKnYEAYE8RHl5XRE6GTq0ZMb59SIyJX6+CODVic/kW+dhbIS1Z5AP8HaGn
+# e/PRG+12QzSneKDJp3Ot+k4GrmmlWT9iy6FNCQ/32K+d4cAZ+Ll7uWbEn6Z6gE+t
+# Eu7MyZvzWvPNsRKMkcyyflFW1zpRyzutwypALXc9Qg7sFsYERNXa58KZXqU9Onc/
+# tck6+adQJFM9tW8xOnE//P5I4eDj84IGGKqzgUD37ihC+WST3DfY0YBKWL0Zaubn
+# AgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBQ6dKUMZ8ZCUML9tfzHuyk0gvR6uTAd
+# BgNVHQ4EFgQUYRDpehKvUcSF1PLPpHQPUM0gr/gwDgYDVR0PAQH/BAQDAgbAMAwG
+# A1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMwQTAI
+# BgZngQwBBAIwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8v
+# c2VjdGlnby5jb20vQ1BTMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwuc2Vj
+# dGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjQxLmNybDB6Bggr
+# BgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5jb20v
+# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjQxLmNydDAjBggrBgEFBQcwAYYX
+# aHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggIBAAPqPY3R
+# rM36GXqTpsoHn9TpW5I6z3dkFvc9zPL1W0Egq7j3jtnkbAvRoWeAjGX4ZK4sWsmA
+# +u4EJG8okQmybuS/4tDUI5UIQb21n4hG2vihxShrneWB0VoQ2VLQ3jCCRmRtAQ+/
+# 7H7WVKNiH5Pgl4v2ZTOdPsStzpKnl1YuRrmww/+bcZmLqgk909ywIpZqAfubYfbE
+# MYjIckLk90f2mG+L8qaGSS2JJVM02pV5XltZ1fbOFETpRN/PQhwygIv33qUUjJ1f
+# E4ITgw0McMzRqziWdOJP8ocxxw7qXxz1OdRWCalyL1qvUgAFnZTVdSRiMYZKf0wL
+# cQcM/1Xf1W4FW9nff8ERX8RZJGt/TtPuMWmUpf6BCv9Q6o8YyUTtknvZRpSQ0nLt
+# tWXdtwsrN2mMgfMuR//gxVrVXvDzCoK/lbiA6dEZOW53lQwBFtEzwE/FH8Jdhegy
+# Yg4PymZOTZrGBEvgsbxe25yEhJ0IdGa1pwCYsarldJhJVMdNcAOU7jyIMqHcczav
+# 3wtIXp/SwbXZ3xX0mfsLfANSJ47G4qPgx1atb6GIlTaQXzu/p4fTQeAIUVzZXT4K
+# 984IyfuO7NLjWMtog1wGUpZD98pv+4Mt9Y5bvfPUjaUVjtePy1DVdi0rl5ESNYi0
+# zyOmXVxtA5zzxu1H7RdLZOZugT/XjX69rY9bMIIGpzCCBI+gAwIBAgIRAJCsCHIg
+# /cWnxGtcxw33PQYwDQYJKoZIhvcNAQEMBQAwVzELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGlt
+# ZSBTdGFtcGluZyBSb290IFI0NjAeFw0yNjAzMjUwMDAwMDBaFw00MTAzMjQyMzU5
+# NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAq
+# BgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQxMIICIjAN
+# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAruRKogGtghxi+WYtW5oDzPDVF8GG
+# SfgbUKh6bONxi0wvrI1S8qbAYfvLr/ky5ILVRg//70pgNKq8xC3/WEQodjEwAP2h
+# mkGShoNAUQps4kd6Wwp74Fo7RlwQ1Mp949ytpWQDvCsYBbZccDmBAJC/ggqiuL/c
+# 805fGcMw6TzIgyBWuUx5PGp9YnheSNPXFzaz0MPtREdZYk4WhtM+hazqasMWVpj0
+# WUAcNhN9vO/FAdWy9Gafdb7lmYLDKTTYjwqAY9P9RfixPPjUaJH6mnBSNBdrX7a0
+# Qdlux0ApS0fc48RW1m+W3tq3HiHzch1FHyhiLzCNjc6MUpcV5xalBvPOw/FtQo/A
+# xaJOvPCSsVrx0f/WkMpEm3fvVbrY9+oo9rIKv9ducE6VGfwIAtKYedG0bO4Ba1Mm
+# lxPcErDqjLwggvrBJu73fwXpkhtE0hzV0psgm2vhQs3pHll9N00SHBdy2qndEcNu
+# Dh+46XouM2hoXCO533YQQOHPEUnMTWOo3hyxx5kjDE5PVqp+x+HS4VAT+WBMG4Gz
+# eLr9YvZbU5x5YvLdcR1dErV/QRYK55rp019fZFF2NR+TkSW0WcmQ3b5taGcrXg49
+# EpzKM6/mEpnSJXg1E13X6GO29rWs/LNvkGzsS8XGoRCGBls6ruofeebSsHADR3Ge
+# IE5gIU927bjokLECAwEAAaOCAW4wggFqMB8GA1UdIwQYMBaAFPZ3at0//QET/xah
+# bIICL9AKPRQlMB0GA1UdDgQWBBQ6dKUMZ8ZCUML9tfzHuyk0gvR6uTAOBgNVHQ8B
+# Af8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUEDDAKBggrBgEFBQcD
+# CDAjBgNVHSAEHDAaMAgGBmeBDAEEAjAOBgwrBgEEAbIxAQIBAwgwTAYDVR0fBEUw
+# QzBBoD+gPYY7aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGlt
+# ZVN0YW1waW5nUm9vdFI0Ni5jcmwwfAYIKwYBBQUHAQEEcDBuMEcGCCsGAQUFBzAC
+# hjtodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBp
+# bmdSb290UjQ2LnA3YzAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5j
+# b20wDQYJKoZIhvcNAQEMBQADggIBADLeUkdm8Z4DZvjfKHOhqu+hsdXNt+X5F+48
+# PB6PTAJCRgA3qxxO3YbAV7baps4K/+2WWoWUspBkT4T2NXK49NvJAfCsztHSgtqk
+# AQMLX4KjCypJF/+m2Ktrk993g+gcgKdv1yg9C3JmYdJCnnL0ga+pZ/Wo1+rtXZ8d
+# nwO8RCstTN6gYX0ElFi7Y7NpxbdBC1S6bc05V/SA9HC/ojj33W6GdwnpU/iVylSk
+# dkoHtHeGIhQLT2ZH0qPM9Wdce8v2fZsDCJQQJ8rll7OGLDbsXa2CLf0MRN9Twzif
+# Q3rEuAXOx/TkzkZRFfwL34hf1XqSmaYq2tTMy2LgsPrqC2Z/6ZKb3fgrzU0vphB4
+# wSTWulitY/KlxbvoyKvrBvUCCx4sgeqf8aR65CbvM5MN/d/lahfXipU2NlY0cXcn
+# GS61XpmeGKd8It92/lufApZR9x6o5qMJWe0jq4JsfGMGDpIKx7FzkB8gaejuBUW/
+# CJ9Phc40+xJRonvVewn4S9yJVRWeM47irGbR9YlN3xruM/yZzhk+rAm9AW06nv7o
+# b6RQkAXR+cTxiAPy620FF41NrViYB4UyKpzfx7x8jh4ubTOMz954YIdqyeiqqtsb
+# BwXjWLP0dfMUPA3iIPnPdBKGnodGJTdSlPAMmKJdyvTPqmOXs/LMnf+2Za0Z6FXs
+# IB9z9aXLMIIGgjCCBGqgAwIBAgIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0B
+# AQwFADCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNV
+# BAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsx
+# LjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkw
+# HhcNMjEwMzIyMDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBXMQswCQYDVQQGEwJHQjEY
+# MBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1Ymxp
+# YyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2MIICIjANBgkqhkiG9w0BAQEFAAOCAg8A
+# MIICCgKCAgEAiJ3YuUVnnR3d6LkmgZpUVMB8SQWbzFoVD9mUEES0QUCBdxSZqdTk
+# dizICFNeINCSJS+lV1ipnW5ihkQyC0cRLWXUJzodqpnMRs46npiJPHrfLBOifjfh
+# pdXJ2aHHsPHggGsCi7uE0awqKggE/LkYw3sqaBia67h/3awoqNvGqiFRJ+OTWYmU
+# CO2GAXsePHi+/JUNAax3kpqstbl3vcTdOGhtKShvZIvjwulRH87rbukNyHGWX5tN
+# K/WABKf+Gnoi4cmisS7oSimgHUI0Wn/4elNd40BFdSZ1EwpuddZ+Wr7+Dfo0lcHf
+# lm/FDDrOJ3rWqauUP8hsokDoI7D/yUVI9DAE/WK3Jl3C4LKwIpn1mNzMyptRwsXK
+# rop06m7NUNHdlTDEMovXAIDGAvYynPt5lutv8lZeI5w3MOlCybAZDpK3Dy1MKo+6
+# aEtE9vtiTMzz/o2dYfdP0KWZwZIXbYsTIlg1YIetCpi5s14qiXOpRsKqFKqav9R1
+# R5vj3NgevsAsvxsAnI8Oa5s2oy25qhsoBIGo/zi6GpxFj+mOdh35Xn91y72J4RGO
+# JEoqzEIbW3q0b2iPuWLA911cRxgY5SJYubvjay3nSMbBPPFsyl6mY4/WYucmyS9l
+# o3l7jk27MAe145GWxK4O3m3gEFEIkv7kRmefDR7Oe2T1HxAnICQvr9sCAwEAAaOC
+# ARYwggESMB8GA1UdIwQYMBaAFFN5v1qqK0rPVIDh2JvAnfKyA2bLMB0GA1UdDgQW
+# BBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/
+# BAUwAwEB/zATBgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAw
+# UAYDVR0fBEkwRzBFoEOgQYY/aHR0cDovL2NybC51c2VydHJ1c3QuY29tL1VTRVJU
+# cnVzdFJTQUNlcnRpZmljYXRpb25BdXRob3JpdHkuY3JsMDUGCCsGAQUFBwEBBCkw
+# JzAlBggrBgEFBQcwAYYZaHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkqhkiG
+# 9w0BAQwFAAOCAgEADr5lQe1oRLjlocXUEYfktzsljOt+2sgXke3Y8UPEooU5y39r
+# AARaAdAxUeiX1ktLJ3+lgxtoLQhn5cFb3GF2SSZRX8ptQ6IvuD3wz/LNHKpQ5nX8
+# hjsDLRhsyeIiJsms9yAWnvdYOdEMq1W61KE9JlBkB20XBee6JaXx4UBErc+YuoSb
+# 1SxVf7nkNtUjPfcxuFtrQdRMRi/fInV/AobE8Gw/8yBMQKKaHt5eia8ybT8Y/Ffa
+# 6HAJyz9gvEOcF1VWXG8OMeM7Vy7Bs6mSIkYeYtddU1ux1dQLbEGur18ut97wgGwD
+# iGinCwKPyFO7ApcmVJOtlw9FVJxw/mL1TbyBns4zOgkaXFnnfzg4qbSvnrwyj1Ni
+# urMp4pmAWjR+Pb/SIduPnmFzbSN/G8reZCL4fvGlvPFk4Uab/JVCSmj59+/mB2Gn
+# 6G/UYOy8k60mKcmaAZsEVkhOFuoj4we8CYyaR9vd9PGZKSinaZIkvVjbH/3nlLb0
+# a7SBIkiRzfPfS9T+JesylbHa1LtRV9U/7m0q7Ma2CQ/t392ioOssXW7oKLdOmMBl
+# 14suVFBmbzrt5V5cQPnwtd3UOTpS9oCG+ZZheiIvPgkDmA8FzPsnfXW5qHELB43E
+# T7HHFHeRPRYrMBKjkb8/IN7Po0d0hQoF4TeMM+zYAJzoKQnVKOLg8pZVPT8xggST
+# MIIEjwIBATBqMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0
+# ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQx
+# AhEA507yVbBQT/rbpt/3/IujFTANBglghkgBZQMEAgIFAKCCAfowGgYJKoZIhvcN
+# AQkDMQ0GCyqGSIb3DQEJEAEEMBwGCSqGSIb3DQEJBTEPFw0yNjExMDQwODE5MzRa
+# MD8GCSqGSIb3DQEJBDEyBDAgiF514ftkr1PN2Oy2ubpunVdmf9UFvdG6WWy6+xKj
+# JKag7KDhnMunlLSzur2adK4wggF7BgsqhkiG9w0BCRACDDGCAWowggFmMIIBYjAW
+# BBTpeBipKNoVCp/hv5zMequ5oA7urDCBiAQUZcMoaW99TlAs/QPHwgaXGMr7908w
+# cDBbpFkwVzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEu
+# MCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NgIR
+# AJCsCHIg/cWnxGtcxw33PQYwgbwEFIU9Yy2TgoJhfNCQNcSR3pLBQtrHMIGjMIGO
+# pIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3IEplcnNleTEUMBIGA1UE
+# BxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VSVFJVU1QgTmV0d29yazEu
+# MCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eQIQ
+# NsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASCAgCvtWJ07T13HtU4GqbM
+# tmeeh+wKjGXfmd50kibKQJiiGo0WFzdFlLRkIgBq82K2uROorYSkOHthKAR43JUV
+# nGB/FSLWCdAHqMzdfs6oLS9f0cmTWMp0bwxtGjf4NbrvIew/xYp0eznpWaWJD0f9
+# qCvLpembEukAe/fsxdgBLhLHtnueKv6nalXRU1ohqRVWXZ3iHLuqMDvOwXGc7ekW
+# UrmXp/EKo5hhI9wAjAh5Lxy40PysiAA8YVY1XJH0DNG7EZOlIi/10DrcKEqA4XF2
+# 6Tsmz0XmtD99itoZIBPAioCN3bHF9WDt/Y84wGKcPvxAdZkK1jwcz+80SddEcWjH
+# 4Ja+DjQdnWliks0ZIQ23D4rPs81e0ski3LmkLy4xlegzCkH1BkY/RdiIkWoORYLr
+# vLegWnbFcg3a7MM/G5pLlSPI4ahqZjnZbuPZGwUu26tf8wzflG1f1mojS3G4g5IW
+# G+LsYJqLsf+aEUMGNd68Q5MD60zyM21A43G7M2/lW8BpO2nuybYFr5YcZEB31mUs
+# gtU2X9oDhEHt/udMw9UN0wn48LfloU6GJdYp3Ucto0H2ZDBIoau2X6S1culXNUDm
+# 6/DpON74TmWmnZLtfyMqvr3VBYcg7tIKQ7DDC3H80tLEXMM2r2Ppiu85Um1E+VNN
+# Q2EY/96CJIbRx4aIypIXFyEQbQ==
 # SIG # End signature block

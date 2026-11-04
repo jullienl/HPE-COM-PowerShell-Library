@@ -8,6 +8,17 @@ $Script:HPECOMTelemetryNoticeShown = $false
 # Telemetry: counts how many times Connect-HPEGL has been called in this PS session
 $Script:HPECOMConnectCount = 0
 
+# Load the SAML SSO Identity-Provider flow functions (Invoke-EntraIDSSOAuthentication,
+# Invoke-OktaSSOAuthentication, Invoke-PingIDSSOAuthentication) so they are defined directly in THIS
+# module's session state. Connect-HPEGL (below) calls them, and PowerShell nested modules cannot resolve
+# each other's PRIVATE functions — only manifest-public ones are global. Defining them here keeps these
+# helpers hidden from end users while making them locally callable.
+#
+# NOTE: the file content is dot-sourced via a scriptblock — NOT ". path\Auth-SSO.psm1" directly.
+# Dot-sourcing a .psm1 file does NOT define its functions in the caller's scope (PowerShell special-cases
+# the .psm1 extension as a module load), whereas dot-sourcing a scriptblock built from its content does.
+. ([scriptblock]::Create((Get-Content -Raw "$PSScriptRoot\Auth-SSO.psm1")))
+
 # Public functions
 function Invoke-HPEGLWebRequest {  
     <#
@@ -3097,7 +3108,7 @@ This library supports four authentication methods:
    • If your account uses only security keys/biometrics, enable Google Authenticator or Okta Verify in account settings
    • When both methods are available, Okta Verify push notifications take precedence
 
-3. SAML Single Sign-On (SSO) - Passwordless (use -PasswordlessSSOEmail)
+3. SAML/OIDC Single Sign-On (SSO) - Passwordless (use -PasswordlessSSOEmail)
    
    Supported Identity Providers:
    
@@ -3122,12 +3133,12 @@ This library supports four authentication methods:
      - Requires PingID enrolled and active
    
    SSO Prerequisites (passwordless):
-   • SAML SSO configured in your HPE GreenLake workspace
-   • Identity Provider configured with HPE GreenLake as SAML 2.0 application
+   • SAML or OIDC SSO configured in your HPE GreenLake workspace
+   • Identity Provider configured with HPE GreenLake as a SAML 2.0 or OpenID Connect (OIDC) application
    • Passwordless authentication methods enabled (push notifications and/or TOTP)
    • User has appropriate application access permissions
 
-4. SAML Single Sign-On (SSO) - Password-based (use -Credential)
+4. SAML/OIDC Single Sign-On (SSO) - Password-based (use -Credential)
    
    Supported Identity Providers: Okta, Microsoft Entra ID, PingIdentity
    
@@ -3135,25 +3146,24 @@ This library supports four authentication methods:
    a push notification or TOTP code). Federation is detected automatically from the email domain —
    no additional parameters are required.
    
-   • Password-only policies: The password is submitted and a SAML response is returned directly.
+   • Password-only policies: The password is submitted and the sign-in completes directly.
    • Password + MFA step-up policies: The password is submitted first, then a push notification or
      TOTP challenge is issued automatically (Okta Verify / Microsoft Authenticator / PingID).
    • Passwordless-only accounts: If the IdP does not require a password, the password field in
      -Credential is silently ignored and the normal push/TOTP flow proceeds with a warning.
    
    SSO Prerequisites (password-based):
-   • SAML SSO configured in your HPE GreenLake workspace
-   • Identity Provider configured with HPE GreenLake as SAML 2.0 application
+   • SAML or OIDC SSO configured in your HPE GreenLake workspace
+   • Identity Provider configured with HPE GreenLake as a SAML 2.0 or OpenID Connect (OIDC) application
    • User's IdP account has a password enrolled (or a mixed password+MFA policy)
    • User has appropriate application access permissions
    
    Configuration Guide: https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us
    Technical blog: https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets/
 
-   IMPORTANT - Federation protocol: Only SAML 2.0 SSO federation is supported (for both the passwordless
-   -PasswordlessSSOEmail and the password-based -Credential flows). HPE GreenLake also allows configuring
-   workspace SSO using OpenID Connect (OIDC); OIDC-federated workspaces are NOT supported by this module.
-   If your workspace SSO uses OIDC, sign in with native HPE account credentials instead.
+   IMPORTANT - Supported federation: SAML 2.0 or OpenID Connect (OIDC) with Okta, Microsoft Entra ID or
+   PingIdentity, for both the passwordless (-PasswordlessSSOEmail) and password-based (-Credential) flows.
+   Other identity providers are NOT supported by this module; sign in with native HPE account credentials instead.
 
 ACCOUNT REQUIREMENTS
 
@@ -3235,7 +3245,7 @@ Authentication Flow:
 3. Connection proceeds automatically once authentication is verified
 
 Note: SSO must be properly configured in your HPE GreenLake workspace. If you receive an "SSO configuration issue" error, contact your Workspace Administrator 
-      to ensure your email domain is pre-claimed and SAML SSO is configured.
+      to ensure your email domain is pre-claimed and SSO (SAML or OIDC) is configured.
 
 .PARAMETER Workspace 
 Specifies the name of a workspace available in HPE GreenLake that you want to connect to.
@@ -3785,7 +3795,7 @@ If you do not have an HPE Account, you can create one at https://common.cloud.hp
 
 To learn how to create an HPE account, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us&page=GUID-497192AA-FDC2-49C5-B572-0D2F58A23745.html
 
-For SAML SSO configuration instructions, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us
+For SSO configuration instructions, see https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us
 
 #>
     [CmdletBinding(DefaultParameterSetName = 'Credential')]
@@ -3949,7 +3959,7 @@ For SAML SSO configuration instructions, see https://support.hpe.com/hpesc/publi
         $completedSteps = 0
         # Note: Credential-based SSO ($SSOWithCredential) step count is updated dynamically to 14 in the Process block
         # once federation is detected via the IDX identify response (Step 4/5 of implementation plan).
-        $totalSteps = if ($psCmdlet.ParameterSetName -eq 'Credential') { 9 } elseif ($PasswordlessSSOEmail -match 'hpe.com$') { 14 } else { 18 }
+        $totalSteps = if ($psCmdlet.ParameterSetName -eq 'Credential') { 9 } elseif ($PasswordlessSSOEmail -match '@hpe\.com$') { 14 } else { 18 }
     
         function Update-ProgressBar {
             param (
@@ -3987,7 +3997,9 @@ For SAML SSO configuration instructions, see https://support.hpe.com/hpesc/publi
             }
             else {
                 foreach ($cookie in $cookies) {
-                    "[{0}]   {1} = {2} (Domain: {3}, Path: {4}, Secure: {5}, HttpOnly: {6})" -f $functionName, $cookie.Name, $cookie.Value, $cookie.Domain, $cookie.Path, $cookie.Secure, $cookie.HttpOnly | Write-Verbose
+                    # Cookie values identify a live session: log only their length.
+                    $maskedCookieValue = '[REDACTED, {0} chars]' -f $cookie.Value.Length
+                    "[{0}]   {1} = {2} (Domain: {3}, Path: {4}, Secure: {5}, HttpOnly: {6})" -f $functionName, $cookie.Name, $maskedCookieValue, $cookie.Domain, $cookie.Path, $cookie.Secure, $cookie.HttpOnly | Write-Verbose
                 }
             }
         }
@@ -4133,6 +4145,8 @@ For SAML SSO configuration instructions, see https://support.hpe.com/hpesc/publi
                         $redirectUrlLog = $redirectUrlLog -replace "client_id=[^&]+", "client_id=[REDACTED]"
                         $redirectUrlLog = $redirectUrlLog -replace "code_challenge=[^&]+", "code_challenge=[REDACTED]"
                         $redirectUrlLog = $redirectUrlLog -replace "state=[^&]+", "state=[REDACTED]"
+                        # Mask the account in 'login_hint' (and any other address the redirect carries)
+                        $redirectUrlLog = Format-HPERedactedText -Text $redirectUrlLog
 
                         "[{0}] {1} - 302 redirect to: {2}" -f $functionName, $StepName, $redirectUrlLog | Write-Verbose
                         return $redirectUrl
@@ -4158,3403 +4172,9 @@ For SAML SSO configuration instructions, see https://support.hpe.com/hpesc/publi
             return [System.Web.HttpUtility]::UrlDecode($value)
         }           
 
-        function Invoke-EntraIDMFAAuthentication {
-            <#
-            .SYNOPSIS
-                Performs Entra ID (Azure AD) passwordless authentication using Microsoft Authenticator push notifications.
-
-            .DESCRIPTION
-                This function implements the correct Entra ID passwordless authentication flow:
-                1. Calls GetCredentialType API to check available authentication methods
-                2. Initiates push notification to Microsoft Authenticator app with number matching
-                3. Polls DeviceCodeStatus API until user approves or denies the notification
-                4. Returns the SAML response for completing HPE GreenLake authentication
-                
-                This flow does NOT require passwords and works with pure passwordless authentication policies.
-                Only Microsoft Authenticator push notifications are supported in this passwordless flow.
-
-            .PARAMETER StateToken
-                The context token (ctx) from the SAML flow, used as originalRequest parameter
-
-            .PARAMETER FlowToken
-                The flow token from the Entra ID login page
-
-            .PARAMETER CanaryToken
-                The canary token for CSRF protection
-
-            .PARAMETER Username
-                The user's UPN (e.g., user@domain.onmicrosoft.com)
-
-            .PARAMETER Session
-                The WebRequestSession to maintain cookies and session state
-
-            .PARAMETER TenantDomain
-                The Entra ID tenant domain (e.g., login.microsoftonline.com)
-
-            .PARAMETER BaseUrl
-                The Entra ID base URL. Defaults to https://login.microsoftonline.com for commercial cloud.
-                For sovereign clouds, specify: https://login.microsoftonline.us (Government), etc.    
-
-            .PARAMETER NoProgress
-                Suppresses progress bar updates (number matching entropy will still be shown)
-
-            .PARAMETER CompletedSteps
-                Reference to completed steps counter for progress tracking
-
-            .PARAMETER TotalSteps
-                Total number of steps for progress calculation
-
-            .PARAMETER CurrentStep
-                Reference to current step counter
-
-            .PARAMETER Password
-                Optional SecureString password for Entra ID password-based authentication.
-                When provided, submits the password directly to the Entra ID login endpoint instead of
-                initiating a Microsoft Authenticator push notification challenge.
-
-            .EXAMPLE
-                $result = Invoke-EntraIDMFAAuthentication -StateToken $ctx -FlowToken $flowToken `
-                    -CanaryToken $canary -Username "user@domain.com" -Session $session -TenantDomain "login.microsoftonline.com"
-
-                This example performs Entra ID passwordless authentication in the commercial cloud.
-
-            .EXAMPLE
-                $result = Invoke-EntraIDMFAAuthentication -StateToken $ctx -FlowToken $flowToken `
-                    -CanaryToken $canary -Username "user@domain.com" -Session $session `
-                    -TenantDomain "login.microsoftonline.us" -BaseUrl "https://login.microsoftonline.us"      
-                    
-                This example performs Entra ID passwordless authentication in the Azure Government cloud.
-
-            .NOTES
-                Passwordless sign-in uses Microsoft Authenticator push (number matching) only — TOTP is not a
-                passwordless primary method in Entra ID. For password + MFA (step-up) accounts, both Microsoft
-                Authenticator push (PhoneAppNotification) and one-time code / TOTP (PhoneAppOTP) are supported.
-            #>
-
-            param(
-                [Parameter(Mandatory = $false)]
-                [string]$StateToken,
-
-                [Parameter(Mandatory = $false)]
-                [string]$FlowToken,
-
-                [Parameter(Mandatory = $false)]
-                [string]$CanaryToken,
-
-                [Parameter(Mandatory = $true)]
-                [string]$Username,
-
-                [Parameter(Mandatory = $true)]
-                [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
-
-                [Parameter(Mandatory = $true)]
-                [string]$TenantDomain,
-
-                [Parameter(Mandatory = $false)]
-                [switch]$NoProgress,
-
-                [Parameter(Mandatory = $false)]
-                [ref]$CompletedSteps,
-
-                [Parameter(Mandatory = $false)]
-                [int]$TotalSteps,
-
-                [Parameter(Mandatory = $false)]
-                [ref]$CurrentStep,
-
-                [Parameter(Mandatory = $false)]
-                [string]$BaseUrl = "https://login.microsoftonline.com",
-
-                [Parameter(Mandatory = $false)]
-                [int]$TimeoutMinutes = 2,
-
-                [Parameter(Mandatory = $false)]
-                [int]$PollIntervalSeconds = 3,
-
-                [Parameter(Mandatory = $false)]
-                [SecureString]$Password
-            )
-
-            $functionName = "Invoke-EntraIDMFAAuthentication".ToUpper()
-            $script:HelpUrl = "https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/README.md"
-
-
-            # Validate we have at least one required token
-            if (-not $StateToken -and -not $FlowToken) {
-                Write-Error "Either StateToken (ctx) or FlowToken must be provided for Entra ID authentication" -ErrorAction Stop
-            }
-
-            "[{0}] Starting Entra ID passwordless authentication" -f $functionName | Write-Verbose
-            "[{0}] Username: {1}" -f $functionName, $Username | Write-Verbose
-
-            # Single progress bar update for the entire MFA process.
-            # Label reflects the auth mode: a supplied password means password-based SSO, otherwise passwordless (push/TOTP).
-            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                $currentStepValue = $CurrentStep.Value
-                $entraAuthModeLabel = if ($Password) { "Entra ID Password Authentication" } else { "Entra ID Passwordless Authentication" }
-                Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps -CurrentActivity "Step $currentStepValue/$TotalSteps - $entraAuthModeLabel" -Id 0
-                $CurrentStep.Value++
-            }
-
-            #Region STEP 1: Get Available Authentication Methods
-                
-            $getCredentialTypeUrl = "$baseUrl/common/GetCredentialType"
-
-            "[{0}] Step 1: Checking available authentication methods using POST {1}" -f $functionName, $getCredentialTypeUrl | Write-Verbose
-                
-            # Detect country code with fallback
-            $countryCode = try { 
-                [System.Globalization.RegionInfo]::CurrentRegion.TwoLetterISORegionName 
-            }
-            catch { 
-                "US" 
-            }
-
-            $payload = @{
-                username                       = $Username
-                isOtherIdpSupported            = $true
-                checkPhones                    = $false
-                isRemoteNGCSupported           = $true
-                isCookieBannerShown            = $false
-                isFidoSupported                = $true
-                originalRequest                = $StateToken
-                country                        = $countryCode
-                forceotclogin                  = $false
-                isExternalFederationDisallowed = $false
-                isRemoteConnectSupported       = $false
-                federationFlags                = 0
-                isSignup                       = $false
-                flowToken                      = $FlowToken
-                isAccessPassSupported          = $true
-                isQrCodePinSupported           = $true
-            } | ConvertTo-Json -Depth 10
-
-            $headers = @{
-                "Content-Type"      = "application/json"
-                "canary"            = $CanaryToken
-                "client-request-id" = [guid]::NewGuid().ToString()             
-            }
-
-            "[{0}] Payload: `n{1}" -f $functionName, ($payload ) | Write-Verbose
-            "[{0}] Headers: `n{1}" -f $functionName, ($headers | ConvertTo-Json -Depth 10) | Write-Verbose
-
-            try {
-                $credentialTypeResponse = Invoke-RestMethod -Uri $getCredentialTypeUrl -Method POST -ErrorAction Stop `
-                    -Headers $headers -Body $payload -WebSession $Session
-
-
-                "[{0}] GetCredentialType response received: `n{1}" -f $functionName, ($credentialTypeResponse | ConvertTo-Json -Depth 10) | Write-Verbose
-            }
-            catch {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                }
-                "[{0}] Failed to get credential type: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                Write-Error "Could not retrieve Entra ID authentication methods. $($_.Exception.Message)" -ErrorAction Stop
-            }
-
-            # Update tokens if new ones were returned
-            if ($credentialTypeResponse.FlowToken) {
-                $FlowToken = $credentialTypeResponse.FlowToken
-            }
-            if ($credentialTypeResponse.apiCanary) {
-                $CanaryToken = $credentialTypeResponse.apiCanary
-            }
-            #EndRegion STEP 1
-
-            #Region STEP 2: Validate User and Check Authentication Methods
-            "[{0}] Step 2: Validating user and authentication methods" -f $functionName | Write-Verbose
-
-            # Check if user exists
-            if ($credentialTypeResponse.IfExistsResult -ne 0) {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                }
-                Write-Error @"
-User authentication failed.
-
-This error can occur for multiple reasons:
-
-1. User account does not exist in Entra ID
-2. User account is disabled or locked
-3. User is not assigned to the HPE GreenLake application in Entra ID
-   - Contact your Entra ID administrator to verify application access
-   - Ensure you have the required app role assignments
-
-For complete Entra ID setup prerequisites, see: $script:HelpUrl
-"@ -ErrorAction Stop
-            }
-
-            # Check throttle status
-            if ($credentialTypeResponse.ThrottleStatus -eq 1) {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                }
-                Write-Error "Authentication requests are being throttled. Please wait a few minutes and try again." -ErrorAction Stop
-            }
-
-            # If no password was provided (i.e. called via -PasswordlessSSOEmail) but the account requires
-            # a password (no passwordless method configured in Entra ID), fail with an actionable error.
-            # Never prompt interactively — -PasswordlessSSOEmail must not block automation.
-            if (-not $Password -and
-                $credentialTypeResponse.Credentials -and
-                -not $credentialTypeResponse.Credentials.HasRemoteNGC -and
-                $credentialTypeResponse.Credentials.HasPassword) {
-                "[{0}] Entra ID account requires a password but -PasswordlessSSOEmail was used — returning error." -f $functionName | Write-Verbose
-                if (-not $NoProgress) {
-                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Completed
-                }
-                # The IdP confirmed this account is password-based — record the rejection as password-based for telemetry.
-                $script:HPESSOPasswordSubmitted = $true
-                Write-Error @"
-Authentication failed: '$Username' is configured for password-based authentication in Entra ID, not passwordless.
-
-Your Identity Provider (Entra ID) requires a password for this account.
-Use -Credential instead:
-
-   `$cred = Get-Credential -UserName '$Username'
-   Connect-HPEGL -Credential `$cred
-"@ -ErrorAction Stop
-            }
-
-            # If a password was provided via -Credential but the account uses passwordless authentication,
-            # ignore the password and fall through to the push/TOTP flow (consistent with Okta and PingID).
-            # Two cases qualify:
-            #   1. HasPassword=false, HasRemoteNGC=true — purely passwordless account (no password enrolled).
-            #   2. HasRemoteNGC=true with RemoteNgcParams populated — Entra pre-issued a passwordless phone
-            #      sign-in challenge (Authenticator enrolled for passwordless). The verified DeviceCodeStatus
-            #      push flow handles this, so the supplied password is not needed.
-            # For password+MFA accounts (e.g. LynneR), RemoteNgcParams is null here (the push challenge is
-            # only generated after the password step), so the password path is taken instead.
-            if ($Password -and
-                $credentialTypeResponse.Credentials -and
-                $credentialTypeResponse.Credentials.HasRemoteNGC -and
-                (-not $credentialTypeResponse.Credentials.HasPassword -or
-                $credentialTypeResponse.Credentials.RemoteNgcParams)) {
-                "[{0}] Entra ID account uses passwordless authentication (HasRemoteNGC=true, RemoteNgcParams pre-populated) — ignoring provided password and using push/TOTP flow." -f $functionName | Write-Verbose
-                Write-Warning @"
-Your Entra ID account uses passwordless authentication. The provided password will not be used — attempting SSO (push/TOTP) authentication instead.
-To avoid this warning, use -PasswordlessSSOEmail instead of -Credential.
-"@
-                $Password = $null
-            }
-
-            # Password authentication path — submit credentials directly to login endpoint
-            if ($Password) {
-                "[{0}] Password provided — using Entra ID password authentication" -f $functionName | Write-Verbose
-
-                # Determine tenant login URL (use tenant UUID from StateToken when available)
-                $loginTenantId = "common"
-                if ($StateToken -and $StateToken -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
-                    $loginTenantId = $matches[1]
-                }
-                $loginUrl = "$BaseUrl/$loginTenantId/login"
-
-                # Decrypt SecureString to plaintext — cleared immediately after use
-                $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
-                try {
-                    $passwordPlainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
-                }
-                finally {
-                    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
-                }
-
-                $formData = @(
-                    "login=$([uri]::EscapeDataString($Username))"
-                    "passwd=$([uri]::EscapeDataString($passwordPlainText))"
-                    "type=11"
-                    "ctx=$([uri]::EscapeDataString($StateToken))"
-                    "flowToken=$([uri]::EscapeDataString($FlowToken))"
-                    "canary=$([uri]::EscapeDataString($CanaryToken))"
-                ) -join '&'
-                $passwordPlainText = $null
-
-                $loginHeaders = @{ "Content-Type" = "application/x-www-form-urlencoded" }
-
-                "[{0}] POSTing password credentials to: {1}" -f $functionName, $loginUrl | Write-Verbose
-
-                try {
-                    # Password is about to be submitted to Entra ID — flag this connection as genuinely
-                    # password-based for telemetry (set before the POST so a rejected/bad password still counts).
-                    $script:HPESSOPasswordSubmitted = $true
-                    $loginResponse = Invoke-WebRequest -Uri $loginUrl -Method POST -Body $formData `
-                        -Headers $loginHeaders -ErrorAction Stop -WebSession $Session -MaximumRedirection 10
-
-                    "[{0}] Password login POST completed (status {1})" -f $functionName, $loginResponse.StatusCode | Write-Verbose
-
-                    # Detect explicit error codes in page body
-                    if ($loginResponse.Content -match '"sErrorCode"\s*:\s*"([^"]+)"' -or
-                        $loginResponse.Content -match '"arrValErrs"\s*:\s*\[' -or
-                        $loginResponse.Content -match 'AADSTS[0-9]+') {
-                        $errCode = if ($Matches[1]) { $Matches[1] } else { "unknown" }
-                        "[{0}] Entra ID returned an error code: {1}" -f $functionName, $errCode | Write-Verbose
-                        Write-Error "Invalid password or Entra ID policy rejected the credential (error: $($errCode))" -ErrorAction Stop
-                    }
-
-                    # SAML response already in page
-                    if ($loginResponse.Content -match 'name="SAMLResponse"') {
-                        "[{0}] SAML response found directly in password login response" -f $functionName | Write-Verbose
-                        if ($CompletedSteps) { $CompletedSteps.Value++ }
-                        return $loginResponse
-                    }
-
-                    # KMSI (Keep Me Signed In) interstitial page
-                    $isKmsiPage = $loginResponse.Content -match '"PageID"\s*content="KmsiInterrupt"' -or
-                    $loginResponse.Content -match '"urlPost"\s*:\s*"/kmsi"'
-                    if ($isKmsiPage) {
-                        "[{0}] KMSI page detected after password login" -f $functionName | Write-Verbose
-
-                        $kmsiCtx = ""
-                        $kmsiFlowToken = ""
-                        $kmsiCanary = ""
-
-                        if ($loginResponse.Content -match '"sFT"\s*:\s*"([^"]+)"') { $kmsiFlowToken = $matches[1] }
-                        if ($loginResponse.Content -match '"sCtx"\s*:\s*"([^"]+)"') { $kmsiCtx = $matches[1] }
-                        elseif ($StateToken) { $kmsiCtx = $StateToken }
-                        if ($loginResponse.Content -match '"canary"\s*:\s*"([^"]+)"') { $kmsiCanary = $matches[1] }
-
-                        $kmsiUrl = "$BaseUrl/kmsi"
-                        $kmsiFormData = @(
-                            "LoginOptions=1"
-                            "type=28"
-                            "ctx=$([uri]::EscapeDataString($kmsiCtx))"
-                            "flowToken=$([uri]::EscapeDataString($kmsiFlowToken))"
-                            "canary=$([uri]::EscapeDataString($kmsiCanary))"
-                        ) -join '&'
-
-                        $kmsiResponse = Invoke-WebRequest -Uri $kmsiUrl -Method POST -Body $kmsiFormData `
-                            -Headers $loginHeaders -ErrorAction Stop -WebSession $Session -MaximumRedirection 10
-
-                        "[{0}] KMSI POST completed after password login" -f $functionName | Write-Verbose
-                        if ($CompletedSteps) { $CompletedSteps.Value++ }
-                        return $kmsiResponse
-                    }
-
-                    # --- Step-up MFA detection ---
-                    # Conditional Access requires MFA after password. Entra ID returns a new challenge
-                    # page with RemoteNgcParams (push) data instead of a SAML response.
-                    $stepUpSessionId = $null
-                    $stepUpEntropy = $null
-
-                    # Try to extract RemoteNgcParams from JSON embedded in the page
-                    if ($loginResponse.Content -match '"SessionIdentifier"\s*:\s*"([^"]+)"') {
-                        $stepUpSessionId = $matches[1]
-                    }
-                    if ($loginResponse.Content -match '"Entropy"\s*:\s*(\d+)') {
-                        $stepUpEntropy = [int]$matches[1]
-                    }
-
-                    # Also extract updated flow tokens for the push polling call
-                    if ($loginResponse.Content -match '"sFT"\s*:\s*"([^"]+)"') { $FlowToken = $matches[1] }
-                    if ($loginResponse.Content -match '"apiCanary"\s*:\s*"([^"]+)"') { $CanaryToken = $matches[1] }
-                    elseif ($loginResponse.Content -match '"canary"\s*:\s*"([^"]+)"') { $CanaryToken = $matches[1] }
-
-                    if ($stepUpSessionId) {
-                        "[{0}] Step-up MFA required after password — Microsoft Authenticator push initiated" -f $functionName | Write-Verbose
-                        $sessionIdentifier = $stepUpSessionId
-                        $entropy = $stepUpEntropy
-                        $mfaRequired = $true
-                        # Fall through to STEP 3 (push polling) below — do NOT return here
-                    }
-                    else {
-                        # Check if this is a step-up MFA challenge page requiring the SAS push-notification API
-                        # (Conditional Access MFA after password — Entra returns new sFT/sCtx but no SessionIdentifier)
-                        if ($loginResponse.Content -match '"sFT"\s*:\s*"([^"]+)"') {
-                            "[{0}] SAS step-up MFA challenge page detected after password login" -f $functionName | Write-Verbose
-                            $sasMfaRequired = $true
-                            # Refresh sCtx (StateToken) from the step-up page if present
-                            # Note: FlowToken and CanaryToken were already refreshed in the block above
-                            if ($loginResponse.Content -match '"sCtx"\s*:\s*"([^"]+)"') { $StateToken = $matches[1] }
-
-                            # Determine which second factor Entra expects from arrUserProofs on the challenge page.
-                            # arrUserProofs lists the user's registered MFA methods; the default one (isDefault=true)
-                            # is the method the browser auto-selects:
-                            #   PhoneAppNotification = Microsoft Authenticator push (approve / number matching)
-                            #   PhoneAppOTP          = Microsoft Authenticator one-time code (TOTP — user types a 6-digit code)
-                            $sasAuthMethodId = "PhoneAppNotification"   # default to push (existing, well-tested behaviour)
-                            if ($loginResponse.Content -match '"arrUserProofs"\s*:\s*\[([\s\S]*?)\]') {
-                                $proofsBlock = $matches[1]
-                                "[{0}] arrUserProofs: {1}" -f $functionName, $proofsBlock | Write-Verbose
-                                if ($proofsBlock -match '"authMethodId"\s*:\s*"([^"]+)"[^}]*"isDefault"\s*:\s*true') {
-                                    $sasAuthMethodId = $matches[1]
-                                }
-                                elseif ($proofsBlock -match '"isDefault"\s*:\s*true[^}]*"authMethodId"\s*:\s*"([^"]+)"') {
-                                    $sasAuthMethodId = $matches[1]
-                                }
-                                elseif ($proofsBlock -match '"authMethodId"\s*:\s*"([^"]+)"') {
-                                    $sasAuthMethodId = $matches[1]
-                                }
-                            }
-                            "[{0}] SAS step-up second factor selected: {1}" -f $functionName, $sasAuthMethodId | Write-Verbose
-                        }
-                        else {
-                            # Truly unrecognised — return whatever we got
-                            "[{0}] Password login response type unrecognised — returning raw response" -f $functionName | Write-Verbose
-                            if ($CompletedSteps) { $CompletedSteps.Value++ }
-                            return $loginResponse
-                        }
-                    }
-                }
-                catch {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                    }
-                    "[{0}] Entra ID password authentication failed: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                    Write-Error "Authentication failed: Entra ID rejected the credentials for '$Username'. Verify username and password. Error: $($_.Exception.Message)" -ErrorAction Stop
-                }
-            }
-            # End password path
-
-            #Region SAS step-up MFA flow (password accepted; Entra ID requires a second factor via SAS API)
-            # SAS = Step-up Authentication Service: Entra ID internal API used to handle the second-factor MFA challenge after a successful primary credential (password) submission, when Conditional Access requires additional verification
-            # This path is taken when GetCredentialType reported HasPassword=true but no RemoteNgcParams,
-            # and the Conditional Access policy demands an additional MFA challenge after the password succeeds.
-            # The method is chosen from arrUserProofs ($sasAuthMethodId):
-            #   PhoneAppNotification (push):  BeginAuth → EndAuth (GET poll) → ProcessAuth (type=22) → KMSI (optional) → SAMLResponse
-            #   PhoneAppOTP (TOTP code):      BeginAuth → EndAuth (POST, AdditionalAuthData=code) → ProcessAuth (type=19, otc=code) → KMSI (optional) → SAMLResponse
-            if ($sasMfaRequired) {
-
-                # Fall back to push if detection didn't run for any reason
-                if (-not $sasAuthMethodId) { $sasAuthMethodId = "PhoneAppNotification" }
-
-                # ── A. Initiate the second-factor challenge via SAS/BeginAuth ───────────────
-                "[{0}] SAS step-up: calling BeginAuth (AuthMethodId={1})" -f $functionName, $sasAuthMethodId | Write-Verbose
-
-                $sasBeginAuthUrl = "$baseUrl/common/SAS/BeginAuth"
-                $sasBeginAuthPayload = @{
-                    AuthMethodId = $sasAuthMethodId
-                    Method       = "BeginAuth"
-                    ctx          = $StateToken
-                    flowToken    = $FlowToken
-                } | ConvertTo-Json -Depth 10
-
-                $sasBeginAuthHeaders = @{
-                    "Content-Type"      = "application/json"
-                    "canary"            = $CanaryToken
-                    "client-request-id" = [guid]::NewGuid().ToString()
-                }
-
-                try {
-                    $sasBeginAuthResponse = Invoke-RestMethod -Uri $sasBeginAuthUrl -Method POST -ErrorAction Stop `
-                        -Headers $sasBeginAuthHeaders -Body $sasBeginAuthPayload -WebSession $Session
-
-                    "[{0}] SAS BeginAuth response: `n{1}" -f $functionName, ($sasBeginAuthResponse | ConvertTo-Json -Depth 10) | Write-Verbose
-                }
-                catch {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                    }
-                    "[{0}] SAS BeginAuth failed: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                    Write-Error "Could not initiate Microsoft Authenticator push notification. $($_.Exception.Message)" -ErrorAction Stop
-                }
-
-                # Capture FlowToken update from BeginAuth (required for ProcessAuth)
-                $sasFlowToken = if ($sasBeginAuthResponse.FlowToken) { $sasBeginAuthResponse.FlowToken } else { $FlowToken }
-                $sasEntropy = if ($sasBeginAuthResponse.Entropy) { $sasBeginAuthResponse.Entropy }   else { $null }
-
-                if ($sasAuthMethodId -eq 'PhoneAppOTP') {
-                    # ===== TOTP (Authenticator one-time code) branch =====
-                    # No push and no polling — the user reads the current 6-digit code from their
-                    # authenticator app. A single EndAuth POST submits the code (AdditionalAuthData),
-                    # then ProcessAuth (type=19, otc=<code>) finalises MFA.
-                    "[{0}] SAS step-up: TOTP (PhoneAppOTP) — prompting for one-time code" -f $functionName | Write-Verbose
-
-                    # Hide the progress bar so the prompt is clearly visible
-                    if (-not $NoProgress) { Write-Progress -Id 0 -Activity "Entra ID Authentication" -Completed }
-
-                    $totpCode = Read-Host -Prompt "Enter the verification code from your authenticator app for $Username"
-                    $totpCode = ($totpCode -replace '\s', '')
-
-                    if ([string]::IsNullOrWhiteSpace($totpCode)) {
-                        Write-Error "No verification code entered. Authentication cannot proceed." -ErrorAction Stop
-                    }
-
-                    $sasSessionId = $sasBeginAuthResponse.SessionId
-                    $sasLastPollStart = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-
-                    $sasEndAuthUrl = "$baseUrl/common/SAS/EndAuth"
-                    $sasEndAuthBody = @{
-                        Method             = "EndAuth"
-                        SessionId          = $sasSessionId
-                        FlowToken          = $sasFlowToken
-                        Ctx                = $StateToken
-                        AuthMethodId       = "PhoneAppOTP"
-                        AdditionalAuthData = $totpCode
-                        PollCount          = 1
-                    } | ConvertTo-Json -Depth 10
-
-                    $sasEndAuthHeaders = @{
-                        "Accept"            = "application/json"
-                        "Content-type"      = "application/json; charset=utf-8"
-                        "canary"            = $CanaryToken
-                        "client-request-id" = [guid]::NewGuid().ToString()
-                    }
-
-                    try {
-                        $sasEndAuthResponse = Invoke-RestMethod -Uri $sasEndAuthUrl -Method POST `
-                            -Body $sasEndAuthBody -Headers $sasEndAuthHeaders -ErrorAction Stop -WebSession $Session
-
-                        $sasLastPollEnd = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-
-                        "[{0}] SAS EndAuth (TOTP) response: `n{1}" -f $functionName, ($sasEndAuthResponse | ConvertTo-Json -Depth 10) | Write-Verbose
-
-                        # Refresh tokens from the EndAuth response when present
-                        if ($sasEndAuthResponse.FlowToken) { $sasFlowToken = $sasEndAuthResponse.FlowToken }
-                        if ($sasEndAuthResponse.Ctx) { $StateToken = $sasEndAuthResponse.Ctx }
-
-                        # A clear non-zero error code (other than the "pending" 500121) means the code was rejected
-                        if ($sasEndAuthResponse.Success -ne $true -and
-                            $sasEndAuthResponse.ErrCode -and
-                            [int]$sasEndAuthResponse.ErrCode -ne 0 -and
-                            [int]$sasEndAuthResponse.ErrCode -ne 500121) {
-                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                            }
-                            "[{0}] TOTP code rejected (ErrCode={1}, Message={2})" -f $functionName, $sasEndAuthResponse.ErrCode, $sasEndAuthResponse.Message | Write-Verbose
-                            Write-Error "Authentication failed: The verification code was rejected by Entra ID. Verify the current code in your authenticator app and try again." -ErrorAction Stop
-                        }
-
-                        "[{0}] TOTP code submitted — completing via ProcessAuth" -f $functionName | Write-Verbose
-                    }
-                    catch {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                        }
-                        "[{0}] SAS EndAuth (TOTP) failed: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                        Write-Error "Could not verify the authenticator code. $($_.Exception.Message)" -ErrorAction Stop
-                    }
-                }
-                else {
-
-                    # ── B. Prompt user ────────────────────────────────────────────────────────────
-                    Start-Sleep -Milliseconds 500
-
-                    if ($sasEntropy -and $sasEntropy -gt 0) {
-                        if ($NoProgress) {
-                            Write-Host "`n  Action required: Open Microsoft Authenticator and enter the number " -NoNewline -ForegroundColor Cyan
-                            Write-Host $sasEntropy -ForegroundColor Yellow -NoNewline
-                            Write-Host " to authenticate.`n" -ForegroundColor Cyan
-                        }
-                        elseif ($CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                                -CurrentActivity "Respond '$sasEntropy' to the Microsoft Authenticator notification" -Id 0
-                        }
-                        "[{0}] SAS number matching active — user must enter: {1}" -f $functionName, $sasEntropy | Write-Verbose
-                    }
-                    else {
-                        if ($NoProgress) {
-                            Write-Host "`n  Action required: Open Microsoft Authenticator on your phone and approve the sign-in request.`n" -ForegroundColor Cyan
-                        }
-                        elseif ($CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                                -CurrentActivity "Approve the Microsoft Authenticator push notification on your phone" -Id 0
-                        }
-                    }
-
-                    # ── C. Poll SAS/EndAuth until the user approves (or timeout) ─────────────────
-                    "[{0}] SAS step-up: polling SAS/EndAuth for approval" -f $functionName | Write-Verbose
-
-                    $sasEndAuthBaseUrl = "$baseUrl/common/SAS/EndAuth"
-                    $sasSessionId = $sasBeginAuthResponse.SessionId
-
-                    $sasTimeout = [datetime]::Now.AddMinutes($TimeoutMinutes)
-                    $sasPollCount = 0
-                    $sasMaxPolls = 120
-                    $sasApproved = $false
-                    $sasLastPollStart = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-                    $sasLastPollEnd = $sasLastPollStart
-
-                    do {
-                        $sasPollCount++
-                        $sasLastPollStart = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-
-                        $sasEndAuthQuery = "authMethodId=PhoneAppNotification&pollCount=$sasPollCount"
-                        if ($sasPollCount -gt 1) {
-                            $sasEndAuthQuery += "&lastPollStart=$sasLastPollStart&lastPollEnd=$sasLastPollEnd"
-                        }
-
-                        # These three x-ms-* headers are required so Entra ID can identify the active MFA session
-                        $sasEndAuthHeaders = @{
-                            "Accept"            = "application/json"
-                            "Content-type"      = "application/json; charset=utf-8"
-                            "canary"            = $CanaryToken
-                            "client-request-id" = [guid]::NewGuid().ToString()
-                            "x-ms-sessionId"    = $sasSessionId
-                            "x-ms-flowToken"    = $sasFlowToken
-                            "x-ms-ctx"          = $StateToken
-                        }
-
-                        try {
-                            $sasEndAuthResponse = Invoke-RestMethod -Uri "$sasEndAuthBaseUrl`?$sasEndAuthQuery" `
-                                -Method GET -Headers $sasEndAuthHeaders -ErrorAction Stop -WebSession $Session
-
-                            $sasLastPollEnd = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-
-                            "[{0}] SAS EndAuth poll #{1}: Success={2}, ErrCode={3}, Retry={4}" -f $functionName, $sasPollCount, $sasEndAuthResponse.Success, $sasEndAuthResponse.ErrCode, $sasEndAuthResponse.Retry | Write-Verbose
-
-                            # Approved — break out of polling loop
-                            if ($sasEndAuthResponse.Success -eq $true) {
-                                $sasApproved = $true
-                                if ($sasEndAuthResponse.FlowToken) { $sasFlowToken = $sasEndAuthResponse.FlowToken }
-                                if ($sasEndAuthResponse.Ctx) { $StateToken = $sasEndAuthResponse.Ctx }
-                                "[{0}] SAS push notification approved by user" -f $functionName | Write-Verbose
-                                break
-                            }
-
-                            # Microsoft signals "keep polling" via Retry=true. Once the result is terminal
-                            # (user approves/denies, number mismatch, timeout on Entra side), Retry becomes false.
-                            #   - ErrCode 500121 + Retry=true  = MFA challenge still pending -> keep polling
-                            #   - ErrCode 500121 + Retry=false = push was denied / number mismatch -> terminal failure
-                            #   - Any other non-zero ErrCode with Success=false = terminal failure
-                            if ($sasEndAuthResponse.Success -eq $false -and
-                                $sasEndAuthResponse.ErrCode -ne 0 -and
-                                ($sasEndAuthResponse.ErrCode -ne 500121 -or $sasEndAuthResponse.Retry -eq $false)) {
-                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                                }
-                                "[{0}] SAS push notification denied or failed (ErrCode={1}, Retry={2}, Message={3})" -f $functionName, $sasEndAuthResponse.ErrCode, $sasEndAuthResponse.Retry, $sasEndAuthResponse.Message | Write-Verbose
-                                Write-Error "Microsoft Authenticator push notification was denied. Please try again and approve the request on your phone." -ErrorAction Stop
-                            }
-                            # else: ErrCode=0 with Retry=true, or ErrCode=500121 with Retry=true — still pending, fall through to sleep and retry
-                        }
-                        catch {
-                            if ($_.Exception.Message -notmatch "timeout|timed out") {
-                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                                }
-                                throw
-                            }
-                        }
-
-                        if ([datetime]::Now -ge $sasTimeout) {
-                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                            }
-                            Write-Error @"
-Timeout! Microsoft Authenticator push notification was not approved within $TimeoutMinutes minutes.
-
-Please try again and approve the request promptly.
-"@ -ErrorAction Stop
-                        }
-
-                        Start-Sleep -Seconds $PollIntervalSeconds
-
-                    } until ($sasApproved -or $sasPollCount -ge $sasMaxPolls)
-
-                    if (-not $sasApproved) {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "Push notification approval failed or timed out. Please try again." -ErrorAction Stop
-                    }
-                }
-                # End push branch
-
-                # ── D. Complete MFA via SAS/ProcessAuth ──────────────────────────────────────
-                "[{0}] SAS step-up: calling ProcessAuth to complete MFA" -f $functionName | Write-Verbose
-
-                $sasProcessAuthUrl = "$baseUrl/common/SAS/ProcessAuth"
-                $sasI19 = $sasLastPollEnd - $sasLastPollStart
-                if ($sasAuthMethodId -eq 'PhoneAppOTP') {
-                    # TOTP: type=19, carry the one-time code as otc, plus GeneralVerify=false
-                    $sasProcessAuthBody = @(
-                        "type=19"
-                        "GeneralVerify=false"
-                        "request=$([uri]::EscapeDataString($StateToken))"
-                        "mfaLastPollStart=$sasLastPollStart"
-                        "mfaLastPollEnd=$sasLastPollEnd"
-                        "mfaAuthMethod=PhoneAppOTP"
-                        "otc=$([uri]::EscapeDataString($totpCode))"
-                        "login=$([uri]::EscapeDataString($Username))"
-                        "flowToken=$([uri]::EscapeDataString($sasFlowToken))"
-                        "canary=$([uri]::EscapeDataString($CanaryToken))"
-                        "hpgrequestid=$([guid]::NewGuid().ToString())"
-                        "sacxt="
-                        "hideSmsInMfaProofs=false"
-                        "i19=$sasI19"
-                    ) -join '&'
-                }
-                else {
-                    $sasProcessAuthBody = @(
-                        "type=22"
-                        "request=$([uri]::EscapeDataString($StateToken))"
-                        "mfaLastPollStart=$sasLastPollStart"
-                        "mfaLastPollEnd=$sasLastPollEnd"
-                        "mfaAuthMethod=PhoneAppNotification"
-                        "login=$([uri]::EscapeDataString($Username))"
-                        "flowToken=$([uri]::EscapeDataString($sasFlowToken))"
-                        "canary=$([uri]::EscapeDataString($CanaryToken))"
-                        "hpgrequestid=$([guid]::NewGuid().ToString())"
-                        "sacxt="
-                        "hideSmsInMfaProofs=false"
-                        "i19=$sasI19"
-                    ) -join '&'
-                }
-
-                $sasProcessAuthHeaders = @{ "Content-Type" = "application/x-www-form-urlencoded" }
-
-                try {
-                    $sasProcessAuthResponse = Invoke-WebRequest -Uri $sasProcessAuthUrl -Method POST `
-                        -Body $sasProcessAuthBody -Headers $sasProcessAuthHeaders `
-                        -ErrorAction Stop -WebSession $Session -MaximumRedirection 10
-
-                    "[{0}] SAS ProcessAuth completed (status {1})" -f $functionName, $sasProcessAuthResponse.StatusCode | Write-Verbose
-
-                    # SAML response in ProcessAuth response — done
-                    if ($sasProcessAuthResponse.Content -match 'name="SAMLResponse"') {
-                        "[{0}] SAML response found in SAS ProcessAuth response" -f $functionName | Write-Verbose
-                        $script:HPEEntraStepUpMfaSucceeded = $true
-                        if ($CompletedSteps) { $CompletedSteps.Value++ }
-                        return $sasProcessAuthResponse
-                    }
-
-                    # KMSI interstitial page
-                    $sasIsKmsi = $sasProcessAuthResponse.Content -match '"PageID"\s*content="KmsiInterrupt"' -or
-                    $sasProcessAuthResponse.Content -match '"urlPost"\s*:\s*"/kmsi"'
-
-                    if ($sasIsKmsi) {
-                        "[{0}] KMSI page detected after SAS ProcessAuth" -f $functionName | Write-Verbose
-
-                        $sasKmsiCtx = if ($sasProcessAuthResponse.Content -match '"sCtx"\s*:\s*"([^"]+)"') { $matches[1] } else { $StateToken }
-                        $sasKmsiFlowToken = if ($sasProcessAuthResponse.Content -match '"sFT"\s*:\s*"([^"]+)"') { $matches[1] } else { $sasFlowToken }
-                        $sasKmsiCanary = if ($sasProcessAuthResponse.Content -match '"canary"\s*:\s*"([^"]+)"') { $matches[1] } else { $CanaryToken }
-
-                        $sasKmsiFormData = @(
-                            "LoginOptions=1"
-                            "type=28"
-                            "ctx=$([uri]::EscapeDataString($sasKmsiCtx))"
-                            "flowToken=$([uri]::EscapeDataString($sasKmsiFlowToken))"
-                            "canary=$([uri]::EscapeDataString($sasKmsiCanary))"
-                        ) -join '&'
-
-                        $sasKmsiResponse = Invoke-WebRequest -Uri "$baseUrl/kmsi" -Method POST `
-                            -Body $sasKmsiFormData -Headers $sasProcessAuthHeaders `
-                            -ErrorAction Stop -WebSession $Session -MaximumRedirection 10
-
-                        "[{0}] SAS KMSI POST completed" -f $functionName | Write-Verbose
-                        $script:HPEEntraStepUpMfaSucceeded = $true
-                        if ($CompletedSteps) { $CompletedSteps.Value++ }
-                        return $sasKmsiResponse
-                    }
-
-                    # For TOTP, a successful code always yields a SAML or KMSI response above.
-                    # Anything else means Entra ID re-rendered the MFA page because the code was
-                    # wrong/expired — surface a clear, actionable error instead of a generic one.
-                    if ($sasAuthMethodId -eq 'PhoneAppOTP') {
-                        $totpErrMsg = if ($sasProcessAuthResponse.Content -match '"strServiceExceptionMessage"\s*:\s*"([^"]+)"') { $matches[1] }
-                        elseif ($sasProcessAuthResponse.Content -match '"strMainMessage"\s*:\s*"([^"]+)"') { $matches[1] }
-                        elseif ($sasProcessAuthResponse.Content -match '"sErrorCode"\s*:\s*"([^"]+)"') { "error code $($matches[1])" }
-                        else { $null }
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                        }
-                        "[{0}] TOTP ProcessAuth returned no SAML/KMSI — code rejected ({1})" -f $functionName, $totpErrMsg | Write-Verbose
-                        Write-Error "Authentication failed: The verification code was rejected by Entra ID. Verify the current code in your authenticator app and try again." -ErrorAction Stop
-                    }
-
-                    # Fallback — return whatever ProcessAuth returned
-                    $script:HPEEntraStepUpMfaSucceeded = $true
-                    if ($CompletedSteps) { $CompletedSteps.Value++ }
-                    return $sasProcessAuthResponse
-                }
-                catch {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                    }
-                    "[{0}] SAS ProcessAuth failed: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                    # Do not re-wrap an already-actionable rejection (e.g. wrong TOTP code) raised inside the try.
-                    if ($_.Exception.Message -match '^Authentication failed:') {
-                        Write-Error $_.Exception.Message -ErrorAction Stop
-                    }
-                    Write-Error "Could not complete SAS MFA authentication. $($_.Exception.Message)" -ErrorAction Stop
-                }
-            }
-            #EndRegion SAS step-up MFA flow
-
-            # Extract authentication method details (skipped when step-up already set $sessionIdentifier)
-            $sessionIdentifier = if ($Password -and $sessionIdentifier) { $sessionIdentifier } else { $null }
-            $entropy = if ($Password -and $sessionIdentifier) { $entropy }           else { $null }
-
-            if (-not $sessionIdentifier -and $credentialTypeResponse.Credentials) {
-                # Check for RemoteNGC (push notification) support
-                if ($credentialTypeResponse.Credentials.HasRemoteNGC) {
-                    if ($credentialTypeResponse.Credentials.RemoteNgcParams) {
-                        $sessionIdentifier = $credentialTypeResponse.Credentials.RemoteNgcParams.SessionIdentifier
-                        $entropy = $credentialTypeResponse.Credentials.RemoteNgcParams.Entropy
-
-                        $prefCredential = $credentialTypeResponse.Credentials.PrefCredential
-                        "[{0}] Push notification available (PrefCredential={1}) - initial Entropy: {2}" -f $functionName, $prefCredential, $entropy | Write-Verbose
-
-                        # Arm the passwordless push when it is NOT pre-armed by Entra.
-                        #
-                        # When PrefCredential=2 (RemoteNGC preferred) Entra pre-arms the push during
-                        # GetCredentialType: RemoteNgcParams.SessionIdentifier is already a LIVE device code,
-                        # so DeviceCodeStatus returns 0 (pending) until the user approves.
-                        #
-                        # When PrefCredential!=2 (password preferred — the usual case for a fresh WebSession
-                        # with -RemoveExistingCredentials) the push is NOT armed: RemoteNgcParams.SessionIdentifier
-                        # is inert and DeviceCodeStatus returns AuthorizationState=3 immediately, with no push
-                        # ever sent. In the browser this is the "Use an app instead" action, which issues
-                        # POST /common/GetOneTimeCode to arm the push and obtain a fresh, live SessionIdentifier
-                        # (+ Entropy). Replicate that here so the subsequent DeviceCodeStatus poll succeeds.
-                        # (Endpoint/request verified against a browser HAR capture of the PrefCredential=1 flow.)
-                        if ($prefCredential -ne 2) {
-                            "[{0}] PrefCredential={1} (push not pre-armed) - arming push via GetOneTimeCode" -f $functionName, $prefCredential | Write-Verbose
-
-                            $getOneTimeCodeUrl = "$baseUrl/common/GetOneTimeCode"
-                            $getOneTimeCodePayload = @{
-                                Channel         = "Authenticator"
-                                OriginalRequest = $StateToken
-                                FlowToken       = $FlowToken
-                                OldDeviceCode   = $credentialTypeResponse.Credentials.RemoteNgcParams.SessionIdentifier
-                            } | ConvertTo-Json -Depth 10
-
-                            $getOneTimeCodeHeaders = @{
-                                "Accept"            = "application/json"
-                                "Content-Type"      = "application/json; charset=UTF-8"
-                                "canary"            = $CanaryToken
-                                "client-request-id" = [guid]::NewGuid().ToString()
-                                "hpgrequestid"      = [guid]::NewGuid().ToString()
-                            }
-
-                            try {
-                                "[{0}] Calling GetOneTimeCode to dispatch the Microsoft Authenticator push" -f $functionName | Write-Verbose
-                                $getOneTimeCodeResponse = Invoke-RestMethod -Uri $getOneTimeCodeUrl -Method POST -ErrorAction Stop `
-                                    -Headers $getOneTimeCodeHeaders -Body $getOneTimeCodePayload -WebSession $Session
-
-                                "[{0}] GetOneTimeCode response: `n{1}" -f $functionName, ($getOneTimeCodeResponse | ConvertTo-Json -Depth 10) | Write-Verbose
-
-                                # Replace the inert RemoteNgcParams code with the live armed values.
-                                # Microsoft returns these under the same field names used elsewhere in this flow
-                                # (RemoteNgcParams / SAS BeginAuth): SessionIdentifier, Entropy, FlowToken.
-                                if ($getOneTimeCodeResponse.SessionIdentifier) {
-                                    $sessionIdentifier = $getOneTimeCodeResponse.SessionIdentifier
-                                    "[{0}] Push armed - using live SessionIdentifier from GetOneTimeCode" -f $functionName | Write-Verbose
-                                }
-                                if ($getOneTimeCodeResponse.Entropy) {
-                                    $entropy = $getOneTimeCodeResponse.Entropy
-                                }
-                                if ($getOneTimeCodeResponse.FlowToken) {
-                                    $FlowToken = $getOneTimeCodeResponse.FlowToken
-                                }
-
-                                "[{0}] Push armed - Entropy: {1}" -f $functionName, $entropy | Write-Verbose
-                            }
-                            catch {
-                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                                }
-                                "[{0}] GetOneTimeCode failed: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                                Write-Error "Could not initiate the Microsoft Authenticator push notification (GetOneTimeCode failed). $($_.Exception.Message)" -ErrorAction Stop
-                            }
-                        }
-
-                        # Check if Entropy is missing even though RemoteNgcParams exists
-                        if (-not $entropy) {
-                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                            }
-                            "[{0}] RemoteNgcParams present but Entropy field is missing" -f $functionName | Write-Verbose
-                            $errorMessage = @"
-Microsoft Entra ID did not return an Entropy value for this authentication attempt.
-
-This means Entra ID did not issue a number-matching challenge to Microsoft Authenticator.  
-Number matching is required for this authentication flow, and when it is not triggered, the Entropy field is omitted.
-
-One of the most common causes is that Microsoft Authenticator is enrolled for MFA but not fully enabled for passwordless phone sign-in.
-
-Please verify the following:
-
-1. Enable passwordless phone sign-in (critical)
-   - Open Microsoft Authenticator on your mobile device
-   - Tap your work account
-   - Tap “Enable phone sign-in” or “Set up passwordless sign-in requests”
-   - Complete the biometric setup and approval prompt
-   - Confirm that “Passwordless sign-in requests” appears for your account
-
-2. Check your authentication methods
-   https://aka.ms/mysecurityinfo
-   - Ensure you have BOTH:
-       • Microsoft Authenticator - passwordless phone sign-in
-       • Microsoft Authenticator - push MFA
-   - Remove duplicate or stale entries
-
-3. Check device registration
-   - Your phone must appear correctly under Entra ID → Devices
-   - Remove stale or duplicate device objects
-   - Ensure the device is not registered under a different tenant
-
-4. Account type and cross-tenant access
-   - Guest accounts may not receive passwordless or number-matching challenges
-
-5. Conditional Access policies
-   - A CA policy may be forcing a different MFA method or blocking passwordless
-
-6. Other strong authentication methods
-   - FIDO2 keys, Windows Hello for Business, TAP, or certificate-based auth may take precedence
-
-If issues persist:
-   - Remove Authenticator entries from https://aka.ms/mysecurityinfo
-   - Remove the device from Entra ID → Devices
-   - Reinstall Microsoft Authenticator
-   - Re-register passwordless and MFA
-
-For complete Entra ID setup prerequisites, see: `$script:HelpUrl
-"@
-                            Write-Error `$errorMessage -ErrorAction Stop
-                        }
-                    }
-                    else {
-                        # RemoteNGC exists but params are null - passwordless is available but not set as default
-                        # This happens when user has passwordless configured but must click "Use an app instead" in browser
-                        # We need to make an additional API call to explicitly request RemoteNGC credentials
-                            
-                        "[{0}] RemoteNGC available but not default - requesting explicit RemoteNGC credentials" -f $functionName | Write-Verbose
-                            
-                        $beginAuthUrl = "$baseUrl/common/SAS/BeginAuth"
-                        $beginAuthPayload = @{
-                            AuthMethodId = "PhoneAppNotification"
-                            Method       = "BeginAuth"
-                            ctx          = $FlowToken
-                            flowToken    = $FlowToken
-                        } | ConvertTo-Json -Depth 10
-                            
-                        $beginAuthHeaders = @{
-                            "Content-Type"      = "application/json"
-                            "canary"            = $CanaryToken
-                            "client-request-id" = [guid]::NewGuid().ToString()
-                        }
-                            
-                        try {
-                            "[{0}] Calling BeginAuth to request RemoteNGC credentials" -f $functionName | Write-Verbose
-                            $beginAuthResponse = Invoke-RestMethod -Uri $beginAuthUrl -Method POST -ErrorAction Stop `
-                                -Headers $beginAuthHeaders -Body $beginAuthPayload -WebSession $Session
-                                
-                            "[{0}] BeginAuth response: `n{1}" -f $functionName, ($beginAuthResponse | ConvertTo-Json -Depth 10) | Write-Verbose
-                                
-                            # Extract RemoteNGC parameters from BeginAuth response
-                            if ($beginAuthResponse.SessionIdentifier -and $beginAuthResponse.Entropy) {
-                                $sessionIdentifier = $beginAuthResponse.SessionIdentifier
-                                $entropy = $beginAuthResponse.Entropy
-                                "[{0}] Successfully obtained RemoteNGC credentials - Entropy: {1}" -f $functionName, $entropy | Write-Verbose
-                            }
-                            else {
-                                Write-Error "BeginAuth response missing SessionIdentifier or Entropy" -ErrorAction Stop
-                            }
-                        }
-                        catch {
-                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                            }
-                            "[{0}] Failed to request RemoteNGC credentials: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                            $errorMessage = @"
-Microsoft Authenticator passwordless authentication could not be initialized.
-
-DETECTED ISSUE:
-Entra ID reported passwordless capability but failed to provide authentication credentials (Entropy missing).
-This typically means passwordless authentication is partially configured but not fully functional.
-
-HOW TO FIX:
-
-1. RE-ENROLL MICROSOFT AUTHENTICATOR FOR PASSWORDLESS:
-   - Go to: https://aka.ms/mysecurityinfo
-   - Sign in with your account
-   - REMOVE the existing "Microsoft Authenticator" entry
-   - Click "+ Add sign-in method"
-   - Select "Microsoft Authenticator"
-   - During setup, ensure you select "Phone sign-in" or "Passwordless" option (NOT just MFA)
-   - Complete the QR code enrollment
-   - Wait 15-30 minutes for changes to propagate
-
-2. VERIFY ENTRA ID AUTHENTICATION METHODS POLICY (Contact your IT administrator):
-   - Entra ID → Security → Authentication methods → Microsoft Authenticator
-   - Ensure "Passwordless phone sign-in" is ENABLED
-   - Verify your user/group is in the "Target" section
-   - Check "Authentication mode" is set to allow passwordless
-
-3. CHECK FOR CONFLICTING POLICIES:
-   - Conditional Access policies blocking passwordless
-   - Legacy per-user MFA enforced (conflicts with modern passwordless)
-   - Application-specific authentication requirements
-
-4. VERIFY APPLICATION ASSIGNMENT:
-   - Entra ID → Enterprise applications → HPE GreenLake
-   - Confirm your account is assigned
-   - Verify required app roles are granted
-
-For complete Entra ID setup prerequisites, see: $script:HelpUrl
-"@
-                            Write-Error $errorMessage -ErrorAction Stop
-                        }
-                    }
-                }
-                else {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                    }
-                    $errorMessage = @"
-Microsoft Authenticator passwordless authentication is not available for this account.
-
-DETECTED ISSUE:
-Entra ID reports that RemoteNGC (passwordless) capability is NOT available for this account.
-This means passwordless phone sign-in is either not enrolled or not enabled by policy.
-
-HOW TO FIX:
-
-1. ENROLL MICROSOFT AUTHENTICATOR FOR PASSWORDLESS:
-   - Install Microsoft Authenticator on your mobile device (if not already installed)
-   - Go to: https://aka.ms/mysecurityinfo
-   - Sign in with your account
-   - Click "+ Add sign-in method"
-   - Select "Microsoft Authenticator"
-   - IMPORTANT: During setup, select "Phone sign-in" or "Passwordless" option
-   - Scan the QR code in the Microsoft Authenticator app
-   - Complete the enrollment process
-   - Wait 15-30 minutes for changes to propagate
-
-2. VERIFY ENTRA ID POLICIES (Contact your IT administrator):
-   
-   a) Authentication Methods Policy:
-      - Entra ID → Security → Authentication methods → Microsoft Authenticator
-      - Verify "Passwordless phone sign-in" is ENABLED at tenant level
-      - Verify your user/group is included in the "Target" section
-      - Check "Authentication mode" allows passwordless
-   
-   b) Check Security Defaults:
-      - Entra ID → Properties → Manage security defaults
-      - If enabled, may need to be disabled for full passwordless support
-      - Replace with Conditional Access policies instead
-   
-   c) Conditional Access Policies:
-      - Check if any policies block or restrict passwordless authentication
-      - Look for policies requiring specific authentication methods
-   
-   d) Application Assignment:
-      - Entra ID → Enterprise applications → HPE GreenLake (or SAML app)
-      - Verify your account is assigned with appropriate role
-
-3. CHECK FOR CONFLICTING CONFIGURATIONS:
-   - Legacy per-user MFA should be disabled (use CA policies instead)
-   - No pending forced password resets
-   - Account not blocked or in restricted state
-
-4. VERIFY IN MICROSOFT AUTHENTICATOR APP (after enrollment):
-   - Open the app on your mobile device
-   - Find your work account ($Username)
-   - Should show "Phone sign-in enabled"
-   - Should NOT only show a 6-digit TOTP code
-
-NOTE: Standard MFA (push approve/deny) is different from passwordless (number matching).
-HPE GreenLake requires passwordless phone sign-in with number matching challenges.
-
-For complete Entra ID setup prerequisites, see: $script:HelpUrl
-"@
-                    Write-Error $errorMessage -ErrorAction Stop
-                }
-            }
-            else {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                }
-                Write-Error "Invalid response from Entra ID. Credentials information missing." -ErrorAction Stop
-            }
-
-            if (-not $sessionIdentifier) {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                }
-                Write-Error "No authentication session identifier available. Authentication cannot proceed." -ErrorAction Stop
-            }
-            #EndRegion STEP 2
-
-            #Region STEP 3: Poll DeviceCodeStatus until the user approves the push
-            # The real browser "Use an app instead" passwordless flow polls DeviceCodeStatus with the
-            # RemoteNGC SessionIdentifier as the DeviceCode (verified against a full HAR capture).
-            # AuthorizationState transitions: 0 = pending (keep polling), 2 = approved, 3 = denied/failed.
-            "[{0}] Step 3: Polling DeviceCodeStatus for Microsoft Authenticator push approval" -f $functionName | Write-Verbose
-
-            # Show the number-matching prompt (Entropy from GetCredentialType RemoteNgcParams)
-            Start-Sleep -Milliseconds 500
-
-            if ($entropy -and $entropy -gt 0) {
-                if ($NoProgress) {
-                    Write-Host "`n  Action required: Open Microsoft Authenticator and enter the number " -NoNewline -ForegroundColor Cyan
-                    Write-Host $entropy -ForegroundColor Yellow -NoNewline
-                    Write-Host " to authenticate.`n" -ForegroundColor Cyan
-                }
-                elseif ($CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                        -CurrentActivity "Respond '$entropy' to the Microsoft Authenticator notification" -Id 0
-                }
-                "[{0}] Number matching active - user must enter: {1}" -f $functionName, $entropy | Write-Verbose
-            }
-            else {
-                if ($NoProgress) {
-                    Write-Host "`n  Action required: Open Microsoft Authenticator on your phone and approve the sign-in request.`n" -ForegroundColor Cyan
-                }
-                elseif ($CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                        -CurrentActivity "Approve the Microsoft Authenticator push notification on your phone" -Id 0
-                }
-            }
-
-            # Poll DeviceCodeStatus until the user approves (or timeout)
-            "[{0}] Polling DeviceCodeStatus for push approval" -f $functionName | Write-Verbose
-
-            $deviceCodeStatusUrl = "$baseUrl/common/DeviceCodeStatus?code=$([uri]::EscapeDataString($sessionIdentifier))"
-            $dcsBody = @{ DeviceCode = $sessionIdentifier } | ConvertTo-Json -Compress
-            $dcsTimeout = [datetime]::Now.AddMinutes($TimeoutMinutes)
-            $dcsPollCount = 0
-            $dcsMaxPolls = 120
-            $approved = $false
-
-            do {
-                $dcsPollCount++
-
-                $dcsHeaders = @{
-                    "Accept"            = "application/json"
-                    "Content-type"      = "application/json; charset=utf-8"
-                    "canary"            = $CanaryToken
-                    "client-request-id" = [guid]::NewGuid().ToString()
-                    "hpgrequestid"      = [guid]::NewGuid().ToString()
-                }
-
-                try {
-                    $dcsResponse = Invoke-RestMethod -Uri $deviceCodeStatusUrl -Method POST -Body $dcsBody `
-                        -Headers $dcsHeaders -ErrorAction Stop -WebSession $Session
-
-                    $authState = $dcsResponse.AuthorizationState
-                    "[{0}] DeviceCodeStatus poll #{1}: AuthorizationState={2}" -f $functionName, $dcsPollCount, $authState | Write-Verbose
-
-                    # AuthorizationState 2 = approved
-                    if ($authState -eq 2) {
-                        $approved = $true
-                        "[{0}] Push notification approved by user" -f $functionName | Write-Verbose
-                        break
-                    }
-
-                    # AuthorizationState anything other than 0 (pending) or 2 (approved) is terminal (3 = denied/failed)
-                    if ($authState -ne 0) {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                        }
-                        "[{0}] Push notification denied or failed (AuthorizationState={1})" -f $functionName, $authState | Write-Verbose
-                        Write-Error "Microsoft Authenticator push notification was denied or failed. The user either declined the request or entered an invalid number." -ErrorAction Stop
-                    }
-                    # AuthorizationState 0 = pending — keep polling
-                }
-                catch {
-                    if ($_.Exception.Message -notmatch "timeout|timed out") {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                        }
-                        throw
-                    }
-                }
-
-                if ([datetime]::Now -ge $dcsTimeout) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error @"
-Timeout! Microsoft Authenticator push notification was not approved within $TimeoutMinutes minutes.
-
-Please try again and approve the request promptly.
-"@ -ErrorAction Stop
-                }
-
-                Start-Sleep -Seconds $PollIntervalSeconds
-            } until ($approved -or $dcsPollCount -ge $dcsMaxPolls)
-
-            if (-not $approved) {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                }
-                Write-Error "Push notification approval failed or timed out. Please try again." -ErrorAction Stop
-            }
-            #EndRegion STEP 3
-
-            #Region STEP 4: Complete Authentication and Get SAML Response
-            # The approved RemoteNGC challenge is redeemed at /{tenant}/login with type=21 and the
-            # SessionIdentifier as the code (verified against a full HAR capture). The response is the
-            # KMSI interstitial, which is then POSTed to /kmsi to obtain the final SAMLResponse.
-            "[{0}] Step 4: Completing authentication via tenant /login (RemoteNGC type=21)" -f $functionName | Write-Verbose
-
-            # Determine tenant login URL (use tenant UUID from StateToken when available)
-            $loginTenantId = "common"
-            if ($StateToken -and $StateToken -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
-                $loginTenantId = $matches[1]
-            }
-            $loginUrl = "$baseUrl/$loginTenantId/login"
-
-            $rngcEntropy = if ($entropy) { $entropy } else { "" }
-            $loginBody = @(
-                "i13=0"
-                "code=$([uri]::EscapeDataString($sessionIdentifier))"
-                "uaid="
-                "login=$([uri]::EscapeDataString($Username))"
-                "loginfmt=$([uri]::EscapeDataString($Username))"
-                "type=21"
-                "LoginOptions=3"
-                "ps=4"
-                "psRNGCDefaultType=1"
-                "psRNGCEntropy=$rngcEntropy"
-                "psRNGCSLK=$([uri]::EscapeDataString($sessionIdentifier))"
-                "canary=$([uri]::EscapeDataString($CanaryToken))"
-                "ctx=$([uri]::EscapeDataString($StateToken))"
-                "hpgrequestid=$([guid]::NewGuid().ToString())"
-                "flowToken=$([uri]::EscapeDataString($FlowToken))"
-                "PPSX="
-                "NewUser=1"
-                "FoundMSAs="
-                "fspost=0"
-                "i21=0"
-                "CookieDisclosure=0"
-                "IsFidoSupported=1"
-                "isSignupPost=0"
-                "DfpArtifact="
-            ) -join '&'
-
-            $loginHeaders = @{
-                "Content-Type" = "application/x-www-form-urlencoded"
-            }
-
-            try {
-                $loginResponse = Invoke-WebRequest -Uri $loginUrl -Method POST -Body $loginBody `
-                    -Headers $loginHeaders -ErrorAction Stop -WebSession $Session -MaximumRedirection 10
-
-                "[{0}] tenant /login completed (status {1})" -f $functionName, $loginResponse.StatusCode | Write-Verbose
-
-                # Check if we got SAML response directly
-                if ($loginResponse.Content -match 'name="SAMLResponse"') {
-                    "[{0}] SAML response found in login response" -f $functionName | Write-Verbose
-                        
-                    if ($CompletedSteps) { $CompletedSteps.Value++ }
-                    return $loginResponse
-                }
-                    
-                # Check for KMSI (Keep Me Signed In) page
-                $isKmsiPage = $loginResponse.Content -match '"PageID"\s*content="KmsiInterrupt"' -or
-                $loginResponse.Content -match '"urlPost"\s*:\s*"/kmsi"'
-
-                if ($isKmsiPage) {
-                    "[{0}] KMSI (Keep Me Signed In) page detected" -f $functionName | Write-Verbose
-                        
-                    # Extract tokens from JavaScript config or form fields
-                    $kmsiCtx = ""
-                    $kmsiFlowToken = ""
-                    $kmsiCanary = ""
-                        
-                    if ($loginResponse.Content -match '"sFT"\s*:\s*"([^"]+)"') {
-                        $kmsiFlowToken = $matches[1]
-                    }
-                    elseif ($FlowToken) {
-                        $kmsiFlowToken = $FlowToken
-                    }
-                    if ($loginResponse.Content -match '"sCtx"\s*:\s*"([^"]+)"') {
-                        $kmsiCtx = $matches[1]
-                    }
-                    elseif ($StateToken) {
-                        $kmsiCtx = $StateToken
-                    }
-                    if ($loginResponse.Content -match '"canary"\s*:\s*"([^"]+)"') {
-                        $kmsiCanary = $matches[1]
-                    }
-                    elseif ($CanaryToken) {
-                        $kmsiCanary = $CanaryToken
-                    }
-                        
-                    $kmsiUrl = "$baseUrl/kmsi"
-                    $kmsiFormData = @(
-                        "LoginOptions=1"
-                        "type=28"
-                        "ctx=$([uri]::EscapeDataString($kmsiCtx))"
-                        "flowToken=$([uri]::EscapeDataString($kmsiFlowToken))"
-                        "canary=$([uri]::EscapeDataString($kmsiCanary))"
-                    ) -join '&'
-                        
-                    $kmsiResponse = Invoke-WebRequest -Uri $kmsiUrl -Method POST -Body $kmsiFormData `
-                        -Headers $loginHeaders -ErrorAction Stop -WebSession $Session -MaximumRedirection 10
-                        
-                    "[{0}] KMSI POST completed" -f $functionName | Write-Verbose
-                        
-                    if ($CompletedSteps) { $CompletedSteps.Value++ }
-                    return $kmsiResponse
-                }
-                    
-                # Return login response if no KMSI
-                if ($CompletedSteps) { $CompletedSteps.Value++ }
-                return $loginResponse
-            }
-            catch {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Entra ID Authentication" -Status "Failed" -Completed
-                }
-                "[{0}] Failed to complete authentication flow: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                Write-Error "Could not complete Entra ID authentication. $($_.Exception.Message)" -ErrorAction Stop
-            }
-            #EndRegion STEP 4
-        }
-
-        function Invoke-OktaMFAAuthentication {
-            <#
-            .SYNOPSIS
-                Performs Okta passwordless authentication using Okta Verify push notifications or TOTP codes.
-
-            .DESCRIPTION
-                This function implements the Okta Identity Engine (IDX) authentication flow:
-                1. Introspects authentication state
-                2. Identifies user if needed
-                3. Selects Okta Verify authenticator and method (push or TOTP)
-                4. Handles MFA challenge (push polling or TOTP code entry)
-                5. Returns SAML response for completing authentication
-                
-                Supports both push notifications (with or without number matching) and TOTP codes.
-                Automatically prefers push but falls back to TOTP if push is unavailable.
-
-            .PARAMETER StateToken
-                The Okta state token from the SAML flow
-
-            .PARAMETER Username
-                The user's email address or username
-
-            .PARAMETER Session
-                The WebRequestSession to maintain cookies and session state
-
-            .PARAMETER OktaDomain
-                The Okta domain (e.g., mycompany.okta.com)
-
-            .PARAMETER NoProgress
-                Suppresses progress bar updates (number matching will still be shown)
-
-            .PARAMETER CompletedSteps
-                Reference to completed steps counter for progress tracking
-
-            .PARAMETER TotalSteps
-                Total number of steps for progress calculation
-
-            .PARAMETER CurrentStep
-                Reference to current step counter
-
-            .PARAMETER TimeoutMinutes
-                Timeout in minutes for waiting on push notification approval (default: 2)
-            
-            .PARAMETER PollIntervalSeconds
-                Interval in seconds between polling attempts for push notification approval (default: 3)
-
-            .PARAMETER Password
-                Optional SecureString password for Okta password-based authentication.
-                When provided, selects the Okta password authenticator and submits the password directly
-                instead of initiating an Okta Verify push or TOTP challenge.
-
-            .EXAMPLE
-                $result = Invoke-OktaMFAAuthentication -StateToken $token -Username "user@example.com" `
-                    -Session $session -OktaDomain "mycompany.okta.com"
-            #>
-
-            param(
-                [Parameter(Mandatory = $true)]
-                [string]$StateToken,
-
-                [Parameter(Mandatory = $true)]
-                [string]$Username,
-
-                [Parameter(Mandatory = $true)]
-                [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
-
-                [Parameter(Mandatory = $true)]
-                [string]$OktaDomain,
-
-                [Parameter(Mandatory = $false)]
-                [switch]$NoProgress,
-
-                [Parameter(Mandatory = $false)]
-                [ref]$CompletedSteps,
-
-                [Parameter(Mandatory = $false)]
-                [int]$TotalSteps,
-
-                [Parameter(Mandatory = $false)]
-                [ref]$CurrentStep,
-
-                [Parameter(Mandatory = $false)]
-                [int]$TimeoutMinutes = 2,
-
-                [Parameter(Mandatory = $false)]
-                [int]$PollIntervalSeconds = 3,
-
-                [Parameter(Mandatory = $false)]
-                [SecureString]$Password
-            )
-
-            $functionName = "Invoke-OktaMFAAuthentication".ToUpper()
-            $baseUrl = "https://$OktaDomain"
-            $script:HelpUrl = "https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/README.md"
-
-            # Single progress bar update for the entire MFA process.
-            # Label reflects the auth mode: a supplied password means password-based SSO, otherwise passwordless (push/TOTP).
-            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                $oktaAuthModeLabel = if ($Password) { "Okta Password Authentication" } else { "Okta Passwordless Authentication" }
-                Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps -CurrentActivity "Step $($CurrentStep.Value)/$TotalSteps - $oktaAuthModeLabel" -Id 0
-                $CurrentStep.Value++
-            }
-
-            "[{0}] Starting Okta authentication for: {1}" -f $functionName, $baseUrl | Write-Verbose
-
-            #Region STEP 1: Introspect
-            "[{0}] Step 1: Introspecting authentication state" -f $functionName | Write-Verbose
-
-            $introspectUrl = "$baseUrl/idp/idx/introspect"
-            $payload = @{ stateToken = $StateToken } | ConvertTo-Json -Depth 10
-            $headers = @{
-                "Content-Type" = "application/json"
-                "Accept"       = "application/ion+json; okta-version=1.0.0"
-            }
-
-            try {
-                $introspectResponse = Invoke-RestMethod -Uri $introspectUrl -Method POST -ErrorAction Stop `
-                    -Headers $headers -Body $payload -WebSession $Session
-
-                "[{0}] Introspect response received" -f $functionName | Write-Verbose
-            }
-            catch {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                }
-                "[{0}] Introspect failed: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                Write-Error "Could not introspect authentication state. $($_.Exception.Message)" -ErrorAction Stop
-            }
-
-            # Check for MFA step-up scenario (outdated Okta Verify app)
-            $remediationActions = $introspectResponse.remediation.value.name
-            if ($remediationActions -contains 'select-authenticator-authenticate') {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                }
-                    
-                Write-Error @"
-Authentication failed: Outdated Okta Verify app detected.
-
-ROOT CAUSE: Your Okta Verify mobile app is too old to meet current security requirements.
-
-IMMEDIATE SOLUTIONS:
-1. UPDATE Okta Verify on your mobile device to the latest version 
-2. RE-ENROLL your device if updating doesn't work  
-
-Contact IT support if updating the app doesn't resolve this issue.
-"@ -ErrorAction Stop                   
-
-            }
-            #EndRegion STEP 1
-
-            #Region STEP 2: Identify (submit username if needed)
-            $identifyRemediation = $introspectResponse.remediation.value | Where-Object { $_.name -eq 'identify' }
-
-            if ($identifyRemediation) {
-                "[{0}] Step 2: Submitting username" -f $functionName | Write-Verbose
-                    
-                $identifyUrl = $identifyRemediation.href
-                $payload = @{
-                    identifier  = $Username
-                    stateHandle = $introspectResponse.stateHandle
-                } | ConvertTo-Json -Depth 10
-
-                $headers = @{
-                    "Content-Type" = "application/json; okta-version=1.0.0"
-                    "Accept"       = "application/ion+json; okta-version=1.0.0"
-                }
-
-                try {
-                    "[{0}] About to POST to identify endpoint: {1}" -f $functionName, $identifyUrl | Write-Verbose
-                        
-                    $currentResponse = Invoke-RestMethod -Uri $identifyUrl -Method POST -ErrorAction Stop `
-                        -Headers $headers -Body $payload -WebSession $Session
-                        
-                    "[{0}] Identity submitted successfully" -f $functionName | Write-Verbose
-                }
-                catch {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                        
-                    "[{0}] Exception Message: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                    "[{0}] HTTP Status Code: {1}" -f $functionName, $_.Exception.Response.StatusCode | Write-Verbose
-                        
-                    # In PowerShell 7, $_.ErrorDetails.Message contains the HTTP response body
-                    $serverErrorBody = $_.ErrorDetails.Message
-                    "[{0}] Raw Okta error response: {1}" -f $functionName, $serverErrorBody | Write-Verbose
-                        
-                    # Parse the response to detect specific Okta policy misconfiguration
-                    $oktaErrorResponse = $null
-                    if ($serverErrorBody) {
-                        try { $oktaErrorResponse = $serverErrorBody | ConvertFrom-Json } catch {}
-                    }
-                        
-                    # Detect password-required error: Okta authentication policy is not configured for passwordless
-                    $isPasswordRequired = (
-                        ($oktaErrorResponse.messages.value | Where-Object { $_.message -match 'Expecting a password' }) -or
-                        ($oktaErrorResponse.currentAuthenticator.value.key -eq 'okta_password')
-                    )
-                        
-                    if ($isPasswordRequired) {
-                        $errorMessage = @"
-Okta authentication policy misconfiguration detected.
-
-The Okta sign-on policy for the HPE GreenLake application is requiring a password,
-but this module only supports passwordless authentication using Okta Verify (push or TOTP).
-
-To fix this, your Okta administrator must configure the passwordless authentication policy:
-
-1. In Okta Admin Console, go to: Applications > HPE GreenLake > Sign On > Authentication Policy
-2. Edit the policy rule and set 'User must authenticate with' to 'Any 1 factor type' (not Password)
-3. Ensure Okta Verify is enrolled and that the Possession factor is allowed without password
-
-For complete Okta passwordless setup instructions, see: $script:HelpUrl
-"@
-                    }
-                    else {
-                        $errorDetailsDisplay = if ($oktaErrorResponse) {
-                            $oktaErrorResponse | ConvertTo-Json -Depth 3
-                        }
-                        elseif ($serverErrorBody) {
-                            $serverErrorBody
-                        }
-                        else {
-                            "(Unable to extract error details from response)"
-                        }
-                            
-                        $errorMessage = @"
-User authentication failed.
-
-This error can occur for multiple reasons:
-
-1. User account does not exist in Okta
-2. User account is disabled or locked
-3. User is not assigned to the HPE GreenLake application in Okta
-   - Contact your Okta administrator to verify application access
-   - Ensure you have the required app role assignments
-
-4. Okta Identity Engine (OIE) API compatibility issue
-   - The Okta platform may have been upgraded from Classic to OIE
-   - Different API structure or authentication flow required
-
-Server Error Details:
-$errorDetailsDisplay
-
-For complete Okta setup prerequisites, see: $script:HelpUrl
-"@
-                    }
-                        
-                    Write-Error $errorMessage -ErrorAction Stop
-                }
-            }
-            else {
-                $currentResponse = $introspectResponse
-            }
-            #EndRegion STEP 2
-
-            #Region STEP 3: Select Authenticator and Method
-            "[{0}] Step 3: Selecting authenticator" -f $functionName | Write-Verbose
-
-            $stateHandle = $currentResponse.stateHandle
-            $selectAuthRemediation = $currentResponse.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }
-
-            if (-not $selectAuthRemediation) {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                }
-                Write-Error "Authenticator selection not available. For Okta setup prerequisites, see: $($script:HelpUrl)" -ErrorAction Stop
-            }
-
-            $challengeHref = $selectAuthRemediation.href
-            $allAuthOptions = ($selectAuthRemediation.value | Where-Object { $_.name -eq 'authenticator' }).options
-            $isPasswordAuthenticator = $false
-            $passwordlessWarningSent = $false
-            $passwordlessPreferred = $false
-
-            # When a password is supplied, an Okta passwordless policy and a password+MFA policy are
-            # INDISTINGUISHABLE here — both advertise a Password authenticator AND Okta Verify (push/TOTP).
-            # The only reliable way to tell them apart is at runtime: a passwordless policy is satisfied by
-            # Okta Verify alone, whereas a password+MFA policy still demands the password afterwards.
-            #
-            # Strategy when a password is supplied:
-            # - If Okta Verify offers PUSH, try Okta Verify push FIRST (the passwordless route). If push
-            #   alone satisfies Okta (passwordless policy, e.g. FastPass), the password is never used and a
-            #   "password not required" warning is emitted after success (e.g. LeeG). If Okta then ALSO
-            #   requires the password (password+MFA policy), the existing STEP 7 push fallback submits it
-            #   silently — no warning (e.g. Marc).
-            # - Otherwise (Okta Verify offers only TOTP, or no Okta Verify) submit the Password FIRST, with
-            #   automatic step-up MFA in STEP 5 if required. This keeps password+TOTP (e.g. Leon) and
-            #   password-only (e.g. AlbE) accounts on their proven password-first flow.
-            if ($Password) {
-                $passwordAuth = $allAuthOptions | Where-Object {
-                    $_.label -match 'Password' -or
-                    ($_.value.form.value | Where-Object { $_.name -eq 'key' }).value -eq 'okta_password'
-                }
-                $OktaVerifyAuth = $allAuthOptions | Where-Object { $_.label -like '*Okta*Verify*' }
-                $oktaVerifyMethodOptions = ($OktaVerifyAuth.value.form.value | Where-Object { $_.name -eq 'methodType' }).options
-
-                if ($OktaVerifyAuth -and ($oktaVerifyMethodOptions.value -contains 'push')) {
-                    # Passwordless-preferred: Okta Verify push first; password held in reserve.
-                    $isPasswordAuthenticator = $false
-                    $passwordlessPreferred = $true
-                    $authenticatorId = ($OktaVerifyAuth.value.form.value | Where-Object { $_.name -eq 'id' }).value
-                    $methodType = 'push'
-                    "[{0}] Okta Verify push selected first (passwordless route); password held in reserve for password+MFA policies" -f $functionName | Write-Verbose
-                }
-                elseif ($passwordAuth) {
-                    $isPasswordAuthenticator = $true
-                    $authenticatorId = ($passwordAuth.value.form.value | Where-Object { $_.name -eq "id" }).value
-                    $methodType = $null
-                    "[{0}] Password authenticator selected (id: {1}) — password-first, automatic MFA step-up if required" -f $functionName, $authenticatorId | Write-Verbose
-                }
-                # else: neither a password authenticator nor Okta Verify push offered — genuinely
-                #       passwordless (e.g. TOTP-only); fall through to the Okta Verify path below.
-            }
-
-            if (-not $isPasswordAuthenticator -and -not $passwordlessPreferred) {
-                if ($Password -and -not $passwordlessWarningSent) {
-                    Write-Warning @"
-Your Okta account uses passwordless authentication. The provided password will not be used — attempting SSO (push/TOTP) authentication instead.
-To avoid this warning, use -PasswordlessSSOEmail instead of -Credential.
-"@
-                }
-                $OktaVerify = $allAuthOptions | Where-Object { $_.label -like '*Okta*Verify*' }
-
-                if (-not $OktaVerify) {
-                    # Step 18: Check if a password authenticator is available — prompt interactively if $Password not provided
-                    $passwordAuthOption = $allAuthOptions | Where-Object {
-                        $_.label -match 'Password' -or
-                        ($_.value.form.value | Where-Object { $_.name -eq 'key' }).value -eq 'okta_password'
-                    }
-                    if ($passwordAuthOption -and -not $Password) {
-                        # -PasswordlessSSOEmail must never prompt interactively — fail with an actionable error.
-                        "[{0}] Okta account requires a password but -PasswordlessSSOEmail was used — returning error." -f $functionName | Write-Verbose
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        # The IdP confirmed this account is password-based — record the rejection as password-based for telemetry.
-                        $script:HPESSOPasswordSubmitted = $true
-                        Write-Error @"
-Authentication failed: '$Username' is configured for password-based authentication in Okta, not passwordless.
-
-Your Identity Provider (Okta) requires a password for this account.
-Use -Credential instead:
-
-   `$cred = Get-Credential -UserName '$Username'
-   Connect-HPEGL -Credential `$cred
-"@ -ErrorAction Stop
-                    }
-                    else {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        $errorMessage = @"
-Okta Verify passwordless authentication is not enabled for this account.
-
-This error can occur for multiple reasons:
-
-1. Okta Verify is not enrolled with push notifications or TOTP codes
-   - Install Okta Verify on your mobile device
-   - Enroll Okta Verify in your Okta account settings
-   - Ensure either push notifications or TOTP (Time-based One-Time Password) is enabled
-   - Test the enrollment by signing in through a web browser first
-
-2. User is not assigned to the HPE GreenLake application in Okta
-   - Contact your Okta administrator to verify application access
-   - Ensure you have the required app role assignments
-
-For complete Okta setup prerequisites, see: $script:HelpUrl
-"@
-                        Write-Error $errorMessage -ErrorAction Stop
-                    }
-                }
-
-                if (-not $isPasswordAuthenticator) {
-                    $authenticatorId = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "id" }).value
-                    $methodOptions = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "methodType" }).options
-
-                    if (-not $authenticatorId -or -not $methodOptions) {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "Invalid Okta Verify configuration. For Okta setup prerequisites, see: $($script:HelpUrl)" -ErrorAction Stop
-                    }
-
-                    # Select method: prefer push, fallback to TOTP
-                    $methodType = if ($methodOptions.value -contains "push") {
-                        "[{0}] Selected method: push" -f $functionName | Write-Verbose
-                        "push"
-                    }
-                    elseif ($methodOptions.value -contains "totp") {
-                        "[{0}] Selected method: totp (push not available)" -f $functionName | Write-Verbose
-                        "totp"
-                    }
-                    else {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "Neither push nor TOTP authentication available. For Okta setup prerequisites, see: $($script:HelpUrl)" -ErrorAction Stop
-                    }
-                } 
-            } 
-            #EndRegion STEP 3
-
-            #Region STEP 4: Trigger Challenge
-            $challengeLabel = if ($isPasswordAuthenticator) { "password" } else { $methodType }
-            "[{0}] Step 4: Initiating {1} challenge" -f $functionName, $challengeLabel | Write-Verbose
-
-            $payload = if ($isPasswordAuthenticator) {
-                @{
-                    stateHandle   = $stateHandle
-                    authenticator = @{ id = $authenticatorId }
-                } | ConvertTo-Json -Depth 10
-            }
-            else {
-                @{
-                    stateHandle   = $stateHandle
-                    authenticator = @{
-                        id         = $authenticatorId
-                        methodType = $methodType
-                    }
-                } | ConvertTo-Json -Depth 10
-            }
-
-            $headers = @{
-                "Content-Type" = "application/json; okta-version=1.0.0"
-                "Accept"       = "application/ion+json; okta-version=1.0.0"
-            }
-
-            try {
-                $challengeResponse = Invoke-RestMethod -Uri $challengeHref -Method POST -ErrorAction Stop -Headers $headers -Body $payload -WebSession $Session
-
-                "[{0}] {1} challenge initiated successfully" -f $functionName, $challengeLabel.ToUpper() | Write-Verbose
-            }
-            catch {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                }
-                "[{0}] Failed to initiate {1} challenge: {2}" -f $functionName, $challengeLabel, $_.Exception.Message | Write-Verbose
-                Write-Error "Could not initiate Okta Verify $($challengeLabel) challenge. $($_.Exception.Message)" -ErrorAction Stop
-            }
-
-            $stateHandle = $challengeResponse.stateHandle
-            #EndRegion STEP 4
-
-            #Region STEP 5: Handle Password Authentication
-            if ($isPasswordAuthenticator) {
-                "[{0}] Step 5: Handling password authentication" -f $functionName | Write-Verbose
-
-                $answerHref = ($challengeResponse.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' }).href
-
-                if (-not $answerHref) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "No challenge-authenticator href found in password challenge response" -ErrorAction Stop
-                }
-
-                # Decrypt password SecureString to plaintext — cleared immediately after use
-                $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
-                try {
-                    $passwordPlainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
-                }
-                finally {
-                    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
-                }
-
-                $payload = @{
-                    stateHandle = $stateHandle
-                    credentials = @{ passcode = $passwordPlainText }
-                } | ConvertTo-Json -Depth 10
-                $passwordPlainText = $null
-
-                $headers = @{
-                    "Content-Type" = "application/json; okta-version=1.0.0"
-                    "Accept"       = "application/ion+json; okta-version=1.0.0"
-                }
-
-                try {
-                    # Password is about to be submitted to Okta — flag this connection as genuinely
-                    # password-based for telemetry (set before the POST so a rejected/bad password still counts).
-                    $script:HPESSOPasswordSubmitted = $true
-                    $passwordResponse = Invoke-RestMethod -Uri $answerHref -Method POST -ErrorAction Stop `
-                        -Headers $headers -Body $payload -WebSession $Session
-
-                    "[{0}] Password submitted successfully" -f $functionName | Write-Verbose
-                }
-                catch {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    "[{0}] Failed to submit password: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                    Write-Error "Authentication failed: Okta rejected the credentials for '$Username'. Verify username and password. Error: $($_.Exception.Message)" -ErrorAction Stop
-                }
-
-                $successRedirectUrl = $passwordResponse.success.href
-                if (-not $successRedirectUrl) {
-                    $successRedirectUrl = $passwordResponse.successWithInteractionCode.href
-                }
-
-                # --- Step-up MFA detection ---
-                # If Okta requires a second factor after password, the IDX response contains
-                # select-authenticator-authenticate instead of a success redirect.
-                $stepUpRemediation = $passwordResponse.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }
-
-                if ($stepUpRemediation -and -not $successRedirectUrl) {
-                    "[{0}] Step-up MFA required after password — selecting Okta Verify" -f $functionName | Write-Verbose
-
-                    $stateHandle = $passwordResponse.stateHandle
-                    $challengeHref = $stepUpRemediation.href
-                    $allStepUpOpts = ($stepUpRemediation.value | Where-Object { $_.name -eq 'authenticator' }).options
-                    $OktaVerify = $allStepUpOpts | Where-Object { $_.label -like '*Okta*Verify*' }
-
-                    if (-not $OktaVerify) {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "Step-up MFA required but Okta Verify is not available. For Okta setup prerequisites, see: $($script:HelpUrl)" -ErrorAction Stop
-                    }
-
-                    $authenticatorId = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "id" }).value
-                    $methodOptions = ($OktaVerify.value.form.value | Where-Object { $_.name -eq "methodType" }).options
-                    $methodType = if ($methodOptions.value -contains "push") { "push" }
-                    elseif ($methodOptions.value -contains "totp") { "totp" }
-                    else {
-                        Write-Error "Neither push nor TOTP available for step-up MFA. For Okta setup prerequisites, see: $($script:HelpUrl)" -ErrorAction Stop
-                    }
-
-                    "[{0}] Step-up: selected method '{1}', re-posting challenge" -f $functionName, $methodType | Write-Verbose
-
-                    $stepUpPayload = @{
-                        stateHandle   = $stateHandle
-                        authenticator = @{ id = $authenticatorId; methodType = $methodType }
-                    } | ConvertTo-Json -Depth 10
-
-                    $stepUpHeaders = @{
-                        "Content-Type" = "application/json; okta-version=1.0.0"
-                        "Accept"       = "application/ion+json; okta-version=1.0.0"
-                    }
-
-                    try {
-                        $challengeResponse = Invoke-RestMethod -Uri $challengeHref -Method POST `
-                            -ErrorAction Stop -Headers $stepUpHeaders -Body $stepUpPayload -WebSession $Session
-
-                        "[{0}] Step-up {1} challenge initiated" -f $functionName, $methodType.ToUpper() | Write-Verbose
-                    }
-                    catch {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "Could not initiate step-up Okta Verify $($methodType) challenge. $($_.Exception.Message)" -ErrorAction Stop
-                    }
-
-                    $stateHandle = $challengeResponse.stateHandle
-                    $isPasswordAuthenticator = $false
-                    $mfaRequired = $true
-                    # Fall through to STEP 6 (TOTP) or STEP 7 (push) below
-                }
-                elseif (-not $successRedirectUrl) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "No success redirect URL found after password authentication" -ErrorAction Stop
-                }
-                else {
-                    "[{0}] Password authentication completed successfully" -f $functionName | Write-Verbose
-                    "[{0}] Following success redirect to retrieve SAML response" -f $functionName | Write-Verbose
-
-                    try {
-                        $samlResponse = Invoke-WebRequest -Uri $successRedirectUrl -Method GET `
-                            -WebSession $Session -UseBasicParsing -ErrorAction Stop
-
-                        "[{0}] SAML response retrieved successfully" -f $functionName | Write-Verbose
-
-                        if ($CompletedSteps) { $CompletedSteps.Value++ }
-                        return $samlResponse
-                    }
-                    catch {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "Could not retrieve SAML response after password authentication. $($_.Exception.Message)" -ErrorAction Stop
-                    }
-                }
-            }
-            #EndRegion STEP 5
-
-            #Region STEP 6: Handle TOTP Input
-            if ($methodType -eq "totp") {
-                "[{0}] Step 6: Handling TOTP authentication" -f $functionName | Write-Verbose
-
-                $totpCode = Read-Host -Prompt "Enter your Okta Verify TOTP code for $($Username)"
-
-                if ([string]::IsNullOrWhiteSpace($totpCode)) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "TOTP code is required" -ErrorAction Stop
-                }
-
-                $answerHref = ($challengeResponse.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' }).href
-
-                if (-not $answerHref) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "No answerHref found in TOTP challenge response" -ErrorAction Stop
-                }
-
-                $payload = @{
-                    stateHandle = $stateHandle
-                    credentials = @{ totp = $totpCode }
-                } | ConvertTo-Json -Depth 10
-
-                $headers = @{
-                    "Content-Type" = "application/json; okta-version=1.0.0"
-                    "Accept"       = "application/ion+json; okta-version=1.0.0"
-                }
-
-                try {
-                    $totpResponse = Invoke-RestMethod -Uri $answerHref -Method POST -ErrorAction Stop `
-                        -Headers $headers -Body $payload -WebSession $Session
-
-                    "[{0}] TOTP code submitted successfully" -f $functionName | Write-Verbose
-                }
-                catch {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-
-                    $errorMessage = "Invalid TOTP code. Please verify the code and try again"
-                        
-                    if ($_.Exception.Response) {
-                        try {
-                            $errorStream = $_.Exception.Response.GetResponseStream()
-                            $reader = New-Object System.IO.StreamReader($errorStream)
-                            $errorBody = $reader.ReadToEnd()
-                            $reader.Close()
-                            $errorJson = $errorBody | ConvertFrom-Json
-                                
-                            if ($errorJson.errorSummary) {
-                                $errorMessage = $errorJson.errorSummary
-                            }
-                        }
-                        catch { 
-                            # Intentionally ignore - JSON parsing may fail for non-JSON error responses
-                        }
-                    }
-
-                    "[{0}] Failed to submit TOTP code: {1}" -f $functionName, $errorMessage | Write-Verbose
-                    throw "Authentication failed: The verification code was rejected by Okta. Verify the current code in your authenticator app and try again."
-                }
-
-                # Check for multi-factor authentication (TOTP + Password)
-                $additionalAuthRequired = $totpResponse.remediation.value | Where-Object { 
-                    $_.name -eq 'challenge-authenticator' -and $_.relatesTo -contains '$.currentAuthenticatorEnrollment'
-                }
-
-                if ($additionalAuthRequired) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error @"
-Multi-factor authentication (TOTP + additional factor) is not supported.
-
-Please configure Okta to use TOTP alone.
-
-For setup prerequisites, see: $script:HelpUrl
-"@ -ErrorAction Stop
-                }
-
-                # Extract success redirect URL
-                $successRedirectUrl = $totpResponse.success.href
-                if (-not $successRedirectUrl) {
-                    $successRedirectUrl = $totpResponse.successWithInteractionCode.href
-                }
-
-                if (-not $successRedirectUrl) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "No success redirect URL found after TOTP verification" -ErrorAction Stop
-                }
-
-                "[{0}] TOTP verification completed successfully" -f $functionName | Write-Verbose
-                "[{0}] Following success redirect to retrieve SAML response" -f $functionName | Write-Verbose
-
-                try {
-                    $samlResponse = Invoke-WebRequest -Uri $successRedirectUrl -Method GET -WebSession $Session -UseBasicParsing -ErrorAction Stop
-
-                    "[{0}] SAML response retrieved successfully" -f $functionName | Write-Verbose
-
-                    if ($CompletedSteps) { $CompletedSteps.Value++ }
-                    return $samlResponse
-                }
-                catch {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "Could not retrieve SAML response. $($_.Exception.Message)" -ErrorAction Stop
-                }
-            }
-            #EndRegion STEP 6
-
-            #Region STEP 7: Poll for Push Approval
-            if ($methodType -eq "push") {
-                "[{0}] Step 7: Polling for push approval" -f $functionName | Write-Verbose
-
-                $pollHref = ($challengeResponse.remediation.value | Where-Object { $_.name -eq 'challenge-poll' }).href
-
-                if (-not $pollHref) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "No pollHref found for push authentication" -ErrorAction Stop
-                }
-
-                $correctAnswer = $challengeResponse.currentAuthenticator.value.contextualData.correctAnswer
-
-                Start-Sleep -Milliseconds 500
-
-                if ($correctAnswer) {
-                    if ($NoProgress) {
-                        Write-Host "`n  Action required: Open Okta Verify and select the number " -NoNewline -ForegroundColor Cyan
-                        Write-Host $correctAnswer -ForegroundColor Yellow -NoNewline
-                        Write-Host " to authenticate.`n" -ForegroundColor Cyan
-                    }
-                    else {
-                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                            -CurrentActivity "Respond '$correctAnswer' to the Okta Verify notification" -Id 0
-                    }
-                    "[{0}] Number challenge active - user must select: {1}" -f $functionName, $correctAnswer | Write-Verbose
-                }
-                else {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                            -CurrentActivity "Approve the Okta Verify push notification" -Id 0
-                    }
-                }
-
-                $timeout = [datetime]::Now.AddMinutes($TimeoutMinutes)
-                $payload = @{ stateHandle = $stateHandle } | ConvertTo-Json
-                $headers = @{
-                    "Content-Type" = "application/json; okta-version=1.0.0"
-                    "Accept"       = "application/ion+json; okta-version=1.0.0"
-                }
-
-                do {
-                    try {
-                        $pollResponse = Invoke-RestMethod -Uri $pollHref -Method POST -Body $payload `
-                            -Headers $headers -ErrorAction Stop -WebSession $Session
-                    }
-                    catch {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "Unable to poll Okta Verify push status. $($_.Exception.Message)" -ErrorAction Stop
-                    }
-
-                    # Check for timeout
-                    if ([datetime]::Now -ge $timeout) {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error @"
-Timeout! Okta Verify push notification was not approved within $TimeoutMinutes minutes.
-
-Please try again and approve the request promptly.
-"@ -ErrorAction Stop
-                    }
-
-                    # Check for success
-                    if ($pollResponse.success.name -eq "success-redirect" -or $pollResponse.successWithInteractionCode) {
-                        break
-                    }
-
-                    # Check for multi-factor authentication requirement
-                    if ($pollResponse.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' -and $_.relatesTo -contains '$.currentAuthenticatorEnrollment' }) {
-                        break
-                    }
-
-                    # Check for error
-                    if ($pollResponse.messages -and $pollResponse.messages.value -and $pollResponse.messages.value.Count -gt 0) {
-                        if ($pollResponse.messages.value[0].class -eq "ERROR") {
-                            break
-                        }
-                    }
-
-                    Start-Sleep -Seconds $PollIntervalSeconds
-
-                } while ($true)
-
-                # Check for Push + Password scenario
-                if ($pollResponse.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' -and $_.relatesTo -contains '$.currentAuthenticatorEnrollment' }) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-
-                    # If no password was provided, this is a password-based account used with -PasswordlessSSOEmail.
-                    # Return an actionable error directing the user to -Credential.
-                    if (-not $Password) {
-                        # The IdP confirmed this account is password-based — record the rejection as password-based for telemetry.
-                        $script:HPESSOPasswordSubmitted = $true
-                        Write-Error @"
-Authentication failed: '$Username' is configured for password-based authentication in Okta, not passwordless.
-
-Your Identity Provider (Okta) requires a password for this account.
-Use -Credential instead:
-
-   `$cred = Get-Credential -UserName '$Username'
-   Connect-HPEGL -Credential `$cred
-"@ -ErrorAction Stop
-                    }
-                    else {
-                        # Push requires an additional factor and a password is available.
-                        # Fall back to password authentication silently.
-                        "[{0}] Push requires additional factor — falling back to password authentication" -f $functionName | Write-Verbose
-
-                        # The password is being used (password+MFA policy) — suppress the passwordless warning.
-                        $passwordlessPreferred = $false
-
-                        $isPasswordAuthenticator = $true
-                        $authenticatorId = ($passwordAuth.value.form.value | Where-Object { $_.name -eq "id" }).value
-
-                        # Re-challenge with password authenticator
-                        $pwFallbackPayload = @{
-                            stateHandle   = $stateHandle
-                            authenticator = @{ id = $authenticatorId }
-                        } | ConvertTo-Json -Depth 10
-                        $pwFallbackHeaders = @{
-                            "Content-Type" = "application/json; okta-version=1.0.0"
-                            "Accept"       = "application/ion+json; okta-version=1.0.0"
-                        }
-                        try {
-                            $challengeResponse = Invoke-RestMethod -Uri $challengeHref -Method POST `
-                                -ErrorAction Stop -Headers $pwFallbackHeaders -Body $pwFallbackPayload -WebSession $Session
-                            $stateHandle = $challengeResponse.stateHandle
-                            "[{0}] Password challenge initiated for fallback" -f $functionName | Write-Verbose
-                        }
-                        catch {
-                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                            }
-                            Write-Error "Could not initiate password challenge after push fallback. $($_.Exception.Message)" -ErrorAction Stop
-                        }
-
-                        # Submit password
-                        $answerHref = ($challengeResponse.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' }).href
-                        $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
-                        try { $passwordPlainText = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
-                        finally { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
-                        $pwPayload = @{ stateHandle = $stateHandle; credentials = @{ passcode = $passwordPlainText } } | ConvertTo-Json -Depth 10
-                        $passwordPlainText = $null
-                        try {
-                            # Password is about to be submitted to Okta (push fallback) — flag this connection as
-                            # genuinely password-based for telemetry (set before the POST so a rejected password still counts).
-                            $script:HPESSOPasswordSubmitted = $true
-                            $passwordResponse = Invoke-RestMethod -Uri $answerHref -Method POST `
-                                -ErrorAction Stop -Headers $pwFallbackHeaders -Body $pwPayload -WebSession $Session
-                            "[{0}] Password submitted successfully (push fallback)" -f $functionName | Write-Verbose
-                        }
-                        catch {
-                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                            }
-                            Write-Error "Authentication failed: Okta rejected the credentials for '$Username'. Verify username and password. Error: $($_.Exception.Message)" -ErrorAction Stop
-                        }
-
-                        # Handle step-up MFA or success after password fallback
-                        $successRedirectUrl = $passwordResponse.success.href
-                        if (-not $successRedirectUrl) { $successRedirectUrl = $passwordResponse.successWithInteractionCode.href }
-                        $stepUpRemediation = $passwordResponse.remediation.value | Where-Object { $_.name -eq 'select-authenticator-authenticate' }
-
-                        if ($stepUpRemediation -and -not $successRedirectUrl) {
-                            # Step-up MFA required — delegate to existing step-up logic by re-entering STEP 5 flow
-                            # Reuse the existing $passwordResponse step-up block by setting variables and falling through
-                            $isPasswordAuthenticator = $false
-                            $stateHandle = $passwordResponse.stateHandle
-                            $challengeHref = $stepUpRemediation.href
-                            $allStepUpOpts = ($stepUpRemediation.value | Where-Object { $_.name -eq 'authenticator' }).options
-                            $OktaVerify = $allStepUpOpts | Where-Object { $_.label -like '*Okta*Verify*' }
-                            if (-not $OktaVerify) {
-                                Write-Error "Step-up MFA required but Okta Verify is not available after password fallback." -ErrorAction Stop
-                            }
-                            $authenticatorId = ($OktaVerify.value.form.value | Where-Object { $_.name -eq 'id' }).value
-                            $methodOptions = ($OktaVerify.value.form.value | Where-Object { $_.name -eq 'methodType' }).options
-                            $methodType = if ($methodOptions.value -contains 'push') { 'push' } elseif ($methodOptions.value -contains 'totp') { 'totp' } else { $null }
-                            $stepPayload = @{ stateHandle = $stateHandle; authenticator = @{ id = $authenticatorId; methodType = $methodType } } | ConvertTo-Json -Depth 10
-                            $challengeResponse = Invoke-RestMethod -Uri $challengeHref -Method POST -ErrorAction Stop -Headers $pwFallbackHeaders -Body $stepPayload -WebSession $Session
-                            $stateHandle = $challengeResponse.stateHandle
-                            $mfaRequired = $true
-                            # Fall through to STEP 6 (TOTP) or STEP 7 (push) below
-                        }
-                        elseif ($successRedirectUrl) {
-                            try {
-                                $samlResponse = Invoke-WebRequest -Uri $successRedirectUrl -Method GET -WebSession $Session -UseBasicParsing -ErrorAction Stop
-                                if ($CompletedSteps) { $CompletedSteps.Value++ }
-                                return $samlResponse
-                            }
-                            catch {
-                                Write-Error "Could not retrieve SAML response after password fallback. $($_.Exception.Message)" -ErrorAction Stop
-                            }
-                        }
-                        else {
-                            Write-Error "No success redirect URL found after password fallback authentication" -ErrorAction Stop
-                        }
-                    }
-                }
-
-                # Check for push denial - with proper null checking
-                if ($pollResponse.messages -and $pollResponse.messages.value -and $pollResponse.messages.value.Count -gt 0 -and $pollResponse.messages.value[0].class -eq "ERROR") {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    $errorMsg = if ($pollResponse.messages.value[0].message) { $pollResponse.messages.value[0].message } else { "Unknown error" }
-                    "[{0}] Push notification denied: {1}" -f $functionName, $errorMsg | Write-Verbose
-                    Write-Error "Okta Verify push notification was denied. The user either rejected the notification or selected the wrong number on the Okta Verify prompt. Please try again and approve the request on your device." -ErrorAction Stop
-                }
-
-                # Check for success and extract redirect URL
-                if ($pollResponse.success.name -eq "success-redirect" -or $pollResponse.successWithInteractionCode) {
-                    # Extract success redirect URL
-                    $successRedirectUrl = $pollResponse.success.href
-                    if (-not $successRedirectUrl) {
-                        $successRedirectUrl = $pollResponse.successWithInteractionCode.href
-                    }
-
-                    if (-not $successRedirectUrl) {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "No success redirect URL found after push approval" -ErrorAction Stop
-                    }
-
-                    "[{0}] Push notification approved successfully" -f $functionName | Write-Verbose
-                    "[{0}] Following success redirect to retrieve SAML response" -f $functionName | Write-Verbose
-
-                    # Okta Verify push alone satisfied authentication and the supplied password was never
-                    # used — this is a passwordless policy. Warn the user (consistent with Entra ID / PingID).
-                    if ($passwordlessPreferred) {
-                        "[{0}] Okta Verify push alone satisfied authentication — supplied password was not used (passwordless policy)" -f $functionName | Write-Verbose
-                        Write-Warning @"
-Your Okta account uses passwordless authentication. The provided password will not be used — attempting SSO (push/TOTP) authentication instead.
-To avoid this warning, use -PasswordlessSSOEmail instead of -Credential.
-"@
-                    }
-
-                    try {
-                        $samlResponse = Invoke-WebRequest -Uri $successRedirectUrl -Method GET `
-                            -WebSession $Session -UseBasicParsing -ErrorAction Stop
-
-                        "[{0}] SAML response retrieved successfully" -f $functionName | Write-Verbose
-
-                        if ($CompletedSteps) { $CompletedSteps.Value++ }
-                        return $samlResponse
-                    }
-                    catch {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "Could not retrieve SAML response. $($_.Exception.Message)" -ErrorAction Stop
-                    }
-                }
-                else {
-                    # If we get here, something unexpected happened
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "Okta Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "Unexpected response from push polling. Please try again." -ErrorAction Stop
-                }
-            }
-            #EndRegion STEP 7
-        }
-
-        function Invoke-PingIDMFAAuthentication {
-            <#
-            .SYNOPSIS
-                Performs PingOne/PingID SAML authentication using PingID mobile app push notifications or OTP codes.
-
-            .DESCRIPTION
-                This function implements the PingOne SAML + PingID authentication flow:
-                1. Follows SAML redirect to extract flowId from PingOne
-                2. Submits username to PingOne flows API
-                3. Initiates PingID authentication via authenticator.pingone.com
-                4. Waits for user to approve push notification on mobile device
-                5. Handles JWT callback with ppm_request and ppm_response tokens
-                6. Resumes SAML flow to retrieve final SAML response
-                
-                Authentication Methods:
-                - Push Notification (Primary): Sends push to mobile device with optional number matching
-                - OTP Fallback (Automatic): Only available if push is unavailable or fails
-                
-                IMPORTANT: PingID architecture ALWAYS sends a push notification after WebAuthn submission.
-                The push notification MUST be approved - denying or ignoring it breaks the authentication session.
-                There is no way to skip or cancel the push notification.
-
-            .PARAMETER SAMLRedirectUrl
-                The full SAML redirect URL from the IdP initiation (contains flowId parameter)
-
-            .PARAMETER Username
-                The user's email address or username
-
-            .PARAMETER Session
-                The WebRequestSession to maintain cookies and session state
-
-            .PARAMETER EnvironmentId
-                The PingOne environment ID (e.g., a4ff1a35-682b-469f-9acf-373ee0508d31)
-
-            .PARAMETER NoProgress
-                Suppresses progress bar updates (number matching will still be shown)
-
-            .PARAMETER CompletedSteps
-                Reference to completed steps counter for progress tracking
-
-            .PARAMETER TotalSteps
-                Total number of steps for progress calculation
-
-            .PARAMETER CurrentStep
-                Reference to current step counter
-
-            .PARAMETER TimeoutMinutes
-                Maximum time to wait for push approval (default: 2 minutes)
-
-            .PARAMETER PollIntervalSeconds
-                Interval between status polls (default: 3 seconds)
-
-            .PARAMETER Password
-                Optional SecureString password for PingID password-based authentication.
-                When provided, submits the password to the PingOne password.verify endpoint instead of
-                waiting for a PingID push notification or OTP challenge.
-
-            .EXAMPLE
-                $result = Invoke-PingIDMFAAuthentication -SAMLRedirectUrl $redirectUrl -Username "user@example.com" `
-                    -Session $session -EnvironmentId "a4ff1a35-682b-469f-9acf-373ee0508d31"
-                
-                Authenticates using push notification. User must approve the push on their mobile device.
-
-            .EXAMPLE
-                $result = Invoke-PingIDMFAAuthentication -SAMLRedirectUrl $redirectUrl -Username "user@example.com" `
-                    -Session $session -EnvironmentId "a4ff1a35-682b-469f-9acf-373ee0508d31" -TimeoutMinutes 5
-                
-                Authenticates using push notification with extended timeout of 5 minutes.
-            #>
-
-            param(
-                [Parameter(Mandatory = $true)]
-                [string]$SAMLRedirectUrl,
-
-                [Parameter(Mandatory = $true)]
-                [string]$Username,
-
-                [Parameter(Mandatory = $true)]
-                [Microsoft.PowerShell.Commands.WebRequestSession]$Session,
-
-                [Parameter(Mandatory = $true)]
-                [string]$EnvironmentId,
-
-                [Parameter(Mandatory = $false)]
-                [switch]$NoProgress,
-
-                [Parameter(Mandatory = $false)]
-                [ref]$CompletedSteps,
-
-                [Parameter(Mandatory = $false)]
-                [int]$TotalSteps,
-
-                [Parameter(Mandatory = $false)]
-                [ref]$CurrentStep,
-
-                [Parameter(Mandatory = $false)]
-                [int]$TimeoutMinutes = 2,
-
-                [Parameter(Mandatory = $false)]
-                [int]$PollIntervalSeconds = 3,
-
-                [Parameter(Mandatory = $false)]
-                [SecureString]$Password
-            )
-
-            $functionName = "Invoke-PingIDMFAAuthentication".ToUpper()
-            $skipToSamlResume = $false
-                
-            # Extract PingOne base URLs directly from SAMLRedirectUrl instead of reconstructing
-            # This automatically supports ALL regions including .com, .eu, .asia, .ca, .com.au, .sg, and future regions
-            $authBaseUrl = $null
-            $authenticatorBaseUrl = $null
-            $detectedRegion = "unknown"
-                
-            # Extract base URL from SAMLRedirectUrl (works with any subdomain: auth., apps., authenticator.)
-            # Match pattern: https://(any).pingone.(any TLD)/
-            if ($SAMLRedirectUrl -match 'https://([^/]+\.)?pingone\.([^/]+)') {
-                # Extract the full domain (e.g., "eu", "com.au", "sg")
-                $detectedRegion = $Matches[2]
-                $authBaseUrl = "https://auth.pingone.$detectedRegion"
-                "[{0}] Extracted region '{1}' from URL: {2}" -f $functionName, $detectedRegion, $SAMLRedirectUrl | Write-Verbose
-                "[{0}] Constructed auth base URL: {1}" -f $functionName, $authBaseUrl | Write-Verbose
-            }
-                
-            # Construct authenticator URL
-            if ($authBaseUrl) {
-                $authenticatorBaseUrl = $authBaseUrl -replace '^https://auth\.', 'https://authenticator.'
-                "[{0}] Constructed authenticator base URL: {1}" -f $functionName, $authenticatorBaseUrl | Write-Verbose
-            }
-                
-            # Fallback to default if extraction failed
-            if (-not $authBaseUrl) {
-                "[{0}] WARNING: Could not extract base URLs from SAML redirect, falling back to .com default" -f $functionName | Write-Verbose
-                $authBaseUrl = "https://auth.pingone.com"
-                $authenticatorBaseUrl = "https://authenticator.pingone.com"
-                $detectedRegion = "com (fallback)"
-            }
-                
-            "[{0}] Using PingOne region: {1}" -f $functionName, $detectedRegion | Write-Verbose
-            $script:HelpUrl = "https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/README.md"
-
-            # Single progress bar update for the entire MFA process
-            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                $currentStepValue = $CurrentStep.Value
-                $pingAuthLabel = if ($Password) { "PingID Password Authentication" } else { "PingID Passwordless Authentication" }
-                Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps -CurrentActivity "Step $currentStepValue/$TotalSteps - $pingAuthLabel" -Id 0
-                $CurrentStep.Value++
-            }
-
-            "[{0}] Starting PingOne/PingID authentication for environment: {1}" -f $functionName, $EnvironmentId | Write-Verbose
-
-            #Region STEP 1: Follow SAML redirect and extract flowId
-            "[{0}] Step 1: Following SAML redirect to extract flowId" -f $functionName | Write-Verbose
-
-            try {
-                # Extract flowId from URL first (URL already contains it)
-                $flowId = $null
-                if ($SAMLRedirectUrl -match 'flowId=([^&]+)') {
-                    $flowId = $matches[1]
-                    "[{0}] Extracted flowId from URL: {1}" -f $functionName, $flowId | Write-Verbose
-                }
-
-                if (-not $flowId) {
-                    Write-Error "Could not extract flowId from SAML redirect URL" -ErrorAction Stop
-                }
-
-                # Now follow the redirect to establish session and capture cookies
-                # Use -MaximumRedirection 5 to follow redirects automatically
-                $redirectResponse = Invoke-WebRequest -Uri $SAMLRedirectUrl -Method GET -WebSession $Session -MaximumRedirection 5 -ErrorAction Stop
-
-                $finalUrl = if ($redirectResponse.BaseResponse.ResponseUri) { 
-                    $redirectResponse.BaseResponse.ResponseUri.AbsoluteUri 
-                }
-                else { 
-                    $SAMLRedirectUrl 
-                }
-                    
-                "[{0}] Followed redirect to: {1}" -f $functionName, $finalUrl | Write-Verbose
-                    
-                # Verify we reached the signon page
-                if ($finalUrl -notmatch "apps\.pingone\.$pingRegion.*signon") {
-                    "[{0}] Warning: Did not reach expected signon page. Got: {1}" -f $functionName, $finalUrl | Write-Verbose
-                }
-
-                # Check and log cookies after redirect
-                $cookieCount = ($Session.Cookies.GetCookies($authBaseUrl) | Measure-Object).Count
-                "[{0}] After redirect, session has {1} cookies for auth.pingone.{2}" -f $functionName, $cookieCount, $pingRegion | Write-Verbose
-                    
-                # If no cookies, this might be a WebSession recreation issue - warn but continue
-                if ($cookieCount -eq 0) {
-                    "[{0}] WARNING: No ST cookies found in session. This may cause authentication to fail." -f $functionName | Write-Verbose
-                    "[{0}] This often happens when PowerShell recreates the WebSession between requests." -f $functionName | Write-Verbose
-                }
-            }
-            catch {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                }
-                "[{0}] Failed to extract flowId: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                Write-Error "Could not extract flowId from SAML redirect. $($_.Exception.Message)" -ErrorAction Stop
-            }
-            #EndRegion STEP 1
-                
-            #Region STEP 2: Submit username to PingOne flows API
-            "[{0}] Step 2: Submitting username to PingOne" -f $functionName | Write-Verbose
-
-            # Log current cookies in session for debugging
-            $cookieCount = ($Session.Cookies.GetCookies($authBaseUrl) | Measure-Object).Count
-            "[{0}] Session has {1} cookies for auth.pingone.{2}" -f $functionName, $cookieCount, $pingRegion | Write-Verbose
-            if ($cookieCount -gt 0) {
-                $Session.Cookies.GetCookies($authBaseUrl) | ForEach-Object {
-                    "[{0}]   Cookie: {1}" -f $functionName, $_.Name | Write-Verbose
-                }
-            }
-
-            # Extract username from email if needed (PingOne expects "username", not "username@company.com")
-            $usernameOnly = $Username
-            if ($Username -match '^([^@]+)@') {
-                $usernameOnly = $matches[1]
-                "[{0}] Extracted username '{1}' from email '{2}'" -f $functionName, $usernameOnly, $Username | Write-Verbose
-            }
-
-            $flowUrl = "$authBaseUrl/$EnvironmentId/flows/$flowId"
-            $appsBaseUrl = $authBaseUrl -replace '^https://auth\.', 'https://apps.'
-            $hasPingIDLink = $false
-
-            # Step 2a: GET the flow to discover what authentication type PingOne requires
-            "[{0}] Step 2a: GET flow status from PingOne" -f $functionName | Write-Verbose
-            $getHeaders = @{
-                "Content-Type" = "application/json"
-                "Accept"       = "*/*"
-                "Origin"       = $appsBaseUrl
-                "Referer"      = "$appsBaseUrl/"
-            }
-            try {
-                $flowStatusResponse = Invoke-RestMethod -Uri $flowUrl -Method GET -Headers $getHeaders -WebSession $Session -ErrorAction Stop
-                $flowStatus = $flowStatusResponse.status
-                "[{0}] Flow status: {1}" -f $functionName, $flowStatus | Write-Verbose
-                "[{0}] Flow response: {1}" -f $functionName, ($flowStatusResponse | ConvertTo-Json -Depth 5) | Write-Verbose
-            }
-            catch {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                }
-                Write-Error "Could not retrieve PingOne flow status for '$Username'. $($_.Exception.Message)" -ErrorAction Stop
-            }
-
-            if ($flowStatus -eq 'USERNAME_PASSWORD_REQUIRED') {
-                "[{0}] PingOne requires username+password authentication." -f $functionName | Write-Verbose
-
-                if (-not $Password) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                    }
-                    # The IdP confirmed this account is password-based — record the rejection as password-based for telemetry.
-                    $script:HPESSOPasswordSubmitted = $true
-                    Write-Error @"
-Authentication failed: '$Username' is configured for password-based authentication in PingID, not passwordless.
-
-Your Identity Provider (PingID) requires a password for this account.
-Use -Credential instead:
-
-   `$cred = Get-Credential -UserName '$Username'
-   Connect-HPEGL -Credential `$cred
-"@ -ErrorAction Stop
-                }
-
-                # Submit username + password in a single step using the content-type the browser uses
-                $plainPwd = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password))
-                $credBody = @{ username = $usernameOnly; password = $plainPwd } | ConvertTo-Json
-                $plainPwd = [string]::new('0', $plainPwd.Length); $plainPwd = $null
-                $credHeaders = @{
-                    "Content-Type" = "application/vnd.pingidentity.usernamePassword.check+json"
-                    "Accept"       = "*/*"
-                    "Origin"       = $appsBaseUrl
-                    "Referer"      = "$appsBaseUrl/"
-                }
-                try {
-                    # Password is about to be submitted to PingID — flag this connection as genuinely
-                    # password-based for telemetry (set before the POST so a rejected/bad password still counts).
-                    $script:HPESSOPasswordSubmitted = $true
-                    $userLookupResponse = Invoke-RestMethod -Uri $flowUrl -Method POST -Headers $credHeaders -Body $credBody -WebSession $Session -ErrorAction Stop
-                    "[{0}] Credentials submitted. Flow status: {1}" -f $functionName, $userLookupResponse.status | Write-Verbose
-                }
-                catch {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "Authentication failed: PingID rejected the credentials for '$Username'. Verify username and password. Error: $($_.Exception.Message)" -ErrorAction Stop
-                }
-
-                if ($userLookupResponse.status -eq 'COMPLETED') {
-                    $skipToSamlResume = $true
-                    "[{0}] Authentication COMPLETED — proceeding directly to SAML resume." -f $functionName | Write-Verbose
-                }
-                elseif ($userLookupResponse._links -and $userLookupResponse._links.'pingid.authentication') {
-                    $hasPingIDLink = $true
-                    "[{0}] Password accepted — PingID MFA step-up required." -f $functionName | Write-Verbose
-                }
-                else {
-                    # Unexpected status — proceed to SAML resume
-                    $skipToSamlResume = $true
-                    "[{0}] Unexpected post-credential status '{1}' — proceeding to SAML resume." -f $functionName, $userLookupResponse.status | Write-Verbose
-                }
-            }
-            else {
-                # Passwordless or other flow — submit username for MFA challenge
-                "[{0}] Step 2b: Passwordless flow (status: {1}) — submitting username for MFA challenge." -f $functionName, $flowStatus | Write-Verbose
-
-                if ($Password) {
-                    Write-Warning @"
-Your PingID account uses passwordless authentication. The provided password will not be used — attempting SSO (push/TOTP) authentication instead.
-To avoid this warning, use -PasswordlessSSOEmail instead of -Credential.
-"@
-                }
-
-                $payload = @{ username = $usernameOnly } | ConvertTo-Json -Depth 10
-                $lookupHeaders = @{
-                    "Content-Type" = "application/vnd.pingidentity.user.lookup+json"
-                    "Accept"       = "*/*"
-                    "Origin"       = $appsBaseUrl
-                    "Referer"      = "$appsBaseUrl/"
-                }
-                try {
-                    $userLookupResponse = Invoke-RestMethod -Uri $flowUrl -Method POST -Headers $lookupHeaders -Body $payload -WebSession $Session -ErrorAction Stop
-                    "[{0}] Username submitted successfully (passwordless)." -f $functionName | Write-Verbose
-                    "[{0}] Response: {1}" -f $functionName, ($userLookupResponse | ConvertTo-Json -Depth 5) | Write-Verbose
-
-                    if ($userLookupResponse._links -and $userLookupResponse._links.'pingid.authentication') {
-                        $hasPingIDLink = $true
-                        "[{0}] Confirmed PingID passwordless authentication link present." -f $functionName | Write-Verbose
-                    }
-                    if (-not $hasPingIDLink) {
-                        "[{0}] WARNING: No PingID authentication link found in response." -f $functionName | Write-Verbose
-                    }
-                }
-                catch {
-                    $errorDetails = $_.Exception.Message
-                    $serverErrorBody = $null
-                    if ($_.Exception.Response) {
-                        try {
-                            $errorStream = $_.Exception.Response.GetResponseStream()
-                            $reader = New-Object System.IO.StreamReader($errorStream)
-                            $serverErrorBody = $reader.ReadToEnd()
-                            $reader.Close()
-                            "[{0}] Server response body: {1}" -f $functionName, $serverErrorBody | Write-Verbose
-                        }
-                        catch { }
-                    }
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                    }
-                    if ($serverErrorBody) {
-                        Write-Error @"
-User authentication failed for '$Username'.
-
-This error can occur for multiple reasons:
-
-1. User account does not exist in PingOne environment $EnvironmentId
-2. User account is disabled or locked
-3. User is not assigned to the HPE GreenLake application in PingOne
-   - Contact your PingOne administrator to verify application access
-   - Ensure you have the required app role assignments
-
-Additional error details: $errorDetails
-
-Server response: 
-$serverErrorBody
-
-For complete PingIdentity setup prerequisites, see: $script:HelpUrl
-"@ -ErrorAction Stop
-                    }
-                    else { throw }
-                }
-            }
-            #EndRegion STEP 2                
-
-            # STEPs 3-7 drive PingID push/OTP MFA. Skipped when password-only auth completes without MFA step-up.
-            if (-not $skipToSamlResume) {
-
-                #Region STEP 3: Initiate PingID authentication
-                "[{0}] Step 3: Initiating PingID authentication" -f $functionName | Write-Verbose
-
-                # Extract necessary parameters from HAL response
-                # PingOne uses HAL (Hypertext Application Language) format with _links
-                $idpAccountId = $null
-                $ppmRequest = $null
-
-                # Check if response has _links.pingid.authentication.href (HAL format)
-                if ($userLookupResponse._links -and $userLookupResponse._links.'pingid.authentication' -and $userLookupResponse._links.'pingid.authentication'.href) {
-                    $authUrl = $userLookupResponse._links.'pingid.authentication'.href
-                    "[{0}] Found PingID authentication URL in HAL _links: {1}" -f $functionName, $authUrl | Write-Verbose
-                                
-                    # Extract idp_account_id and ppm_request from query parameters
-                    if ($authUrl -match '[?&]idp_account_id=([^&]+)') {
-                        $idpAccountId = $matches[1]
-                        "[{0}] Extracted idpAccountId from URL: {1}" -f $functionName, $idpAccountId | Write-Verbose
-                    }
-                                
-                    if ($authUrl -match '[?&]ppm_request=([^&]+)') {
-                        $ppmRequest = $matches[1]
-                        "[{0}] Extracted ppmRequest from URL (length: {1})" -f $functionName, $ppmRequest.Length | Write-Verbose
-                    }
-                }
-                else {
-                    # Fallback: try direct properties (older format)
-                    $idpAccountId = $userLookupResponse.idpAccountId
-                    $ppmRequest = $userLookupResponse.ppmRequest
-                                
-                    if ($idpAccountId -and $ppmRequest) {
-                        "[{0}] Extracted parameters from direct properties (legacy format)" -f $functionName | Write-Verbose
-                    }
-                }
-
-                if (-not $idpAccountId -or -not $ppmRequest) {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                    }
-                                
-                    # Enhanced diagnostics
-                    "[{0}] ERROR: Could not extract required parameters from response" -f $functionName | Write-Verbose
-                    "[{0}]   Response format: {1}" -f $functionName, ($userLookupResponse | ConvertTo-Json -Depth 2) | Write-Verbose
-                    "[{0}]   idpAccountId found: {1}" -f $functionName, ($null -ne $idpAccountId) | Write-Verbose
-                    "[{0}]   ppmRequest found: {1}" -f $functionName, ($null -ne $ppmRequest) | Write-Verbose
-
-                    $errorMessage = @"
-PingID passwordless authentication is not enabled for this account.
-
-This error can occur for multiple reasons:
-
-1. PingID MFA is not configured for this user in environment $EnvironmentId
-   - Install PingID on your mobile device
-   - Enroll PingID through your organization's PingOne portal
-   - Ensure push notifications are enabled for PingID
-   - Verify PingOne authentication policy requires PingID (not password)
-   - Test the enrollment by signing in through a web browser first
-
-2. User is not assigned to the HPE GreenLake application in PingOne
-   - Contact your PingOne administrator to verify application access
-   - Ensure you have the required app role assignments
-
-For complete PingIdentity setup prerequisites, see: $script:HelpUrl
-"@
-                    Write-Error $errorMessage -ErrorAction Stop
-                }
-
-                # POST to authenticator.pingone.com to initiate PingID auth
-                $pingIdAuthUrl = "$authenticatorBaseUrl/pingid/ppm/auth"
-                $authBody = "iss=PingOneV2&idp_account_id=$idpAccountId&ppm_request=$ppmRequest"
-                $headers = @{
-                    "Content-Type" = "application/x-www-form-urlencoded"
-                    "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                }
-
-                try {
-                    $pingIdAuthResponse = Invoke-WebRequest -Uri $pingIdAuthUrl -Method POST -ErrorAction Stop `
-                        -Headers $headers -Body $authBody -WebSession $Session
-
-                    "[{0}] PingID authentication initiated" -f $functionName | Write-Verbose
-                }
-                catch {
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                    }
-                    "[{0}] Failed to initiate PingID authentication: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                    Write-Error "Could not initiate PingID authentication. $($_.Exception.Message)" -ErrorAction Stop
-                }
-                #EndRegion STEP 3
-
-                #Region STEP 4: Submit WebAuthn capabilities
-                "[{0}] Step 4: Submitting WebAuthn capabilities" -f $functionName | Write-Verbose
-
-                $webAuthnBody = "isWebAuthnSupportedByBrowser=true&isWebAuthnPlatformAuthenticatorAvailable=false&isWebAuthnTimeout=false"
-                $headers = @{
-                    "Content-Type" = "application/x-www-form-urlencoded"
-                    "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                }
-
-                $webAuthnResponse = $null
-                try {
-                    $webAuthnResponse = Invoke-WebRequest -Uri $pingIdAuthUrl -Method POST -ErrorAction Stop `
-                        -Headers $headers -Body $webAuthnBody -WebSession $Session
-
-                    "[{0}] WebAuthn capabilities submitted" -f $functionName | Write-Verbose
-                }
-                catch {
-                    # Non-critical error, continue with initial response
-                    "[{0}] Warning: Failed to submit WebAuthn capabilities: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                }
-                #EndRegion STEP 4
-
-                #Region STEP 5: Determine authentication method and handle accordingly
-                "[{0}] Step 5: Determining authentication method" -f $functionName | Write-Verbose
-
-                # Extract CSRF token - try WebAuthn response first (Step 4), then initial response (Step 3)
-                # The CSRF token location varies by PingOne environment configuration
-                $csrfToken = $null
-                $responseToSearch = if ($webAuthnResponse) { $webAuthnResponse.Content } else { $pingIdAuthResponse.Content }
-                $responseSource = if ($webAuthnResponse) { "WebAuthn response" } else { "initial auth response" }
-                
-                # Try multiple regex patterns to extract CSRF token
-                if ($responseToSearch -match 'csrfToken["\s]*[:=]["\s]*["'']([^"'']+)["'']') {
-                    $csrfToken = $matches[1]
-                    "[{0}] Extracted CSRF token from {1} (pattern 1): {2}" -f $functionName, $responseSource, $csrfToken | Write-Verbose
-                }
-                elseif ($responseToSearch -match 'name="csrfToken"[^>]*value="([^"]+)"') {
-                    $csrfToken = $matches[1]
-                    "[{0}] Extracted CSRF token from {1} (pattern 2 - hidden input): {2}" -f $functionName, $responseSource, $csrfToken | Write-Verbose
-                }
-                elseif ($responseToSearch -match 'data-csrf-token="([^"]+)"') {
-                    $csrfToken = $matches[1]
-                    "[{0}] Extracted CSRF token from {1} (pattern 3 - data attribute): {2}" -f $functionName, $responseSource, $csrfToken | Write-Verbose
-                }
-                elseif ($responseToSearch -match 'csrf[_-]?token["\s]*[:=]["\s]*["'']([^"'']+)["'']') {
-                    $csrfToken = $matches[1]
-                    "[{0}] Extracted CSRF token from {1} (pattern 4 - flexible): {2}" -f $functionName, $responseSource, $csrfToken | Write-Verbose
-                }
-                else {
-                    # CSRF token not found - this might be OK if PingOne doesn't require it for the response page
-                    "[{0}] WARNING: Could not extract CSRF token from {1}" -f $functionName, $responseSource | Write-Verbose
-                    "[{0}] Will attempt to retrieve tokens without CSRF token" -f $functionName | Write-Verbose
-                }
-                
-                # Extract number challenge from WebAuthn response (Step 4) if available
-                # Number challenge appears AFTER WebAuthn submission, not in initial response
-                $numberChallenge = $null
-                $numberResponseContent = if ($webAuthnResponse) { $webAuthnResponse.Content } else { $pingIdAuthResponse.Content }
-                
-                if ($numberResponseContent -match '<div\s+class="numbermatching">(\d+)</div>') {
-                    $numberChallenge = $matches[1]
-                    "[{0}] Detected number matching challenge: {1}" -f $functionName, $numberChallenge | Write-Verbose
-                }
-                elseif ($numberResponseContent -match 'data-challenge-number["\s]*[:=]["\s]*["''](\d+)["'']') {
-                    $numberChallenge = $matches[1]
-                    "[{0}] Detected number matching challenge: {1}" -f $functionName, $numberChallenge | Write-Verbose
-                }
-                elseif ($numberResponseContent -match 'challenge["\s]*[:=]["\s]*["''](\d+)["'']') {
-                    $numberChallenge = $matches[1]
-                    "[{0}] Detected number matching challenge: {1}" -f $functionName, $numberChallenge | Write-Verbose
-                }
-                
-                # Check OTP availability and policy enforcement
-                # Use WebAuthn response (Step 4) to check for OTP option and policy restrictions
-                $responseContent = if ($webAuthnResponse) { $webAuthnResponse.Content } else { $pingIdAuthResponse.Content }
-                $hasOtpOption = $responseContent -match 'use.*code|enter.*code|otp|passcode|data-use-code'
-                
-                # Check if OTP-only is enforced by policy (push disabled)
-                # Policy OTP can be detected by specific HTML elements or data attributes in the response
-                $otpOnlyByPolicy = $responseContent -match 'data-policy["\s]*[:=]["\s]*["'']otp["'']|policy["\s]*[:=]["\s]*["'']OTP["'']|otpOnly["\s]*[:=]["\s]*true'
-                
-                # If HTML detection didn't find policy enforcement, do a quick status check
-                # This catches POLICY_OTP that's only visible via status endpoint
-                if (-not $otpOnlyByPolicy -and $hasOtpOption) {
-                    "[{0}] Performing quick status check to detect OTP-only policy..." -f $functionName | Write-Verbose
-                    try {
-                        $statusUrl = "$authenticatorBaseUrl/pingid/ppm/auth/status"
-                        $timestamp = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
-                        $quickStatusCheck = Invoke-RestMethod -Uri "$statusUrl`?_=$timestamp" -Method GET -ErrorAction Stop `
-                            -Headers @{"Accept" = "*/*" } -WebSession $Session
-                        
-                        "[{0}] Quick status response: {1}" -f $functionName, ($quickStatusCheck | ConvertTo-Json) | Write-Verbose
-                        
-                        if ($quickStatusCheck.status -eq "POLICY_OTP") {
-                            $otpOnlyByPolicy = $true
-                            "[{0}] Detected POLICY_OTP via status check - OTP enforced by policy" -f $functionName | Write-Verbose
-                        }
-                    }
-                    catch {
-                        "[{0}] Quick status check failed: {1} - will proceed with default detection" -f $functionName, $_.Exception.Message | Write-Verbose
-                    }
-                }
-                
-                # Determine authentication method to use
-                # Push notification is the default and primary method
-                # OTP is used if: 1) enforced by policy, 2) push unavailable, or 3) user preference (not implemented)
-                $useOtp = $false
-                $pushAvailable = -not ($responseContent -match 'push.*not.*available|push.*unavailable|no.*device')
-                
-                if ($otpOnlyByPolicy) {
-                    # OTP enforced by administrator policy
-                    $useOtp = $true
-                    "[{0}] Selected method: OTP code (enforced by policy - push disabled by administrator)" -f $functionName | Write-Verbose
-                }
-                elseif ($pushAvailable) {
-                    # Push is available and will be used (default)
-                    "[{0}] Selected method: Push notification (default)" -f $functionName | Write-Verbose
-                }
-                elseif ($hasOtpOption) {
-                    # Push not available, automatic fallback to OTP
-                    $useOtp = $true
-                    "[{0}] Selected method: OTP code (push not available, automatic fallback)" -f $functionName | Write-Verbose
-                }
-                else {
-                    # Neither method available
-                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                    }
-                    Write-Error "Neither push nor OTP authentication available. For PingOne setup prerequisites, see: $($script:HelpUrl)" -ErrorAction Stop
-                }
-                #EndRegion STEP 5
-
-                #Region STEP 6: Handle OTP Code Input (if selected)
-                if ($useOtp) {
-                    "[{0}] Step 6: Handling OTP code authentication" -f $functionName | Write-Verbose
-
-                    $otpCode = Read-Host -Prompt "Enter your PingID OTP code for $($Username)"
-
-                    if ([string]::IsNullOrWhiteSpace($otpCode)) {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "OTP code is required" -ErrorAction Stop
-                    }
-
-                    # Submit OTP code
-                    $otpSubmitUrl = "$authenticatorBaseUrl/pingid/ppm/auth/otp"
-                    $otpBody = "otp=$otpCode&csrfToken=$csrfToken"
-                    
-                    $headers = @{
-                        "Content-Type" = "application/x-www-form-urlencoded"
-                        "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                    }
-
-                    try {
-                        $otpResponse = Invoke-WebRequest -Uri $otpSubmitUrl -Method POST -ErrorAction Stop `
-                            -Headers $headers -Body $otpBody -WebSession $Session
-
-                        "[{0}] OTP code submitted successfully" -f $functionName | Write-Verbose
-
-                        # Extract JWT tokens from OTP response
-                        $ppmRequest = $null
-                        $ppmResponse = $null
-
-                        if ($otpResponse.Content -match 'name="ppm_request"[^>]*value="([^"]+)"') {
-                            $ppmRequest = $matches[1]
-                            "[{0}] Extracted ppm_request token from OTP response" -f $functionName | Write-Verbose
-                        }
-
-                        if ($otpResponse.Content -match 'name="ppm_response"[^>]*value="([^"]+)"') {
-                            $ppmResponse = $matches[1]
-                            "[{0}] Extracted ppm_response token from OTP response" -f $functionName | Write-Verbose
-                        }
-
-                        if (-not $ppmRequest -or -not $ppmResponse) {
-                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                            }
-                            Write-Error "Could not extract JWT tokens from OTP response" -ErrorAction Stop
-                        }
-
-                        # Skip to callback step
-                        "[{0}] OTP authentication completed, proceeding to callback" -f $functionName | Write-Verbose
-                    }
-                    catch {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                        }
-
-                        $errorMessage = "Invalid OTP code. Please verify the code and try again"
-                        
-                        if ($_.Exception.Response) {
-                            try {
-                                $errorStream = $_.Exception.Response.GetResponseStream()
-                                $reader = New-Object System.IO.StreamReader($errorStream)
-                                $errorBody = $reader.ReadToEnd()
-                                $reader.Close()
-                                
-                                if ($errorBody -match 'error|invalid|incorrect') {
-                                    $errorMessage = $errorBody
-                                }
-                            }
-                            catch { 
-                                # Intentionally ignore - response stream may not be readable
-                            }
-                        }
-
-                        "[{0}] Failed to submit OTP code: {1}" -f $functionName, $errorMessage | Write-Verbose
-                        throw "Authentication failed: The verification code was rejected by PingID. Verify the current code in your authenticator app and try again."
-                    }
-                }
-                else {
-                    # Continue with push notification flow
-                    "[{0}] Step 6: Polling for push approval" -f $functionName | Write-Verbose
-
-                    Start-Sleep -Milliseconds 500
-
-                    # Show appropriate progress message based on number challenge
-                    if ($numberChallenge) {
-                        if ($NoProgress) {
-                            Write-Host "`n  Action required: Open PingID and select the number " -NoNewline -ForegroundColor Cyan
-                            Write-Host $numberChallenge -ForegroundColor Yellow -NoNewline
-                            Write-Host " to authenticate.`n" -ForegroundColor Cyan
-                        }
-                        else {
-                            Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                                -CurrentActivity "Respond '$numberChallenge' to the PingID notification" -Id 0
-                        }
-                        "[{0}] Number challenge active - user must select: {1}" -f $functionName, $numberChallenge | Write-Verbose
-                    }
-                    else {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                                -CurrentActivity "Waiting for PingID authentication..." -Id 0
-                        }
-                    }
-
-                    "[{0}] Initiating authentication request..." -f $functionName | Write-Verbose
-                    "[{0}] Waiting for authentication approval (timeout: {1} minutes)..." -f $functionName, $TimeoutMinutes | Write-Verbose
-
-                    # Poll the status endpoint until approved
-                    $statusUrl = "$authenticatorBaseUrl/pingid/ppm/auth/status"
-                    $timeout = [datetime]::Now.AddMinutes($TimeoutMinutes)
-                    $approved = $false
-                    $timestamp = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
-                    $firstPoll = $true
-                    $unknownStatusCount = 0
-
-                    $headers = @{
-                        "Accept" = "*/*"
-                    }
-
-                    do {
-                        Start-Sleep -Seconds $PollIntervalSeconds
-
-                        try {
-                            # Poll status with timestamp to prevent caching
-                            $statusCheckUrl = "$statusUrl`?_=$timestamp"
-                            $statusResponse = Invoke-RestMethod -Uri $statusCheckUrl -Method GET -ErrorAction Stop `
-                                -Headers $headers -WebSession $Session
-
-                            "[{0}] Status poll response: {1}" -f $functionName, ($statusResponse | ConvertTo-Json) | Write-Verbose
-
-                            # Check if authentication is complete
-                            if ($statusResponse.status -eq "OK" -or $statusResponse.status -eq "SUCCESS") {
-                                $approved = $true
-                                "[{0}] Push notification approved!" -f $functionName | Write-Verbose
-                                break
-                            }
-                            elseif ($statusResponse.status -eq "ASYNC_AUTH_WAIT" -or $statusResponse.status -eq "WAITING") {
-                                # Still waiting for user approval - reset the unknown-status guard counter
-                                $unknownStatusCount = 0
-                                # update message on first wait to confirm push was sent
-                                if ($firstPoll) {
-                                    "[{0}] Push notification confirmed - sent to mobile device" -f $functionName | Write-Verbose
-                                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps -and -not $numberChallenge) {
-                                        Update-ProgressBar -CompletedSteps $CompletedSteps.Value -TotalSteps $TotalSteps `
-                                            -CurrentActivity "Approve the PingID push notification" -Id 0
-                                    }
-                                    $firstPoll = $false
-                                }
-                                else {
-                                    "[{0}] Still waiting for approval..." -f $functionName | Write-Verbose
-                                }
-                            }
-                            elseif ($statusResponse.status -eq "POLICY_OTP") {
-                                # Policy requires OTP only - push is disabled by administrator
-                                "[{0}] Server reported POLICY_OTP status - push disabled by policy, switching to OTP" -f $functionName | Write-Verbose
-                                
-                                # Prompt for OTP code
-                                $otpCode = Read-Host -Prompt "Enter your PingID OTP code for $($Username)"
-                                
-                                if ([string]::IsNullOrWhiteSpace($otpCode)) {
-                                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                                    }
-                                    Write-Error "OTP code is required" -ErrorAction Stop
-                                }
-                                
-                                # Submit OTP code
-                                $otpSubmitUrl = "$authenticatorBaseUrl/pingid/ppm/auth/otp"
-                                $otpBody = "otp=$otpCode&csrfToken=$csrfToken"
-                                
-                                $otpHeaders = @{
-                                    "Content-Type" = "application/x-www-form-urlencoded"
-                                    "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                                }
-                                
-                                try {
-                                    $otpResponse = Invoke-WebRequest -Uri $otpSubmitUrl -Method POST -ErrorAction Stop `
-                                        -Headers $otpHeaders -Body $otpBody -WebSession $Session
-                                    
-                                    "[{0}] OTP code submitted successfully" -f $functionName | Write-Verbose
-                                    
-                                    # Extract JWT tokens from OTP response
-                                    if ($otpResponse.Content -match 'name="ppm_request"[^>]*value="([^"]+)"') {
-                                        $ppmRequest = $matches[1]
-                                        "[{0}] Extracted ppm_request token from OTP response" -f $functionName | Write-Verbose
-                                    }
-                                    
-                                    if ($otpResponse.Content -match 'name="ppm_response"[^>]*value="([^"]+)"') {
-                                        $ppmResponse = $matches[1]
-                                        "[{0}] Extracted ppm_response token from OTP response" -f $functionName | Write-Verbose
-                                    }
-                                    
-                                    if (-not $ppmRequest -or -not $ppmResponse) {
-                                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                            Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                                        }
-                                        Write-Error "Could not extract JWT tokens from OTP response" -ErrorAction Stop
-                                    }
-                                    
-                                    # Mark as approved to exit polling loop
-                                    $approved = $true
-                                    "[{0}] OTP authentication completed" -f $functionName | Write-Verbose
-                                    break
-                                }
-                                catch {
-                                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                                    }
-                                    
-                                    $errorMessage = "Invalid OTP code. Please verify the code and try again"
-                                    if ($_.Exception.Response) {
-                                        try {
-                                            $errorStream = $_.Exception.Response.GetResponseStream()
-                                            $reader = New-Object System.IO.StreamReader($errorStream)
-                                            $errorBody = $reader.ReadToEnd()
-                                            $reader.Close()
-                                            if ($errorBody -match 'error|invalid|incorrect') {
-                                                $errorMessage = $errorBody
-                                            }
-                                        }
-                                        catch { 
-                                            # Intentionally ignore - response stream may not be readable
-                                        }
-                                    }
-                                    
-                                    "[{0}] Failed to submit OTP code: {1}" -f $functionName, $errorMessage | Write-Verbose
-                                    throw "Authentication failed: The verification code was rejected by PingID. Verify the current code in your authenticator app and try again."
-                                }
-                            }
-                            elseif ($statusResponse.status -eq "TIMEOUT" -or $statusResponse.status -eq "AUTH_OTP") {
-                                "[{0}] Server reported {1} status - push notification timed out" -f $functionName, $statusResponse.status | Write-Verbose
-                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                                }
-                                Write-Error "PingID push notification timed out. The authentication request expired before approval." -ErrorAction Stop
-                            }
-                            elseif ($statusResponse.status -eq "DENY" -or $statusResponse.status -eq "DENIED" -or $statusResponse.status -eq "NUMBER_MATCHING_DENY" -or $statusResponse.status -eq "FAILED") {
-                                "[{0}] Push notification was denied or failed (status: {1})" -f $functionName, $statusResponse.status | Write-Verbose
-                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                                }
-                                Write-Error "PingID push notification was denied. The user either tapped 'No' or selected the wrong number on the PingID prompt. Please try again and approve the request on your device." -ErrorAction Stop
-                            }
-                            elseif ($statusResponse.status -eq "INVALID_INPUT") {
-                                "[{0}] Server returned INVALID_INPUT status - policy restriction detected" -f $functionName | Write-Verbose
-                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                                }
-                                Write-Error "A company policy is preventing you from authenticating with PingID at this time. Contact your administrator." -ErrorAction Stop
-                            }
-                            else {
-                                # Unrecognized status - guard against an unsupported PingID MFA challenge.
-                                # A few consecutive unknown statuses are tolerated to absorb transient/intermediate
-                                # server states, but a persistent unknown status means the challenge shape is one
-                                # this module does not yet handle (rather than silently hanging until timeout).
-                                $unknownStatusCount++
-                                "[{0}] Unrecognized PingID status '{1}' (occurrence {2})" -f $functionName, $statusResponse.status, $unknownStatusCount | Write-Verbose
-                                if ($unknownStatusCount -ge 3) {
-                                    if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                        Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                        Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                                    }
-                                    Write-Error @"
-Authentication failed: Unrecognized PingID MFA challenge (status: '$($statusResponse.status)').
-
-This PingID authentication method is not yet supported by the module. To help add support,
-please capture a HAR file of the sign-in (browser DevTools > Network > 'Export HAR') and open
-an issue at: $($script:HelpUrl)
-"@ -ErrorAction Stop
-                                }
-                            }
-                        }
-                        catch {
-                            # Check if this is a status-related throw (TIMEOUT, AUTH_OTP, DENIED, REJECTED, FAILED, POLICY) - rethrow it
-                            if ($_.Exception.Message -match "timed out|denied|rejected|failed|policy|OTP code") {
-                                throw
-                            }
-                            # Otherwise it's a network/connectivity error - log and continue polling
-                            "[{0}] Status poll error: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                        }
-
-                        # Check for timeout
-                        if ([datetime]::Now -ge $timeout) {
-                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                            }
-                            Write-Error @"
-Timeout! PingID push notification was not approved within $TimeoutMinutes minutes.
-
-Please try again and approve the request promptly.
-"@ -ErrorAction Stop
-                        }
-
-                        $timestamp = [DateTimeOffset]::Now.ToUnixTimeMilliseconds()
-                        
-                    } while (-not $approved)
-
-                    # Retrieve JWT tokens from response page (for push)
-                    # Skip if tokens were already retrieved (e.g., from POLICY_OTP handling)
-                    if (-not $ppmRequest -or -not $ppmResponse) {
-                        "[{0}] Retrieving authentication tokens from response page" -f $functionName | Write-Verbose
-
-                        # Build the response page URL - CSRF token may or may not be required
-                        if ($csrfToken) {
-                            "[{0}] Using CSRF token: {1}" -f $functionName, $csrfToken | Write-Verbose
-                            $responsePageUrl = "$authenticatorBaseUrl/pingid/ppm/auth/response?csrfToken=$csrfToken&status=OK&getStatusResponse=%7B%22status%22%3A%22OK%22%7D"
-                        }
-                        else {
-                            "[{0}] No CSRF token available - attempting without it" -f $functionName | Write-Verbose
-                            $responsePageUrl = "$authenticatorBaseUrl/pingid/ppm/auth/response?status=OK&getStatusResponse=%7B%22status%22%3A%22OK%22%7D"
-                        }
-                        
-                        try {
-                            $tokenResponse = Invoke-WebRequest -Uri $responsePageUrl -Method GET -ErrorAction Stop `
-                                -WebSession $Session -UseBasicParsing
-
-                            "[{0}] Retrieved authentication response page" -f $functionName | Write-Verbose
-
-                            # Extract ppm_request and ppm_response from hidden form fields
-                            if ($tokenResponse.Content -match 'name="ppm_request"[^>]*value="([^"]+)"') {
-                                $ppmRequest = $matches[1]
-                                "[{0}] Extracted ppm_request token" -f $functionName | Write-Verbose
-                            }
-
-                            if ($tokenResponse.Content -match 'name="ppm_response"[^>]*value="([^"]+)"') {
-                                $ppmResponse = $matches[1]
-                                "[{0}] Extracted ppm_response token" -f $functionName | Write-Verbose
-                            }
-
-                            if (-not $ppmRequest -or -not $ppmResponse) {
-                                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                                }
-                                Write-Error "Could not extract JWT tokens from authentication response" -ErrorAction Stop
-                            }
-                        }
-                        catch {
-                            if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                                Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                                Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                            }
-                            "[{0}] Failed to retrieve tokens: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
-                            Write-Error "Could not retrieve authentication tokens. $($_.Exception.Message)" -ErrorAction Stop
-                        }
-                    }
-                    else {
-                        "[{0}] Tokens already retrieved (from POLICY_OTP handling), skipping response page" -f $functionName | Write-Verbose
-                    }
-                }
-                #EndRegion STEP 6
-
-                #Region STEP 7: Post callback with JWT tokens
-                "[{0}] Step 7: Posting authentication callback" -f $functionName | Write-Verbose
-
-                $callbackUrl = "$authBaseUrl/$EnvironmentId/flows/$flowId/pingIDAuthenticationCallback"
-                $callbackBody = "ppm_request=$ppmRequest&ppm_response=$ppmResponse"
-                
-                $headers = @{
-                    "Content-Type" = "application/x-www-form-urlencoded"
-                    "Accept"       = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                }
-
-                try {
-                    # This should return a 302 redirect to the SAML resume URL
-                    $callbackResponse = Invoke-WebRequest -Uri $callbackUrl -Method POST -ErrorAction Stop `
-                        -Headers $headers -Body $callbackBody -WebSession $Session -MaximumRedirection 0
-
-                    "[{0}] Callback posted (Status: {1})" -f $functionName, $callbackResponse.StatusCode | Write-Verbose
-                }
-                catch {
-                    # 302 redirect is expected, catch it to get the Location header
-                    if ($_.Exception.Response.StatusCode -eq 302) {
-                        "[{0}] Received expected 302 redirect" -f $functionName | Write-Verbose
-                    }
-                    else {
-                        if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                            Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                            Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                        }
-                        Write-Error "Callback post failed. $($_.Exception.Message)" -ErrorAction Stop
-                    }
-                }
-                #EndRegion STEP 7
-
-            } # end if (-not $skipToSamlResume)
-
-            #Region STEP 8: Resume SAML and retrieve response
-            "[{0}] Step 8: Resuming SAML flow" -f $functionName | Write-Verbose
-
-            $resumeUrl = "$authBaseUrl/$EnvironmentId/saml20/resume?flowId=$flowId"
-
-            try {
-                $samlResumeResponse = Invoke-WebRequest -Uri $resumeUrl -Method GET -WebSession $Session -UseBasicParsing -ErrorAction Stop
-
-                "[{0}] SAML flow resumed successfully" -f $functionName | Write-Verbose
-                "[{0}] Authentication completed" -f $functionName | Write-Verbose
-
-                if ($CompletedSteps) { $CompletedSteps.Value++ }
-                return $samlResumeResponse
-            }
-            catch {
-                if (-not $NoProgress -and $CompletedSteps -and $TotalSteps) {
-                    Update-ProgressBar -CompletedSteps $TotalSteps -TotalSteps $TotalSteps -CurrentActivity "Failed" -Id 0
-                    Write-Progress -Id 0 -Activity "PingID Authentication" -Status "Failed" -Completed
-                }
-                Write-Error "Could not resume SAML flow. $($_.Exception.Message)" -ErrorAction Stop
-            }
-            #EndRegion STEP 8
-        }
+        # NOTE: The Entra ID, Okta and PingID SAML/OIDC SSO Identity-Provider authentication flows
+        # (Invoke-EntraIDSSOAuthentication, Invoke-OktaSSOAuthentication, Invoke-PingIDSSOAuthentication)
+        # were moved to Modules/Auth-SSO.psm1. They are called below as module-private functions.
 
         #Endregion Helper functions  
             
@@ -7572,12 +4192,12 @@ Please try again and approve the request promptly.
         # (PhoneAppNotification push or PhoneAppOTP/TOTP) completes successfully. It proves the password
         # was accepted as a primary factor, so a resulting 0-workspace account is a real no-workspace
         # situation — NOT a passwordless-enforcement case — and must not raise the "use -PasswordlessSSOEmail" error.
-        $script:HPEEntraStepUpMfaSucceeded = $false
+        $Global:HPEEntraStepUpMfaSucceeded = $false
         # Reset per-connection telemetry flag: set to $true only when an external IdP (Okta/EntraID/PingID)
         # actually CONSUMES the supplied password. Lets telemetry distinguish a genuinely password-based
         # SSO connection (password POSTed) from a passwordless account used with -Credential (password
         # ignored in favour of push/TOTP), even when both share the $ssoFallbackPassword code path.
-        $script:HPESSOPasswordSubmitted = $false
+        $Global:HPESSOPasswordSubmitted = $false
         # Top-level safety net for the whole sign-in flow: deliberate validation errors and connectivity
         # problems are re-thrown unchanged, but any other (unexpected) error reaching here almost always
         # means HPE changed the sign-in flow in a way the library does not yet handle. Rather than surface
@@ -7593,7 +4213,9 @@ Please try again and approve the request promptly.
                     $completedSteps = 0
                     $totalSteps = 18
                 }
-                if (($PSBoundParameters.ContainsKey('PasswordlessSSOEmail') -and $PasswordlessSSOEmail -notmatch 'hpe.com$') -or $ssoFallbackPassword) {
+                # Only the exact '@hpe.com' domain (HPE internal Okta) is excluded: subdomains such as '@labs.compute.cloud.hpe.com'
+                # are customer-federated domains and must take the SSO path.
+                if (($PSBoundParameters.ContainsKey('PasswordlessSSOEmail') -and $PasswordlessSSOEmail -notmatch '@hpe\.com$') -or $ssoFallbackPassword) {
            
             
                     # --------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -7630,7 +4252,7 @@ Please try again and approve the request promptly.
                     $codeChallenge = $pkceChallenges.code_challenge
                     $codeVerifier = $pkceChallenges.code_verifier
         
-                    "[{0}] Generated code verifier: '{1}'" -f $functionName, $codeVerifier | Write-Verbose
+                    "[{0}] Generated code verifier: '{1}...{2}'" -f $functionName, $codeVerifier.Substring(0, 1), $codeVerifier.Substring($codeVerifier.Length - 1, 1) | Write-Verbose
                     "[{0}] Generated code challenge: '{1}'" -f $functionName, $codeChallenge | write-Verbose
         
                     # 	state=3515d3c342a74b3f99dcb9de9926c660
@@ -7909,7 +4531,7 @@ Please try again and approve the request promptly.
                         }
 
                         # Diagnostic: show where the resolve actually landed when it did not yield a 'redirect=' payload.
-                        $selectorUrlLog = if ([string]::IsNullOrEmpty($selectorUrl)) { '(no 302 redirect)' } else { $selectorUrl -replace 'state=[^&]+', 'state=[REDACTED]' -replace 'track-id=[^&]+', 'track-id=[REDACTED]' }
+                        $selectorUrlLog = if ([string]::IsNullOrEmpty($selectorUrl)) { '(no 302 redirect)' } else { Format-HPERedactedText -Text ($selectorUrl -replace 'state=[^&]+', 'state=[REDACTED]' -replace 'track-id=[^&]+', 'track-id=[REDACTED]') }
                         "[{0}] Step 7 ({1}) - no 'redirect=' payload. Resolve landed on: '{2}'" -f $functionName, $attempt.Label, $selectorUrlLog | Write-Verbose
 
                         # If this attempt reached the new '/sso/selector' page, remember it and stop probing: trying the legacy
@@ -7935,8 +4557,15 @@ Please try again and approve the request promptly.
                     $NewSamlFlow = $false
                     $NewSamlFlowResponse = $null
 
+                    # OIDC federation (Microsoft Entra ID or Okta): 'sso-init' redirects to the IdP's OpenID Connect authorize endpoint
+                    # (response_type=code + PKCE) instead of returning a SAML auto-POST form. Once the user authenticates, the IdP
+                    # redirects back to HPE with an authorization code (no SAMLResponse), after which HPE hands over an Okta
+                    # stateToken that STEP 14 already knows how to redeem.
+                    $OidcFlow = $false
+                    $OidcFlowResponse = $null
+
                     if ([string]::IsNullOrEmpty($decodedRedirect) -and $selectorUrl -match '/sso/selector\b') {
-                        "[{0}] Step 7 - Detected new '/sso/selector' page (no inline redirect). Calling sso-init to obtain the SAML form..." -f $functionName | Write-Verbose
+                        "[{0}] Step 7 - Detected new '/sso/selector' page (no inline redirect). Calling sso-init to obtain the SAML form or OIDC sign-in page..." -f $functionName | Write-Verbose
 
                         # Carry over any track-id present on the selector URL (fall back to the value we already hold).
                         $selectorTrackId = ($selectorUrl -split '[?&]') | Where-Object { $_ -like 'track-id=*' } | ForEach-Object { $_ -replace '^track-id=', '' }
@@ -7976,6 +4605,44 @@ Please try again and approve the request promptly.
 
                             # Some backends may still hand back an inline 'redirect=' blob or a direct authorize URL.
                             $initFinalUrl = try { $initResponse.BaseResponse.RequestMessage.RequestUri.AbsoluteUri } catch { '' }
+
+                            # OIDC federation: 'sso-init' was redirected to the Microsoft Entra ID OpenID Connect authorize endpoint and
+                            # landed on its sign-in page (which carries the same $Config used by the SAML sign-in page).
+                            if ($initFinalUrl -match '^https://(login\.microsoftonline\.com|login\.windows\.net|sts\.windows\.net)/[^/]+/oauth2/(v2\.0/)?authorize' -and $initResponse.Content -match '\$Config') {
+                                "[{0}] Step 7 - sso-init ({1}) landed on the Microsoft Entra ID OpenID Connect (OIDC) sign-in page. Routing it into STEP 12." -f $functionName, $initAttempt.Label | Write-Verbose
+                                $OidcFlow = $true
+                                $OidcFlowResponse = $initResponse
+                                $idpType = 'EntraID'
+                                break
+                            }
+
+                            # OIDC federation with Okta: 'sso-init' landed on the customer's Okta sign-in page for an OpenID Connect
+                            # authorize request ('/oauth2/v1/authorize' or '/oauth2/{authServerId}/v1/authorize'). The page carries an
+                            # Okta stateToken, like the Okta page reached through SAML. HPE's own Okta (auth.hpe.com) is excluded.
+                            $initFinalHost = try { ([uri]$initFinalUrl).Host } catch { '' }
+                            $hpeOktaHost = try { ([uri]$Global:HPEGLoktaURL).Host } catch { 'auth.hpe.com' }
+                            if ($initFinalHost -and $initFinalHost -ne $hpeOktaHost -and
+                                $initFinalUrl -match '/oauth2/([^/]+/)?v1/authorize' -and
+                                ($initFinalHost -match '\.okta\.com$|\.oktapreview\.com$|\.okta-emea\.com$|\.okta\.eu$' -or $initResponse.Content -match 'oktaData|okta-sign-in') -and
+                                $initResponse.Content -match 'stateToken') {
+                                "[{0}] Step 7 - sso-init ({1}) landed on the Okta OpenID Connect (OIDC) sign-in page. Routing it into STEP 12." -f $functionName, $initAttempt.Label | Write-Verbose
+                                $OidcFlow = $true
+                                $OidcFlowResponse = $initResponse
+                                $idpType = 'Okta'
+                                break
+                            }
+
+                            # OIDC federation with PingIdentity: 'sso-init' redirected to PingOne's OpenID Connect authorize endpoint
+                            # ('/{environmentId}/as/authorize'), which lands on the PingOne sign-on page carrying a flowId - the same
+                            # flowId-based sign-on page the SAML flow reaches (all PingOne regions: .com, .eu, .asia, .ca, .com.au, ...).
+                            if ($initFinalHost -match '(^|\.)pingone\.[a-z.]+$' -and $initFinalUrl -match '[?&]flowId=') {
+                                "[{0}] Step 7 - sso-init ({1}) landed on the PingIdentity OpenID Connect (OIDC) sign-on page. Routing it into STEP 12." -f $functionName, $initAttempt.Label | Write-Verbose
+                                $OidcFlow = $true
+                                $OidcFlowResponse = $initResponse
+                                $idpType = 'PingIdentity'
+                                break
+                            }
+
                             $initRedirectParam = ($initFinalUrl -split '[?&]') | Where-Object { $_ -like 'redirect=*' } | ForEach-Object { $_ -replace '^redirect=', '' }
                             if (-not [string]::IsNullOrEmpty($initRedirectParam)) {
                                 try {
@@ -7994,10 +4661,13 @@ Please try again and approve the request promptly.
                             }
 
                             "[{0}] Step 7 - sso-init ({1}) did not return a SAML form or a usable redirect." -f $functionName, $initAttempt.Label | Write-Verbose
+                            # Diagnostic: where 'sso-init' landed (host and path only, no query values).
+                            $initLandedOn = try { ([uri]$initFinalUrl).GetLeftPart([System.UriPartial]::Path) } catch { '(unknown)' }
+                            "[{0}] Step 7 - sso-init ({1}) landed on: '{2}' (page contains stateToken: {3}, SAML form: {4})" -f $functionName, $initAttempt.Label, $initLandedOn, ($initResponse.Content -match 'stateToken'), ($initResponse.Content -match 'SAMLRequest') | Write-Verbose
                         }
                     }
 
-                    if (-not $NewSamlFlow) {
+                    if (-not $NewSamlFlow -and -not $OidcFlow) {
                         "[{0}] Decoded redirect parameter: '{1}'" -f $functionName, $decodedRedirect | Write-Verbose
 
                         $display = Get-QueryParameter -Url $decodedRedirect -ParamName 'display'
@@ -8013,7 +4683,7 @@ Please try again and approve the request promptly.
 
                     # Must verify the domain is pre-claimed for SSO (legacy OIDC-redirect path only; the new SAML flow is
                     # validated by the presence of the SAML form captured above).
-                    if (-not $NewSamlFlow -and ([string]::IsNullOrEmpty($idp) -or [string]::IsNullOrEmpty($clientId) -or [string]::IsNullOrEmpty($nonce) -or [string]::IsNullOrEmpty($ccsRedirecturi))) {
+                    if (-not $NewSamlFlow -and -not $OidcFlow -and ([string]::IsNullOrEmpty($idp) -or [string]::IsNullOrEmpty($clientId) -or [string]::IsNullOrEmpty($nonce) -or [string]::IsNullOrEmpty($ccsRedirecturi))) {
                         if (-not $NoProgress) {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
@@ -8041,7 +4711,7 @@ Please try again and approve the request promptly.
 Authentication failed: '-PasswordlessSSOEmail' is not supported for account '$Username'.
 
 The -PasswordlessSSOEmail parameter is intended for accounts federated with an external Identity Provider
-(Okta, Microsoft Entra ID, PingIdentity) where SAML SSO has been configured in HPE GreenLake.
+(Okta, Microsoft Entra ID, PingIdentity) where SAML or OIDC SSO has been configured in HPE GreenLake.
 
 Standard HPE GreenLake accounts using username/password authentication (with or without MFA) must use
 -Credential instead:
@@ -8070,7 +4740,8 @@ If SSO should be enabled for your domain, contact your workspace administrator t
                     # legacy OIDC 'authorize?idp=' path that HPE replaced with the new SAML flow in production. They are kept only
                     # as a fallback during rollout. Once the new SAML flow is confirmed stable everywhere (revisit ~v1.0.28),
                     # remove STEP 8/STEP 9 and the '$NewSamlFlow' guards, since STEP 10 will always consume the captured SAML form.
-                    if (-not $NewSamlFlow) {
+                    # The OIDC (Entra ID or Okta) flow has no authorize redirect to follow either, so it skips these steps too.
+                    if (-not $NewSamlFlow -and -not $OidcFlow) {
 
                         "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
                         "[{0}] [STEP 8] OAuth Authorize with idp" -f $functionName | Write-Verbose
@@ -8125,6 +4796,16 @@ If SSO should be enabled for your domain, contact your workspace administrator t
 
                     # --------------------------------------------------------------------------------------------------------------------------------------------------------------
                     #Region [STEP 10] Follow redirection to get SAML form or identity selection page (resumeSAML20)
+                    # OIDC (Entra ID or Okta): there is no SAML form to fetch, parse or submit, so STEP 10 and STEP 11 are skipped
+                    # and the IdP sign-in page captured from 'sso-init' is handed straight to STEP 12 ($idpType set at detection).
+                    # NOTE: the SAML code of STEP 10 and STEP 11 below is intentionally not re-indented, to keep the change reviewable.
+                    if ($OidcFlow) {
+                        "[{0}] OIDC federation with {1} - skipping STEP 10 and STEP 11 (no SAML form)." -f $functionName, $idpType | Write-Verbose
+                        $responseStep11 = $OidcFlowResponse
+                        $completedSteps += 2
+                        $step += 2
+                    }
+                    else {
                     # ---------------------------------------------------------------------------------------------------------------------------------------------------------
 
                     "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
@@ -8192,7 +4873,7 @@ If SSO should be enabled for your domain, contact your workspace administrator t
                         }
 
                         $lastLines = ($responseStep10.Content -split "`r?`n") | Select-Object -Last 30
-                        "[{0}] Raw response for Step 10 (last 30 lines):`n{1}" -f $functionName, ($lastLines -join "`n") | Write-Verbose
+                        "[{0}] Raw response for Step 10 (last 30 lines):`n{1}" -f $functionName, ($lastLines -join "`n") | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                     }
                     catch {
                         "[{0}] Error in Step 10: {1}" -f $functionName, $_.Exception.Message | Write-Verbose
@@ -8277,11 +4958,11 @@ Error: $($_.Exception.Message)
 
                             # Fire-and-forget demand signal so unsupported OIDC-federated workspaces can be quantified (no PII).
                             try { Send-HPECOMTelemetry -AuthMethod 'SSO-OIDC-Rejected' -EventType 'ConnectRejected' -FailureReason 'oidc-unsupported' -FailureStage 'saml' -IdpVendor $oidcIdpVendor -NoProgress $NoProgress } catch { }
-                            Write-Error "SSO authentication failed: this HPE GreenLake workspace appears to be federated using OpenID Connect (OIDC), which is not supported. This module only supports SAML 2.0 SSO federation. Please sign in with native HPE account credentials (Connect-HPEGL -Credential), or ask your administrator to configure SAML 2.0 SSO." -ErrorAction Stop
+                            Write-Error "SSO authentication failed: this HPE GreenLake workspace appears to be federated using OpenID Connect (OIDC) with an identity provider that is not supported. This module supports SSO (SAML 2.0 or OIDC) only with Okta, Microsoft Entra ID and PingIdentity. Please sign in with native HPE account credentials (Connect-HPEGL -Credential), or ask your administrator to federate with a supported identity provider." -ErrorAction Stop
                         }
                         # Generic fallback: the SAML form was absent for a reason other than detectable OIDC markers.
                         try { Send-HPECOMTelemetry -AuthMethod 'SSO-Unknown' -EventType 'ConnectRejected' -FailureReason 'saml-parse-error' -FailureStage 'saml' -NoProgress $NoProgress } catch { }
-                        Write-Error "Missing required SAML parameters (Action, Method, SAMLRequest, or RelayState). If your HPE GreenLake workspace SSO is federated using OpenID Connect (OIDC) rather than SAML 2.0, it is not supported - use native HPE account credentials instead." -ErrorAction Stop
+                        Write-Error "Missing required SAML parameters (Action, Method, SAMLRequest, or RelayState). OpenID Connect (OIDC) federation is supported only with Microsoft Entra ID; for other identity providers, configure SAML 2.0 SSO or use native HPE account credentials instead." -ErrorAction Stop
                     }
 
                     # Detect IdP type from the SAMLAction URL
@@ -8326,7 +5007,7 @@ Error: $($_.Exception.Message)
                             -MaximumRedirection 1 -ErrorAction Stop
 
                         "[{0}] Received status code: '{1}' - Description: '{2}'" -f $functionName, $responseStep11.StatusCode, $responseStep11.StatusDescription | Write-Verbose
-                        "[{0}] Content for responseStep11 starts with: {1}..." -f $functionName, ($responseStep11.Content.Substring(0, [Math]::Min(100, $responseStep11.Content.Length))) | Write-Verbose
+                        "[{0}] Content for responseStep11 starts with: {1}..." -f $functionName, ($responseStep11.Content.Substring(0, [Math]::Min(100, $responseStep11.Content.Length))) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                     }
                     catch {
                         if (-not $NoProgress) {
@@ -8338,6 +5019,8 @@ Error: $($_.Exception.Message)
                     }
 
                     $completedSteps++
+                    }
+                    # End of the SAML-only block (STEP 10 and STEP 11)
 
                     #EndRegion
 
@@ -8362,7 +5045,96 @@ Error: $($_.Exception.Message)
                         $isEntraIDLoginPage = $currentUrl -match 'login\.microsoftonline\.com|login\.windows\.net|sts\.windows\.net' -and
                         $currentResponse.Content -match '(Microsoft|Sign in to your account|Enter password|Stay signed in)'
                 
-                        if ($isEntraIDLoginPage) {
+                        if ($OidcFlow -and $idpType -eq 'Okta') {
+                            # OIDC federation with Okta: the customer Okta sign-in page carries a stateToken. The same Okta sign-in
+                            # handler used for SAML (Okta Verify push/TOTP, password) completes it; its final success redirect returns
+                            # to HPE GreenLake, whose page carries the HPE stateToken that STEP 14 redeems.
+                            "[{0}] Detected Okta OpenID Connect (OIDC) sign-in page" -f $functionName | Write-Verbose
+
+                            $oidcOktaToken = $null
+                            if ($currentResponse.Content -match "var\s+stateToken\s*=\s*'([^']+)'") { $oidcOktaToken = $Matches[1] }
+                            elseif ($currentResponse.Content -match 'var\s+stateToken\s*=\s*"([^"]+)"') { $oidcOktaToken = $Matches[1] }
+                            elseif ($currentResponse.Content -match '"stateToken"\s*:\s*"([^"]+)"') { $oidcOktaToken = $Matches[1] }
+                            elseif ($currentResponse.Content -match '<input[^>]*name=["'']stateToken["''][^>]*value=["'']([^"'']+)["'']') { $oidcOktaToken = $Matches[1] }
+
+                            if (-not $oidcOktaToken) {
+                                Write-Error "Authentication failed: the Okta sign-in page for '$Username' did not provide the expected sign-in context (stateToken). Re-run with -Verbose and open an issue at https://github.com/jullienl/HPE-COM-PowerShell-Library/issues with the output." -ErrorAction Stop
+                            }
+
+                            # Decode JavaScript (\xNN) and Unicode (\uNNNN) escapes used in the Okta page.
+                            $oidcOktaToken = [System.Text.RegularExpressions.Regex]::Replace($oidcOktaToken, "\\x([0-9A-Fa-f]{2})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
+                            $oidcOktaToken = [System.Text.RegularExpressions.Regex]::Replace($oidcOktaToken, "\\u([0-9A-Fa-f]{4})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
+
+                            $oktaDomain = ([uri]$currentUrl).Host
+                            "[{0}] Okta domain: {1}" -f $functionName, $oktaDomain | Write-Verbose
+
+                            $completedStepsRef = [ref]$completedSteps
+                            $currentStepRef = [ref]$step
+
+                            try {
+                                $responseStep12 = Invoke-OktaSSOAuthentication `
+                                    -StateToken $oidcOktaToken `
+                                    -Username $Username `
+                                    -Session $session `
+                                    -OktaDomain $oktaDomain `
+                                    -NoProgress:$NoProgress `
+                                    -CompletedSteps $completedStepsRef `
+                                    -TotalSteps $totalSteps `
+                                    -CurrentStep $currentStepRef `
+                                    -Password $ssoFallbackPassword
+                            }
+                            catch {
+                                $cls = Get-HPECOMSSOFailureClassification $_.Exception.Message
+                                try { Send-HPECOMTelemetry -EventType 'ConnectRejected' -AuthMethod 'SSO-Okta' -FailureReason $cls[0] -FailureStage $cls[1] -NoProgress $NoProgress } catch { }
+                                throw
+                            }
+
+                            "[{0}] Okta OIDC authentication completed" -f $functionName | Write-Verbose
+                            $currentResponse = $responseStep12
+                            $currentUrl = try { $currentResponse.BaseResponse.RequestMessage.RequestUri.AbsoluteUri } catch { $currentUrl }
+                        }
+                        elseif ($OidcFlow -and $idpType -eq 'PingIdentity') {
+                            # OIDC federation with PingIdentity: the PingOne sign-on page carries a flowId. The same PingID sign-in
+                            # handler used for SAML (PingID push/OTP, password) completes it, then resumes the flow through the
+                            # OpenID Connect endpoint, which redirects back to HPE GreenLake (HPE stateToken page, redeemed in STEP 14).
+                            "[{0}] Detected PingIdentity OpenID Connect (OIDC) sign-on page" -f $functionName | Write-Verbose
+
+                            $pingEnvironmentId = $null
+                            if ($currentUrl -match '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})') {
+                                $pingEnvironmentId = $Matches[1]
+                                "[{0}] PingOne environment ID: {1}" -f $functionName, $pingEnvironmentId | Write-Verbose
+                            }
+                            if (-not $pingEnvironmentId) {
+                                Write-Error "Authentication failed: the PingIdentity sign-on page for '$Username' did not provide the expected sign-in context (environment ID). Re-run with -Verbose and open an issue at https://github.com/jullienl/HPE-COM-PowerShell-Library/issues with the output." -ErrorAction Stop
+                            }
+
+                            $completedStepsRef = [ref]$completedSteps
+                            $currentStepRef = [ref]$step
+
+                            try {
+                                $responseStep12 = Invoke-PingIDSSOAuthentication `
+                                    -SAMLRedirectUrl $currentUrl `
+                                    -Username $Username `
+                                    -Session $session `
+                                    -EnvironmentId $pingEnvironmentId `
+                                    -NoProgress:$NoProgress `
+                                    -CompletedSteps $completedStepsRef `
+                                    -TotalSteps $totalSteps `
+                                    -CurrentStep $currentStepRef `
+                                    -Password $ssoFallbackPassword `
+                                    -OidcFlow
+                            }
+                            catch {
+                                $cls = Get-HPECOMSSOFailureClassification $_.Exception.Message
+                                try { Send-HPECOMTelemetry -EventType 'ConnectRejected' -AuthMethod 'SSO-PingIdentity' -FailureReason $cls[0] -FailureStage $cls[1] -NoProgress $NoProgress } catch { }
+                                throw
+                            }
+
+                            "[{0}] PingIdentity OIDC authentication completed" -f $functionName | Write-Verbose
+                            $currentResponse = $responseStep12
+                            $currentUrl = try { $currentResponse.BaseResponse.RequestMessage.RequestUri.AbsoluteUri } catch { $currentUrl }
+                        }
+                        elseif ($isEntraIDLoginPage) {
                             "[{0}] Detected Entra ID login page directly (no redirect needed)" -f $functionName | Write-Verbose
                             "[{0}] Using Microsoft Authenticator MFA (push or TOTP)" -f $functionName | Write-Verbose
                     
@@ -8431,7 +5203,7 @@ Error: $($_.Exception.Message)
                             $currentStepRef = [ref]$step
                     
                             try {
-                                $responseStep12 = Invoke-EntraIDMFAAuthentication `
+                                $responseStep12 = Invoke-EntraIDSSOAuthentication `
                                     -StateToken $entraContext.Ctx `
                                     -FlowToken $entraContext.FlowToken `
                                     -CanaryToken $entraContext.CanaryToken `
@@ -8551,8 +5323,24 @@ Error: $($_.Exception.Message)
                             "[{0}] Response contains 'okta-sign-in': {1}" -f $functionName, ($currentResponse.Content -match 'okta-sign-in') | Write-Verbose
                             "[{0}] Response contains 'stateToken': {1}" -f $functionName, ($currentResponse.Content -match 'stateToken') | Write-Verbose
                         }
+                        # OIDC (Entra ID or Okta): there is no SAMLResponse. After the IdP sign-in, the redirect chain ends on the HPE
+                        # sign-in page carrying the HPE Okta stateToken, which STEP 14 redeems. The response must have left the IdP:
+                        # the customer Okta sign-in page also carries a stateToken, which must not be mistaken for the HPE one.
+                        if ($OidcFlow) {
+                            $oidcEndUrl = try { $currentResponse.BaseResponse.RequestMessage.RequestUri.GetLeftPart([System.UriPartial]::Path) } catch { '(unknown)' }
+                            $oidcEndHost = try { ([uri]$oidcEndUrl).Host } catch { '' }
+                            $oidcStillOnIdp = ($idpType -eq 'Okta' -and $oktaDomain -and $oidcEndHost -eq $oktaDomain) -or
+                                              ($oidcEndHost -match 'login\.microsoftonline\.com|login\.windows\.net|sts\.windows\.net|(^|\.)pingone\.[a-z.]+$')
+                            if (-not $rawToken -or $oidcStillOnIdp) {
+                                "[{0}] OIDC sign-in did not return to HPE GreenLake - ended on: {1}" -f $functionName, $oidcEndUrl | Write-Verbose
+                                $oidcIdpLabel = switch ($idpType) { 'Okta' { 'Okta' } 'PingIdentity' { 'PingIdentity' } default { 'Microsoft Entra ID' } }
+                                Write-Error "Authentication failed: $oidcIdpLabel did not complete the OpenID Connect sign-in for '$Username'. Verify that the account is assigned to the HPE GreenLake application in $oidcIdpLabel and that any required MFA was approved, then try again." -ErrorAction Stop
+                            }
+                            "[{0}] OIDC sign-in returned to HPE GreenLake with a stateToken - authentication complete" -f $functionName | Write-Verbose
+                            $responseStep12 = $currentResponse
+                        }
                         # Check if we already have a SAML Response (authentication complete)
-                        if ($currentResponse.Content -match '<input[^>]*name=["'']SAMLResponse["'']') {
+                        elseif ($currentResponse.Content -match '<input[^>]*name=["'']SAMLResponse["'']') {
                             "[{0}] SAML Response already present - authentication complete" -f $functionName | Write-Verbose
                             $responseStep12 = $currentResponse
                         }
@@ -8591,7 +5379,7 @@ Current URL: $currentUrl
                             $currentStepRef = [ref]$step
                     
                             try {
-                                $responseStep12 = Invoke-PingIDMFAAuthentication `
+                                $responseStep12 = Invoke-PingIDSSOAuthentication `
                                     -SAMLRedirectUrl $currentUrl `
                                     -Username $Username `
                                     -Session $session `
@@ -9003,7 +5791,7 @@ To report issues or request Classic Engine support:
                                         $currentStepRef = [ref]$step
                                 
                                         try {
-                                            $responseStep12 = Invoke-OktaMFAAuthentication `
+                                            $responseStep12 = Invoke-OktaSSOAuthentication `
                                                 -StateToken $stateToken `
                                                 -Username $Username `
                                                 -Session $session `
@@ -9111,7 +5899,7 @@ To report issues or request Classic Engine support:
                                     $currentStepRef = [ref]$step
                             
                                     try {
-                                        $responseStep12 = Invoke-EntraIDMFAAuthentication `
+                                        $responseStep12 = Invoke-EntraIDSSOAuthentication `
                                             -StateToken $entraContext.Ctx `
                                             -FlowToken $entraContext.FlowToken `
                                             -CanaryToken $entraContext.CanaryToken `
@@ -9174,7 +5962,7 @@ To report issues or request Classic Engine support:
                                     $samlRedirectUrl = $currentUrl
                             
                                     try {
-                                        $responseStep12 = Invoke-PingIDMFAAuthentication `
+                                        $responseStep12 = Invoke-PingIDSSOAuthentication `
                                             -SAMLRedirectUrl $samlRedirectUrl `
                                             -Username $Username `
                                             -Session $session `
@@ -9220,6 +6008,17 @@ To report issues or request Classic Engine support:
 
                     # --------------------------------------------------------------------------------------------------------------------------------------------------------------
                     #Region [STEP 13] POST SAML Response Back to HPE
+                    # OIDC (Entra ID or Okta): there is no SAMLResponse to post back. After the IdP signs the user in, the redirect chain
+                    # followed by the IdP step already ended on the HPE Okta page that carries the stateToken, which STEP 14 redeems.
+                    # NOTE: the SAML code of STEP 13 below is intentionally not re-indented, to keep the change reviewable.
+                    if ($OidcFlow) {
+                        "[{0}] OIDC federation with {1} - skipping STEP 13 (no SAML response to post)." -f $functionName, $idpType | Write-Verbose
+                        "[{0}] OIDC sign-in ended on: {1}" -f $functionName, $(try { $responseStep12.BaseResponse.RequestMessage.RequestUri.GetLeftPart([System.UriPartial]::Path) } catch { '(unknown)' }) | Write-Verbose
+                        $responseStep13 = $responseStep12
+                        $completedSteps++
+                        $step++
+                    }
+                    else {
                     # --------------------------------------------------------------------------------------------------------------------------------------------------------------
                     "[{0}] ------------------------------------------------------------------------------------------------------------------" -f $functionName | Write-Verbose
                     "[{0}] [STEP 13] POST SAML Response Back to HPE" -f $functionName | Write-Verbose
@@ -9273,7 +6072,7 @@ Error: $($_.Exception.Message)
                         $responseStep13 = Invoke-WebRequest -Uri $samlAction -Method POST -Body $samlBody -WebSession $session -ContentType "application/x-www-form-urlencoded" -MaximumRedirection 5
     
                         "[{0}] SAML Response posted successfully - Status: {1}" -f $functionName, $responseStep13.StatusCode | Write-Verbose
-                        "[{0}] Response content starts with: {1}..." -f $functionName, ($responseStep13.Content.Substring(0, [Math]::Min(100, $responseStep13.Content.Length))) | Write-Verbose
+                        "[{0}] Response content starts with: {1}..." -f $functionName, ($responseStep13.Content.Substring(0, [Math]::Min(100, $responseStep13.Content.Length))) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                     }
                     catch {
                         if (-not $NoProgress) {
@@ -9300,11 +6099,13 @@ Error: $($_.Exception.Message)
 
                     # Log full HTML for debugging (first 2000 chars)
                     $htmlPreview = $responseStep13.Content.Substring(0, [Math]::Min(2000, $responseStep13.Content.Length))
-                    "[{0}] Full HTML preview (first 2000 chars):`n{1}" -f $functionName, $htmlPreview | Write-Verbose
+                    "[{0}] Full HTML preview (first 2000 chars):`n{1}" -f $functionName, $htmlPreview | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
 
                     # Log the response URL
                     "[{0}] Response URL: {1}" -f $functionName, $responseStep13.BaseResponse.ResponseUri.AbsoluteUri | Write-Verbose
                     $completedSteps++
+                    }
+                    # End of the SAML-only block (STEP 13)
 
                     #EndRegion
 
@@ -9323,8 +6124,21 @@ Error: $($_.Exception.Message)
                         $stateToken = $null
                         $tokenRedirectUrl = $null
                 
+                        # OIDC (Entra ID or Okta): the HPE Okta page returned after the IdP sign-in carries the stateToken as JSON, not as a
+                        # JavaScript redirect URL like the response to the SAML POST does.
+                        if ($OidcFlow) {
+                            $oidcTokenMatch = $responseStep13.Content -split "[`r`n]" | Select-String -Pattern '(?:"stateToken":")(.*?)(?:")' | Select-Object -First 1
+                            if ($oidcTokenMatch) {
+                                $stateToken = $oidcTokenMatch.Matches[0].Groups[1].Value
+                                $stateToken = [System.Text.RegularExpressions.Regex]::Replace($stateToken, "\\x([0-9A-Fa-f]{2})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
+                                $stateToken = [System.Text.RegularExpressions.Regex]::Replace($stateToken, "\\u([0-9A-Fa-f]{4})", { param($m) [char][Convert]::ToInt32($m.Groups[1].Value, 16) })
+                                $tokenRedirectUrl = "$Global:HPEGLoktaURL/login/token/redirect?stateToken=$stateToken"
+                                "[{0}] OIDC sign-in - extracted the Okta stateToken from the HPE sign-in page." -f $functionName | Write-Verbose
+                            }
+                        }
+
                         # Look for the JavaScript redirect URL in the response
-                        if ($responseStep13.Content -match 'https[^"''<>\s]*login[^"''<>\s]*token[^"''<>\s]*redirect[^"''<>\s]*stateToken[^"''<>\s]*') {
+                        if (-not $tokenRedirectUrl -and $responseStep13.Content -match 'https[^"''<>\s]*login[^"''<>\s]*token[^"''<>\s]*redirect[^"''<>\s]*stateToken[^"''<>\s]*') {
                             $tokenRedirectUrl = $matches[0]
                             # Decode HTML entities
                             $tokenRedirectUrl = $tokenRedirectUrl -replace '\\x3A', ':' -replace '\\x2F', '/' -replace '\\x3D', '=' -replace '\\x26', '&' -replace '\\x3F', '?' -replace '\\x2D', '-'
@@ -9363,7 +6177,7 @@ Error: $($_.Exception.Message)
                             $introspectContent = $introspectResponse.Content
                         }
                 
-                        "[{0}] Introspect response content (first 500 chars): {1}" -f $functionName, $introspectContent.Substring(0, [Math]::Min(500, $introspectContent.Length)) | Write-Verbose
+                        "[{0}] Introspect response content (first 500 chars): {1}" -f $functionName, $introspectContent.Substring(0, [Math]::Min(500, $introspectContent.Length)) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                 
                         $introspectData = $introspectContent | ConvertFrom-Json
                 
@@ -9386,7 +6200,7 @@ Error: $($_.Exception.Message)
                 
                         if (-not $successUrl) {
                             "[{0}] Full introspect response JSON:" -f $functionName | Write-Verbose
-                            ($introspectData | ConvertTo-Json -Depth 10).Split("`n") | ForEach-Object { "[{0}] {1}" -f $functionName, $_ | Write-Verbose }
+                            ($introspectData | ConvertTo-Json -Depth 10).Split("`n") | ForEach-Object { "[{0}] {1}" -f $functionName, $_ | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose }
                     
                             # Build detailed error message
                             Write-Error @"
@@ -9410,7 +6224,7 @@ This error can occur for multiple reasons:
    - Verify license includes Microsoft Authenticator and MFA features
 
 4. Identity Provider Configuration Issues
-   - SAML assertion generation failed
+   - SAML assertion or OIDC token generation failed
    - Application integration settings are incorrect
    - Required claims or attributes are missing
 
@@ -9480,7 +6294,7 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                         
                                 # No more redirects
                                 "[{0}] No more redirects found - stopping" -f $functionName | Write-Verbose
-                                "[{0}] Response preview (first 1000 chars): {1}" -f $functionName, $responseStep14.Content.Substring(0, [Math]::Min(1000, $responseStep14.Content.Length)) | Write-Verbose
+                                "[{0}] Response preview (first 1000 chars): {1}" -f $functionName, $responseStep14.Content.Substring(0, [Math]::Min(1000, $responseStep14.Content.Length)) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                                 break
                             }
                             catch {
@@ -9700,24 +6514,40 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                             $brokerResolveRedirectLog = if ([string]::IsNullOrEmpty($brokerResolveRedirect)) { '(no 302 redirect)' } else { $brokerResolveRedirect -replace 'track-id=[^&]+', 'track-id=[REDACTED]' -replace 'login_hint=[^&]+', 'login_hint=[REDACTED]' }
                             "[{0}] SSO broker sso-resolve redirect: '{1}'" -f $functionName, $brokerResolveRedirectLog | Write-Verbose
 
+                            # The broker reports its verdict through 'login_type' on the sso-resolve 302. Note that
+                            # 'login_type=nonfed' does NOT match the 'login_type=fed' pattern (the character after '=' differs),
+                            # so both tests below are safe.
                             $isBrokerNonFederated = $brokerResolveRedirect -match 'login_type=nonfed'
+                            $isBrokerFederated = $brokerResolveRedirect -match 'login_type=fed'
 
-                            # Externally-federated (SAML) account -> hand off to the SAML flow (passwordless branch). We route a
-                            # non-hpe.com -Credential sign-in to the SAML flow UNLESS the broker explicitly reports a standard,
-                            # non-federated account (login_type=nonfed); those continue on the Okta stateToken path below. This
-                            # preserves the established behavior for federated accounts while fixing standard accounts that HPE
-                            # now also routes through the '/sso/continue?track-id=' broker. @hpe.com always stays on the
-                            # stateToken path, since it is HPE's internal Okta org.
-                            if ($PSBoundParameters.ContainsKey('Credential') -and $Username -notmatch '@hpe\.com$' -and -not $isBrokerNonFederated) {
-                                "[{0}] Broker reports federated account (login_type=fed) for '{1}'. Switching to SSO (SAML) flow." -f $functionName, $Username | Write-Verbose
+                            # A THIRD outcome exists: the broker redirects to 'https://common.cloud.hpe.com/sso/selector?...'
+                            # with NO 'login_type' at all. This happens when the email domain is SAML-claimed by an external IdP
+                            # but the account may ALSO be a local HPE GreenLake (Okta) account - the browser UI shows a
+                            # "choose how you want to sign in" page in that case. Absence of 'login_type' must therefore NOT be
+                            # read as "federated": doing so pushes local Okta+MFA accounts into the customer's Entra/Okta tenant,
+                            # where the IdP correctly answers "user does not exist" and the failure is reported against the wrong
+                            # identity provider. Ambiguous accounts try the standard Okta path first and only fall back to SAML
+                            # if no Okta stateToken can be obtained (see the '-not $stateToken' handling further below).
+                            $isBrokerAmbiguous = -not $isBrokerFederated -and -not $isBrokerNonFederated
+
+                            # Externally-federated (SAML) account -> hand off to the SAML flow (passwordless branch). Only an
+                            # EXPLICIT 'login_type=fed' takes this shortcut. @hpe.com always stays on the stateToken path, since
+                            # it is HPE's internal Okta org.
+                            if ($PSBoundParameters.ContainsKey('Credential') -and $Username -notmatch '@hpe\.com$' -and $isBrokerFederated) {
+                                "[{0}] Broker reports federated account (login_type=fed) for '{1}'. Switching to SSO (SAML) flow." -f $functionName, (Format-HPERedactedText -Text $Username) | Write-Verbose
                                 $ssoFallback = $true
                                 $ssoFallbackPassword = $Credential.Password
                                 continue
                             }
 
-                            # Standard (non-federated) or @hpe.com account: follow the broker to the Okta sign-in page and
-                            # extract the Okta stateToken so the Okta-IDX flow below can proceed.
-                            "[{0}] Broker reports standard (non-federated) account for '{1}'. Following sso-init to reach the Okta sign-in page..." -f $functionName, $Username | Write-Verbose
+                            # Standard (non-federated), ambiguous, or @hpe.com account: follow the broker to the Okta sign-in
+                            # page and extract the Okta stateToken so the Okta-IDX flow below can proceed.
+                            if ($isBrokerAmbiguous) {
+                                "[{0}] Broker returned no login_type (account is ambiguous - the domain is SAML-claimed but a local HPE account may exist) for '{1}'. Trying the standard Okta sign-in path first..." -f $functionName, (Format-HPERedactedText -Text $Username) | Write-Verbose
+                            }
+                            else {
+                                "[{0}] Broker reports standard (non-federated) account for '{1}'. Following sso-init to reach the Okta sign-in page..." -f $functionName, (Format-HPERedactedText -Text $Username) | Write-Verbose
+                            }
                             # TODO (added 2026-06-25): The 'sso-resolve (direct)' attempt below is a legacy fallback kept only
                             # while HPE's broker rollout completes. Once 'sso-init?login_type=nonfed' is confirmed to reliably
                             # reach the Okta sign-in page everywhere (revisit ~v1.0.28), keep only the sso-init attempt.
@@ -9757,9 +6587,24 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                             $response = $brokerResponse
 
                             if (-not $stateToken) {
-                                "[{0}] SSO broker: could not extract Okta stateToken for account '{1}'." -f $functionName, $Username | Write-Verbose
+                                "[{0}] SSO broker: could not extract Okta stateToken for account '{1}'." -f $functionName, (Format-HPERedactedText -Text $Username) | Write-Verbose
+
+                                # Ambiguous broker verdict (no 'login_type' on the sso-resolve 302) and the Okta path produced no
+                                # stateToken -> the account really is externally federated. Hand off to the SAML flow now instead
+                                # of failing. This keeps SAML-claimed domains working while no longer breaking local HPE accounts
+                                # that merely share such a domain.
+                                if ($isBrokerAmbiguous -and $PSBoundParameters.ContainsKey('Credential') -and $Username -notmatch '@hpe\.com$') {
+                                    "[{0}] Ambiguous broker account '{1}': Okta path yielded no stateToken. Falling back to the SSO (SAML) flow." -f $functionName, (Format-HPERedactedText -Text $Username) | Write-Verbose
+                                    # Discard the cookies left behind by the Okta probe so the SAML flow starts clean (the SAML
+                                    # branch does not create its own WebRequestSession).
+                                    $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+                                    $ssoFallback = $true
+                                    $ssoFallbackPassword = $Credential.Password
+                                    continue
+                                }
+
                                 if ($brokerResponse) {
-                                    "[{0}] Response Content (first 3000 chars):`n{1}" -f $functionName, $brokerResponse.Content.Substring(0, [Math]::Min(3000, $brokerResponse.Content.Length)) | Write-Verbose
+                                    "[{0}] Response Content (first 3000 chars):`n{1}" -f $functionName, $brokerResponse.Content.Substring(0, [Math]::Min(3000, $brokerResponse.Content.Length)) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                                 }
                                 if (-not $NoProgress) {
                                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
@@ -9770,7 +6615,7 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                             }
                         }
                         else {
-                            "[{0}] Response Content (first 3000 chars for diagnosis):`n{1}" -f $functionName, $response.Content.Substring(0, [Math]::Min(3000, $response.Content.Length)) | Write-Verbose
+                            "[{0}] Response Content (first 3000 chars for diagnosis):`n{1}" -f $functionName, $response.Content.Substring(0, [Math]::Min(3000, $response.Content.Length)) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                             if (-not $NoProgress) {
                                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
@@ -9899,6 +6744,7 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                     $identifyPayloadLog = $identifyPayloadObj | ConvertTo-Json
                     # Hide stateHandle value in logs for security
                     $identifyPayloadLogRedacted = $identifyPayloadLog -replace '("stateHandle"\s*:\s*")([^"]+)(")', '$1[REDACTED]$3'
+                    $identifyPayloadLogRedacted = Format-HPERedactedText -Text $identifyPayloadLogRedacted
                     "[{0}] Payload content: `n{1}" -f $functionName, $identifyPayloadLogRedacted | Write-Verbose
                     try {
                         # Use Invoke-WebRequest to capture raw response
@@ -9907,12 +6753,12 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                         # Hide stateHandle value in logs for security
  
                         $identifyRespRedacted = Redact-StateHandle $identifyResp
-                        $identifyRespJson = $identifyRespRedacted | ConvertTo-Json -Depth 20
+                        $identifyRespJson = Format-HPERedactedText -Text ($identifyRespRedacted | ConvertTo-Json -Depth 20)
                         "[{0}] Identify response received: `n{1}" -f $functionName, $identifyRespJson | Write-Verbose
                         # Check for messages in the identify response (can be INFO, WARN or ERROR class)
                         if ($identifyResp.messages -and $identifyResp.messages.value) {
                             $msgValues = @($identifyResp.messages.value)
-                            "[{0}] Messages in identify response: {1}" -f $functionName, ($identifyResp.messages | ConvertTo-Json -Depth 20) | Write-Verbose
+                            "[{0}] Messages in identify response: {1}" -f $functionName, ($identifyResp.messages | ConvertTo-Json -Depth 20) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                             if (-not $NoProgress) {
                                 Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                 Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
@@ -9922,16 +6768,19 @@ For complete SSO setup prerequisites, see: $script:HelpUrl
                             # For -Credential with a non-hpe.com federated domain, retry using the SSO path (same as -PasswordlessSSOEmail).
                             if ($msgValues | Where-Object { $_.i18n.key -eq 'idx.email.verification.required' }) {
                                 if ($PSBoundParameters.ContainsKey('Credential') -and $Username -notmatch '@hpe\.com$') {
-                                    "[{0}] Federated account (idx.email.verification.required) detected with -Credential. Switching to SSO flow for '{1}'." -f $functionName, $Username | Write-Verbose
+                                    "[{0}] Federated account (idx.email.verification.required) detected with -Credential. Switching to SSO flow for '{1}'." -f $functionName, (Format-HPERedactedText -Text $Username) | Write-Verbose
                                     $ssoFallback = $true
                                     $ssoFallbackPassword = $Credential.Password
                                     continue
+                                }
+                                if ($PSBoundParameters.ContainsKey('PasswordlessSSOEmail')) {
+                                    Write-Error "Authentication failed: the identity provider requires a verification step for '$Username' that this sign-in flow cannot complete. Please try again. If the problem persists, open an issue at https://github.com/jullienl/HPE-COM-PowerShell-Library/issues and include the output of 'Connect-HPEGL -PasswordlessSSOEmail $Username -Verbose'." -ErrorAction Stop
                                 }
                                 $_wsDisplay = if ($Workspace) { $Workspace } else { 'YourWorkspace' }
                                 Write-Error @"
 Authentication failed: '$Username' is a federated account that cannot sign in through the direct credential flow.
 
-Federated accounts (e.g. Entra ID, Okta, PingID) must authenticate via a SAML redirect, which is not supported by -Credential.
+Federated accounts (e.g. Entra ID, Okta, PingID) must sign in through their identity provider (single sign-on), which -Credential cannot do for this account.
 Use -PasswordlessSSOEmail instead:
 
    Connect-HPEGL -PasswordlessSSOEmail '$Username' -Workspace '$_wsDisplay'
@@ -10123,23 +6972,26 @@ $($_.Exception.Message)
 
                     if ($identifyResp.messages -and $identifyResp.messages.value -and $identifyResp.messages.value.Count -gt 0) {
                         $msgValues = @($identifyResp.messages.value)
-                        "[{0}] Messages in identify response: {1}" -f $functionName, ($identifyResp.messages | ConvertTo-Json -Depth 20) | Write-Verbose
+                        "[{0}] Messages in identify response: {1}" -f $functionName, ($identifyResp.messages | ConvertTo-Json -Depth 20) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                         if (-not $NoProgress) {
                             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
                         }
                         if ($msgValues | Where-Object { $_.i18n.key -eq 'idx.email.verification.required' }) {
                             if ($PSBoundParameters.ContainsKey('Credential') -and $Username -notmatch '@hpe\.com$') {
-                                "[{0}] Federated account (idx.email.verification.required) detected with -Credential. Switching to SSO flow for '{1}'." -f $functionName, $Username | Write-Verbose
+                                "[{0}] Federated account (idx.email.verification.required) detected with -Credential. Switching to SSO flow for '{1}'." -f $functionName, (Format-HPERedactedText -Text $Username) | Write-Verbose
                                 $ssoFallback = $true
                                 $ssoFallbackPassword = $Credential.Password
                                 continue
+                            }
+                            if ($PSBoundParameters.ContainsKey('PasswordlessSSOEmail')) {
+                                Write-Error "Authentication failed: the identity provider requires a verification step for '$Username' that this sign-in flow cannot complete. Please try again. If the problem persists, open an issue at https://github.com/jullienl/HPE-COM-PowerShell-Library/issues and include the output of 'Connect-HPEGL -PasswordlessSSOEmail $Username -Verbose'." -ErrorAction Stop
                             }
                             $_wsDisplay = if ($Workspace) { $Workspace } else { 'YourWorkspace' }
                             Write-Error @"
 Authentication failed: '$Username' is a federated account that cannot sign in through the direct credential flow.
 
-Federated accounts (e.g. Entra ID, Okta, PingID) must authenticate via a SAML redirect, which is not supported by -Credential.
+Federated accounts (e.g. Entra ID, Okta, PingID) must sign in through their identity provider (single sign-on), which -Credential cannot do for this account.
 Use -PasswordlessSSOEmail instead:
 
    Connect-HPEGL -PasswordlessSSOEmail '$Username' -Workspace '$_wsDisplay'
@@ -10164,7 +7016,7 @@ Use -PasswordlessSSOEmail instead:
                     # Extract user identifier (for potential use later)
                     if ( $identifyResp.user -or $identifyResp.user.value -or $identifyResp.user.value.identifier) {
                         $userIdentifier = $identifyResp.user.value.identifier
-                        "[{0}] Extracted user identifier: {1}" -f $functionName, $userIdentifier | Write-Verbose
+                        "[{0}] Extracted user identifier: {1}" -f $functionName, (Format-HPERedactedText -Text $userIdentifier) | Write-Verbose
                     }
                     elseif (-not $PasswordlessSSOEmail) {
                         # Check if this is an SSO redirect case (no user identifier because it's SSO)
@@ -10182,7 +7034,7 @@ Use -PasswordlessSSOEmail instead:
                             # missing `user` here does NOT mean the username is unknown. Treat the account as recognized
                             # and continue with the supplied username.
                             $userIdentifier = $Username
-                            "[{0}] No 'user' object in identify response, but a credential challenge/enrollment is present - username '{1}' recognized; proceeding." -f $functionName, $Username | Write-Verbose
+                            "[{0}] No 'user' object in identify response, but a credential challenge/enrollment is present - username '{1}' recognized; proceeding." -f $functionName, (Format-HPERedactedText -Text $Username) | Write-Verbose
                         }
                         else {
                             "[{0}] No user identifier found in identify response. The username has not been recognized by HPE GreenLake" -f $functionName | Write-Verbose
@@ -10340,7 +7192,7 @@ Use -PasswordlessSSOEmail instead:
 
                         "[{0}] Redirect to external IDP detected." -f $functionName | Write-Verbose
 
-                        if ($PSBoundParameters.ContainsKey('PasswordlessSSOEmail') -and $PasswordlessSSOEmail -match 'hpe.com$') {
+                        if ($PSBoundParameters.ContainsKey('PasswordlessSSOEmail') -and $PasswordlessSSOEmail -match '@hpe\.com$') {
                             "[{0}] SSO authentication with HPE email {1}." -f $functionName, $PasswordlessSSOEmail | Write-Verbose
                             # Set SSO flag to trigger SSO flow later
                             $SSOwithHPEEmail = $true
@@ -10645,7 +7497,7 @@ Use -PasswordlessSSOEmail instead:
                         }               
                         
                         $RemediationValues = $responseStep53.remediation.value | Redact-StateHandle
-                        "[{0}] Remediation values: `n{1}" -f $functionName, ($RemediationValues | ConvertTo-Json -Depth 10) | Write-Verbose
+                        "[{0}] Remediation values: `n{1}" -f $functionName, ($RemediationValues | ConvertTo-Json -Depth 10) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
 
                         # Capturing challengeHref, authenticatorId, methodType, and stateHandle from $responseStep53
                         $stateHandle = $responseStep53.stateHandle
@@ -11138,7 +7990,7 @@ To avoid this warning, use -PasswordlessSSOEmail instead of -Credential.
                                 }
                                 # Redact stateHandle before verbose output
                                 $responseStep54Redacted = Redact-StateHandle $responseStep54
-                                "[{0}] Raw response for `$responseStep54: `n{1}" -f $functionName, ($responseStep54Redacted | ConvertTo-Json -Depth 50) | Write-Verbose
+                                "[{0}] Raw response for `$responseStep54: `n{1}" -f $functionName, ($responseStep54Redacted | ConvertTo-Json -Depth 50) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                                 # Log-Cookies -Domain "https://mylogin.hpe.com" -Session $session -Step "Step 5.4 (POST /idp/idx/challenge)"
                             }
                             catch {
@@ -11385,7 +8237,7 @@ Please try again and approve the request promptly.
 
                                 try {
                                     $responseStep55 = Invoke-RestMethod -Uri $verifyHref -Method POST -Body $payload -ContentType 'application/json' -ErrorAction Stop -WebSession $session
-                                    "[{0}] Okta Verify TOTP code submitted successfully. Response: `n{1}" -f $functionName, ($responseStep55 | ConvertTo-Json -Depth 50) | Write-Verbose
+                                    "[{0}] Okta Verify TOTP code submitted successfully. Response: `n{1}" -f $functionName, ($responseStep55 | ConvertTo-Json -Depth 50) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                                     "[{0}] Okta Verify TOTP verification response received." -f $functionName | Write-Verbose
                                 }
                                 catch {
@@ -11429,7 +8281,7 @@ Please try again and approve the request promptly.
                     
                                 $response = Invoke-WebRequest -Uri "$baseUrl/idp/idx/introspect" -Method POST -Body $body -Headers $introspectHeaders -WebSession $session -ErrorAction Stop
                                 $finalIntrospectData = $response.Content | ConvertFrom-Json
-                                "[{0}] Final introspect response: `n{1}" -f $functionName, ( $response.Content | ConvertFrom-Json | Redact-StateHandle | ConvertTo-Json -Depth 50 ) | Write-Verbose
+                                "[{0}] Final introspect response: `n{1}" -f $functionName, ( $response.Content | ConvertFrom-Json | Redact-StateHandle | ConvertTo-Json -Depth 50 ) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                         
                                 # Store the response in $global:introspectResponse
                                 $global:introspectResponse = $response.Content | ConvertFrom-Json
@@ -11670,7 +8522,7 @@ This error can occur for multiple reasons:
    - Contact your Okta administrator to verify licensing
 
 4. Okta Configuration Issues
-   - SAML assertion generation failed
+   - SAML assertion or OIDC token generation failed
    - Application integration settings are incorrect
    - Required claims or attributes are missing
 
@@ -11864,7 +8716,7 @@ For complete Okta setup prerequisites, see: https://github.com/jullienl/HPE-COM-
                         $response = Invoke-WebRequest -Uri $introspectUrl -Method POST -Body $body -ContentType "application/json" -WebSession $session
                         "[{0}] Introspect response status: {1}" -f $functionName, $response.StatusCode | Write-Verbose
                         $introspectResult = $response.Content | ConvertFrom-Json
-                        "[{0}] Introspect response content: `n{1}" -f $functionName, (Redact-StateHandle ($introspectResult) | ConvertTo-Json -Depth 20) | Write-Verbose
+                        "[{0}] Introspect response content: `n{1}" -f $functionName, (Redact-StateHandle ($introspectResult) | ConvertTo-Json -Depth 20) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
 
                         if ($introspectResult.success) {
                             $redirectUrl1 = $introspectResult.success.href
@@ -12126,11 +8978,11 @@ Response: $($response.Content)
                                 "[{0}] OIDC federation markers detected in the auth.hpe.com response - SAML form absent." -f $functionName | Write-Verbose
                                 # Fire-and-forget demand signal so unsupported OIDC-federated workspaces can be quantified (no PII).
                                 try { Send-HPECOMTelemetry -AuthMethod 'SSO-OIDC-Rejected' -EventType 'ConnectRejected' -FailureReason 'oidc-unsupported' -FailureStage 'saml' -NoProgress $NoProgress } catch { }
-                                Write-Error "Authentication failed: this HPE GreenLake workspace appears to be federated using OpenID Connect (OIDC), which is not supported. This module only supports SAML 2.0 SSO federation. Please sign in with native HPE account credentials, or ask your administrator to configure SAML 2.0 SSO." -ErrorAction Stop
+                                Write-Error "Authentication failed: this HPE GreenLake workspace appears to be federated using OpenID Connect (OIDC) with an identity provider that is not supported. This module supports SSO (SAML 2.0 or OIDC) only with Okta, Microsoft Entra ID and PingIdentity. Please sign in with native HPE account credentials, or ask your administrator to federate with a supported identity provider." -ErrorAction Stop
                             }
                             # Generic fallback: the SAML form was absent for a reason other than detectable OIDC markers.
                             try { Send-HPECOMTelemetry -AuthMethod 'SSO-Unknown' -EventType 'ConnectRejected' -FailureReason 'saml-parse-error' -FailureStage 'saml' -NoProgress $NoProgress } catch { }
-                            Write-Error "Authentication failed: Missing required SAML parameters (Action, SAMLRequest, or RelayState) in auth.hpe.com response. If your HPE GreenLake workspace SSO is federated using OpenID Connect (OIDC) rather than SAML 2.0, it is not supported - use native HPE account credentials instead." -ErrorAction Stop
+                            Write-Error "Authentication failed: Missing required SAML parameters (Action, SAMLRequest, or RelayState) in auth.hpe.com response. OpenID Connect (OIDC) federation is supported only with Microsoft Entra ID; for other identity providers, configure SAML 2.0 SSO or use native HPE account credentials instead." -ErrorAction Stop
                         }
 
                         # Detect IdP type from SAML action URL (if not already identified from redirect-idp response)
@@ -12234,7 +9086,7 @@ Response: $($response.Content)
                                 $completedStepsRef = [ref]$completedSteps
                                 $currentStepRef = [ref]$step
                                 try {
-                                    $idpSamlResponsePage = Invoke-OktaMFAAuthentication `
+                                    $idpSamlResponsePage = Invoke-OktaSSOAuthentication `
                                         -StateToken $oktaRawToken -Username $Username -Session $session `
                                         -OktaDomain $oktaDomainSC -Password $oktaPasswordSC `
                                         -NoProgress:$NoProgress -CompletedSteps $completedStepsRef `
@@ -12287,7 +9139,7 @@ Response: $($response.Content)
                                 $completedStepsRef = [ref]$completedSteps
                                 $currentStepRef = [ref]$step
                                 try {
-                                    $idpSamlResponsePage = Invoke-EntraIDMFAAuthentication `
+                                    $idpSamlResponsePage = Invoke-EntraIDSSOAuthentication `
                                         -StateToken $entraCtx -FlowToken $entraFlowToken -CanaryToken $entraCanary `
                                         -Username $Username -Session $session `
                                         -TenantDomain $entraTenantDomain -BaseUrl $entraBaseUrl `
@@ -12329,7 +9181,7 @@ Response: $($response.Content)
                                 $completedStepsRef = [ref]$completedSteps
                                 $currentStepRef = [ref]$step
                                 try {
-                                    $idpSamlResponsePage = Invoke-PingIDMFAAuthentication `
+                                    $idpSamlResponsePage = Invoke-PingIDSSOAuthentication `
                                         -SAMLRedirectUrl $pingFinalUrl `
                                         -Username        $Username `
                                         -Session         $session `
@@ -12547,7 +9399,7 @@ Response: $($response.Content)
                             # Check for messages in the challenge response (can be INFO, WARN or ERROR class)
                             if ($challengeResp.messages -and $challengeResp.messages.value) {
                                 $msgValues = @($challengeResp.messages.value)
-                                "[{0}] Messages in challenge response: {1}" -f $functionName, ($challengeResp.messages | ConvertTo-Json -Depth 20) | Write-Verbose
+                                "[{0}] Messages in challenge response: {1}" -f $functionName, ($challengeResp.messages | ConvertTo-Json -Depth 20) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                                 if (-not $NoProgress) {
                                     Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                                     Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
@@ -12902,7 +9754,7 @@ Please log in to the HPE GreenLake GUI and complete the MFA setup using one of t
                             }
 
                             $challengeRespRedacted = Redact-StateHandle $challengeResp
-                            "[{0}] Challenge response received: `n{1}" -f $functionName, ($challengeRespRedacted | ConvertTo-Json -Depth 20) | Write-Verbose
+                            "[{0}] Challenge response received: `n{1}" -f $functionName, ($challengeRespRedacted | ConvertTo-Json -Depth 20) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
 
                             if ($challengeResp.success -and $challengeResp.success.href) {
                                 "[{0}] Okta Verify TOTP code accepted." -f $functionName | Write-Verbose
@@ -12947,7 +9799,7 @@ Please log in to the HPE GreenLake GUI and complete the MFA setup using one of t
                     
                             # Redact stateHandle before verbose output
                             $challengeRespRedacted = Redact-StateHandle $challengeResp
-                            "[{0}] Challenge response received: `n{1}" -f $functionName, ($challengeRespRedacted | ConvertTo-Json -Depth 20) | Write-Verbose
+                            "[{0}] Challenge response received: `n{1}" -f $functionName, ($challengeRespRedacted | ConvertTo-Json -Depth 20) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                     
                             $href = $challengeResp.remediation.value | Where-Object { $_.name -eq 'challenge-poll' } | Select-Object -ExpandProperty href
                             # Poll for status
@@ -12966,7 +9818,7 @@ Please log in to the HPE GreenLake GUI and complete the MFA setup using one of t
                                 "[{0}] Polling for Okta Verify push status, attempt {1}/{2}..." -f $functionName, $i, $maxPolls | Write-Verbose
                                 $challengeResp = Invoke-RestMethod -Uri $href -Method Post -Body $challengePayload -ContentType "application/json" -WebSession $session -Headers $headers -MaximumRedirection 0 -ErrorAction Stop
                                 if ($challengeResp.remediation) {
-                                    "[{0}] Challenge response remediation: `n{1}" -f $functionName, (Redact-StateHandle $challengeResp.remediation | ConvertTo-Json -Depth 20) | Write-Verbose
+                                    "[{0}] Challenge response remediation: `n{1}" -f $functionName, (Redact-StateHandle $challengeResp.remediation | ConvertTo-Json -Depth 20) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                                 }
                                 if ($challengeResp.success -and $challengeResp.success.href) {
                                     "[{0}] Okta Verify push approved." -f $functionName | Write-Verbose
@@ -13034,7 +9886,7 @@ Please log in to the HPE GreenLake GUI and complete the MFA setup using one of t
                                
                                 # Redact stateHandle before verbose output
                                 $challengeRespRedacted = Redact-StateHandle $challengeResp
-                                "[{0}] Challenge response received: `n{1}" -f $functionName, ($challengeRespRedacted | ConvertTo-Json -Depth 20) | Write-Verbose
+                                "[{0}] Challenge response received: `n{1}" -f $functionName, ($challengeRespRedacted | ConvertTo-Json -Depth 20) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
 
                                 $href = $challengeResp.remediation.value | Where-Object { $_.name -eq 'challenge-authenticator' } | Select-Object -ExpandProperty href
                                 "[{0}] Href for TOTP challenge: '{1}'" -f $functionName, $href | Write-Verbose
@@ -13110,7 +9962,7 @@ Please log in to the HPE GreenLake GUI and complete the MFA setup using one of t
 
                             # Redact stateHandle before verbose output
                             $challengeRespRedacted = Redact-StateHandle $challengeResp
-                            "[{0}] Challenge response received: `n{1}" -f $functionName, ($challengeRespRedacted | ConvertTo-Json -Depth 20) | Write-Verbose
+                            "[{0}] Challenge response received: `n{1}" -f $functionName, ($challengeRespRedacted | ConvertTo-Json -Depth 20) | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
 
                             if ($challengeResp.success -and $challengeResp.success.href) {
                                 "[{0}] {1} code accepted." -f $functionName, $preferredAuthenticator.name | Write-Verbose
@@ -13220,7 +10072,7 @@ Please log in to the HPE GreenLake GUI and complete the MFA setup using one of t
                                         }
                                     }
                                     else {
-                                        "[{0}] No Location header in redirect response. All headers: {1} Exception: {2}" -f $functionName, (ConvertTo-Json $_.Exception.Response.Headers -Depth 5), $_ | Write-Verbose
+                                        "[{0}] No Location header in redirect response. All headers: {1} Exception: {2}" -f $functionName, (ConvertTo-Json $_.Exception.Response.Headers -Depth 5), $_ | ForEach-Object { Format-HPERedactedText -Text $_ } | Write-Verbose
                                         break
                                     }
                                 }
@@ -13617,7 +10469,7 @@ Please log in to the HPE GreenLake GUI and complete the MFA setup using one of t
                     # pass the warning through so genuine no-workspace users still get the guidance message.
                     $wsWarnings | Where-Object {
                         -not ($_ -like "*No workspaces found*" -and $Global:HPEGreenLakeSession.workspacesCount -eq 0 -and
-                            -not $script:HPEEntraStepUpMfaSucceeded -and
+                            -not $Global:HPEEntraStepUpMfaSucceeded -and
                             ($Workspace -or ($SSOWithCredential -and $idpType -eq 'EntraID') -or
                             (-not $SSOWithCredential -and $preferredAuthenticator.methodType -eq 'password' -and $preferredAuthenticator.auth.allowedFor -eq 'none')))
                     } | ForEach-Object { Write-Warning $_ }
@@ -13643,11 +10495,11 @@ Please log in to the HPE GreenLake GUI and complete the MFA setup using one of t
                 # is used with -Credential, the SSOWithCredential flow authenticates but Entra ID may
                 # silently ignore the password (passwordless policy enforced), resulting in a token that
                 # has no workspace access. Fail with a terminating error so try/catch works for callers.
-                # Skipped when a genuine password + MFA step-up succeeded ($script:HPEEntraStepUpMfaSucceeded):
+                # Skipped when a genuine password + MFA step-up succeeded ($Global:HPEEntraStepUpMfaSucceeded):
                 # in that case the password WAS accepted, so 0 workspaces is a real no-workspace account, not
                 # passwordless enforcement.
                 if ($SSOWithCredential -and $idpType -eq 'EntraID' -and $Global:HPEGreenLakeSession.workspacesCount -eq 0 -and
-                    -not $script:HPEEntraStepUpMfaSucceeded) {
+                    -not $Global:HPEEntraStepUpMfaSucceeded) {
                     if (-not $NoProgress) {
                         Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Failed" -Id 0
                         Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Failed" -Completed
@@ -13681,7 +10533,7 @@ Alternatively, ask your Entra ID administrator to allow password-based authentic
                 # fall through to the standard "No workspaces found" guidance instead.
                 if ($psCmdlet.ParameterSetName -eq 'Credential' -and -not $SSOWithCredential `
                         -and $Global:HPEGreenLakeSession.workspacesCount -eq 0 `
-                        -and -not $script:HPEEntraStepUpMfaSucceeded `
+                        -and -not $Global:HPEEntraStepUpMfaSucceeded `
                         -and $preferredAuthenticator.methodType -eq 'password' `
                         -and ($Workspace -or $preferredAuthenticator.auth.allowedFor -eq 'none')) {
 
@@ -13696,7 +10548,7 @@ Alternatively, ask your Entra ID administrator to allow password-based authentic
                         # The per-IdP handler (Entra/Okta/PingID) emits the user-facing "password will not be used —
                         # use -PasswordlessSSOEmail" warning when it re-runs the passwordless push/TOTP flow below,
                         # so we deliberately do NOT emit a second warning here.
-                        "[{0}] -Credential produced a 0-workspace token with allowedFor=none for '{1}' — retrying via the passwordless SSO push path." -f $functionName, $Username | Write-Verbose
+                        "[{0}] -Credential produced a 0-workspace token with allowedFor=none for '{1}' — retrying via the passwordless SSO push path." -f $functionName, (Format-HPERedactedText -Text $Username) | Write-Verbose
                         $postAuthSsoRetryAttempted = $true
                         $ssoFallbackPassword = $Credential.Password
                         $ssoFallback = $true
@@ -13754,7 +10606,7 @@ Your Identity Provider enforces passwordless authentication. Use -PasswordlessSS
             Write-Progress -Id 0 -Activity "Connecting to HPE GreenLake" -Status "Completed" -Completed
             Write-Progress -Id 1 -Activity "Connecting to HPE GreenLake" -Status "Completed" -Completed
         }
-        "[{0}] HPE GreenLake session established for user '{1}'" -f $functionName, $Global:HPEGreenLakeSession.username | Write-Verbose
+        "[{0}] HPE GreenLake session established for user '{1}'" -f $functionName, (Format-HPERedactedText -Text $Global:HPEGreenLakeSession.username) | Write-Verbose
         "[{0}] HPE GreenLake session details: `n{1}" -f $functionName, ($Global:HPEGreenLakeSession | Out-String) | Write-Verbose
         "[{0}] HPE GreenLake session created at: {1}" -f $functionName, $Global:HPEGreenLakeSession.oauth2TokenCreation | Write-Verbose
         "[{0}] HPE GreenLake session expires at: {1}" -f $functionName, $Global:HPEGreenLakeSession.oauth2TokenCreation.AddMinutes(120) | Write-Verbose
@@ -13799,7 +10651,7 @@ Your Identity Provider enforces passwordless authentication. Use -PasswordlessSS
             #   * $ssoFallbackPassword — Okta returned idx.email.verification.required / allowedFor=none,
             #                            re-entering the full SAML+IdP flow. This path is shared by genuinely
             #                            password-based accounts AND passwordless accounts used with -Credential.
-            # Append '-Password' only when an IdP actually consumed the password ($script:HPESSOPasswordSubmitted);
+            # Append '-Password' only when an IdP actually consumed the password ($Global:HPESSOPasswordSubmitted);
             # a passwordless account used with -Credential (password ignored for push/TOTP) stays in the
             # passwordless bucket (e.g. 'SSO-EntraID').
             $ssoBase = switch ($idpType) {
@@ -13808,7 +10660,7 @@ Your Identity Provider enforces passwordless authentication. Use -PasswordlessSS
                 'PingIdentity' { 'SSO-PingIdentity' }
                 default { 'SSO-Unknown' }
             }
-            if ($SSOWithCredential -or $script:HPESSOPasswordSubmitted) { "$ssoBase-Password" } else { $ssoBase }
+            if ($SSOWithCredential -or $Global:HPESSOPasswordSubmitted) { "$ssoBase-Password" } else { $ssoBase }
         }
         elseif ($SSOwithHPEEmail) {
             # hpe.com account authenticated through SSO using -Credential. The HPE-internal Okta IdP
@@ -14022,7 +10874,7 @@ Function Save-HPEGLSession {
             }
 
             "[{0}] Session saved successfully for workspace '{1}'" -f $functionName, $Global:HPEGreenLakeSession.workspace | Write-Verbose
-            "[{0}] Saved session user: {1}" -f $functionName, $clonedSession.username | Write-Verbose
+            "[{0}] Saved session user: {1}" -f $functionName, (Format-HPERedactedText -Text $clonedSession.username) | Write-Verbose
             "[{0}] Saved session created at: {1}" -f $functionName, $clonedSession.oauth2TokenCreation | Write-Verbose
 
             return $clonedSession
@@ -14560,7 +11412,7 @@ and proceed directly to cleaning up local variables (Step 4).
                         "[{0}] Received status code response: '{1}' - Description: '{2}'" -f $functionName, $InvokeReturnData.StatusCode, $InvokeReturnData.StatusDescription | Write-verbose
                         # "[{0}] Raw response: `n{1}" -f $functionName, $InvokeReturnData | Write-verbose
                 
-                        "[{0}] CCS OAuth2 token '{1}' revoked!" -f $functionName, $Global:HPEGreenLakeSession.username | Write-Verbose
+                        "[{0}] CCS OAuth2 token '{1}' revoked!" -f $functionName, (Format-HPERedactedText -Text $Global:HPEGreenLakeSession.username) | Write-Verbose
 
                         $_username = $Global:HPEGreenLakeSession.username
                     
@@ -16682,10 +13534,10 @@ function Send-HPECOMTelemetry {
     # For rejected SSO attempts, reflect whether a password was actually submitted during this
     # connection attempt (bad-credentials, MFA-after-password failures, etc.). The rejection call
     # sites all pass the bare passwordless IdP name (e.g. 'SSO-Okta'); append '-Password' here when
-    # $script:HPESSOPasswordSubmitted proves the IdP consumed a password, so the failure funnel
+    # $Global:HPESSOPasswordSubmitted proves the IdP consumed a password, so the failure funnel
     # distinguishes password-based from passwordless failures without duplicating logic per site.
     $resolvedAuthMethod = $AuthMethod
-    if ($EventType -eq 'ConnectRejected' -and $script:HPESSOPasswordSubmitted -and
+    if ($EventType -eq 'ConnectRejected' -and $Global:HPESSOPasswordSubmitted -and
         $AuthMethod -in @('SSO-Okta', 'SSO-EntraID', 'SSO-PingIdentity', 'SSO-Unknown')) {
         $resolvedAuthMethod = "$AuthMethod-Password"
     }
@@ -17077,6 +13929,42 @@ function Format-HPEPayloadForLog {
             $m.Value
         }
     })
+
+    return $out
+}
+
+function Format-HPERedactedText {
+    <#
+    .DESCRIPTION
+    Masks email addresses and sign-in session values (identity-provider tokens, SAML messages,
+    authorization codes) in text that is written to the verbose/diagnostic stream so that a
+    captured log can be shared for support without exposing the user's identity or a live sign-in. Handles both
+    the plain form ('user@example.com') and the URL-encoded form ('user%40example.com'), including
+    addresses embedded in URLs and JSON payloads. The first character of the local part and the
+    top-level domain are kept so that two different accounts remain distinguishable in a log.
+    Display only - never applied to data that is sent to an API.
+    #>
+    param([string]$Text)
+
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+
+    $evaluator = {
+        param($m)
+        '{0}***@***.{1}' -f $m.Groups['local'].Value.Substring(0, 1), $m.Groups['tld'].Value
+    }
+
+    # URL-encoded form first ('%40'), then the plain form. The masked output contains no character
+    # that either pattern can match again, so the function is safe to apply more than once.
+    $out = [regex]::Replace($Text, '(?<local>[A-Za-z0-9._+\-]+)%40(?<domain>[A-Za-z0-9.\-]+\.)(?<tld>[A-Za-z]{2,})', $evaluator)
+    $out = [regex]::Replace($out, '(?<local>[A-Za-z0-9._%+\-]+)@(?<domain>[A-Za-z0-9.\-]+\.)(?<tld>[A-Za-z]{2,})', $evaluator)
+
+    # Sign-in session values (Entra ID flow token, canary and request context, Okta state token and handle,
+    # SAML messages, authorization codes). They are short-lived, but they belong to a live sign-in and add
+    # nothing to a support log. Masked as JSON values, as form/query parameters, and as hidden form inputs.
+    # No closing quote is required, so a value cut short by a truncated log line is masked too.
+    $out = [regex]::Replace($out, '(?i)("(?:flowToken|sFT|canary|apiCanary|originalRequest|sCtx|ctx|stateToken|stateHandle|SessionIdentifier|SAMLResponse|SAMLRequest|RelayState|csrfToken)"\s*:\s*")[^"]*', '$1[REDACTED]')
+    $out = [regex]::Replace($out, '(?i)((?:^|[?&\s])(?:flowToken|sFT|canary|apiCanary|originalRequest|sCtx|ctx|stateToken|SessionIdentifier|SAMLResponse|SAMLRequest|RelayState|csrfToken|ppm_request|ppm_response|code)=)[^&\s"''<>]+', '$1[REDACTED]')
+    $out = [regex]::Replace($out, '(?i)(name=["''](?:SAMLResponse|SAMLRequest|RelayState|flowToken|ctx|canary)["''][^>]*?value=["''])[^"'']*', '$1[REDACTED]')
 
     return $out
 }
@@ -17683,259 +14571,230 @@ function Invoke-RepackageObjectWithType {
 Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest', 'Connect-HPEOnepass', 'Connect-HPEGL', 'Disconnect-HPEGL', 'Connect-HPEGLWorkspace', 'Invoke-HPEGLAutoReconnect', 'Get-HPEGLJWTDetails', 'Save-HPEGLSession', 'Restore-HPEGLSession', 'Disable-HPECOMDataCollection', 'Enable-HPECOMDataCollection' -Alias *
 
 # SIG # Begin signature block
-# MIIvswYJKoZIhvcNAQcCoIIvpDCCL6ACAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIqQAYJKoZIhvcNAQcCoIIqMTCCKi0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAIGqO9O+6HbKQw
-# mzbG2L+8IC18dJm5iQQCUCgPx5VaC6CCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
-# jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
-# DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
-# EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
-# dmljZXMwHhcNMjEwNTI1MDAwMDAwWhcNMjgxMjMxMjM1OTU5WjBWMQswCQYDVQQG
-# EwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS0wKwYDVQQDEyRTZWN0aWdv
-# IFB1YmxpYyBDb2RlIFNpZ25pbmcgUm9vdCBSNDYwggIiMA0GCSqGSIb3DQEBAQUA
-# A4ICDwAwggIKAoICAQCN55QSIgQkdC7/FiMCkoq2rjaFrEfUI5ErPtx94jGgUW+s
-# hJHjUoq14pbe0IdjJImK/+8Skzt9u7aKvb0Ffyeba2XTpQxpsbxJOZrxbW6q5KCD
-# J9qaDStQ6Utbs7hkNqR+Sj2pcaths3OzPAsM79szV+W+NDfjlxtd/R8SPYIDdub7
-# P2bSlDFp+m2zNKzBenjcklDyZMeqLQSrw2rq4C+np9xu1+j/2iGrQL+57g2extme
-# me/G3h+pDHazJyCh1rr9gOcB0u/rgimVcI3/uxXP/tEPNqIuTzKQdEZrRzUTdwUz
-# T2MuuC3hv2WnBGsY2HH6zAjybYmZELGt2z4s5KoYsMYHAXVn3m3pY2MeNn9pib6q
-# RT5uWl+PoVvLnTCGMOgDs0DGDQ84zWeoU4j6uDBl+m/H5x2xg3RpPqzEaDux5mcz
-# mrYI4IAFSEDu9oJkRqj1c7AGlfJsZZ+/VVscnFcax3hGfHCqlBuCF6yH6bbJDoEc
-# QNYWFyn8XJwYK+pF9e+91WdPKF4F7pBMeufG9ND8+s0+MkYTIDaKBOq3qgdGnA2T
-# OglmmVhcKaO5DKYwODzQRjY1fJy67sPV+Qp2+n4FG0DKkjXp1XrRtX8ArqmQqsV/
-# AZwQsRb8zG4Y3G9i/qZQp7h7uJ0VP/4gDHXIIloTlRmQAOka1cKG8eOO7F/05QID
-# AQABo4IBEjCCAQ4wHwYDVR0jBBgwFoAUoBEKIz6W8Qfs4q8p74Klf9AwpLQwHQYD
-# VR0OBBYEFDLrkpr/NZZILyhAQnAgNpFcF4XmMA4GA1UdDwEB/wQEAwIBhjAPBgNV
-# HRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMDMBsGA1UdIAQUMBIwBgYE
-# VR0gADAIBgZngQwBBAEwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybC5jb21v
-# ZG9jYS5jb20vQUFBQ2VydGlmaWNhdGVTZXJ2aWNlcy5jcmwwNAYIKwYBBQUHAQEE
-# KDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5jb21vZG9jYS5jb20wDQYJKoZI
-# hvcNAQEMBQADggEBABK/oe+LdJqYRLhpRrWrJAoMpIpnuDqBv0WKfVIHqI0fTiGF
-# OaNrXi0ghr8QuK55O1PNtPvYRL4G2VxjZ9RAFodEhnIq1jIV9RKDwvnhXRFAZ/ZC
-# J3LFI+ICOBpMIOLbAffNRk8monxmwFE2tokCVMf8WPtsAO7+mKYulaEMUykfb9gZ
-# pk+e96wJ6l2CxouvgKe9gUhShDHaMuwV5KZMPWw5c9QLhTkg4IUaaOGnSDip0TYl
-# d8GNGRbFiExmfS9jzpjoad+sPKhdnckcW67Y8y90z7h+9teDnRGWYpquRRPaf9xH
-# +9/DUp/mBlXpnYzyOmJRvOwkDynUWICE5EV7WtgwggYaMIIEAqADAgECAhBiHW0M
-# UgGeO5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYD
-# VQQKEw9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENv
-# ZGUgU2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5
-# NTlaMFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzAp
-# BgNVBAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0G
-# CSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjI
-# ztNsfvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NV
-# DgFigOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/3
-# 6F09fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05Zw
-# mRmTnAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm
-# +qxp4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUe
-# dyz8rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz4
-# 4MPZ1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBM
-# dlyh2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQY
-# MBaAFDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritU
-# pimqF6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNV
-# HSUEDDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsG
-# A1UdHwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1
-# YmxpY0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsG
-# AQUFBzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2Rl
-# U2lnbmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0
-# aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURh
-# w1aVcdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0Zd
-# OaWTsyNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajj
-# cw5+w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNc
-# WbWDRF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalO
-# hOfCipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJs
-# zkyeiaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z7
-# 6mKnzAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5J
-# KdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHH
-# j95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2
-# Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/
-# L9Uo2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkq
-# hkiG9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1p
-# dGVkMSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2
-# MB4XDTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMx
-# DjAMBgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJw
-# cmlzZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
-# ZSBDb21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qw
-# cmuCQyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyu
-# cpC7tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ip
-# z4+uJGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4Edtvu
-# muGI4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28Flg
-# kSt9f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOy
-# ecaVpJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3p
-# eg1ku0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7
-# XOBa5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJd
-# isrV7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXR
-# dJNADjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtR
-# u0aQcdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQY
-# MBaAFA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vm
-# oYtOnZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAK
-# BggrBgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUF
-# BwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIw
-# QDA+oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29k
-# ZVNpZ25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjho
-# dHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NB
-# UjM2LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJ
-# KoZIhvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs86
-# 5wyoO3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU
-# 9e6+TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH
-# 6GOfU6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGa
-# ei8nSr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/u
-# CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
-# v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
-# VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCHRMwgh0PAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
-# BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
-# Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
-# BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
-# NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQg5tMyf9izwLVChB8AVwjh0ZwqUowQnCx2QFg/Yp2qInAwDQYJKoZIhvcNAQEB
-# BQAEggIAPKTe3DNbt4lKq2Ld3Y3XgyHK3tPBsFIEjpYgzzuPV5AEVZovsRrzfYmU
-# eOIIIlBsJ7GoSoBfXq/dMRmSrkdxcuEBtF3x/v2M1NTSCNvqbLEThZyi7Ra1QWeD
-# 1Uwr5xU3xZJbnftNxlu5j1W/DMNVbNjDJUmirL9v380HYthCYUgXmU2fhdWSQgNu
-# CuQ7Nr1kFi2dtS80/FwSaDWK/Ch39xOZ4fyLTs6uluzgdb9+6oLVyYRVgbT2E0aP
-# /UvwFedKwPPkg+pOPeA4ERyxWkxN7t/OzrJ4a38K8crh2HwnZaicg5is4HWl5Dh+
-# tisEqon9yE7+JQbEuFMg0Mhhgi5tRKVXkN3lqp2+ylB46TFhTsiek9/pmbyyaHIm
-# uHxgDtaYykNsrISJFjU7zCOHRh4KMwlKwsLk6VQmp0vtXhF8Lj/HuAyVklOWIS83
-# usNkfKiqz6g+64JeewU+nwdTR6f5FHaEzM4c7mrcpAgu/AuzYrQ6YeMA/tliEazS
-# XME1cUQHY3MEG1jdoYbn0oNVWzkAJ5xydTsO7VAMGQifrOwmQv7z9kmcudhuiSR9
-# yJs4KHHFWq+wHbFUcRYZ8/rswFYZM0E/+z0mf2QfI6tbh/Si6HixfdPUqLgebnxw
-# CQfBCObRXqxET9/LbuJCSsIaGy64Cwa5ClynE9TAwoNuFAFUVsWhghn9MIIZ+QYK
-# KwYBBAGCNwMDATGCGekwghnlBgkqhkiG9w0BBwKgghnWMIIZ0gIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwFpz4+1MZGSSApmVI8SkpIPGmxfbsnDmBlkWU
-# JBqOdW/r1bOmKyTHL/+j/VRbQg7KAhUApgsE5qFr6c6O9lRFTwEzRfBiSSAYDzIw
-# MjYwNjI2MTM0OTQ1WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0
-# ZXIgTG9uZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
-# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzN6CCFBcwggbiMIIE
-# yqADAgECAhEA507yVbBQT/rbpt/3/IujFTANBgkqhkiG9w0BAQwFADBVMQswCQYD
-# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTAeFw0yNjAzMjUwMDAwMDBa
-# Fw0zNzA2MjQyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5HcmVhdGVy
-# IExvbmRvbjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzcwggIiMA0GCSqGSIb3
-# DQEBAQUAA4ICDwAwggIKAoICAQCy/8NtS9xQ2UUtBRF32bj7VK3n4m50Uqjk/zTc
-# iSziYV40H1LKah0/oEklYG42E4VCP3DvsBUB6DmpCkDZ0jCnZBPIEevaH15ZJOQw
-# FWP2ZXr5YjlJpb68Nlbs+ElNvKx32/1YHde3qqUSLybjulxPLz6T85+HOIqK7M1B
-# ep8LspyhEP/q6nw5kGxTSrGvufmeH+JF8CnVBcVMFA40FlIYh0cDJVFhhfTfdWgL
-# y/vWuLMQoKkf3s/FvByf16r0rtbyHm/iemwxSioJL9zyZDDKUNAbHXl0dhXo2VxU
-# V2NcPXWXuoKsjL+6cfk6Vm2DHnxAlFdFsaBDIF1JOkSnC6PeLlBznZn2buF3vIIY
-# Jcq6N/zeFRCk4/HXDz7zgRsRRMdUB+rhyk5FoZaBjw0nLq3GZ3fClLUx5es5pUAx
-# zNODMBn7JkFYip2BAGBPER5eV0ROhk6tGTG+fUiMiV+vgjg1YnP5FvnYWyEtWeQD
-# /B2hp3vz0RvtdkM0p3igyadzrfpOBq5ppVk/YsuhTQkP99ivneHAGfi5e7lmxJ+m
-# eoBPrRLuzMmb81rzzbESjJHMsn5RVtc6Ucs7rcMqQC13PUIO7BbGBETV2ufCmV6l
-# PTp3P7XJOvmnUCRTPbVvMTpxP/z+SOHg4/OCBhiqs4FA9+4oQvlkk9w32NGASli9
-# GWrm5wIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUOnSlDGfGQlDC/bX8x7spNIL0
-# erkwHQYDVR0OBBYEFGEQ6XoSr1HEhdTyz6R0D1DNIK/4MA4GA1UdDwEB/wQEAwIG
-# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
-# MEEwCAYGZ4EMAQQCMDUGDCsGAQQBsjEBAgEDCDAlMCMGCCsGAQUFBwIBFhdodHRw
-# czovL3NlY3RpZ28uY29tL0NQUzBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
-# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcmww
-# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
-# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcnQwIwYIKwYBBQUH
-# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAD
-# 6j2N0azN+hl6k6bKB5/U6VuSOs93ZBb3Pczy9VtBIKu4947Z5GwL0aFngIxl+GSu
-# LFrJgPruBCRvKJEJsm7kv+LQ1COVCEG9tZ+IRtr4ocUoa53lgdFaENlS0N4wgkZk
-# bQEPv+x+1lSjYh+T4JeL9mUznT7Erc6Sp5dWLka5sMP/m3GZi6oJPdPcsCKWagH7
-# m2H2xDGIyHJC5PdH9phvi/KmhkktiSVTNNqVeV5bWdX2zhRE6UTfz0IcMoCL996l
-# FIydXxOCE4MNDHDM0as4lnTiT/KHMccO6l8c9TnUVgmpci9ar1IABZ2U1XUkYjGG
-# Sn9MC3EHDP9V39VuBVvZ33/BEV/EWSRrf07T7jFplKX+gQr/UOqPGMlE7ZJ72UaU
-# kNJy7bVl3bcLKzdpjIHzLkf/4MVa1V7w8wqCv5W4gOnRGTlud5UMARbRM8BPxR/C
-# XYXoMmIOD8pmTk2axgRL4LG8XtuchISdCHRmtacAmLGq5XSYSVTHTXADlO48iDKh
-# 3HM2r98LSF6f0sG12d8V9Jn7C3wDUieOxuKj4MdWrW+hiJU2kF87v6eH00HgCFFc
-# 2V0+CvfOCMn7juzS41jLaINcBlKWQ/fKb/uDLfWOW73z1I2lFY7Xj8tQ1XYtK5eR
-# EjWItM8jpl1cbQOc88btR+0XS2TmboE/141+va2PWzCCBqcwggSPoAMCAQICEQCQ
-# rAhyIP3Fp8RrXMcN9z0GMA0GCSqGSIb3DQEBDAUAMFcxCzAJBgNVBAYTAkdCMRgw
-# FgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGlj
-# IFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjYwMzI1MDAwMDAwWhcNNDEwMzI0
-# MjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVk
-# MSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTCC
-# AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK7kSqIBrYIcYvlmLVuaA8zw
-# 1RfBhkn4G1CoemzjcYtML6yNUvKmwGH7y6/5MuSC1UYP/+9KYDSqvMQt/1hEKHYx
-# MAD9oZpBkoaDQFEKbOJHelsKe+BaO0ZcENTKfePcraVkA7wrGAW2XHA5gQCQv4IK
-# ori/3PNOXxnDMOk8yIMgVrlMeTxqfWJ4XkjT1xc2s9DD7URHWWJOFobTPoWs6mrD
-# FlaY9FlAHDYTfbzvxQHVsvRmn3W+5ZmCwyk02I8KgGPT/UX4sTz41GiR+ppwUjQX
-# a1+2tEHZbsdAKUtH3OPEVtZvlt7atx4h83IdRR8oYi8wjY3OjFKXFecWpQbzzsPx
-# bUKPwMWiTrzwkrFa8dH/1pDKRJt371W62PfqKPayCr/XbnBOlRn8CALSmHnRtGzu
-# AWtTJpcT3BKw6oy8IIL6wSbu938F6ZIbRNIc1dKbIJtr4ULN6R5ZfTdNEhwXctqp
-# 3RHDbg4fuOl6LjNoaFwjud92EEDhzxFJzE1jqN4csceZIwxOT1aqfsfh0uFQE/lg
-# TBuBs3i6/WL2W1OceWLy3XEdXRK1f0EWCuea6dNfX2RRdjUfk5EltFnJkN2+bWhn
-# K14OPRKcyjOv5hKZ0iV4NRNd1+hjtva1rPyzb5Bs7EvFxqEQhgZbOq7qH3nm0rBw
-# A0dxniBOYCFPdu246JCxAgMBAAGjggFuMIIBajAfBgNVHSMEGDAWgBT2d2rdP/0B
-# E/8WoWyCAi/QCj0UJTAdBgNVHQ4EFgQUOnSlDGfGQlDC/bX8x7spNIL0erkwDgYD
-# VR0PAQH/BAQDAgGGMBIGA1UdEwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYB
-# BQUHAwgwIwYDVR0gBBwwGjAIBgZngQwBBAIwDgYMKwYBBAGyMQECAQMIMEwGA1Ud
-# HwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1Ymxp
-# Y1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEBBHAwbjBHBggrBgEF
-# BQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0
-# YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6Ly9vY3NwLnNlY3Rp
-# Z28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAy3lJHZvGeA2b43yhzoarvobHVzbfl
-# +RfuPDwej0wCQkYAN6scTt2GwFe22qbOCv/tllqFlLKQZE+E9jVyuPTbyQHwrM7R
-# 0oLapAEDC1+CowsqSRf/ptira5Pfd4PoHICnb9coPQtyZmHSQp5y9IGvqWf1qNfq
-# 7V2fHZ8DvEQrLUzeoGF9BJRYu2OzacW3QQtUum3NOVf0gPRwv6I4991uhncJ6VP4
-# lcpUpHZKB7R3hiIUC09mR9KjzPVnXHvL9n2bAwiUECfK5Zezhiw27F2tgi39DETf
-# U8M4n0N6xLgFzsf05M5GURX8C9+IX9V6kpmmKtrUzMti4LD66gtmf+mSm934K81N
-# L6YQeMEk1rpYrWPypcW76Mir6wb1AgseLIHqn/GkeuQm7zOTDf3f5WoX14qVNjZW
-# NHF3JxkutV6ZnhinfCLfdv5bnwKWUfceqOajCVntI6uCbHxjBg6SCsexc5AfIGno
-# 7gVFvwifT4XONPsSUaJ71XsJ+EvciVUVnjOO4qxm0fWJTd8a7jP8mc4ZPqwJvQFt
-# Op7+6G+kUJAF0fnE8YgD8uttBReNTa1YmAeFMiqc38e8fI4eLm0zjM/eeGCHasno
-# qqrbGwcF41iz9HXzFDwN4iD5z3QShp6HRiU3UpTwDJiiXcr0z6pjl7PyzJ3/tmWt
-# GehV7CAfc/WlyzCCBoIwggRqoAMCAQICEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZI
-# hvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpOZXcgSmVyc2V5MRQw
-# EgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVTRVJUUlVTVCBOZXR3
-# b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmljYXRpb24gQXV0aG9y
-# aXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVowVzELMAkGA1UEBhMC
-# R0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQ
-# dWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJKoZIhvcNAQEBBQAD
-# ggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xaFQ/ZlBBEtEFAgXcU
-# manU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZzEbOOp6YiTx63ywT
-# on434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4f92sKKjbxqohUSfj
-# k1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL48LpUR/O627pDchx
-# ll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUmdRMKbnXWflq+/g36
-# NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZdwuCysCKZ9ZjczMqb
-# UcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOcNzDpQsmwGQ6Stw8t
-# TCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqYubNeKolzqUbCqhSq
-# mr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqcRY/pjnYd+V5/dcu9
-# ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jGwTzxbMpepmOP1mLn
-# JskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk9R8QJyAkL6/bAgMB
-# AAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dibwJ3ysgNmyzAdBgNV
-# HQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/BAQDAgGGMA8GA1Ud
-# EwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAGBgRV
-# HSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNlcnRydXN0LmNvbS9V
-# U0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNybDA1BggrBgEFBQcB
-# AQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0cnVzdC5jb20wDQYJ
-# KoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzrftrIF5Ht2PFDxKKF
-# Oct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/KbUOiL7g98M/yzRyq
-# UOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdtFwXnuiWl8eFARK3P
-# mLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/MgTECimh7eXomvMm0/
-# GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNbsdXUC2xBrq9fLrfe
-# 8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJGlxZ5384OKm0r568
-# Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzxZOFGm/yVQkpo+ffv
-# 5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTxmSkop2mSJL1Y2x/9
-# 55S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP7d/doqDrLF1u6Ci3
-# TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4JA5gPBcz7J311uahx
-# CweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc6CkJ1Sji4PKWVT0/
-# MYIEkzCCBI8CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBM
-# aW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENB
-# IFI0MQIRAOdO8lWwUE/626bf9/yLoxUwDQYJYIZIAWUDBAICBQCgggH6MBoGCSqG
-# SIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwNjI2MTM0
-# OTQ1WjA/BgkqhkiG9w0BCQQxMgQwxkXgRR1egi8vNmLWdRUbgN0KV2CcB5q7SWl1
-# CwFCUg/nBBxFF8Fne6R5GrgVRAYdMIIBewYLKoZIhvcNAQkQAgwxggFqMIIBZjCC
-# AWIwFgQU6XgYqSjaFQqf4b+czHqruaAO7qwwgYgEFGXDKGlvfU5QLP0Dx8IGlxjK
-# +/dPMHAwW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0
-# ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBS
-# NDYCEQCQrAhyIP3Fp8RrXMcN9z0GMIG8BBSFPWMtk4KCYXzQkDXEkd6SwULaxzCB
-# ozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDAS
-# BgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdv
-# cmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3Jp
-# dHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAEggIAXrWnQU7476hp
-# OqLcmNokpRxyrzv77tME9B96u1rXZt/ZOhhIu66QmWqZsiobl1OzyLhHQz4bR8MF
-# /5A05cbmj6cQg280t6xNgn7jjy1+jSmb4bez+58aq7KaJvFTYUdL9dbeEySvuzja
-# 1568heY85YEJBAOxjoKBCpK9o/uuI9DMeeF+FdGVOffEIR5MEe7aOKZNI6Z88ldI
-# UoCyy2/GAW6E/9QrxbB/2WsD6CK2W4/PAUM8mn0Ro0TfHRfCqYkaoFd13TRn4L55
-# yPpZvRtq9FYR+D2CjdHLX12tEBSXs0Gm0oHzBcN5oN3a5l59XLGK3BaXd5LzXb6G
-# hj7LqQTmZto29qSysJgzFQAJfCx3jKifJjMD7s+Tdv2zpv0oKiqiYZo4E8qGt2Tx
-# /kH8O+YWOMYAPm+sA/5PUksHioeS2CRRjEQC8MEqQm6K7JXV9FnyUdpgaqR54IfZ
-# B7cgRCmuQKyiIkB61eHymG4SkYxiusRHQv/fHhcV41e45ROKEyz62p8mAnXcDItY
-# EIAFXgdgqcRZyJ6Tc/7ZiwgKGoXyee2XkIZL/RUNR6ekZxUofUl40ZwgwYUdTim0
-# fpKWwe3YH5mIhyNE0Ro7mwHyMLCKPXUdYvHnlL7dHAyCsl1CFjWg/EvGeTDIoECI
-# 4ekBpnaZgJUfBvik0RZ4r7w6hACxLlU=
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDpZzyg6QH7sw9K
+# Fb0ajPCi9Y3FoHMiILHF66Zkt5z+gKCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
+# O5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYDVQQK
+# Ew9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENvZGUg
+# U2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTla
+# MFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNV
+# BAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0GCSqG
+# SIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjIztNs
+# fvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NVDgFi
+# gOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/36F09
+# fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05ZwmRmT
+# nAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm+qxp
+# 4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUedyz8
+# rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz44MPZ
+# 1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBMdlyh
+# 2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQYMBaA
+# FDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritUpimq
+# F6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUE
+# DDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsGA1Ud
+# HwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1Ymxp
+# Y0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsGAQUF
+# BzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2ln
+# bmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0aWdv
+# LmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURhw1aV
+# cdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0ZdOaWT
+# syNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajjcw5+
+# w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNcWbWD
+# RF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalOhOfC
+# ipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJszkye
+# iaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z76mKn
+# zAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGv
+# spbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHHj95E
+# jza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2Bev6
+# SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/L9Uo
+# 2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkqhkiG
+# 9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVk
+# MSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2MB4X
+# DTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMxDjAM
+# BgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
+# ZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlzZSBD
+# b21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qwcmuC
+# QyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyucpC7
+# tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ipz4+u
+# JGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4EdtvumuGI
+# 4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28FlgkSt9
+# f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOyecaV
+# pJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3peg1k
+# u0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7XOBa
+# 5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJdisrV
+# 7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXRdJNA
+# DjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtRu0aQ
+# cdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQYMBaA
+# FA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vmoYtO
+# nZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAKBggr
+# BgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUFBwIB
+# FhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIwQDA+
+# oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29kZVNp
+# Z25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjhodHRw
+# Oi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NBUjM2
+# LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZI
+# hvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs865wyo
+# O3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU9e6+
+# TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH6GOf
+# U6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGaei8n
+# Sr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/uCIaQ
+# v5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xEv65B
+# oUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAyaVpbA
+# Ytaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPjnZ+o
+# A+rbZZyGZkz3xbUYKTGCHRMwgh0PAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMgQ29k
+# ZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUDBAIB
+# BQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGCNwIB
+# BDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQg
+# GrvoZcrDEMJy4NZbJYXu59ARFWeNvThlFHHmgSQTPl8wDQYJKoZIhvcNAQEBBQAE
+# ggIAjvqh/wuN3VK58/y5SqdiVw3sVmh141s6fG2GureLFSh/Zid8KhjleItsWLXn
+# +wKV4hgoyM2n+zElGIVrAGPf+pUsPn5JJ2PuVO4Fmbh46c8ug/8I8yCI82LrEzrm
+# bCYuL5Jf0s9Af5SgiKQzGzj45PsgpDwDnhZSD+Fd4lgFA0p3u2u13v+JL/niQq5P
+# H3Uw7zAulltCevgObFjvXw7V9byxq1zNXHAMxa3YgqzHrm3o//pceCSNDy89nDvA
+# SnND9y3IFLJL7QqxW6HHv2jpV+eavVT8KYVNzzbf7eTcF3J/WR5bA+relUEDbQh0
+# Ex4tJjM6Cd7XoEoZl+zWzc+uXzxq3kjjwFrtRpPW4SFrsRkzbuvhadArJLDFjjQr
+# VMJyxvGRYUhNdd5cChsmuM1iB/2vMwl/Tf3w+mTleMexcm31CMLsGvtZYNz3viUW
+# X+wDirp0OxAVS4BxaRnZYSDTvwC/2pTS7fHovBKGnF5CLll1NzMi/GpijkWoAUEt
+# DMhNn67B/+0ryuzNkpElVWFPH5MWXfE5TTpzsvs97Apbo1nmAx0p0GWMj9BGwH1W
+# JZVIJb5ul1n1HbbF9W3Fux/RIFVpwNSxQwptT3c0nEnBFzmXZVyarQkfRYpICi+f
+# dwAdxUBkc1hp299vMQV1NUnCCbJEOhk61mYCNAKvi93AnMqhghn9MIIZ+QYKKwYB
+# BAGCNwMDATGCGekwghnlBgkqhkiG9w0BBwKgghnWMIIZ0gIBAzEPMA0GCWCGSAFl
+# AwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjECAQEw
+# QTANBglghkgBZQMEAgIFAAQwo9E5iKfC+lHCJUI/jhDTbuW3EJndGkiUyTCQ+Qbd
+# hyELAmHQk1Iiu95/pg5Tlss2AhUAiRq/QslO35OQ/kdELue7y9RWXcwYDzIwMjYx
+# MTA0MDgyOTM5WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0ZXIg
+# TG9uZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzN6CCFBcwggbiMIIEyqAD
+# AgECAhEA507yVbBQT/rbpt/3/IujFTANBgkqhkiG9w0BAQwFADBVMQswCQYDVQQG
+# EwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdv
+# IFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTAeFw0yNjAzMjUwMDAwMDBaFw0z
+# NzA2MjQyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5HcmVhdGVyIExv
+# bmRvbjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0aWdv
+# IFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzcwggIiMA0GCSqGSIb3DQEB
+# AQUAA4ICDwAwggIKAoICAQCy/8NtS9xQ2UUtBRF32bj7VK3n4m50Uqjk/zTciSzi
+# YV40H1LKah0/oEklYG42E4VCP3DvsBUB6DmpCkDZ0jCnZBPIEevaH15ZJOQwFWP2
+# ZXr5YjlJpb68Nlbs+ElNvKx32/1YHde3qqUSLybjulxPLz6T85+HOIqK7M1Bep8L
+# spyhEP/q6nw5kGxTSrGvufmeH+JF8CnVBcVMFA40FlIYh0cDJVFhhfTfdWgLy/vW
+# uLMQoKkf3s/FvByf16r0rtbyHm/iemwxSioJL9zyZDDKUNAbHXl0dhXo2VxUV2Nc
+# PXWXuoKsjL+6cfk6Vm2DHnxAlFdFsaBDIF1JOkSnC6PeLlBznZn2buF3vIIYJcq6
+# N/zeFRCk4/HXDz7zgRsRRMdUB+rhyk5FoZaBjw0nLq3GZ3fClLUx5es5pUAxzNOD
+# MBn7JkFYip2BAGBPER5eV0ROhk6tGTG+fUiMiV+vgjg1YnP5FvnYWyEtWeQD/B2h
+# p3vz0RvtdkM0p3igyadzrfpOBq5ppVk/YsuhTQkP99ivneHAGfi5e7lmxJ+meoBP
+# rRLuzMmb81rzzbESjJHMsn5RVtc6Ucs7rcMqQC13PUIO7BbGBETV2ufCmV6lPTp3
+# P7XJOvmnUCRTPbVvMTpxP/z+SOHg4/OCBhiqs4FA9+4oQvlkk9w32NGASli9GWrm
+# 5wIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUOnSlDGfGQlDC/bX8x7spNIL0erkw
+# HQYDVR0OBBYEFGEQ6XoSr1HEhdTyz6R0D1DNIK/4MA4GA1UdDwEB/wQEAwIGwDAM
+# BgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARDMEEw
+# CAYGZ4EMAQQCMDUGDCsGAQQBsjEBAgEDCDAlMCMGCCsGAQUFBwIBFhdodHRwczov
+# L3NlY3RpZ28uY29tL0NQUzBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3JsLnNl
+# Y3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcmwwegYI
+# KwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcnQwIwYIKwYBBQUHMAGG
+# F2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAD6j2N
+# 0azN+hl6k6bKB5/U6VuSOs93ZBb3Pczy9VtBIKu4947Z5GwL0aFngIxl+GSuLFrJ
+# gPruBCRvKJEJsm7kv+LQ1COVCEG9tZ+IRtr4ocUoa53lgdFaENlS0N4wgkZkbQEP
+# v+x+1lSjYh+T4JeL9mUznT7Erc6Sp5dWLka5sMP/m3GZi6oJPdPcsCKWagH7m2H2
+# xDGIyHJC5PdH9phvi/KmhkktiSVTNNqVeV5bWdX2zhRE6UTfz0IcMoCL996lFIyd
+# XxOCE4MNDHDM0as4lnTiT/KHMccO6l8c9TnUVgmpci9ar1IABZ2U1XUkYjGGSn9M
+# C3EHDP9V39VuBVvZ33/BEV/EWSRrf07T7jFplKX+gQr/UOqPGMlE7ZJ72UaUkNJy
+# 7bVl3bcLKzdpjIHzLkf/4MVa1V7w8wqCv5W4gOnRGTlud5UMARbRM8BPxR/CXYXo
+# MmIOD8pmTk2axgRL4LG8XtuchISdCHRmtacAmLGq5XSYSVTHTXADlO48iDKh3HM2
+# r98LSF6f0sG12d8V9Jn7C3wDUieOxuKj4MdWrW+hiJU2kF87v6eH00HgCFFc2V0+
+# CvfOCMn7juzS41jLaINcBlKWQ/fKb/uDLfWOW73z1I2lFY7Xj8tQ1XYtK5eREjWI
+# tM8jpl1cbQOc88btR+0XS2TmboE/141+va2PWzCCBqcwggSPoAMCAQICEQCQrAhy
+# IP3Fp8RrXMcN9z0GMA0GCSqGSIb3DQEBDAUAMFcxCzAJBgNVBAYTAkdCMRgwFgYD
+# VQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRp
+# bWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjYwMzI1MDAwMDAwWhcNNDEwMzI0MjM1
+# OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSww
+# KgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTCCAiIw
+# DQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK7kSqIBrYIcYvlmLVuaA8zw1RfB
+# hkn4G1CoemzjcYtML6yNUvKmwGH7y6/5MuSC1UYP/+9KYDSqvMQt/1hEKHYxMAD9
+# oZpBkoaDQFEKbOJHelsKe+BaO0ZcENTKfePcraVkA7wrGAW2XHA5gQCQv4IKori/
+# 3PNOXxnDMOk8yIMgVrlMeTxqfWJ4XkjT1xc2s9DD7URHWWJOFobTPoWs6mrDFlaY
+# 9FlAHDYTfbzvxQHVsvRmn3W+5ZmCwyk02I8KgGPT/UX4sTz41GiR+ppwUjQXa1+2
+# tEHZbsdAKUtH3OPEVtZvlt7atx4h83IdRR8oYi8wjY3OjFKXFecWpQbzzsPxbUKP
+# wMWiTrzwkrFa8dH/1pDKRJt371W62PfqKPayCr/XbnBOlRn8CALSmHnRtGzuAWtT
+# JpcT3BKw6oy8IIL6wSbu938F6ZIbRNIc1dKbIJtr4ULN6R5ZfTdNEhwXctqp3RHD
+# bg4fuOl6LjNoaFwjud92EEDhzxFJzE1jqN4csceZIwxOT1aqfsfh0uFQE/lgTBuB
+# s3i6/WL2W1OceWLy3XEdXRK1f0EWCuea6dNfX2RRdjUfk5EltFnJkN2+bWhnK14O
+# PRKcyjOv5hKZ0iV4NRNd1+hjtva1rPyzb5Bs7EvFxqEQhgZbOq7qH3nm0rBwA0dx
+# niBOYCFPdu246JCxAgMBAAGjggFuMIIBajAfBgNVHSMEGDAWgBT2d2rdP/0BE/8W
+# oWyCAi/QCj0UJTAdBgNVHQ4EFgQUOnSlDGfGQlDC/bX8x7spNIL0erkwDgYDVR0P
+# AQH/BAQDAgGGMBIGA1UdEwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUH
+# AwgwIwYDVR0gBBwwGjAIBgZngQwBBAIwDgYMKwYBBAGyMQECAQMIMEwGA1UdHwRF
+# MEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1Rp
+# bWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEBBHAwbjBHBggrBgEFBQcw
+# AoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1w
+# aW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28u
+# Y29tMA0GCSqGSIb3DQEBDAUAA4ICAQAy3lJHZvGeA2b43yhzoarvobHVzbfl+Rfu
+# PDwej0wCQkYAN6scTt2GwFe22qbOCv/tllqFlLKQZE+E9jVyuPTbyQHwrM7R0oLa
+# pAEDC1+CowsqSRf/ptira5Pfd4PoHICnb9coPQtyZmHSQp5y9IGvqWf1qNfq7V2f
+# HZ8DvEQrLUzeoGF9BJRYu2OzacW3QQtUum3NOVf0gPRwv6I4991uhncJ6VP4lcpU
+# pHZKB7R3hiIUC09mR9KjzPVnXHvL9n2bAwiUECfK5Zezhiw27F2tgi39DETfU8M4
+# n0N6xLgFzsf05M5GURX8C9+IX9V6kpmmKtrUzMti4LD66gtmf+mSm934K81NL6YQ
+# eMEk1rpYrWPypcW76Mir6wb1AgseLIHqn/GkeuQm7zOTDf3f5WoX14qVNjZWNHF3
+# JxkutV6ZnhinfCLfdv5bnwKWUfceqOajCVntI6uCbHxjBg6SCsexc5AfIGno7gVF
+# vwifT4XONPsSUaJ71XsJ+EvciVUVnjOO4qxm0fWJTd8a7jP8mc4ZPqwJvQFtOp7+
+# 6G+kUJAF0fnE8YgD8uttBReNTa1YmAeFMiqc38e8fI4eLm0zjM/eeGCHasnoqqrb
+# GwcF41iz9HXzFDwN4iD5z3QShp6HRiU3UpTwDJiiXcr0z6pjl7PyzJ3/tmWtGehV
+# 7CAfc/WlyzCCBoIwggRqoAMCAQICEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcN
+# AQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpOZXcgSmVyc2V5MRQwEgYD
+# VQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVTRVJUUlVTVCBOZXR3b3Jr
+# MS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmljYXRpb24gQXV0aG9yaXR5
+# MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVowVzELMAkGA1UEBhMCR0Ix
+# GDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJs
+# aWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJKoZIhvcNAQEBBQADggIP
+# ADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xaFQ/ZlBBEtEFAgXcUmanU
+# 5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZzEbOOp6YiTx63ywTon43
+# 4aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4f92sKKjbxqohUSfjk1mJ
+# lAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL48LpUR/O627pDchxll+b
+# TSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUmdRMKbnXWflq+/g36NJXB
+# 35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZdwuCysCKZ9ZjczMqbUcLF
+# yq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOcNzDpQsmwGQ6Stw8tTCqP
+# umhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqYubNeKolzqUbCqhSqmr/U
+# dUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqcRY/pjnYd+V5/dcu9ieER
+# jiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jGwTzxbMpepmOP1mLnJskv
+# ZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk9R8QJyAkL6/bAgMBAAGj
+# ggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dibwJ3ysgNmyzAdBgNVHQ4E
+# FgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/BAQDAgGGMA8GA1UdEwEB
+# /wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAGBgRVHSAA
+# MFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNlcnRydXN0LmNvbS9VU0VS
+# VHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNybDA1BggrBgEFBQcBAQQp
+# MCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0cnVzdC5jb20wDQYJKoZI
+# hvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzrftrIF5Ht2PFDxKKFOct/
+# awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/KbUOiL7g98M/yzRyqUOZ1
+# /IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdtFwXnuiWl8eFARK3PmLqE
+# m9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/MgTECimh7eXomvMm0/GPxX
+# 2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNbsdXUC2xBrq9fLrfe8IBs
+# A4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJGlxZ5384OKm0r568Mo9T
+# YrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzxZOFGm/yVQkpo+ffv5gdh
+# p+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTxmSkop2mSJL1Y2x/955S2
+# 9Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP7d/doqDrLF1u6Ci3TpjA
+# ZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4JA5gPBcz7J311uahxCweN
+# xE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc6CkJ1Sji4PKWVT0/MYIE
+# kzCCBI8CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1p
+# dGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0
+# MQIRAOdO8lWwUE/626bf9/yLoxUwDQYJYIZIAWUDBAICBQCgggH6MBoGCSqGSIb3
+# DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYxMTA0MDgyOTM5
+# WjA/BgkqhkiG9w0BCQQxMgQw/HKg6TUzxOKsEhFfTRtUCrHk20IK/N3cI4nG0W3N
+# ufuxToXInjZAlzde3lLIeEsVMIIBewYLKoZIhvcNAQkQAgwxggFqMIIBZjCCAWIw
+# FgQU6XgYqSjaFQqf4b+czHqruaAO7qwwgYgEFGXDKGlvfU5QLP0Dx8IGlxjK+/dP
+# MHAwW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQx
+# LjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYC
+# EQCQrAhyIP3Fp8RrXMcN9z0GMIG8BBSFPWMtk4KCYXzQkDXEkd6SwULaxzCBozCB
+# jqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNV
+# BAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsx
+# LjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkC
+# EDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAEggIAGY7edxduDOK4j95Y
+# cTHeCKI12NxU3+tf4j0At3lY5lTSdFW8oabiw16tIAoHAbZed4O4n8l1oXM7Tp0W
+# 7xqIOFMgmo9B+bY0uvcFl6FgaMRMGqMpKQV8f0P+zbPtxf8ej8GcivJf6/fFQYri
+# nmrVfkC7qEw3+/fGD0+aRcB5IGGCJSSDUbbfKKaeDf1qYKDWfr8Xcdstako4qy1V
+# WPM7STxKvOyeQMUI5u8hOa73YOrBid3Phj+cLmDALYozge0XPvlFv+vc20x5905z
+# df6md9RevixTAYwBwQMxjP56Elz1Jd7K+NWKxhJw5fkRXnxsm5WWlPEgFoA0punY
+# 6uVsmoI+nb/kwvNsNh0W/TJcCK3ScMHgxoPk+4b9CJrfu+HHZ0nkfkHXbfvhZhys
+# Al+NfPEVFxnfKZbcRqwYFNgMZLbx3/fQ9+kLtSlbL1uvWrKKQ6vDKF6fMoNvBRNl
+# eul8My85098VLAHKFmTkyZ72jENESH4fE3VOGXqJlqxAEfx9GUNTQ9TktsdorHPr
+# lQf5hOb64as8MH5tHzxMhIEJR9uTb2fb8BarmayGKOB6U0FssmwP/L3xnQ0Uh3Jv
+# k6NGSKhVzYTTu7U00E45EZz0cw+T3ERk7g7DOEJRo8KElN85JKIiI1S+zNMlIJsQ
+# kxI2tjA4tMJMWoCBse4ua0G9YpI=
 # SIG # End signature block
