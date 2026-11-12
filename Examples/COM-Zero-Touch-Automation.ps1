@@ -25,6 +25,8 @@
     
     2. Workspace Provisioning
        - Creates a new HPE GreenLake workspace with location details
+       - When an organization is specified, creates it directly inside the organization
+         (requires HPECOMCmdlets 1.0.28+; otherwise it is created standalone and joined in step 4)
        - Connects to the newly created workspace
     
     3. User Provisioning
@@ -32,7 +34,7 @@
        - Configures user permissions and access
     
     4. Organization Integration (Optional)
-       - Joins workspace to organization for SSO and identity governance
+       - Joins workspace to organization for SSO and identity governance (skipped when already created inside it)
        - Assigns organization-level roles to users
        - Saves workspace session for later restoration during cleanup
     
@@ -121,8 +123,8 @@
     re-authentication, particularly valuable in automated testing and CI/CD pipelines.
     
     Author: HPE
-    Version: 1.6
-    Last Updated: June 2026
+    Version: 1.7
+    Last Updated: November 2026
 
 .PARAMETER OnlyProvision
     When specified, runs only the provisioning workflow (Steps 1-13) without executing the cleanup 
@@ -177,8 +179,10 @@
                                                                                                                             
     STEP 2: Workspace Creation
     ================================================================================
-    ℹ Creating workspace: Production-Workspace-8223...
-    ✓ Workspace 'Production-Workspace-8223' created successfully                                                            
+    ℹ Connecting to the management workspace of organization 'company.com'...
+    ✓ Connected to 'company.com', the management workspace of 'company.com'
+    ℹ Creating workspace 'Production-Workspace-8223' in organization 'company.com'...
+    ✓ Workspace 'Production-Workspace-8223' created in organization 'company.com' successfully
     ℹ Connecting to workspace: Production-Workspace-8223...
     ✓ Connected to workspace 'Production-Workspace-8223' successfully                                                       
     ℹ Setting workspace icon...
@@ -191,8 +195,7 @@
 
     STEP 4: Join organization to enable SSO, user groups, or identity governance
     ================================================================================
-    ℹ Joining 'company.com' organization...
-    ✓ Joined 'company.com' organization successfully                                                                         
+    ✓ Workspace is already part of 'company.com' organization
     ℹ Assigning organization workspace viewer role to admin@company.com...
     ✓ Organization workspace viewer role assigned to admin@company.com                                                 
     ✓ Workspace session saved for later restoration
@@ -378,6 +381,20 @@
     easier identification or later cleanup.
 
 .WHATSNEW
+    v1.7 - November 2026
+     - Workspaces can now be created directly inside an organization. When $OrganizationName is set,
+       Step 2 connects to the organization's management workspace and creates the new workspace with
+       New-HPEGLWorkspace -InOrganization, so the organization manages it from the start and Step 4 no
+       longer needs to join it. This matters when the organization governs your users' domain: a
+       workspace created standalone by such users can lose its access a few minutes after creation.
+       Requires HPECOMCmdlets v1.0.28+ and organization administrator rights. With an older module
+       version, or if the organization cannot be reached, the script falls back to the previous
+       behavior (standalone workspace, then joined to the organization in Step 4), so it still runs
+       with HPECOMCmdlets v1.0.26 and v1.0.27.
+     - Added a wait before connecting to the newly created workspace in Step 2. A new workspace can
+       take a few seconds to appear in your workspace list; the script now waits for it (up to 60s)
+       instead of failing with "Workspace not found or not accessible".
+
     v1.6 - June 2026
      - Clarified the $UseSSOAuth authentication mode in the Configuration section to account for
        password-based SSO (new in HPECOMCmdlets v1.0.26). Set $UseSSOAuth = $true ONLY for
@@ -537,13 +554,16 @@ $AdditionalUsers = @(
     # }
 )
 
-# Organization Name to Join (for SSO, user groups, identity governance) (optional)
+# Organization Name (for SSO, user groups, identity governance) (optional)
+# When set, the workspace is created directly inside this organization (HPECOMCmdlets 1.0.28+):
+# you must be an administrator of the organization. With older module versions, it is created
+# standalone and then joined to the organization.
 
 # TEST SCENARIO 1 - Standalone Workspace (Fastest, No Org Permissions Needed):
 # $OrganizationName = $null  # Workspace stays standalone, easy cleanup
 
 # TEST SCENARIO 2 - Organization Workspace (Requires Org Admin Role for Deletion):
-$OrganizationName = "company.com"  # Workspace joins organization, tests org permissions
+$OrganizationName = "company.com"  # Workspace is created in (or joins) the organization, tests org permissions
 
 
 # Compute Ops Management Region
@@ -743,20 +763,75 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
     # ============================================================================
     Write-SectionHeader "STEP 2: Workspace Creation"
 
+    # When an organization is specified, create the workspace directly inside it (like Organization management >
+    # Workspaces > Create workspace in the console). A workspace created standalone and joined afterwards can lose
+    # its access when the organization governs the user's domain. -InOrganization requires HPECOMCmdlets 1.0.28+;
+    # with an older module, or if the organization cannot be reached, the workspace is created standalone and
+    # joined to the organization in STEP 4.
+    $CreateInOrganization = $false
+    if ($OrganizationName) {
+        if (-not (Get-Command New-HPEGLWorkspace).Parameters.ContainsKey('InOrganization')) {
+            Write-Info "HPECOMCmdlets v$moduleVersion cannot create a workspace inside an organization (requires v1.0.28+). The workspace will be created standalone, then joined to '$OrganizationName' in STEP 4."
+        }
+        else {
+            try {
+                Write-Info "Connecting to the management workspace of organization '$OrganizationName'..."
+
+                # Organization lookups need a workspace session: if Connect-HPEGL did not select one, use the first available
+                if (-not $Global:HPEGreenLakeSession.workspace) {
+                    $FirstWorkspace = Get-HPEGLWorkspace -ErrorAction Stop | Select-Object -First 1
+                    if ($FirstWorkspace) {
+                        Connect-HPEGLWorkspace -Name $FirstWorkspace.company_name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+                    }
+                }
+
+                $Organization = Get-HPEGLOrganization -Name $OrganizationName -ErrorAction Stop | Select-Object -First 1
+
+                if ($Organization.associatedWorkspaceName) {
+                    if ($Global:HPEGreenLakeSession.workspace -ne $Organization.associatedWorkspaceName) {
+                        Connect-HPEGLWorkspace -Name $Organization.associatedWorkspaceName -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
+                    }
+                    $CreateInOrganization = $true
+                    Write-Success "Connected to '$($Organization.associatedWorkspaceName)', the management workspace of '$OrganizationName'"
+                }
+                else {
+                    Write-Failure "Organization '$OrganizationName' or its management workspace cannot be found. The workspace will be created standalone, then joined to the organization in STEP 4."
+                }
+            }
+            catch {
+                Write-Failure "Cannot reach organization '$OrganizationName': $($_.Exception.Message) The workspace will be created standalone, then joined to the organization in STEP 4."
+            }
+        }
+    }
+
     try {
-        Write-Info "Creating workspace: $($WorkspaceConfig.Name)..."
-        $WorkspaceTask = New-HPEGLWorkspace `
-            -Name $WorkspaceConfig.Name `
-            -Email $WorkspaceConfig.Email `
-            -Type $WorkspaceConfig.Type `
-            -Street $WorkspaceConfig.Street `
-            -City $WorkspaceConfig.City `
-            -State $WorkspaceConfig.State `
-            -PostalCode $WorkspaceConfig.PostalCode `
-            -Country $WorkspaceConfig.Country
+        $WorkspaceParams = @{
+            Name       = $WorkspaceConfig.Name
+            Email      = $WorkspaceConfig.Email
+            Street     = $WorkspaceConfig.Street
+            City       = $WorkspaceConfig.City
+            State      = $WorkspaceConfig.State
+            PostalCode = $WorkspaceConfig.PostalCode
+            Country    = $WorkspaceConfig.Country
+        }
+        if ($CreateInOrganization) {
+            $WorkspaceParams.InOrganization = $true   # organization workspaces are always standard workspaces: no -Type
+            Write-Info "Creating workspace '$($WorkspaceConfig.Name)' in organization '$OrganizationName'..."
+        }
+        else {
+            $WorkspaceParams.Type = $WorkspaceConfig.Type
+            Write-Info "Creating workspace: $($WorkspaceConfig.Name)..."
+        }
+
+        $WorkspaceTask = New-HPEGLWorkspace @WorkspaceParams
 
         if ($WorkspaceTask.Status -eq "Complete") {
-            Write-Success "Workspace '$($WorkspaceConfig.Name)' created successfully"
+            if ($CreateInOrganization) {
+                Write-Success "Workspace '$($WorkspaceConfig.Name)' created in organization '$OrganizationName' successfully"
+            }
+            else {
+                Write-Success "Workspace '$($WorkspaceConfig.Name)' created successfully"
+            }
         }
         else {
             Write-Failure "Workspace creation failed: $($WorkspaceTask.Status) - $($WorkspaceTask.Details)"
@@ -771,6 +846,18 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
     # Connect to the new workspace (fast token-only switch, no SSO re-authentication)
     try {
         Write-Info "Connecting to workspace: $($WorkspaceConfig.Name)..."
+
+        # A new workspace can take a few seconds to appear in the user's workspace list: wait for it before connecting
+        $listTimeout = 60
+        $listElapsed = 0
+        do {
+            $NewWorkspace = Get-HPEGLWorkspace -Name $WorkspaceConfig.Name -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+            if (-not $NewWorkspace) {
+                Start-Sleep -Seconds 5
+                $listElapsed += 5
+            }
+        } until ($NewWorkspace -or $listElapsed -ge $listTimeout)
+
         Connect-HPEGLWorkspace -Name $WorkspaceConfig.Name -NoProgress -ErrorAction Stop -WarningAction SilentlyContinue | Out-Null
         Write-Success "Connected to workspace '$($WorkspaceConfig.Name)' successfully"
     }
@@ -838,7 +925,7 @@ if ($OnlyProvision -or -not $OnlyCleanup) {
 
         Write-SectionHeader "STEP 4: Join organization to enable SSO, user groups, or identity governance"
 
-        # Check if workspace is already part of the organization
+        # Check if workspace is already part of the organization (created inside it in STEP 2)
         if ($Global:HPEGreenLakeSession.organization -eq $OrganizationName) {
             Write-Success "Workspace is already part of '$OrganizationName' organization"
         }
