@@ -166,6 +166,27 @@ function Invoke-HPEGLWebRequest {
             # - Set-HPEGLUserAccountPassword 
             # It allows these cmdlets to run without requiring an active workspace session, i.e. when Connect-HPEGLWorkspace has not yet been executed. 
             if (-not $PSBoundParameters.ContainsKey('SkipSessionCheck')) {
+
+                # Signed in, but no workspace selected (e.g. Connect-HPEGL without -Workspace while several workspaces are available)
+                if ($Global:HPEGreenLakeSession.oauth2AccessToken -or $Global:HPEGreenLakeSession.username) {
+                    Write-Error @"
+You are signed in to HPE GreenLake but not connected to a workspace.
+
+CAUSE:
+Several workspaces are available for your account, so none was selected when you signed in.
+
+ACTION REQUIRED:
+Connect to a workspace, then run the command again.
+
+Example:
+    Get-HPEGLWorkspace                          # list your workspaces
+    Connect-HPEGLWorkspace -Name "MyWorkspace"
+
+Tip: To sign in and connect in a single step:
+    Connect-HPEGL -Credential (Get-Credential) -Workspace "MyWorkspace"
+"@ -ErrorAction Stop
+                }
+
                 Write-Error @"
 No active HPE GreenLake session found.
 
@@ -1169,6 +1190,26 @@ Example:
                     # "[{0}] Base message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Message | Write-Verbose
                     $msg = if ($exceptionMessage) { "{0} - {1}" -f $Message, $exceptionMessage } else { $Message }
                     # "[{0}] Final constructed message: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $msg | Write-Verbose
+
+                    # Check for GreenLake 401 Unauthorized errors (token rejected)
+                    if ($statusCode -eq 401 -or $errorData.httpStatusCode -eq 401) {
+                        "[{0}] 401 Unauthorized detected - the access token was rejected" -f $MyInvocation.InvocationName.ToString().ToUpper() | Write-Verbose
+
+                        $_ReconnectWorkspace = if ($Global:HPEGreenLakeSession.workspace) { $Global:HPEGreenLakeSession.workspace } else { "<workspace name>" }
+                        $EnhancedError = "HPE GreenLake rejected the request: your access is not authorized (401 Unauthorized).`n`n"
+                        $EnhancedError += "CAUSE:`n"
+                        $EnhancedError += "The access token of your session is no longer accepted for workspace '$_ReconnectWorkspace'. This usually happens when:`n"
+                        $EnhancedError += "- your session has expired or was closed`n"
+                        $EnhancedError += "- your roles in this workspace were changed after you connected`n"
+                        $EnhancedError += "- the workspace is no longer accessible to your account`n`n"
+                        $EnhancedError += "ACTION REQUIRED:`n"
+                        $EnhancedError += "Connect again, then run the command again:`n"
+                        $EnhancedError += "   Connect-HPEGL -Credential (Get-Credential) -Workspace '$_ReconnectWorkspace'`n`n"
+                        $EnhancedError += "If the error persists, verify your roles in this workspace: Get-HPEGLUserRole -Email 'your.email@company.com'`n`n"
+                        $EnhancedError += "Original message: {0}" -f $Message
+
+                        $msg = $EnhancedError
+                    }
 
                     # Check for GreenLake 403 Forbidden errors
                     if ($errorData.httpStatusCode -eq 403) {
@@ -11654,6 +11695,8 @@ Function Connect-HPEGLWorkspace {
 
         # Initialize progress bar variables
         $completedSteps = 0
+        # Set here (not in Process) so an early return never leaves the End block reading a caller's value
+        $SwitchToWorkspaceName = $null
         $totalSteps = if ($Force) { 3 } elseif ($Name) { 7 } else { 7 } # switching to a different workspace 
         function Update-ProgressBar {
             param (
@@ -11815,6 +11858,12 @@ Example:
                     # Filter out workspaces with DELETE_INITIATED or other non-ACTIVE statuses
                     $Global:HPEGLworkspaces = $response.accounts | Where-Object { $_.account_status -eq 'ACTIVE' }
                     "[{0}] Filtered workspaces: Total accounts={1}, Active workspaces={2}" -f $functionName, $response.accounts.Count, $Global:HPEGLworkspaces.Count | Write-Verbose
+                    foreach ($acct in $response.accounts) {
+                        "[{0}] Workspace returned by session: '{1}' (status: {2}, type: {3})" -f $functionName, $acct.company_name, $acct.account_status, $acct.account_type | Write-Verbose
+                    }
+                }
+                else {
+                    "[{0}] Session response contains no workspace" -f $functionName | Write-Verbose
                 }
                 $cookies = $CCSSession.Cookies.GetCookies($url)
                 # Display all cookies in verbose output
@@ -11917,6 +11966,18 @@ Tip: To connect in a single step, pass the workspace directly to Connect-HPEGL:
                     if ($MyWorkspaceName) {
                         "[{0}] Workspace '{1}' found with transient status '{2}' (not yet ACTIVE); proceeding to connect." -f $functionName, $Name, $MyWorkspaceName.account_status | Write-Verbose
                     }
+                }
+
+                # Fallback for workspaces missing from the session list:
+                # A workspace created recently (in the console or with New-HPEGLWorkspace) can be absent
+                # from the /authn/v1/session account list for some time, although the user already has a
+                # role in it and the workspace list (list-accounts) used when switching workspaces does
+                # return it. Load an available workspace first, then switch to the requested one in the
+                # End block; the switch reports a clear error if the workspace is truly not accessible.
+                if (-not $MyWorkspaceName -and $Global:HPEGLworkspaces.Count -gt 0) {
+                    $MyWorkspaceName = @($Global:HPEGLworkspaces)[0]
+                    $SwitchToWorkspaceName = $Name
+                    "[{0}] Workspace '{1}' not in the session list; connecting to '{2}' first, then switching to '{1}'" -f $functionName, $Name, $MyWorkspaceName.company_name | Write-Verbose
                 }
 
                 if (-not $MyWorkspaceName) {
@@ -12191,8 +12252,10 @@ If the problem persists, check HPE GreenLake service status or contact support.
                         try {
                             # Save current workspace name
                             $currentWorkspace = $Global:HPEGreenLakeSession.workspace
-                            # Call Connect-HPEGLWorkspace with retry counter incremented
-                            Connect-HPEGLWorkspace -Name $currentWorkspace -NoProgress:$NoProgress -RetryAttempt ($RetryAttempt + 1) -ErrorAction Stop | Out-Null
+                            # Call Connect-HPEGLWorkspace with retry counter incremented.
+                            # -Force reloads the current workspace. A -Name call would return immediately because this
+                            # workspace is already the current one, so the retry (and its 3-attempt limit) would never run.
+                            Connect-HPEGLWorkspace -Force -NoProgress:$NoProgress -RetryAttempt ($RetryAttempt + 1) -ErrorAction Stop | Out-Null
                             "[{0}] Successfully reconnected to workspace with fresh session." -f $functionName | Write-Verbose
                             return
                         }
@@ -12951,6 +13014,17 @@ Manually remove old credentials via the HPE GreenLake web portal (Manage Workspa
     }
 
     End {
+        # Requested workspace was missing from the session list: switch to it now that a workspace is loaded
+        if ($SwitchToWorkspaceName) {
+            "[{0}] Switching to requested workspace '{1}'" -f $functionName, $SwitchToWorkspaceName | Write-Verbose
+            try {
+                Connect-HPEGLWorkspace -Name $SwitchToWorkspaceName -NoProgress:$NoProgress -ErrorAction Stop | Out-Null
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+        }
+
         "[{0}] Connection process completed" -f $functionName | Write-Verbose
         if (-not $NoProgress) {
             Update-ProgressBar -CompletedSteps $totalSteps -TotalSteps $totalSteps -CurrentActivity "Completed" -Id 1
@@ -13029,6 +13103,13 @@ Function Invoke-HPEGLAutoReconnect {
                 return
             }
 
+            # A refresh is already running: requests made during the refresh must not start another one,
+            # otherwise the refresh calls itself until the PowerShell process crashes (stack overflow).
+            if ($script:HPEGLAutoReconnectInProgress) {
+                "[{0}] A token refresh is already in progress. Skipping nested auto-reconnect check." -f $functionName | Write-Verbose
+                return
+            }
+
             # Check if the session is still valid
             if ($Global:HPEGreenLakeSession.glpApiAccessTokenv1_2) {
                 $glpToken = $Global:HPEGreenLakeSession.glpApiAccessTokenv1_2[0]
@@ -13050,7 +13131,13 @@ Function Invoke-HPEGLAutoReconnect {
             if ($Force -or $minutesToGlpExpiration -le $Timeout) {
                 "[{0}] GLP API Access Token is expiring in {1} minute(s) or Force refresh requested. Refreshing token..." -f $functionName, $minutesToGlpExpiration | Write-Verbose
                 try {
-                    Connect-HPEGLWorkspace -Force -ErrorAction Stop | Out-Null
+                    $script:HPEGLAutoReconnectInProgress = $true
+                    try {
+                        Connect-HPEGLWorkspace -Force -ErrorAction Stop | Out-Null
+                    }
+                    finally {
+                        $script:HPEGLAutoReconnectInProgress = $false
+                    }
                     "[{0}] GLP API Access Token refreshed successfully." -f $functionName | Write-Verbose
                 }
                 catch {
@@ -14571,10 +14658,10 @@ function Invoke-RepackageObjectWithType {
 Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest', 'Connect-HPEOnepass', 'Connect-HPEGL', 'Disconnect-HPEGL', 'Connect-HPEGLWorkspace', 'Invoke-HPEGLAutoReconnect', 'Get-HPEGLJWTDetails', 'Save-HPEGLSession', 'Restore-HPEGLSession', 'Disable-HPECOMDataCollection', 'Enable-HPECOMDataCollection' -Alias *
 
 # SIG # Begin signature block
-# MIIqQAYJKoZIhvcNAQcCoIIqMTCCKi0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIn2gYJKoZIhvcNAQcCoIInyzCCJ8cCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDpZzyg6QH7sw9K
-# Fb0ajPCi9Y3FoHMiILHF66Zkt5z+gKCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDpjIPVBVTT21oo
+# 9TVTIxU4Lmpk3wOWrIpGypPZ9wlFCKCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
 # O5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYDVQQK
 # Ew9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENvZGUg
 # U2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTla
@@ -14641,160 +14728,147 @@ Export-ModuleMember -Function 'Invoke-HPEGLWebRequest', 'Invoke-HPECOMWebRequest
 # v5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xEv65B
 # oUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAyaVpbA
 # Ytaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPjnZ+o
-# A+rbZZyGZkz3xbUYKTGCHRMwgh0PAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAWBgNV
+# A+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAWBgNV
 # BAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMgQ29k
 # ZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUDBAIB
 # BQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGCNwIB
 # BDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQg
-# GrvoZcrDEMJy4NZbJYXu59ARFWeNvThlFHHmgSQTPl8wDQYJKoZIhvcNAQEBBQAE
-# ggIAjvqh/wuN3VK58/y5SqdiVw3sVmh141s6fG2GureLFSh/Zid8KhjleItsWLXn
-# +wKV4hgoyM2n+zElGIVrAGPf+pUsPn5JJ2PuVO4Fmbh46c8ug/8I8yCI82LrEzrm
-# bCYuL5Jf0s9Af5SgiKQzGzj45PsgpDwDnhZSD+Fd4lgFA0p3u2u13v+JL/niQq5P
-# H3Uw7zAulltCevgObFjvXw7V9byxq1zNXHAMxa3YgqzHrm3o//pceCSNDy89nDvA
-# SnND9y3IFLJL7QqxW6HHv2jpV+eavVT8KYVNzzbf7eTcF3J/WR5bA+relUEDbQh0
-# Ex4tJjM6Cd7XoEoZl+zWzc+uXzxq3kjjwFrtRpPW4SFrsRkzbuvhadArJLDFjjQr
-# VMJyxvGRYUhNdd5cChsmuM1iB/2vMwl/Tf3w+mTleMexcm31CMLsGvtZYNz3viUW
-# X+wDirp0OxAVS4BxaRnZYSDTvwC/2pTS7fHovBKGnF5CLll1NzMi/GpijkWoAUEt
-# DMhNn67B/+0ryuzNkpElVWFPH5MWXfE5TTpzsvs97Apbo1nmAx0p0GWMj9BGwH1W
-# JZVIJb5ul1n1HbbF9W3Fux/RIFVpwNSxQwptT3c0nEnBFzmXZVyarQkfRYpICi+f
-# dwAdxUBkc1hp299vMQV1NUnCCbJEOhk61mYCNAKvi93AnMqhghn9MIIZ+QYKKwYB
-# BAGCNwMDATGCGekwghnlBgkqhkiG9w0BBwKgghnWMIIZ0gIBAzEPMA0GCWCGSAFl
-# AwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjECAQEw
-# QTANBglghkgBZQMEAgIFAAQwo9E5iKfC+lHCJUI/jhDTbuW3EJndGkiUyTCQ+Qbd
-# hyELAmHQk1Iiu95/pg5Tlss2AhUAiRq/QslO35OQ/kdELue7y9RWXcwYDzIwMjYx
-# MTA0MDgyOTM5WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0ZXIg
-# TG9uZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
-# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzN6CCFBcwggbiMIIEyqAD
-# AgECAhEA507yVbBQT/rbpt/3/IujFTANBgkqhkiG9w0BAQwFADBVMQswCQYDVQQG
-# EwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdv
-# IFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTAeFw0yNjAzMjUwMDAwMDBaFw0z
-# NzA2MjQyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5HcmVhdGVyIExv
-# bmRvbjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0aWdv
-# IFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzcwggIiMA0GCSqGSIb3DQEB
-# AQUAA4ICDwAwggIKAoICAQCy/8NtS9xQ2UUtBRF32bj7VK3n4m50Uqjk/zTciSzi
-# YV40H1LKah0/oEklYG42E4VCP3DvsBUB6DmpCkDZ0jCnZBPIEevaH15ZJOQwFWP2
-# ZXr5YjlJpb68Nlbs+ElNvKx32/1YHde3qqUSLybjulxPLz6T85+HOIqK7M1Bep8L
-# spyhEP/q6nw5kGxTSrGvufmeH+JF8CnVBcVMFA40FlIYh0cDJVFhhfTfdWgLy/vW
-# uLMQoKkf3s/FvByf16r0rtbyHm/iemwxSioJL9zyZDDKUNAbHXl0dhXo2VxUV2Nc
-# PXWXuoKsjL+6cfk6Vm2DHnxAlFdFsaBDIF1JOkSnC6PeLlBznZn2buF3vIIYJcq6
-# N/zeFRCk4/HXDz7zgRsRRMdUB+rhyk5FoZaBjw0nLq3GZ3fClLUx5es5pUAxzNOD
-# MBn7JkFYip2BAGBPER5eV0ROhk6tGTG+fUiMiV+vgjg1YnP5FvnYWyEtWeQD/B2h
-# p3vz0RvtdkM0p3igyadzrfpOBq5ppVk/YsuhTQkP99ivneHAGfi5e7lmxJ+meoBP
-# rRLuzMmb81rzzbESjJHMsn5RVtc6Ucs7rcMqQC13PUIO7BbGBETV2ufCmV6lPTp3
-# P7XJOvmnUCRTPbVvMTpxP/z+SOHg4/OCBhiqs4FA9+4oQvlkk9w32NGASli9GWrm
-# 5wIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUOnSlDGfGQlDC/bX8x7spNIL0erkw
-# HQYDVR0OBBYEFGEQ6XoSr1HEhdTyz6R0D1DNIK/4MA4GA1UdDwEB/wQEAwIGwDAM
-# BgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARDMEEw
-# CAYGZ4EMAQQCMDUGDCsGAQQBsjEBAgEDCDAlMCMGCCsGAQUFBwIBFhdodHRwczov
-# L3NlY3RpZ28uY29tL0NQUzBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3JsLnNl
-# Y3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcmwwegYI
-# KwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28uY29t
-# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcnQwIwYIKwYBBQUHMAGG
-# F2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAD6j2N
-# 0azN+hl6k6bKB5/U6VuSOs93ZBb3Pczy9VtBIKu4947Z5GwL0aFngIxl+GSuLFrJ
-# gPruBCRvKJEJsm7kv+LQ1COVCEG9tZ+IRtr4ocUoa53lgdFaENlS0N4wgkZkbQEP
-# v+x+1lSjYh+T4JeL9mUznT7Erc6Sp5dWLka5sMP/m3GZi6oJPdPcsCKWagH7m2H2
-# xDGIyHJC5PdH9phvi/KmhkktiSVTNNqVeV5bWdX2zhRE6UTfz0IcMoCL996lFIyd
-# XxOCE4MNDHDM0as4lnTiT/KHMccO6l8c9TnUVgmpci9ar1IABZ2U1XUkYjGGSn9M
-# C3EHDP9V39VuBVvZ33/BEV/EWSRrf07T7jFplKX+gQr/UOqPGMlE7ZJ72UaUkNJy
-# 7bVl3bcLKzdpjIHzLkf/4MVa1V7w8wqCv5W4gOnRGTlud5UMARbRM8BPxR/CXYXo
-# MmIOD8pmTk2axgRL4LG8XtuchISdCHRmtacAmLGq5XSYSVTHTXADlO48iDKh3HM2
-# r98LSF6f0sG12d8V9Jn7C3wDUieOxuKj4MdWrW+hiJU2kF87v6eH00HgCFFc2V0+
-# CvfOCMn7juzS41jLaINcBlKWQ/fKb/uDLfWOW73z1I2lFY7Xj8tQ1XYtK5eREjWI
-# tM8jpl1cbQOc88btR+0XS2TmboE/141+va2PWzCCBqcwggSPoAMCAQICEQCQrAhy
-# IP3Fp8RrXMcN9z0GMA0GCSqGSIb3DQEBDAUAMFcxCzAJBgNVBAYTAkdCMRgwFgYD
-# VQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRp
-# bWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjYwMzI1MDAwMDAwWhcNNDEwMzI0MjM1
-# OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSww
-# KgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTCCAiIw
-# DQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK7kSqIBrYIcYvlmLVuaA8zw1RfB
-# hkn4G1CoemzjcYtML6yNUvKmwGH7y6/5MuSC1UYP/+9KYDSqvMQt/1hEKHYxMAD9
-# oZpBkoaDQFEKbOJHelsKe+BaO0ZcENTKfePcraVkA7wrGAW2XHA5gQCQv4IKori/
-# 3PNOXxnDMOk8yIMgVrlMeTxqfWJ4XkjT1xc2s9DD7URHWWJOFobTPoWs6mrDFlaY
-# 9FlAHDYTfbzvxQHVsvRmn3W+5ZmCwyk02I8KgGPT/UX4sTz41GiR+ppwUjQXa1+2
-# tEHZbsdAKUtH3OPEVtZvlt7atx4h83IdRR8oYi8wjY3OjFKXFecWpQbzzsPxbUKP
-# wMWiTrzwkrFa8dH/1pDKRJt371W62PfqKPayCr/XbnBOlRn8CALSmHnRtGzuAWtT
-# JpcT3BKw6oy8IIL6wSbu938F6ZIbRNIc1dKbIJtr4ULN6R5ZfTdNEhwXctqp3RHD
-# bg4fuOl6LjNoaFwjud92EEDhzxFJzE1jqN4csceZIwxOT1aqfsfh0uFQE/lgTBuB
-# s3i6/WL2W1OceWLy3XEdXRK1f0EWCuea6dNfX2RRdjUfk5EltFnJkN2+bWhnK14O
-# PRKcyjOv5hKZ0iV4NRNd1+hjtva1rPyzb5Bs7EvFxqEQhgZbOq7qH3nm0rBwA0dx
-# niBOYCFPdu246JCxAgMBAAGjggFuMIIBajAfBgNVHSMEGDAWgBT2d2rdP/0BE/8W
-# oWyCAi/QCj0UJTAdBgNVHQ4EFgQUOnSlDGfGQlDC/bX8x7spNIL0erkwDgYDVR0P
-# AQH/BAQDAgGGMBIGA1UdEwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUH
-# AwgwIwYDVR0gBBwwGjAIBgZngQwBBAIwDgYMKwYBBAGyMQECAQMIMEwGA1UdHwRF
-# MEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1Rp
-# bWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEBBHAwbjBHBggrBgEFBQcw
-# AoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1w
-# aW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28u
-# Y29tMA0GCSqGSIb3DQEBDAUAA4ICAQAy3lJHZvGeA2b43yhzoarvobHVzbfl+Rfu
-# PDwej0wCQkYAN6scTt2GwFe22qbOCv/tllqFlLKQZE+E9jVyuPTbyQHwrM7R0oLa
-# pAEDC1+CowsqSRf/ptira5Pfd4PoHICnb9coPQtyZmHSQp5y9IGvqWf1qNfq7V2f
-# HZ8DvEQrLUzeoGF9BJRYu2OzacW3QQtUum3NOVf0gPRwv6I4991uhncJ6VP4lcpU
-# pHZKB7R3hiIUC09mR9KjzPVnXHvL9n2bAwiUECfK5Zezhiw27F2tgi39DETfU8M4
-# n0N6xLgFzsf05M5GURX8C9+IX9V6kpmmKtrUzMti4LD66gtmf+mSm934K81NL6YQ
-# eMEk1rpYrWPypcW76Mir6wb1AgseLIHqn/GkeuQm7zOTDf3f5WoX14qVNjZWNHF3
-# JxkutV6ZnhinfCLfdv5bnwKWUfceqOajCVntI6uCbHxjBg6SCsexc5AfIGno7gVF
-# vwifT4XONPsSUaJ71XsJ+EvciVUVnjOO4qxm0fWJTd8a7jP8mc4ZPqwJvQFtOp7+
-# 6G+kUJAF0fnE8YgD8uttBReNTa1YmAeFMiqc38e8fI4eLm0zjM/eeGCHasnoqqrb
-# GwcF41iz9HXzFDwN4iD5z3QShp6HRiU3UpTwDJiiXcr0z6pjl7PyzJ3/tmWtGehV
-# 7CAfc/WlyzCCBoIwggRqoAMCAQICEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcN
-# AQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpOZXcgSmVyc2V5MRQwEgYD
-# VQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVTRVJUUlVTVCBOZXR3b3Jr
-# MS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmljYXRpb24gQXV0aG9yaXR5
-# MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVowVzELMAkGA1UEBhMCR0Ix
-# GDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJs
-# aWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJKoZIhvcNAQEBBQADggIP
-# ADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xaFQ/ZlBBEtEFAgXcUmanU
-# 5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZzEbOOp6YiTx63ywTon43
-# 4aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4f92sKKjbxqohUSfjk1mJ
-# lAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL48LpUR/O627pDchxll+b
-# TSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUmdRMKbnXWflq+/g36NJXB
-# 35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZdwuCysCKZ9ZjczMqbUcLF
-# yq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOcNzDpQsmwGQ6Stw8tTCqP
-# umhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqYubNeKolzqUbCqhSqmr/U
-# dUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqcRY/pjnYd+V5/dcu9ieER
-# jiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jGwTzxbMpepmOP1mLnJskv
-# ZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk9R8QJyAkL6/bAgMBAAGj
-# ggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dibwJ3ysgNmyzAdBgNVHQ4E
-# FgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/BAQDAgGGMA8GA1UdEwEB
-# /wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAGBgRVHSAA
-# MFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNlcnRydXN0LmNvbS9VU0VS
-# VHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNybDA1BggrBgEFBQcBAQQp
-# MCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0cnVzdC5jb20wDQYJKoZI
-# hvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzrftrIF5Ht2PFDxKKFOct/
-# awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/KbUOiL7g98M/yzRyqUOZ1
-# /IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdtFwXnuiWl8eFARK3PmLqE
-# m9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/MgTECimh7eXomvMm0/GPxX
-# 2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNbsdXUC2xBrq9fLrfe8IBs
-# A4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJGlxZ5384OKm0r568Mo9T
-# YrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzxZOFGm/yVQkpo+ffv5gdh
-# p+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTxmSkop2mSJL1Y2x/955S2
-# 9Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP7d/doqDrLF1u6Ci3TpjA
-# ZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4JA5gPBcz7J311uahxCweN
-# xE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc6CkJ1Sji4PKWVT0/MYIE
-# kzCCBI8CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1p
-# dGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0
-# MQIRAOdO8lWwUE/626bf9/yLoxUwDQYJYIZIAWUDBAICBQCgggH6MBoGCSqGSIb3
-# DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYxMTA0MDgyOTM5
-# WjA/BgkqhkiG9w0BCQQxMgQw/HKg6TUzxOKsEhFfTRtUCrHk20IK/N3cI4nG0W3N
-# ufuxToXInjZAlzde3lLIeEsVMIIBewYLKoZIhvcNAQkQAgwxggFqMIIBZjCCAWIw
-# FgQU6XgYqSjaFQqf4b+czHqruaAO7qwwgYgEFGXDKGlvfU5QLP0Dx8IGlxjK+/dP
-# MHAwW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQx
-# LjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYC
-# EQCQrAhyIP3Fp8RrXMcN9z0GMIG8BBSFPWMtk4KCYXzQkDXEkd6SwULaxzCBozCB
-# jqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNV
-# BAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsx
-# LjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkC
-# EDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAEggIAGY7edxduDOK4j95Y
-# cTHeCKI12NxU3+tf4j0At3lY5lTSdFW8oabiw16tIAoHAbZed4O4n8l1oXM7Tp0W
-# 7xqIOFMgmo9B+bY0uvcFl6FgaMRMGqMpKQV8f0P+zbPtxf8ej8GcivJf6/fFQYri
-# nmrVfkC7qEw3+/fGD0+aRcB5IGGCJSSDUbbfKKaeDf1qYKDWfr8Xcdstako4qy1V
-# WPM7STxKvOyeQMUI5u8hOa73YOrBid3Phj+cLmDALYozge0XPvlFv+vc20x5905z
-# df6md9RevixTAYwBwQMxjP56Elz1Jd7K+NWKxhJw5fkRXnxsm5WWlPEgFoA0punY
-# 6uVsmoI+nb/kwvNsNh0W/TJcCK3ScMHgxoPk+4b9CJrfu+HHZ0nkfkHXbfvhZhys
-# Al+NfPEVFxnfKZbcRqwYFNgMZLbx3/fQ9+kLtSlbL1uvWrKKQ6vDKF6fMoNvBRNl
-# eul8My85098VLAHKFmTkyZ72jENESH4fE3VOGXqJlqxAEfx9GUNTQ9TktsdorHPr
-# lQf5hOb64as8MH5tHzxMhIEJR9uTb2fb8BarmayGKOB6U0FssmwP/L3xnQ0Uh3Jv
-# k6NGSKhVzYTTu7U00E45EZz0cw+T3ERk7g7DOEJRo8KElN85JKIiI1S+zNMlIJsQ
-# kxI2tjA4tMJMWoCBse4ua0G9YpI=
+# Q7YVrFLgIDrKp5mLkAUpWK/vgrKOGhOr4DI21Yd78D0wDQYJKoZIhvcNAQEBBQAE
+# ggIAlAi+jUN3yZnIx5HslU/Nvi8bsfFCcYfWdfbY+RRG2tDmkYNUqd2GJljVh871
+# pKIga+mGFD9b7XvlKgAWl2cFeJCQ/t+hQS8RCB0prL1kiwRI+47M5G66wjH4GiEA
+# lWzWlBUUELR7cNNqpgxp8lpyn5Hefv8Jw9d8UFs7kzf3Kf42wwzidWE89EGvZDL5
+# Zp1vGJmFDtlnY7gO3r1/oFbaOPvEHsEcXeqUMns/65VQIFf1cyPNmGLXb1hjestx
+# 2uYoOy9UYIz1U4ccVFINMLxFvfAG/DIWYdmJv1KGO9wUdTmk/OdlEhZfNIdvvHG3
+# QEiCUirc/gog7DL+xbjkX3SbrC2Wf6Hw1zAaQNvpXxZyjX2QlyoSRBREjlgbwyAz
+# fQZ7eZh8FWEjZ/ZlwtSZWZypykg44G2nYluXrv203jSW9tBtyn9RPYP7U/hciokK
+# sEew6v8ZeFn0oPYKDclOcg4YPjpC14KUTIQlmSBgyPtwb80WEfeUgrzVhLIIKww9
+# nUe1HCgws372eKqYe6+YWXmfsha9lymS0njc5f0TlZddPVI6YACDqOd6/tFK9bOm
+# 0+TCTZjYWEXOp0KQgyWN3rcueekws3CD3YP/2WghBWpM5fuvHBnZOMhAZ6neJ0sn
+# wfnnM+sh9JYFhG2pT0lykm1xYi0bbdupACd3G4O96x/8UhehgheXMIIXkwYKKwYB
+# BAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCGSAFl
+# AwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEwDQYJ
+# YIZIAWUDBAICBQAEMG9OBJb6fCbx/lvJ0/HgdQRwf6D29ksHwijcnGeHP3/7/lct
+# RT5c6dW+SF7pFjhwbwIQbeNjrfMU2l0a45YVEIfu9BgPMjAyNjExMjMwODQ0MzVa
+# oIITOjCCBu0wggTVoAMCAQICEA4euzIrXIp1PhI/Ic7Q8tkwDQYJKoZIhvcNAQEM
+# BQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYD
+# VQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNI
+# QTI1NiAyMDI1IENBMTAeFw0yNjA4MDUwMDAwMDBaFw0zNzExMDQyMzU5NTlaMGMx
+# CzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UEAxMy
+# RGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAyMDI2
+# IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDGzb2TVObgnNpRsbsm
+# C4sUxF6ibiz7n2oKTHqpIcDpFLue7BsPlDPjLxlp0a8qe6LqReZneD2FUX0fpWg3
+# QFscsFDtCz4JZJ2YephpY0c50LM0KUwUQVNXwDJs5MI8T/HFS41bSefLLKWSVY/p
+# +ZTN6K0mPstoOpxlrWflIrIKqv7DDIS4BYL3YT71oqYz1kfbpw6TeOVzol27pLfz
+# PzHfuoP6nXkaZHz+3tbu7HaoiyyqbuNrNJu6mdUPyPmUPpzIKudi0Ye6i7tsfdzn
+# 0VtFIw6gvSwNnPTUnztvWrvpD8rqNS4q7tQKXuBBuMlSYtoa4j/k2FRk7xWlkMq6
+# WnIeNXbmFjGxYMwrk5PZSzowcWPm90ElKd3R+Fd6qroBUGnzLhqgNthg+sRidN1O
+# Ub7uH1ZxcjTIwdQ+14hnGpMmDDHdmTMvaSZ3p5C+ebogrCn+xDV35N4wign/Aynt
+# //1acKG7MQ29bmPgtQWRhXM2uOVciCyDETdFCdGhtK1rK4zYE2n8+Cws8PAnsBCK
+# 5IKRgvmKS4LOq3CT4OU7TOcCQcR+XFTvuu+N61wLqToKG9z48uLFc0h5I9HwEkCE
+# s71ERUvOXIjRWqJaI9K8G4B0sPi56WolBXnbRrOr4GMV9w2Sce1ByYxg5Go9J4E4
+# WWRb2kwO+aclHZbGXnGmzidBSwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIwADAd
+# BgNVHQ4EFgQUi29SldV7kStiCZ9aQQeHUAshjJIwHwYDVR0jBBgwFoAU729TSunk
+# Bnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoGCCsG
+# AQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDovL29j
+# c3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5kaWdp
+# Y2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2U0hB
+# MjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMuZGln
+# aWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5NlNI
+# QTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG/WwH
+# ATANBgkqhkiG9w0BAQwFAAOCAgEAILS9cQL2Fnk9lQBRBz8qK80fw7XgvGb5p6hz
+# dPj3GsqTDX7T/iRRFFRyRAQIc1bkAzHq8C+ZFwsDFCE8KQWiSU9fFM1WGr6hzIh1
+# O3LqncMeU+heFY45F18If1YcU9JOmRURy4Sdr+s6rkwYd38Hxvy1b1XIwE5grqjI
+# zfD9k6k87M4l3q4uwSDwAo+HTiHpUHCqzFxSFHDLqKC0A6nGQL1nvUDhxslTRXP7
+# hnXjcLzRAhsSsV06G9vH+uC9L/Rz1eZmDnRDcMBOTVhjZQnI2/88M4ZnqmHKNG6y
+# cpu918rBdF4rUahg3HI5uJeYtIq6Zw/b07RCAE/ceO3iH94OqGYngGAVhSy66qI/
+# rOHLQq+T/UNdLez4LBvzMTsbLvdz1jzrLtuIVAqJC1sS9k1tf/cHtRRtSuSKbJly
+# ud2ayy6ax3CZVHi5ArpYlRt3/mIrYu+BikzOsXeMtXv4tDrCWY/ymBdEZZPz0OZC
+# cnIdYXJ2ak8y46jAS+HQOY1mAG0koHd9LrO7GvhOVvIMtOpgfpE7/7Qb5afMMh4f
+# Ayx22mFrNhFaH/1LsNsyBR6LSrtRZnm9K9Jo013PjWkZWBIZO09olBU6m/ZuV4bA
+# RRbSHyzL9YlD4GcEy9mgZq9dglj7HyIkvemPuEFe8tnHA6TSK0WBksSRQz54AfR8
+# kRFAXCAwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3DQEB
+# CwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNV
+# BAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0ZWQg
+# Um9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJBgNV
+# BAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGlnaUNl
+# cnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAyNSBD
+# QTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48RsAc
+# rHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4uGjwj
+# qNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNnQxqX
+# mRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFiDNYi
+# OTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZvkgFk
+# riK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLeGkuA
+# hHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJygoLP
+# p66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz7BX8
+# VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36czwz
+# sucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQbU2rM
+# kpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0qVjP
+# KOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgwBgEB
+# /wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgwFoAU
+# 7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQMMAoG
+# CCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDovL29j
+# c3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5kaWdp
+# Y2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6MDig
+# NqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9v
+# dEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJKoZI
+# hvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8ObXAZz
+# 8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU/kXj
+# jytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKChHyf
+# pzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA0QF8
+# dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkMx1NK
+# U4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qIijan
+# rUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5TTLL4
+# ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTptMSbh
+# dhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+7RWs
+# WCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQvLsN
+# z3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdcMIIF
+# jTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBlMQsw
+# CQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cu
+# ZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJvb3Qg
+# Q0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQGEwJV
+# UzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQu
+# Y29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0GCSqG
+# SIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7JIT3y
+# ithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxSD1If
+# xp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb7iDV
+# ySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1efVFiO
+# DCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoYOAMQ
+# jdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSaM0C/
+# CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI8OCi
+# EhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9LBADM
+# fRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfmQ6QY
+# uKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDrMcXK
+# chYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15GkvmB0t
+# 9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU
+# 7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGLp6ch
+# nfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEFBQcw
+# AYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRwOi8v
+# Y2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3J0
+# MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdp
+# Q2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0GCSqG
+# SIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6pGrsi
+# +IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1Wz/n0
+# 96wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp8jQ8
+# 7PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglohJ9v
+# ytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8SuFQt
+# J37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBpMQsw
+# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
+# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
+# MjUgQ0ExAhAOHrsyK1yKdT4SPyHO0PLZMA0GCWCGSAFlAwQCAgUAoIHhMBoGCSqG
+# SIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYxMTIzMDg0
+# NDM1WjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBTpqKcjtIUE9eDhQ4tnPs6HzyxQ
+# mzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCBxHdd7HC5xsmHXVY1pnAB3yX0SAzCa
+# YI7cEFY0wVBQezA/BgkqhkiG9w0BCQQxMgQwxgsqddRWbPrW0vddKUCYB25cBhCn
+# OL9zmD6jPf4mUjEjBMHzpZbe6xgZvnW7YmWQMA0GCSqGSIb3DQEBAQUABIICADD7
+# lAA/wuZO3CoP0dh/6DRJqBbf39ulVXzFAhsulsKHGKqfviDHSDIB3Ac3ZE4cwa6S
+# jjbkio1uja6+7/8WMyUJa61nVCTaLrPvFTcVeWo5PfgZQlnPsCN8cU3IMSUr+QzO
+# b+j/abPb4Vp0ykHr6/gVz9RQIe3lVAOWq99meXsQNx/pNyU/U7mhs2RBwV5HJBFG
+# q3D0Db+cGqWhjTRX0kWrgMl2SYtZ2tRnUsGfzLBYbCTStopi7L/G4llW7oublNov
+# 6je5BROCayneHdp6gxxOVLqS6M+XKb9NVAdZYh7wPorstJg49gVBHK5tqJ1gRdDg
+# 5D/IFianyO8yjLD56usHmeVQxvTw1WULW84x4qyhlkmb2WDfr/c/fWbJkX8Pq+mq
+# O5IR+Dc/ascNoZMnfGvcPYsQKbPak+adULgfeBKwFnXnDqwiLITFPFB7WKsOcrnC
+# FtpC9BegkEF4RrX495rRBt3N5bCp2A2Mu7H2zsJZNjeUjy7bGjzMrVhMENX0aJef
+# E5h1xeSnos8u0NNDzF9MPcu4IfhrmK5c1hrjBuLncU+0Du98PvqHdTstJ9zTCDPF
+# CNMIP6Di3OKH/IUQu91NFZs+BJXE3wqUBQzfd9u1+ccw+DYAIvqY/xDUBTA2gxe9
+# EnMwzNCE3g6flvvoeOtidykP3d+YslWhtTPswEcl
 # SIG # End signature block
