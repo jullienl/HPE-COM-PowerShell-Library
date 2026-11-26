@@ -1710,7 +1710,7 @@ Function Get-HPEGLRole {
     
                 }
     
-                if (-not $Service -and $ServiceName -ne "HPE GreenLake platform") {
+                if (-not $Service -and $ServiceName -notin 'HPE GreenLake platform', 'GreenLake Platform') {
                     "[{0}] Service '{1}' not found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceName | Write-Verbose
                     Return
                 }
@@ -1915,7 +1915,7 @@ Function Get-HPEGLRole {
     
                 }
     
-                if (-not $Service -and $ServiceName -ne "HPE GreenLake platform") {
+                if (-not $Service -and $ServiceName -notin 'HPE GreenLake platform', 'GreenLake Platform') {
                     "[{0}] Service '{1}' not found in the HPE GreenLake workspace!" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceName | Write-Verbose
                     Return
                 }
@@ -2285,6 +2285,789 @@ Function Get-HPEGLRole {
             
                 }
             }
+        }
+    }
+}
+
+# Permissions and custom roles
+
+Function Get-HPEGLPermission {
+    <#
+    .SYNOPSIS
+    View the permissions that can be used in custom roles.
+
+    .DESCRIPTION
+    This cmdlet returns the permissions that a service makes available to custom roles in the current HPE GreenLake workspace.
+    Use the permission names with New-HPEGLCustomRole and Set-HPEGLCustomRole.
+
+    Custom roles are available only in workspaces with enhanced identity and access management (IAM).
+
+    .PARAMETER ServiceName
+    Name of the service that provides the permissions, as shown in the Service column of Get-HPEGLRole.
+    Default: 'GreenLake Platform'.
+
+    .PARAMETER Name
+    Optional filter applied to the permission name and description. Wildcards are supported.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to GLP instead of sending the request.
+    This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+
+    .EXAMPLE
+    Get-HPEGLPermission
+
+    Returns all the HPE GreenLake platform permissions that can be used in custom roles.
+
+    .EXAMPLE
+    Get-HPEGLPermission -Name '*device*'
+
+    Returns the HPE GreenLake platform permissions whose name or description contains 'device', such as 'Add devices' (ccs.device-management.device.create)
+    and 'Manage devices' (ccs.device-management.device.update).
+
+    .EXAMPLE
+    Get-HPEGLPermission -ServiceName 'Compute Ops Management'
+
+    Returns the Compute Ops Management permissions that can be used in custom roles.
+
+    .INPUTS
+    None. You cannot pipe objects to this cmdlet.
+
+    .OUTPUTS
+    HPEGreenLake.Permission [System.Management.Automation.PSCustomObject]
+        Returns one object per permission with the following properties:
+        * Permission - Name of the permission, to use with New-HPEGLCustomRole and Set-HPEGLCustomRole
+        * Description - Description of the permission
+        * Provider - Resource provider that owns the permission
+        * Service - Name of the service
+        * CustomRoleUse - Whether the permission can be used in custom roles
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                try {
+                    (Get-HPEGLRole -Verbose:$false -ErrorAction SilentlyContinue).service_name | Sort-Object -Unique | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        $completionText = if ($_ -match '\s') { "'$_'" } else { $_ }
+                        [System.Management.Automation.CompletionResult]::new($completionText, $_, 'ParameterValue', $_)
+                    }
+                }
+                catch { @() }
+            })]
+        [ValidateNotNullOrEmpty()]
+        [String]$ServiceName = 'GreenLake Platform',
+
+        [ValidateNotNullOrEmpty()]
+        [String]$Name,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        # The permission catalog is queried by service ID, which the role list provides.
+        try {
+            $Service = Get-HPEGLRole -Verbose:$false | Where-Object service_name -eq $ServiceName | Select-Object -First 1
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $Service) {
+            "[{0}] Service '{1}' not found in the workspace roles" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServiceName | Write-Verbose
+            return
+        }
+
+        $Uri = "{0}?service_id={1}" -f (Get-PermissionsUri), $Service.service_id
+
+        try {
+            $Response = Invoke-HPEGLWebRequest -Method GET -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($WhatIf) { return }
+
+        $PermissionList = [System.Collections.ArrayList]::new()
+
+        foreach ($Provider in $Response.resource_permissions) {
+            foreach ($Item in $Provider.permissions) {
+                if ($Name -and $Item.permission_name -notlike $Name -and $Item.permission_description -notlike $Name) { continue }
+                [void]$PermissionList.Add([PSCustomObject]@{
+                        Permission    = $Item.permission_name
+                        Description   = $Item.permission_description
+                        Provider      = $Provider.resource_provider_name
+                        Service       = $ServiceName
+                        CustomRoleUse = $Item.permission_custom_role_use
+                    })
+            }
+        }
+
+        "[{0}] Found {1} permission(s) for service '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $PermissionList.Count, $ServiceName | Write-Verbose
+
+        if ($PermissionList.Count -gt 0) {
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject ($PermissionList | Sort-Object Provider, Permission) -ObjectName "Permission"
+            return $ReturnData
+        }
+    }
+}
+
+Function New-HPEGLCustomRole {
+    <#
+    .SYNOPSIS
+    Create a custom role in HPE GreenLake.
+
+    .DESCRIPTION
+    This cmdlet creates a custom role in the current HPE GreenLake workspace. A custom role is a named set of permissions
+    that you can assign to users and user groups like any built-in role (Add-HPEGLRoleToUser, Add-HPEGLRoleToUserGroup).
+
+    The permissions can be listed explicitly with -Permission, copied from an existing role with -BasedOnRole, or both:
+    -BasedOnRole 'Workspace Observer' -Permission 'ccs.device-management.device.create' creates a role with every
+    Workspace Observer permission plus the 'Add devices' permission.
+
+    All the permissions of a custom role must belong to the same service. Use Get-HPEGLPermission to list the permissions available to custom roles.
+
+    The cmdlet validates inputs before creation:
+    - No role with the same name already exists in the workspace
+    - The base role exists
+    - Every permission is available to custom roles in the service
+
+    Custom roles are available only in workspaces with enhanced identity and access management (IAM). Custom roles belong to a single
+    workspace, so run the cmdlet in each workspace that needs the role.
+
+    .PARAMETER Name
+    Name of the custom role to create.
+
+    .PARAMETER Description
+    Optional description of the custom role.
+
+    .PARAMETER Permission
+    Names of the permissions to include (can be retrieved using Get-HPEGLPermission). Required unless -BasedOnRole is specified.
+
+    .PARAMETER BasedOnRole
+    Name of an existing role (built-in or custom) whose permissions are copied into the new role. -Permission adds permissions on top of them.
+    The new role belongs to the service of the base role.
+
+    .PARAMETER ServiceName
+    Name of the service of the custom role when -BasedOnRole is not used, as shown in the Service column of Get-HPEGLRole.
+    Default: 'GreenLake Platform'.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to GLP instead of sending the request.
+    This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+    When used, the cmdlet performs validation checks and displays warnings for any issues found.
+
+    .EXAMPLE
+    New-HPEGLCustomRole -Name 'Device Operator' -Description 'Add and manage devices' -BasedOnRole 'Workspace Observer' -Permission 'ccs.device-management.device.create', 'ccs.device-management.device.update'
+
+    Creates a 'Device Operator' role with every Workspace Observer permission plus the 'Add devices' and 'Manage devices' permissions.
+
+    .EXAMPLE
+    New-HPEGLCustomRole -Name 'Audit Reader' -Permission 'ccs.audit-trail.view'
+
+    Creates an 'Audit Reader' role with the single 'View audit trail' permission of the HPE GreenLake platform.
+
+    .EXAMPLE
+    New-HPEGLCustomRole -Name 'COM Server Reader' -ServiceName 'Compute Ops Management' -Permission 'compute-ops-mgmt.server.read', 'compute-ops-mgmt.group.read'
+
+    Creates a Compute Ops Management custom role that can only view servers and groups.
+
+    .EXAMPLE
+    New-HPEGLCustomRole -Name 'Device Operator' -BasedOnRole 'Workspace Observer' -Permission 'ccs.device-management.device.create' -WhatIf
+
+    Shows the API request that would create the role, without creating it.
+
+    .INPUTS
+    System.String
+        You can pipe custom role names as strings.
+
+    System.Management.Automation.PSCustomObject
+        You can pipe objects with Name, Description, Permission, BasedOnRole and ServiceName properties, such as rows from Import-Csv.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        Returns a collection of status objects, one for each role creation attempt:
+        * Name - Name of the custom role
+        * Status - Status of the creation attempt (Failed, Complete, Warning)
+        * Details - More information about the status
+        * Exception - Information about any exceptions generated during the operation
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [String]$Name,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        [String]$Description,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [String[]]$Permission,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                try {
+                    (Get-HPEGLRole -Verbose:$false -ErrorAction SilentlyContinue).role_display_name | Sort-Object -Unique | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        $completionText = if ($_ -match '\s') { "'$_'" } else { $_ }
+                        [System.Management.Automation.CompletionResult]::new($completionText, $_, 'ParameterValue', $_)
+                    }
+                }
+                catch { @() }
+            })]
+        [ValidateNotNullOrEmpty()]
+        [String]$BasedOnRole,
+
+        [Parameter(ValueFromPipelineByPropertyName)]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                try {
+                    (Get-HPEGLRole -Verbose:$false -ErrorAction SilentlyContinue).service_name | Sort-Object -Unique | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        $completionText = if ($_ -match '\s') { "'$_'" } else { $_ }
+                        [System.Management.Automation.CompletionResult]::new($completionText, $_, 'ParameterValue', $_)
+                    }
+                }
+                catch { @() }
+            })]
+        [ValidateNotNullOrEmpty()]
+        [String]$ServiceName,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $CreateCustomRoleStatus = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $objStatus = [pscustomobject]@{
+            Name      = $Name
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        $ErrorMessage = $Null
+        $RolePermissions = [System.Collections.Generic.List[string]]::new()
+
+        try {
+            $Roles = @(Get-HPEGLRole -Verbose:$false)
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        $BaseRole = $Null
+        if ($BasedOnRole) { $BaseRole = $Roles | Where-Object role_display_name -eq $BasedOnRole | Select-Object -First 1 }
+        $TargetServiceName = if ($BaseRole) { $BaseRole.service_name } elseif ($ServiceName) { $ServiceName } else { 'GreenLake Platform' }
+
+        if (-not $Permission -and -not $BasedOnRole) {
+            $ErrorMessage = "Custom role '{0}': specify -Permission, -BasedOnRole, or both." -f $Name
+        }
+        elseif ($Roles | Where-Object role_display_name -eq $Name) {
+            $ErrorMessage = "Custom role '{0}': a role with this name already exists in workspace '{1}'. No action needed." -f $Name, $Global:HPEGreenLakeSession.workspace
+        }
+        elseif ($BasedOnRole -and -not $BaseRole) {
+            $ErrorMessage = "Custom role '{0}': role '{1}' cannot be found. To list the roles, use: Get-HPEGLRole" -f $Name, $BasedOnRole
+        }
+        elseif ($BaseRole -and $ServiceName -and $ServiceName -ne $BaseRole.service_name) {
+            $ErrorMessage = "Custom role '{0}': role '{1}' belongs to service '{2}', not '{3}'. A custom role cannot combine services." -f $Name, $BasedOnRole, $BaseRole.service_name, $ServiceName
+        }
+        elseif (-not ($Roles | Where-Object service_name -eq $TargetServiceName)) {
+            $ErrorMessage = "Custom role '{0}': service '{1}' cannot be found. To list the services, use: Get-HPEGLRole" -f $Name, $TargetServiceName
+        }
+
+        if (-not $ErrorMessage -and $BaseRole) {
+            # The role list carries the permissions of every role, built-in or custom.
+            try {
+                $BaseDetails = Invoke-HPEGLWebRequest -Method GET -Uri (Get-AuthorizationRolesUri) -Verbose:$VerbosePreference | Where-Object id -eq $BaseRole.role_id
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if (-not $BaseDetails.permissions) {
+                $ErrorMessage = "Custom role '{0}': the permissions of role '{1}' cannot be retrieved." -f $Name, $BasedOnRole
+            }
+            else {
+                foreach ($Item in $BaseDetails.permissions) { $RolePermissions.Add($Item) }
+                "[{0}] Copied {1} permission(s) from role '{2}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $RolePermissions.Count, $BasedOnRole | Write-Verbose
+            }
+        }
+
+        if (-not $ErrorMessage -and $Permission) {
+            try {
+                $Catalog = @(Get-HPEGLPermission -ServiceName $TargetServiceName -Verbose:$false | Where-Object CustomRoleUse -eq 'ALLOW')
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            $Unknown = @($Permission | Where-Object { $_ -notin $Catalog.Permission })
+            if ($Unknown.Count -gt 0) {
+                $ErrorMessage = "Custom role '{0}': permission(s) not available to custom roles in service '{1}': {2}. To list the permissions, use: Get-HPEGLPermission -ServiceName '{1}'" -f $Name, $TargetServiceName, ($Unknown -join ', ')
+            }
+            else {
+                foreach ($Item in $Permission) { $RolePermissions.Add($Item) }
+            }
+        }
+
+        if ($ErrorMessage) {
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            $objStatus.Status = "Warning"
+            $objStatus.Details = $ErrorMessage
+        }
+        else {
+            $Payload = @{
+                kind        = 'CUSTOM'
+                displayName = $Name
+                permissions = @($RolePermissions | Sort-Object -Unique)
+            }
+            if ($Description) { $Payload.description = $Description }
+            $Payload = $Payload | ConvertTo-Json -Depth 5
+
+            try {
+                $Response = Invoke-HPEGLWebRequest -Method POST -Uri (Get-AuthorizationRolesUri) -Body $Payload -ContentType 'application/json' -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                if (-not $WhatIf) {
+                    "[{0}] Custom role created with ID: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Response.id | Write-Verbose
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "Custom role successfully created with {0} permission(s)" -f @($RolePermissions | Sort-Object -Unique).Count
+                }
+            }
+            catch {
+                if (-not $WhatIf) {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Custom role cannot be created!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                }
+            }
+        }
+
+        if (-not $WhatIf) { [void]$CreateCustomRoleStatus.Add($objStatus) }
+    }
+
+    End {
+
+        if ($CreateCustomRoleStatus.Count -gt 0) {
+            $CreateCustomRoleStatus = Invoke-RepackageObjectWithType -RawObject $CreateCustomRoleStatus -ObjectName "ObjStatus.NSDE"
+            return $CreateCustomRoleStatus
+        }
+    }
+}
+
+Function Set-HPEGLCustomRole {
+    <#
+    .SYNOPSIS
+    Update a custom role in HPE GreenLake.
+
+    .DESCRIPTION
+    This cmdlet updates the name, description or permissions of a custom role in the current HPE GreenLake workspace.
+    Users and user groups that hold the role get the new permissions immediately.
+
+    Permissions can be added and removed with -AddPermission and -RemovePermission, or replaced as a whole with -Permission.
+
+    The cmdlet validates inputs before the update:
+    - The role exists and is a custom role (built-in roles cannot be changed)
+    - No other role already uses the new name
+    - Every added permission is available to custom roles in the service of the role
+    - The role keeps at least one permission
+
+    Custom roles are available only in workspaces with enhanced identity and access management (IAM).
+
+    .PARAMETER Name
+    Name of the custom role to update (can be retrieved using Get-HPEGLRole).
+
+    .PARAMETER NewName
+    New name of the custom role.
+
+    .PARAMETER Description
+    New description of the custom role.
+
+    .PARAMETER Permission
+    Replaces all the permissions of the role with this list. Cannot be used with -AddPermission or -RemovePermission.
+
+    .PARAMETER AddPermission
+    Permissions to add to the role (can be retrieved using Get-HPEGLPermission). Permissions the role already has are ignored.
+
+    .PARAMETER RemovePermission
+    Permissions to remove from the role. Permissions the role does not have are ignored.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to GLP instead of sending the request.
+    This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+    When used, the cmdlet performs validation checks and displays warnings for any issues found.
+
+    .EXAMPLE
+    Set-HPEGLCustomRole -Name 'Device Operator' -AddPermission 'ccs.device-management.device.delete'
+
+    Adds the 'Remove devices' permission to the 'Device Operator' custom role.
+
+    .EXAMPLE
+    Set-HPEGLCustomRole -Name 'Device Operator' -RemovePermission 'ccs.device-management.device.create' -Description 'Manage devices only'
+
+    Removes the 'Add devices' permission and updates the description.
+
+    .EXAMPLE
+    Set-HPEGLCustomRole -Name 'Audit Reader' -Permission 'ccs.audit-trail.view', 'ccs.audit-trail.view-all'
+
+    Replaces all the permissions of the 'Audit Reader' custom role.
+
+    .EXAMPLE
+    Set-HPEGLCustomRole -Name 'Device Operator' -NewName 'Device Manager'
+
+    Renames the custom role.
+
+    .INPUTS
+    System.String
+        You can pipe custom role names as strings.
+
+    HPEGreenLake.Role
+        You can pipe role objects from Get-HPEGLRole.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        Returns a collection of status objects, one for each update attempt:
+        * Name - Name of the custom role
+        * Status - Status of the update attempt (Failed, Complete, Warning)
+        * Details - More information about the status
+        * Exception - Information about any exceptions generated during the operation
+    #>
+
+    [CmdletBinding(DefaultParameterSetName = 'Modify')]
+    Param(
+        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [Alias('role_display_name')]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                try {
+                    (Get-HPEGLRole -Verbose:$false -ErrorAction SilentlyContinue | Where-Object type -eq 'CUSTOM').role_display_name | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        $completionText = if ($_ -match '\s') { "'$_'" } else { $_ }
+                        [System.Management.Automation.CompletionResult]::new($completionText, $_, 'ParameterValue', $_)
+                    }
+                }
+                catch { @() }
+            })]
+        [ValidateNotNullOrEmpty()]
+        [String]$Name,
+
+        [ValidateNotNullOrEmpty()]
+        [String]$NewName,
+
+        [String]$Description,
+
+        [Parameter(Mandatory, ParameterSetName = 'Replace')]
+        [ValidateNotNullOrEmpty()]
+        [String[]]$Permission,
+
+        [Parameter(ParameterSetName = 'Modify')]
+        [ValidateNotNullOrEmpty()]
+        [String[]]$AddPermission,
+
+        [Parameter(ParameterSetName = 'Modify')]
+        [ValidateNotNullOrEmpty()]
+        [String[]]$RemovePermission,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $SetCustomRoleStatus = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $objStatus = [pscustomobject]@{
+            Name      = $Name
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        $ErrorMessage = $Null
+
+        try {
+            $Roles = @(Get-HPEGLRole -Verbose:$false)
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        $Role = $Roles | Where-Object role_display_name -eq $Name | Select-Object -First 1
+
+        if (-not $Role) {
+            $ErrorMessage = "Custom role '{0}' cannot be found in workspace '{1}'." -f $Name, $Global:HPEGreenLakeSession.workspace
+        }
+        elseif ($Role.type -ne 'CUSTOM') {
+            $ErrorMessage = "Role '{0}' is a built-in role and cannot be modified." -f $Name
+        }
+        elseif ($NewName -and $NewName -ne $Name -and ($Roles | Where-Object role_display_name -eq $NewName)) {
+            $ErrorMessage = "Custom role '{0}': a role named '{1}' already exists." -f $Name, $NewName
+        }
+        elseif (-not $NewName -and -not $PSBoundParameters.ContainsKey('Description') -and -not $Permission -and -not $AddPermission -and -not $RemovePermission) {
+            $ErrorMessage = "Custom role '{0}': no change requested. Use -NewName, -Description, -Permission, -AddPermission or -RemovePermission." -f $Name
+        }
+
+        if (-not $ErrorMessage) {
+            try {
+                $Current = Invoke-HPEGLWebRequest -Method GET -Uri ((Get-AuthorizationRolesUri) + "/" + $Role.role_id) -Verbose:$VerbosePreference
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            $CurrentPermissions = @($Current.permissions | Sort-Object -Unique)
+            $ToValidate = @(@($Permission) + @($AddPermission) | Where-Object { $_ })
+
+            if ($ToValidate.Count -gt 0) {
+                try {
+                    $Catalog = @(Get-HPEGLPermission -ServiceName $Role.service_name -Verbose:$false | Where-Object CustomRoleUse -eq 'ALLOW')
+                }
+                catch {
+                    $PSCmdlet.ThrowTerminatingError($_)
+                }
+                $Unknown = @($ToValidate | Where-Object { $_ -notin $Catalog.Permission } | Sort-Object -Unique)
+                if ($Unknown.Count -gt 0) {
+                    $ErrorMessage = "Custom role '{0}': permission(s) not available to custom roles in service '{1}': {2}. To list the permissions, use: Get-HPEGLPermission -ServiceName '{1}'" -f $Name, $Role.service_name, ($Unknown -join ', ')
+                }
+            }
+
+            if (-not $ErrorMessage) {
+                $NewPermissions = if ($Permission) { @($Permission | Sort-Object -Unique) }
+                else { @(@($CurrentPermissions) + @($AddPermission) | Where-Object { $_ -and $_ -notin $RemovePermission } | Sort-Object -Unique) }
+
+                $TargetName = if ($NewName) { $NewName } else { $Current.displayName }
+                $TargetDescription = if ($PSBoundParameters.ContainsKey('Description')) { $Description } else { $Current.description }
+
+                if ($NewPermissions.Count -eq 0) {
+                    $ErrorMessage = "Custom role '{0}': a custom role needs at least one permission." -f $Name
+                }
+                elseif ($TargetName -ceq $Current.displayName -and "$TargetDescription" -ceq "$($Current.description)" -and -not (Compare-Object $NewPermissions $CurrentPermissions)) {
+                    $ErrorMessage = "Custom role '{0}' already matches the requested settings. No action needed." -f $Name
+                }
+            }
+        }
+
+        if ($ErrorMessage) {
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            $objStatus.Status = "Warning"
+            $objStatus.Details = $ErrorMessage
+        }
+        else {
+            # The API replaces the whole role, so the body carries every field.
+            $Payload = @{
+                id          = $Current.id
+                kind        = 'CUSTOM'
+                displayName = $TargetName
+                description = $TargetDescription
+                permissions = $NewPermissions
+                generation  = $Current.generation
+            } | ConvertTo-Json -Depth 5
+
+            try {
+                $Response = Invoke-HPEGLWebRequest -Method PUT -Uri ((Get-AuthorizationRolesUri) + "/" + $Current.id) -Body $Payload -ContentType 'application/json' -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                if (-not $WhatIf) {
+                    $Added = @($NewPermissions | Where-Object { $_ -notin $CurrentPermissions }).Count
+                    $Removed = @($CurrentPermissions | Where-Object { $_ -notin $NewPermissions }).Count
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "Custom role successfully updated ({0} permission(s) added, {1} removed)" -f $Added, $Removed
+                }
+            }
+            catch {
+                if (-not $WhatIf) {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Custom role cannot be updated!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                }
+            }
+        }
+
+        if (-not $WhatIf) { [void]$SetCustomRoleStatus.Add($objStatus) }
+    }
+
+    End {
+
+        if ($SetCustomRoleStatus.Count -gt 0) {
+            $SetCustomRoleStatus = Invoke-RepackageObjectWithType -RawObject $SetCustomRoleStatus -ObjectName "ObjStatus.NSDE"
+            return $SetCustomRoleStatus
+        }
+    }
+}
+
+Function Remove-HPEGLCustomRole {
+    <#
+    .SYNOPSIS
+    Delete a custom role from HPE GreenLake.
+
+    .DESCRIPTION
+    This cmdlet deletes one or more custom roles from the current HPE GreenLake workspace. Built-in roles cannot be deleted.
+
+    The cmdlet validates inputs before deletion:
+    - The role exists
+    - The role is a custom role
+
+    Custom roles are available only in workspaces with enhanced identity and access management (IAM).
+
+    .PARAMETER Name
+    Name of the custom role to delete (can be retrieved using Get-HPEGLRole).
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to GLP instead of sending the request.
+    This option is useful for understanding the inner workings of the native REST API calls used by GLP.
+    When used, the cmdlet performs validation checks and displays warnings for any issues found.
+
+    .EXAMPLE
+    Remove-HPEGLCustomRole -Name 'Device Operator'
+
+    Deletes the 'Device Operator' custom role.
+
+    .EXAMPLE
+    Get-HPEGLRole | Where-Object { $_.type -eq 'CUSTOM' -and $_.role_display_name -like 'Temp-*' } | Remove-HPEGLCustomRole
+
+    Deletes every custom role whose name starts with 'Temp-'.
+
+    .INPUTS
+    System.String
+        You can pipe custom role names as strings.
+
+    HPEGreenLake.Role
+        You can pipe role objects from Get-HPEGLRole.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        Returns a collection of status objects, one for each deletion attempt:
+        * Name - Name of the custom role
+        * Status - Status of the deletion attempt (Failed, Complete, Warning)
+        * Details - More information about the status
+        * Exception - Information about any exceptions generated during the operation
+    #>
+
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [Alias('role_display_name')]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                try {
+                    (Get-HPEGLRole -Verbose:$false -ErrorAction SilentlyContinue | Where-Object type -eq 'CUSTOM').role_display_name | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                        $completionText = if ($_ -match '\s') { "'$_'" } else { $_ }
+                        [System.Management.Automation.CompletionResult]::new($completionText, $_, 'ParameterValue', $_)
+                    }
+                }
+                catch { @() }
+            })]
+        [ValidateNotNullOrEmpty()]
+        [String]$Name,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $RemoveCustomRoleStatus = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $objStatus = [pscustomobject]@{
+            Name      = $Name
+            Status    = $Null
+            Details   = $Null
+            Exception = $Null
+        }
+
+        $ErrorMessage = $Null
+
+        try {
+            $Role = Get-HPEGLRole -Verbose:$false | Where-Object role_display_name -eq $Name | Select-Object -First 1
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $Role) {
+            $ErrorMessage = "Custom role '{0}' cannot be found in workspace '{1}'." -f $Name, $Global:HPEGreenLakeSession.workspace
+        }
+        elseif ($Role.type -ne 'CUSTOM') {
+            $ErrorMessage = "Role '{0}' is a built-in role and cannot be deleted." -f $Name
+        }
+
+        if ($ErrorMessage) {
+            "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+            if ($WhatIf) {
+                Write-Warning "$ErrorMessage Cannot display API request."
+                return
+            }
+            $objStatus.Status = "Warning"
+            $objStatus.Details = $ErrorMessage
+        }
+        else {
+            try {
+                $Response = Invoke-HPEGLWebRequest -Method DELETE -Uri ((Get-AuthorizationRolesUri) + "/" + $Role.role_id) -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                if (-not $WhatIf) {
+                    $objStatus.Status = "Complete"
+                    $objStatus.Details = "Custom role successfully deleted"
+                }
+            }
+            catch {
+                if (-not $WhatIf) {
+                    $objStatus.Status = "Failed"
+                    $objStatus.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Custom role cannot be deleted!" }
+                    $objStatus.Exception = $Global:HPECOMInvokeReturnData
+                }
+            }
+        }
+
+        if (-not $WhatIf) { [void]$RemoveCustomRoleStatus.Add($objStatus) }
+    }
+
+    End {
+
+        if ($RemoveCustomRoleStatus.Count -gt 0) {
+            $RemoveCustomRoleStatus = Invoke-RepackageObjectWithType -RawObject $RemoveCustomRoleStatus -ObjectName "ObjStatus.NSDE"
+            return $RemoveCustomRoleStatus
         }
     }
 }
@@ -10083,6 +10866,7 @@ function Invoke-RepackageObjectWithType {
 
 # Export only public functions and aliases
 Export-ModuleMember -Function 'Get-HPEGLUser', 'New-HPEGLUser', 'Send-HPEGLUserInvitation', 'Remove-HPEGLUser', 'Get-HPEGLRole', 'Get-HPEGLUserRole', 'Add-HPEGLRoleToUser', `
+'Get-HPEGLPermission', 'New-HPEGLCustomRole', 'Set-HPEGLCustomRole', 'Remove-HPEGLCustomRole', `
 'Remove-HPEGLRoleFromUser', 'Set-HPEGLUserRole', 'Get-HPEGLUserGroup', 'New-HPEGLUserGroup', 'Remove-HPEGLUserGroup', 'Set-HPEGLUserGroup', 'Add-HPEGLRoleToUserGroup', 'Remove-HPEGLRoleFromUserGroup', 'Add-HPEGLUserToUserGroup', 'Remove-HPEGLUserFromUserGroup', 'Get-HPEGLUserGroupMembership', `
 'Get-HPEGLUserPreference', 'Set-HPEGLUserPreference', 'Get-HPEGLUserAccountDetails', 'Set-HPEGLUserAccountDetails', 'Set-HPEGLUserAccountPassword', `
 'Get-HPEGLScopeGroup', 'New-HPEGLScopeGroup', 'Remove-HPEGLScopeGroup', 'Set-HPEGLScopeGroup', 'Copy-HPEGLScopeGroup' `
@@ -10090,10 +10874,10 @@ Export-ModuleMember -Function 'Get-HPEGLUser', 'New-HPEGLUser', 'Send-HPEGLUserI
 
 
 # SIG # Begin signature block
-# MIIqPwYJKoZIhvcNAQcCoIIqMDCCKiwCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIqQAYJKoZIhvcNAQcCoIIqMTCCKi0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAmnovikp66ABXi
-# ew39cKroYi83oYTo9cW8jiDzeS4i3qCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAK5CW7893sGOBT
+# 0gPrRjORt9XjyrZpm8XBno4NF8BVsaCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
 # O5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYDVQQK
 # Ew9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENvZGUg
 # U2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTla
@@ -10160,160 +10944,160 @@ Export-ModuleMember -Function 'Get-HPEGLUser', 'New-HPEGLUser', 'Send-HPEGLUserI
 # v5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xEv65B
 # oUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAyaVpbA
 # Ytaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPjnZ+o
-# A+rbZZyGZkz3xbUYKTGCHRIwgh0OAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAWBgNV
+# A+rbZZyGZkz3xbUYKTGCHRMwgh0PAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAWBgNV
 # BAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMgQ29k
 # ZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUDBAIB
 # BQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGCNwIB
 # BDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQg
-# Tobz/F2Wfq5mlK5T41OdOKUqOPGojGzzMRfU1D8SNEgwDQYJKoZIhvcNAQEBBQAE
-# ggIAOx2aXkqWWjntuONi+Gp2yF1qWwZrJhQusV30d0QB/JpspZMAuJ0NJVX3s3y5
-# XCreWyaXHenJt8wc+TgwNUsiqC4Qs8S5k+OiDAZB9fY6S5ShOvJsHvQPXW/Pz/Qg
-# LvGsNwFnFd/Y+p5OrkwERrmzw9mt1jNbtJWFSD14Tewf3CG1tUKMoW/pvDULXTJi
-# mSucc3u2Nrpjln7E3IKvSMsndTV4Y1XezkCudzmP0r9l5JwcBGcjfGDJT+8/ANSX
-# iH/l/DEx/xHfB+DjXHOxNBhXsVSijOL99qCrSGwBQuJHJFtu5ezMiB5zadzMqrNA
-# KlREAYuCGLQyiyBtVcOodrhqT3GqUC3BKePgBPRbJ+FU1cKSOyhOrXVjowtbm/ni
-# qqGnZMbD+MBLe+KlEp7ZfAgD9z40aLv6JCHfALgkm3b+58WJ2Ih5ukz5yo/GD9el
-# B2nIZCXMRiC91OBcMFYE6Dp2zsf1AMXEltqvH34wus7SayqcnbdN5SFnkyQuaht9
-# YoIKBLfoJl0H4+nNKreXd8mIvo207z6jMjaYiKezDPorGRriFWs9jcnco1HG79Ys
-# Ftnypfv2yjnlnUO1Lbt9eHdqwXRY4tXnF+opigWIeuNIo7UWoIcEfbRwLuold884
-# +Zj02tTOWmFym33Sb+aqCmtncxOJt4wWomcMRRj5IQBeklGhghn8MIIZ+AYKKwYB
-# BAGCNwMDATGCGegwghnkBgkqhkiG9w0BBwKgghnVMIIZ0QIBAzEPMA0GCWCGSAFl
-# AwQCAgUAMIIBBwYLKoZIhvcNAQkQAQSggfcEgfQwgfECAQEGCisGAQQBsjECAQEw
-# QTANBglghkgBZQMEAgIFAAQw8K/NdXMYgoeQXRWYV49Ja8vVIlqzDRwjT6dGHUvc
-# nN98nSf1XYeYqU+eFsf5lSEtAhQZxAGLLjBoRov5MA+Z85xejjFHXBgPMjAyNjEx
-# MDQwODI2MDdaoHakdDByMQswCQYDVQQGEwJHQjEXMBUGA1UECBMOR3JlYXRlciBM
-# b25kb24xGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEwMC4GA1UEAxMnU2VjdGln
-# byBQdWJsaWMgVGltZSBTdGFtcGluZyBTaWduZXIgUjM3oIIUFzCCBuIwggTKoAMC
-# AQICEQDnTvJVsFBP+tum3/f8i6MVMA0GCSqGSIb3DQEBDAUAMFUxCzAJBgNVBAYT
-# AkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAqBgNVBAMTI1NlY3RpZ28g
-# UHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQxMB4XDTI2MDMyNTAwMDAwMFoXDTM3
-# MDYyNDIzNTk1OVowcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0ZXIgTG9u
-# ZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3RpZ28g
-# UHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzNzCCAiIwDQYJKoZIhvcNAQEB
-# BQADggIPADCCAgoCggIBALL/w21L3FDZRS0FEXfZuPtUrefibnRSqOT/NNyJLOJh
-# XjQfUspqHT+gSSVgbjYThUI/cO+wFQHoOakKQNnSMKdkE8gR69ofXlkk5DAVY/Zl
-# evliOUmlvrw2Vuz4SU28rHfb/Vgd17eqpRIvJuO6XE8vPpPzn4c4iorszUF6nwuy
-# nKEQ/+rqfDmQbFNKsa+5+Z4f4kXwKdUFxUwUDjQWUhiHRwMlUWGF9N91aAvL+9a4
-# sxCgqR/ez8W8HJ/XqvSu1vIeb+J6bDFKKgkv3PJkMMpQ0BsdeXR2FejZXFRXY1w9
-# dZe6gqyMv7px+TpWbYMefECUV0WxoEMgXUk6RKcLo94uUHOdmfZu4Xe8ghglyro3
-# /N4VEKTj8dcPPvOBGxFEx1QH6uHKTkWhloGPDScurcZnd8KUtTHl6zmlQDHM04Mw
-# GfsmQViKnYEAYE8RHl5XRE6GTq0ZMb59SIyJX6+CODVic/kW+dhbIS1Z5AP8HaGn
-# e/PRG+12QzSneKDJp3Ot+k4GrmmlWT9iy6FNCQ/32K+d4cAZ+Ll7uWbEn6Z6gE+t
-# Eu7MyZvzWvPNsRKMkcyyflFW1zpRyzutwypALXc9Qg7sFsYERNXa58KZXqU9Onc/
-# tck6+adQJFM9tW8xOnE//P5I4eDj84IGGKqzgUD37ihC+WST3DfY0YBKWL0Zaubn
-# AgMBAAGjggGOMIIBijAfBgNVHSMEGDAWgBQ6dKUMZ8ZCUML9tfzHuyk0gvR6uTAd
-# BgNVHQ4EFgQUYRDpehKvUcSF1PLPpHQPUM0gr/gwDgYDVR0PAQH/BAQDAgbAMAwG
-# A1UdEwEB/wQCMAAwFgYDVR0lAQH/BAwwCgYIKwYBBQUHAwgwSgYDVR0gBEMwQTAI
-# BgZngQwBBAIwNQYMKwYBBAGyMQECAQMIMCUwIwYIKwYBBQUHAgEWF2h0dHBzOi8v
-# c2VjdGlnby5jb20vQ1BTMEoGA1UdHwRDMEEwP6A9oDuGOWh0dHA6Ly9jcmwuc2Vj
-# dGlnby5jb20vU2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjQxLmNybDB6Bggr
-# BgEFBQcBAQRuMGwwRQYIKwYBBQUHMAKGOWh0dHA6Ly9jcnQuc2VjdGlnby5jb20v
-# U2VjdGlnb1B1YmxpY1RpbWVTdGFtcGluZ0NBUjQxLmNydDAjBggrBgEFBQcwAYYX
-# aHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZIhvcNAQEMBQADggIBAAPqPY3R
-# rM36GXqTpsoHn9TpW5I6z3dkFvc9zPL1W0Egq7j3jtnkbAvRoWeAjGX4ZK4sWsmA
-# +u4EJG8okQmybuS/4tDUI5UIQb21n4hG2vihxShrneWB0VoQ2VLQ3jCCRmRtAQ+/
-# 7H7WVKNiH5Pgl4v2ZTOdPsStzpKnl1YuRrmww/+bcZmLqgk909ywIpZqAfubYfbE
-# MYjIckLk90f2mG+L8qaGSS2JJVM02pV5XltZ1fbOFETpRN/PQhwygIv33qUUjJ1f
-# E4ITgw0McMzRqziWdOJP8ocxxw7qXxz1OdRWCalyL1qvUgAFnZTVdSRiMYZKf0wL
-# cQcM/1Xf1W4FW9nff8ERX8RZJGt/TtPuMWmUpf6BCv9Q6o8YyUTtknvZRpSQ0nLt
-# tWXdtwsrN2mMgfMuR//gxVrVXvDzCoK/lbiA6dEZOW53lQwBFtEzwE/FH8Jdhegy
-# Yg4PymZOTZrGBEvgsbxe25yEhJ0IdGa1pwCYsarldJhJVMdNcAOU7jyIMqHcczav
-# 3wtIXp/SwbXZ3xX0mfsLfANSJ47G4qPgx1atb6GIlTaQXzu/p4fTQeAIUVzZXT4K
-# 984IyfuO7NLjWMtog1wGUpZD98pv+4Mt9Y5bvfPUjaUVjtePy1DVdi0rl5ESNYi0
-# zyOmXVxtA5zzxu1H7RdLZOZugT/XjX69rY9bMIIGpzCCBI+gAwIBAgIRAJCsCHIg
-# /cWnxGtcxw33PQYwDQYJKoZIhvcNAQEMBQAwVzELMAkGA1UEBhMCR0IxGDAWBgNV
-# BAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGlt
-# ZSBTdGFtcGluZyBSb290IFI0NjAeFw0yNjAzMjUwMDAwMDBaFw00MTAzMjQyMzU5
-# NTlaMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLDAq
-# BgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQxMIICIjAN
-# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAruRKogGtghxi+WYtW5oDzPDVF8GG
-# SfgbUKh6bONxi0wvrI1S8qbAYfvLr/ky5ILVRg//70pgNKq8xC3/WEQodjEwAP2h
-# mkGShoNAUQps4kd6Wwp74Fo7RlwQ1Mp949ytpWQDvCsYBbZccDmBAJC/ggqiuL/c
-# 805fGcMw6TzIgyBWuUx5PGp9YnheSNPXFzaz0MPtREdZYk4WhtM+hazqasMWVpj0
-# WUAcNhN9vO/FAdWy9Gafdb7lmYLDKTTYjwqAY9P9RfixPPjUaJH6mnBSNBdrX7a0
-# Qdlux0ApS0fc48RW1m+W3tq3HiHzch1FHyhiLzCNjc6MUpcV5xalBvPOw/FtQo/A
-# xaJOvPCSsVrx0f/WkMpEm3fvVbrY9+oo9rIKv9ducE6VGfwIAtKYedG0bO4Ba1Mm
-# lxPcErDqjLwggvrBJu73fwXpkhtE0hzV0psgm2vhQs3pHll9N00SHBdy2qndEcNu
-# Dh+46XouM2hoXCO533YQQOHPEUnMTWOo3hyxx5kjDE5PVqp+x+HS4VAT+WBMG4Gz
-# eLr9YvZbU5x5YvLdcR1dErV/QRYK55rp019fZFF2NR+TkSW0WcmQ3b5taGcrXg49
-# EpzKM6/mEpnSJXg1E13X6GO29rWs/LNvkGzsS8XGoRCGBls6ruofeebSsHADR3Ge
-# IE5gIU927bjokLECAwEAAaOCAW4wggFqMB8GA1UdIwQYMBaAFPZ3at0//QET/xah
-# bIICL9AKPRQlMB0GA1UdDgQWBBQ6dKUMZ8ZCUML9tfzHuyk0gvR6uTAOBgNVHQ8B
-# Af8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUEDDAKBggrBgEFBQcD
-# CDAjBgNVHSAEHDAaMAgGBmeBDAEEAjAOBgwrBgEEAbIxAQIBAwgwTAYDVR0fBEUw
-# QzBBoD+gPYY7aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGlt
-# ZVN0YW1waW5nUm9vdFI0Ni5jcmwwfAYIKwYBBQUHAQEEcDBuMEcGCCsGAQUFBzAC
-# hjtodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBp
-# bmdSb290UjQ2LnA3YzAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5j
-# b20wDQYJKoZIhvcNAQEMBQADggIBADLeUkdm8Z4DZvjfKHOhqu+hsdXNt+X5F+48
-# PB6PTAJCRgA3qxxO3YbAV7baps4K/+2WWoWUspBkT4T2NXK49NvJAfCsztHSgtqk
-# AQMLX4KjCypJF/+m2Ktrk993g+gcgKdv1yg9C3JmYdJCnnL0ga+pZ/Wo1+rtXZ8d
-# nwO8RCstTN6gYX0ElFi7Y7NpxbdBC1S6bc05V/SA9HC/ojj33W6GdwnpU/iVylSk
-# dkoHtHeGIhQLT2ZH0qPM9Wdce8v2fZsDCJQQJ8rll7OGLDbsXa2CLf0MRN9Twzif
-# Q3rEuAXOx/TkzkZRFfwL34hf1XqSmaYq2tTMy2LgsPrqC2Z/6ZKb3fgrzU0vphB4
-# wSTWulitY/KlxbvoyKvrBvUCCx4sgeqf8aR65CbvM5MN/d/lahfXipU2NlY0cXcn
-# GS61XpmeGKd8It92/lufApZR9x6o5qMJWe0jq4JsfGMGDpIKx7FzkB8gaejuBUW/
-# CJ9Phc40+xJRonvVewn4S9yJVRWeM47irGbR9YlN3xruM/yZzhk+rAm9AW06nv7o
-# b6RQkAXR+cTxiAPy620FF41NrViYB4UyKpzfx7x8jh4ubTOMz954YIdqyeiqqtsb
-# BwXjWLP0dfMUPA3iIPnPdBKGnodGJTdSlPAMmKJdyvTPqmOXs/LMnf+2Za0Z6FXs
-# IB9z9aXLMIIGgjCCBGqgAwIBAgIQNsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0B
-# AQwFADCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNV
+# 83OGkzB9OYlaXrErtGfCx5BxcMoG+gvp94RBi/9CumAwDQYJKoZIhvcNAQEBBQAE
+# ggIARbK2UrhkW02LPhbXnh4nfXPHBGcKTqpiJJ5uCsPvNEmdoi+gKjueuYqzZLmt
+# BfRhrV5KfyEApwiAPqfo443fogWpDmG0rqqU54x/53Iv8QTzb+cIn/XL+oBdb4Lf
+# 6+6iKGy6z3Su+SihfhdX4p6pQu/NLUK0P15uPVgs/OW35MHWKCIEZaq2tau8PgoI
+# 2ZcyVEUL2eYw9ewsmg3mdiz8bxflwMm0iVADmlbbtuUeJ10mtVKddscO3b1nQsem
+# mLIs4NQiJYPeQ59SLXebFBBJ3ZjlpgMENbf8iLzZrrjTvp+qMPljMfnASqTbgyd5
+# WSDe1OKUNjPMPztOukvvWhJUq/HUwRXyHpiLcIprNmPJohPV8IbSVSEQXqzc1/R/
+# 4/BnAPRFkPj5GT39C0lAbaKg5Pl4l2LEu35dvmzY1yQ8pUN5F0xQ5yI8uOskuFZ0
+# j912IuJmEcdDtYEw251v/PtOv7nfQfSdbanv5kciFQelj1CkRSx7CZBgEOqstOHY
+# cg41KF0q86Qghy2lweefOgWyTM5UB1JJDH+4/Gq+sm3UQF2/fOo7VWSL46DjB6Fh
+# aLbuTZXDjwWy5b3CkTVraAwmg4KV64KhGoCASwLJnDs8RVvHVTdWOdkUT5lJ6b58
+# lwbPt7ZZ9r6sn80rUoyWuYGMWRI8ETjNLzxo43Cn6qLjcyOhghn9MIIZ+QYKKwYB
+# BAGCNwMDATGCGekwghnlBgkqhkiG9w0BBwKgghnWMIIZ0gIBAzEPMA0GCWCGSAFl
+# AwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjECAQEw
+# QTANBglghkgBZQMEAgIFAAQwKWisjnpKq0/0VH13Nr8Sy0w7VAOknxCAXoorMWdG
+# bF/82c9S7YMCTj5+xBbI57T+AhUAy90OhTTDa/Or9H95Ayi2ymhbjFwYDzIwMjYx
+# MTI2MTc1NzM1WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0ZXIg
+# TG9uZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
+# Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzN6CCFBcwggbiMIIEyqAD
+# AgECAhEA507yVbBQT/rbpt/3/IujFTANBgkqhkiG9w0BAQwFADBVMQswCQYDVQQG
+# EwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdv
+# IFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTAeFw0yNjAzMjUwMDAwMDBaFw0z
+# NzA2MjQyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5HcmVhdGVyIExv
+# bmRvbjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0aWdv
+# IFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzcwggIiMA0GCSqGSIb3DQEB
+# AQUAA4ICDwAwggIKAoICAQCy/8NtS9xQ2UUtBRF32bj7VK3n4m50Uqjk/zTciSzi
+# YV40H1LKah0/oEklYG42E4VCP3DvsBUB6DmpCkDZ0jCnZBPIEevaH15ZJOQwFWP2
+# ZXr5YjlJpb68Nlbs+ElNvKx32/1YHde3qqUSLybjulxPLz6T85+HOIqK7M1Bep8L
+# spyhEP/q6nw5kGxTSrGvufmeH+JF8CnVBcVMFA40FlIYh0cDJVFhhfTfdWgLy/vW
+# uLMQoKkf3s/FvByf16r0rtbyHm/iemwxSioJL9zyZDDKUNAbHXl0dhXo2VxUV2Nc
+# PXWXuoKsjL+6cfk6Vm2DHnxAlFdFsaBDIF1JOkSnC6PeLlBznZn2buF3vIIYJcq6
+# N/zeFRCk4/HXDz7zgRsRRMdUB+rhyk5FoZaBjw0nLq3GZ3fClLUx5es5pUAxzNOD
+# MBn7JkFYip2BAGBPER5eV0ROhk6tGTG+fUiMiV+vgjg1YnP5FvnYWyEtWeQD/B2h
+# p3vz0RvtdkM0p3igyadzrfpOBq5ppVk/YsuhTQkP99ivneHAGfi5e7lmxJ+meoBP
+# rRLuzMmb81rzzbESjJHMsn5RVtc6Ucs7rcMqQC13PUIO7BbGBETV2ufCmV6lPTp3
+# P7XJOvmnUCRTPbVvMTpxP/z+SOHg4/OCBhiqs4FA9+4oQvlkk9w32NGASli9GWrm
+# 5wIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUOnSlDGfGQlDC/bX8x7spNIL0erkw
+# HQYDVR0OBBYEFGEQ6XoSr1HEhdTyz6R0D1DNIK/4MA4GA1UdDwEB/wQEAwIGwDAM
+# BgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARDMEEw
+# CAYGZ4EMAQQCMDUGDCsGAQQBsjEBAgEDCDAlMCMGCCsGAQUFBwIBFhdodHRwczov
+# L3NlY3RpZ28uY29tL0NQUzBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3JsLnNl
+# Y3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcmwwegYI
+# KwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28uY29t
+# L1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcnQwIwYIKwYBBQUHMAGG
+# F2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAD6j2N
+# 0azN+hl6k6bKB5/U6VuSOs93ZBb3Pczy9VtBIKu4947Z5GwL0aFngIxl+GSuLFrJ
+# gPruBCRvKJEJsm7kv+LQ1COVCEG9tZ+IRtr4ocUoa53lgdFaENlS0N4wgkZkbQEP
+# v+x+1lSjYh+T4JeL9mUznT7Erc6Sp5dWLka5sMP/m3GZi6oJPdPcsCKWagH7m2H2
+# xDGIyHJC5PdH9phvi/KmhkktiSVTNNqVeV5bWdX2zhRE6UTfz0IcMoCL996lFIyd
+# XxOCE4MNDHDM0as4lnTiT/KHMccO6l8c9TnUVgmpci9ar1IABZ2U1XUkYjGGSn9M
+# C3EHDP9V39VuBVvZ33/BEV/EWSRrf07T7jFplKX+gQr/UOqPGMlE7ZJ72UaUkNJy
+# 7bVl3bcLKzdpjIHzLkf/4MVa1V7w8wqCv5W4gOnRGTlud5UMARbRM8BPxR/CXYXo
+# MmIOD8pmTk2axgRL4LG8XtuchISdCHRmtacAmLGq5XSYSVTHTXADlO48iDKh3HM2
+# r98LSF6f0sG12d8V9Jn7C3wDUieOxuKj4MdWrW+hiJU2kF87v6eH00HgCFFc2V0+
+# CvfOCMn7juzS41jLaINcBlKWQ/fKb/uDLfWOW73z1I2lFY7Xj8tQ1XYtK5eREjWI
+# tM8jpl1cbQOc88btR+0XS2TmboE/141+va2PWzCCBqcwggSPoAMCAQICEQCQrAhy
+# IP3Fp8RrXMcN9z0GMA0GCSqGSIb3DQEBDAUAMFcxCzAJBgNVBAYTAkdCMRgwFgYD
+# VQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRp
+# bWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjYwMzI1MDAwMDAwWhcNNDEwMzI0MjM1
+# OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSww
+# KgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTCCAiIw
+# DQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK7kSqIBrYIcYvlmLVuaA8zw1RfB
+# hkn4G1CoemzjcYtML6yNUvKmwGH7y6/5MuSC1UYP/+9KYDSqvMQt/1hEKHYxMAD9
+# oZpBkoaDQFEKbOJHelsKe+BaO0ZcENTKfePcraVkA7wrGAW2XHA5gQCQv4IKori/
+# 3PNOXxnDMOk8yIMgVrlMeTxqfWJ4XkjT1xc2s9DD7URHWWJOFobTPoWs6mrDFlaY
+# 9FlAHDYTfbzvxQHVsvRmn3W+5ZmCwyk02I8KgGPT/UX4sTz41GiR+ppwUjQXa1+2
+# tEHZbsdAKUtH3OPEVtZvlt7atx4h83IdRR8oYi8wjY3OjFKXFecWpQbzzsPxbUKP
+# wMWiTrzwkrFa8dH/1pDKRJt371W62PfqKPayCr/XbnBOlRn8CALSmHnRtGzuAWtT
+# JpcT3BKw6oy8IIL6wSbu938F6ZIbRNIc1dKbIJtr4ULN6R5ZfTdNEhwXctqp3RHD
+# bg4fuOl6LjNoaFwjud92EEDhzxFJzE1jqN4csceZIwxOT1aqfsfh0uFQE/lgTBuB
+# s3i6/WL2W1OceWLy3XEdXRK1f0EWCuea6dNfX2RRdjUfk5EltFnJkN2+bWhnK14O
+# PRKcyjOv5hKZ0iV4NRNd1+hjtva1rPyzb5Bs7EvFxqEQhgZbOq7qH3nm0rBwA0dx
+# niBOYCFPdu246JCxAgMBAAGjggFuMIIBajAfBgNVHSMEGDAWgBT2d2rdP/0BE/8W
+# oWyCAi/QCj0UJTAdBgNVHQ4EFgQUOnSlDGfGQlDC/bX8x7spNIL0erkwDgYDVR0P
+# AQH/BAQDAgGGMBIGA1UdEwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYBBQUH
+# AwgwIwYDVR0gBBwwGjAIBgZngQwBBAIwDgYMKwYBBAGyMQECAQMIMEwGA1UdHwRF
+# MEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1YmxpY1Rp
+# bWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEBBHAwbjBHBggrBgEFBQcw
+# AoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0YW1w
+# aW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28u
+# Y29tMA0GCSqGSIb3DQEBDAUAA4ICAQAy3lJHZvGeA2b43yhzoarvobHVzbfl+Rfu
+# PDwej0wCQkYAN6scTt2GwFe22qbOCv/tllqFlLKQZE+E9jVyuPTbyQHwrM7R0oLa
+# pAEDC1+CowsqSRf/ptira5Pfd4PoHICnb9coPQtyZmHSQp5y9IGvqWf1qNfq7V2f
+# HZ8DvEQrLUzeoGF9BJRYu2OzacW3QQtUum3NOVf0gPRwv6I4991uhncJ6VP4lcpU
+# pHZKB7R3hiIUC09mR9KjzPVnXHvL9n2bAwiUECfK5Zezhiw27F2tgi39DETfU8M4
+# n0N6xLgFzsf05M5GURX8C9+IX9V6kpmmKtrUzMti4LD66gtmf+mSm934K81NL6YQ
+# eMEk1rpYrWPypcW76Mir6wb1AgseLIHqn/GkeuQm7zOTDf3f5WoX14qVNjZWNHF3
+# JxkutV6ZnhinfCLfdv5bnwKWUfceqOajCVntI6uCbHxjBg6SCsexc5AfIGno7gVF
+# vwifT4XONPsSUaJ71XsJ+EvciVUVnjOO4qxm0fWJTd8a7jP8mc4ZPqwJvQFtOp7+
+# 6G+kUJAF0fnE8YgD8uttBReNTa1YmAeFMiqc38e8fI4eLm0zjM/eeGCHasnoqqrb
+# GwcF41iz9HXzFDwN4iD5z3QShp6HRiU3UpTwDJiiXcr0z6pjl7PyzJ3/tmWtGehV
+# 7CAfc/WlyzCCBoIwggRqoAMCAQICEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcN
+# AQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpOZXcgSmVyc2V5MRQwEgYD
+# VQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVTRVJUUlVTVCBOZXR3b3Jr
+# MS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmljYXRpb24gQXV0aG9yaXR5
+# MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVowVzELMAkGA1UEBhMCR0Ix
+# GDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJs
+# aWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJKoZIhvcNAQEBBQADggIP
+# ADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xaFQ/ZlBBEtEFAgXcUmanU
+# 5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZzEbOOp6YiTx63ywTon43
+# 4aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4f92sKKjbxqohUSfjk1mJ
+# lAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL48LpUR/O627pDchxll+b
+# TSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUmdRMKbnXWflq+/g36NJXB
+# 35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZdwuCysCKZ9ZjczMqbUcLF
+# yq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOcNzDpQsmwGQ6Stw8tTCqP
+# umhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqYubNeKolzqUbCqhSqmr/U
+# dUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqcRY/pjnYd+V5/dcu9ieER
+# jiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jGwTzxbMpepmOP1mLnJskv
+# ZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk9R8QJyAkL6/bAgMBAAGj
+# ggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dibwJ3ysgNmyzAdBgNVHQ4E
+# FgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/BAQDAgGGMA8GA1UdEwEB
+# /wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAGBgRVHSAA
+# MFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNlcnRydXN0LmNvbS9VU0VS
+# VHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNybDA1BggrBgEFBQcBAQQp
+# MCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0cnVzdC5jb20wDQYJKoZI
+# hvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzrftrIF5Ht2PFDxKKFOct/
+# awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/KbUOiL7g98M/yzRyqUOZ1
+# /IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdtFwXnuiWl8eFARK3PmLqE
+# m9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/MgTECimh7eXomvMm0/GPxX
+# 2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNbsdXUC2xBrq9fLrfe8IBs
+# A4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJGlxZ5384OKm0r568Mo9T
+# YrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzxZOFGm/yVQkpo+ffv5gdh
+# p+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTxmSkop2mSJL1Y2x/955S2
+# 9Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP7d/doqDrLF1u6Ci3TpjA
+# ZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4JA5gPBcz7J311uahxCweN
+# xE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc6CkJ1Sji4PKWVT0/MYIE
+# kzCCBI8CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1p
+# dGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0
+# MQIRAOdO8lWwUE/626bf9/yLoxUwDQYJYIZIAWUDBAICBQCgggH6MBoGCSqGSIb3
+# DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYxMTI2MTc1NzM0
+# WjA/BgkqhkiG9w0BCQQxMgQw/Qv/GWoHOgrl90oNKUCpil5TkUZGtqAEuPZ4gcTu
+# NxthM/Xevij95odJUCA9a6MPMIIBewYLKoZIhvcNAQkQAgwxggFqMIIBZjCCAWIw
+# FgQU6XgYqSjaFQqf4b+czHqruaAO7qwwgYgEFGXDKGlvfU5QLP0Dx8IGlxjK+/dP
+# MHAwW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQx
+# LjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYC
+# EQCQrAhyIP3Fp8RrXMcN9z0GMIG8BBSFPWMtk4KCYXzQkDXEkd6SwULaxzCBozCB
+# jqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNV
 # BAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsx
-# LjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkw
-# HhcNMjEwMzIyMDAwMDAwWhcNMzgwMTE4MjM1OTU5WjBXMQswCQYDVQQGEwJHQjEY
-# MBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVTZWN0aWdvIFB1Ymxp
-# YyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2MIICIjANBgkqhkiG9w0BAQEFAAOCAg8A
-# MIICCgKCAgEAiJ3YuUVnnR3d6LkmgZpUVMB8SQWbzFoVD9mUEES0QUCBdxSZqdTk
-# dizICFNeINCSJS+lV1ipnW5ihkQyC0cRLWXUJzodqpnMRs46npiJPHrfLBOifjfh
-# pdXJ2aHHsPHggGsCi7uE0awqKggE/LkYw3sqaBia67h/3awoqNvGqiFRJ+OTWYmU
-# CO2GAXsePHi+/JUNAax3kpqstbl3vcTdOGhtKShvZIvjwulRH87rbukNyHGWX5tN
-# K/WABKf+Gnoi4cmisS7oSimgHUI0Wn/4elNd40BFdSZ1EwpuddZ+Wr7+Dfo0lcHf
-# lm/FDDrOJ3rWqauUP8hsokDoI7D/yUVI9DAE/WK3Jl3C4LKwIpn1mNzMyptRwsXK
-# rop06m7NUNHdlTDEMovXAIDGAvYynPt5lutv8lZeI5w3MOlCybAZDpK3Dy1MKo+6
-# aEtE9vtiTMzz/o2dYfdP0KWZwZIXbYsTIlg1YIetCpi5s14qiXOpRsKqFKqav9R1
-# R5vj3NgevsAsvxsAnI8Oa5s2oy25qhsoBIGo/zi6GpxFj+mOdh35Xn91y72J4RGO
-# JEoqzEIbW3q0b2iPuWLA911cRxgY5SJYubvjay3nSMbBPPFsyl6mY4/WYucmyS9l
-# o3l7jk27MAe145GWxK4O3m3gEFEIkv7kRmefDR7Oe2T1HxAnICQvr9sCAwEAAaOC
-# ARYwggESMB8GA1UdIwQYMBaAFFN5v1qqK0rPVIDh2JvAnfKyA2bLMB0GA1UdDgQW
-# BBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/
-# BAUwAwEB/zATBgNVHSUEDDAKBggrBgEFBQcDCDARBgNVHSAECjAIMAYGBFUdIAAw
-# UAYDVR0fBEkwRzBFoEOgQYY/aHR0cDovL2NybC51c2VydHJ1c3QuY29tL1VTRVJU
-# cnVzdFJTQUNlcnRpZmljYXRpb25BdXRob3JpdHkuY3JsMDUGCCsGAQUFBwEBBCkw
-# JzAlBggrBgEFBQcwAYYZaHR0cDovL29jc3AudXNlcnRydXN0LmNvbTANBgkqhkiG
-# 9w0BAQwFAAOCAgEADr5lQe1oRLjlocXUEYfktzsljOt+2sgXke3Y8UPEooU5y39r
-# AARaAdAxUeiX1ktLJ3+lgxtoLQhn5cFb3GF2SSZRX8ptQ6IvuD3wz/LNHKpQ5nX8
-# hjsDLRhsyeIiJsms9yAWnvdYOdEMq1W61KE9JlBkB20XBee6JaXx4UBErc+YuoSb
-# 1SxVf7nkNtUjPfcxuFtrQdRMRi/fInV/AobE8Gw/8yBMQKKaHt5eia8ybT8Y/Ffa
-# 6HAJyz9gvEOcF1VWXG8OMeM7Vy7Bs6mSIkYeYtddU1ux1dQLbEGur18ut97wgGwD
-# iGinCwKPyFO7ApcmVJOtlw9FVJxw/mL1TbyBns4zOgkaXFnnfzg4qbSvnrwyj1Ni
-# urMp4pmAWjR+Pb/SIduPnmFzbSN/G8reZCL4fvGlvPFk4Uab/JVCSmj59+/mB2Gn
-# 6G/UYOy8k60mKcmaAZsEVkhOFuoj4we8CYyaR9vd9PGZKSinaZIkvVjbH/3nlLb0
-# a7SBIkiRzfPfS9T+JesylbHa1LtRV9U/7m0q7Ma2CQ/t392ioOssXW7oKLdOmMBl
-# 14suVFBmbzrt5V5cQPnwtd3UOTpS9oCG+ZZheiIvPgkDmA8FzPsnfXW5qHELB43E
-# T7HHFHeRPRYrMBKjkb8/IN7Po0d0hQoF4TeMM+zYAJzoKQnVKOLg8pZVPT8xggST
-# MIIEjwIBATBqMFUxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0
-# ZWQxLDAqBgNVBAMTI1NlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgQ0EgUjQx
-# AhEA507yVbBQT/rbpt/3/IujFTANBglghkgBZQMEAgIFAKCCAfowGgYJKoZIhvcN
-# AQkDMQ0GCyqGSIb3DQEJEAEEMBwGCSqGSIb3DQEJBTEPFw0yNjExMDQwODI2MDda
-# MD8GCSqGSIb3DQEJBDEyBDDFdaht3yjdnSQnTWZjQk7xGf8vPrygboGXgklfpdVU
-# HfDUqHiPqfhraHWEJH5SAKMwggF7BgsqhkiG9w0BCRACDDGCAWowggFmMIIBYjAW
-# BBTpeBipKNoVCp/hv5zMequ5oA7urDCBiAQUZcMoaW99TlAs/QPHwgaXGMr7908w
-# cDBbpFkwVzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEu
-# MCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NgIR
-# AJCsCHIg/cWnxGtcxw33PQYwgbwEFIU9Yy2TgoJhfNCQNcSR3pLBQtrHMIGjMIGO
-# pIGLMIGIMQswCQYDVQQGEwJVUzETMBEGA1UECBMKTmV3IEplcnNleTEUMBIGA1UE
-# BxMLSmVyc2V5IENpdHkxHjAcBgNVBAoTFVRoZSBVU0VSVFJVU1QgTmV0d29yazEu
-# MCwGA1UEAxMlVVNFUlRydXN0IFJTQSBDZXJ0aWZpY2F0aW9uIEF1dGhvcml0eQIQ
-# NsKwvXwbOuejs902y8l1aDANBgkqhkiG9w0BAQEFAASCAgAFKwQh9eZQihVWHucn
-# O/Sc9jmDAlnJe+BZ06Zv2hZ5lFZ2Tyb7ykf7pyyZ/P+9yc8tcjVXVOaAZCO6eQyO
-# wn2FWUCewdfhpMV+sTBzsOBY+ANKK5STIE+jW3M2m/sPctVIAQvQP1XeMo/xtyH3
-# o5XHp2a+t7fvMOiWvbwu2dvRYRU1jX0YFYspyPgnftqSZ09rAHt6WhyGBf13amXT
-# XNPDTROt5d5Xkt7gz7rPXwwqWtcfljIrqOdAfvW5z8DWKhgcZcIOpXYaTYxKEau4
-# dLn81SncN8ceLxjosg/mBTqO4ddzPvQ++RAsswQq174aflg65a+b46C0Puhogzme
-# WPQX/4Lm95yNkz5XONUNAFBM5Ied+0gH9Kr8YCi4gQJ40ZoDMT6ywJj3nA6JOeyE
-# 0de58wrs61FQonLw8kgAOWqQB9kYVZ815DoBOid5OY5vlG4Fakhc2/SXkFmWAgY6
-# pg7fZVFq3NH3HKSuAiTVAT668izrPhvoDrFA4HFyjnYxVEx+nsGgI47qzRDpGkrR
-# JsUARkVPD9lIiKSjvDGnncKRc8m9ShGtt02+f4yWfkkKLF5AINfVFGQiRHP7ITIk
-# zpEcKX1gBuxoTFg5JLKQmhaS8E85VL1NRDB02vP4jW0IjppMHAXk4MI/P9QTSRxr
-# FsPqL5prGYcWpQF04b47UKGDHw==
+# LjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkC
+# EDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAEggIAAvJmuWJGiTHhGO7y
+# jxvQP5+1bhyRl9PyVf4uyTXkr6Y2yOxeUxVcZrWx2pkJgCCbVChZB6EwgNpEeryk
+# 3PnDIVyahtHwr4AbSPhAknb7oxfMXI4cwUiYXnUHG5siHIsCArrmBhIWxYgw02Mv
+# /MCaR7xItmrDcPtzf2bQu+UFNIXZdFnOWJuLg4TwqPS+78EZjs19cd4smEX7D4kx
+# RA+KlHuoou4AhGxY3ttviGUe0jKP7gPZp34c5Zu4XwGx0pI45vn8OticmNGS5Izg
+# RNkA+viPcr16SKLLNMqssP5MQ5CQuyoK0kVnj9Qiw19DOAKc4+WybZUfxZSXfAhR
+# iWNkSNv0KYgjO57ILHsVuXARRKg659WHbzFVQHGm2HCloTK60XnYpNSM648zQipe
+# GFhiQ7QYXDhbrxTpQDJwFoQGGOCutZouxMzu+71WbmFPgeW2h0nPArGsMxrVAM5B
+# gAZUZPCkGazPi4i/o2o5tDsof3WKCshcPDtK9kqFfvG6ZH4/4iQWQMFLaTViA6R1
+# o49BUveL3Ui7MMnKgRKaxAq/XvgKZNaEOlNhlz3o06a6R7socVLeeh7nLqdhwMbQ
+# VZ4UiPaosKsF4vrYMVksE7M07cYLD3wReimGm5H76Z2tbRcH0PsQ97BvY2wrrP/B
+# whG/7A4IKtu59lNwXdY2uMbl/8E=
 # SIG # End signature block

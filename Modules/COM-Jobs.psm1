@@ -2479,6 +2479,12 @@ function Update-HPECOMServerFirmware {
     This example retrieves a list of all "ProLiant DL360 Gen10 Plus" servers in the `eu-central` region and schedules a firmware update for them using baseline version `2024.04.00.02`. 
     The update is scheduled to occur four days from the current date and includes installing HPE drivers and software while allowing firmware downgrade.
 
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowServersToUpdate | Where-Object advisoriesResolved -gt 0 | Update-HPECOMServerFirmware -FirmwareBaselineReleaseVersion 2026.09.00.00 -WhatIf
+
+    This example uses the firmware analysis report to select the servers whose update to the latest baseline resolves at least one security bulletin or customer advisory,
+    and previews the firmware update request for each of them. Remove -WhatIf to start the updates.
+
     .INPUTS
     System.String, System.String[]
         A single string object or a list of string objects representing the server's serial numbers.
@@ -5105,6 +5111,12 @@ function Update-HPECOMGroupServerFirmware {
 
     This example retrieves the last two servers from the 'ESXi_800' in the 'eu-central' region and schedules a firmware update for them six months from the current date.
 
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowServersToUpdate | Where-Object { $_.group -eq 'ESXi_800' -and $_.advisoriesResolved -gt 0 } | Update-HPECOMGroupServerFirmware -Region eu-central -GroupName ESXi_800 -WhatIf
+
+    This example uses the firmware analysis report to select the servers of the 'ESXi_800' group whose update resolves at least one security bulletin or customer advisory,
+    and previews the group firmware update request for these servers only. Remove -WhatIf to start the update.
+
     .INPUTS
     System.String, System.String[]
         A single string object or a list of string objects representing the server's serial numbers.
@@ -6354,6 +6366,12 @@ function Get-HPECOMGroupServerFirmwareCompliance {
     Get-HPECOMGroup -Region eu-central | Get-HPECOMGroupServerFirmwareCompliance 
 
     This command returns the firmware compliance of all servers in all groups in the 'eu-central' region.
+
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowComponentsToUpdate
+
+    Unlike group compliance, which compares servers with the baseline of their group, the firmware analysis report compares every server with the latest baseline
+    and shows the components to update and the security bulletins and customer advisories they resolve (see Get-HPECOMFirmwareAnalysisReport -ShowAdvisories).
 
     .INPUTS
     System.Collections.ArrayList
@@ -15437,8 +15455,8 @@ Export-ModuleMember -Function `
 # SIG # Begin signature block
 # MIIn2gYJKoZIhvcNAQcCoIInyzCCJ8cCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCCUaAO8wsQ4nZna
-# CcmWjLNKdXRqgMKSxPTdqgDG7LDD26CCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAx3RxHdbcgte4h
+# raTXrqvyxZL3KoVAdBhhg2SfxJc8gaCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
 # O5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYDVQQK
 # Ew9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENvZGUg
 # U2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTla
@@ -15510,22 +15528,22 @@ Export-ModuleMember -Function `
 # ZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUDBAIB
 # BQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGCNwIB
 # BDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQg
-# 7uKis13LpRUBToRPB/02zord9Le1LZjs+rDR+5zVX+EwDQYJKoZIhvcNAQEBBQAE
-# ggIARQJXhFH1z04phDSoyl7aV637jrgl3OX2jWx4Bmcvtv0ANOFUV2FxihZfy1of
-# 7hCr/lqpN9IGVHc2YUmdFxqdJA0cExr7weXnqst6xYxGo50js/KUt824naXmLvt7
-# 1HR7VHibtwuTNy5WB9w4kj4MmOyWMFRaVRtixAAHF7lFMvmWlZtkHi4e4VcO4VGI
-# L/ENnHmLeskmEZj3//TWf1bM4arXGwcRFgxrV59VQpIm9puWWAWB9EMuy773GFJE
-# tHCJHPAEcH2OXZJ/HQOypeQQFb4ofdzjJ5d+a/sSs6pAmv/+6r1CaxKlUCU4HJ/3
-# nOKyectFuLixY5cuxRQxwbBU9TtqMaE/u6EEL5EcmSJ12TSasIaKLaF4mo6u5GoP
-# F4vPrPLtZGtFQ0ZNa3tUDLMmn4w39PS5+NU0X3/EvmSGGqtewFrwidAsyjYAz4jS
-# zim3SkPFkOMlYVSaTnrTj9C9v2tmF0SYGB2rHVmOcY3ZmugjhgCAM2tBc1C7nYNf
-# v94sp7bAfLJs4M/vxue5Nt/ZZf05spplxwWReSt345qu4LIJabBGuFvNPkQifUte
-# 9cxcQY1a0GfmJBdAzmsG+QDNNWP7YQAvuQWNMPzFZFay1muYX9iQR6FpbBVzEJyd
-# /OAWbp02ipDWz1upnlDzCCCXWn4NKSxxBHbHOMeTK62XQHyhgheXMIIXkwYKKwYB
+# f5eBZa8za/CmHntvwq0Hc59DRFojE4SJfwKqS6GkvmEwDQYJKoZIhvcNAQEBBQAE
+# ggIAG5+ScSnEHkTiMxZOb+OJAyHGK2MvzvDLCU8mH/h7sNucXu3GBju2KL+g+muM
+# zD7F6gevRWDKyVS8e6yWo+d76xpaS6G4zysA9dGpP3fwcxtCRsqei8xpSmOZMyDj
+# fnxDZZnr5oFj8vrE/ES9rmjpfYEzjV2AsqJiKZgxteY15kzj/w+OsNvAOgm850iy
+# mKdz2vnEMCL15xU5dEchgdC+tFdiAeoAc8CpLCyaum6pidcY7shH+vdZk+H33fFc
+# ztwYeKSF64+9K+f/iKOUe5sPqfxhZbbMrfrXrodeW5WPi+POCHeNFlXu9t5BjWJ7
+# Cg6ehlSOPjHmp/MDJfD7I9i1SPDSCqeoWM0y0l+lDm9LlZRhzYGjmz3ilHrhIfGk
+# oybVY82xzuN51/9/iMKqgn83atQ2ElZuiGPJguebcvqnXDvUWB0HhkPHJCRHubM0
+# 8u3SPx12R1tHHFC5+tbDxMBCWtnsh00tjNpGVUu9P9uXQQMYWVQ1q2Way1WcZ+5l
+# ++L0tvV7ldWz6J3OyYrWPWLtHxeaJShm2Gx7j6A8jItKSqNhaAOnYZr6+tothJkY
+# Yuf2mjHo4Z/hNFLrkrTiWpdtTfolFqi341DXX5JEQVZE4xCwfThSzY5WKWwObH/f
+# riL+c4TLEDDGR+R8hHkpojpH9F/TJrlQdkabKdiSpLlKQEehgheXMIIXkwYKKwYB
 # BAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCGSAFl
 # AwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEwDQYJ
-# YIZIAWUDBAICBQAEMPb/PV0CBl5inXg+OW/RIzXga3mWHFQoLboUuKS/jKJAB3LS
-# tE0FZpXlG5A2+el7oAIQXoaB4iCQa3Dv6muhSv5S0hgPMjAyNjExMjMwODQwNTha
+# YIZIAWUDBAICBQAEMLG6GfZsct585dIIuol0NCKuOuU741fpovy19r/0B48R7poO
+# JosriqjJtJw7fh6fiQIQaFRwhvdjfqVL9GGlsDY34xgPMjAyNjExMjYxNzUxMTNa
 # oIITOjCCBu0wggTVoAMCAQICEA4euzIrXIp1PhI/Ic7Q8tkwDQYJKoZIhvcNAQEM
 # BQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYD
 # VQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNI
@@ -15632,20 +15650,20 @@ Export-ModuleMember -Function `
 # CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
 # Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
 # MjUgQ0ExAhAOHrsyK1yKdT4SPyHO0PLZMA0GCWCGSAFlAwQCAgUAoIHhMBoGCSqG
-# SIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYxMTIzMDg0
-# MDU4WjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBTpqKcjtIUE9eDhQ4tnPs6HzyxQ
+# SIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYxMTI2MTc1
+# MTEzWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBTpqKcjtIUE9eDhQ4tnPs6HzyxQ
 # mzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCBxHdd7HC5xsmHXVY1pnAB3yX0SAzCa
-# YI7cEFY0wVBQezA/BgkqhkiG9w0BCQQxMgQwp4fxE9T9KyV+eOp61vQkKKGV++I+
-# 3EhVqjh5c4XPYFMKtSAUD0l1Sqz0KJc9NaBlMA0GCSqGSIb3DQEBAQUABIICAGtX
-# 8FPFBSoAB2gb2tA5V51ZoChKdHoU1kb2XEeas6yoe0rWPAeJXN3kbkeHoA2/Gae7
-# JhxZ/0QUz6GjDpv09Sj6N46m62KYVsz2P4MQBcYS+iVdmWvNWBIHADLw1ja0xVBj
-# MKQeRCMRwdG437OuSLaBV+ExU3VpPI/i1fCmIlDNB6MQ0r9FLIcD4dKNMzArwuYg
-# R77M6VTjh4ERb0RqJ8sqe6pDwKY1V9116sk7TfcK5Ri/6cIJA0VKy8bC8aT9usyc
-# LL1HHg4AITrqjYDJetTX9drpH8/0y+M1GD/5/O2HtQbJW4Anj9x3RMv+NeaG6Hxr
-# EvxfhkwycZyzGmB+cM7hqbk6GI0crm5IBWGtMTM6MeIxA1MWO2kSncw22D+eVdJQ
-# rShe+ngBT5DaqxNPj8W1qa5TPDpiRWocoonuVFHnhu5B3/+77OINQEK2Vplk2SZU
-# x8iZaqKr/2rJolD6gzakHXBXrkZVxZ0lIZbhY6gxCttsqHT6Nfi5JZDquZwQMvbA
-# X+YqmVbZZP+YY0u/UaflurxP4RJXDALfwVjC05BafZhWoFguUxl0q9/fUh6+KCOA
-# w6VC7hpbZ/ntiO/d3R1ZhNAMPFVHZDHr6V5ziJwQuuzsRn3GrSDeXjPzLjv50b4a
-# Ag1bED1UZYIQKz8bmLECDyGYGBFVsHSWBOBISBEg
+# YI7cEFY0wVBQezA/BgkqhkiG9w0BCQQxMgQwnEW+STglUgABBzqhO+prAz1Br5zT
+# K0k+f80hif5DbjqU4KmzW8mzqGrTSkA9qzCwMA0GCSqGSIb3DQEBAQUABIICAFnY
+# ecYoylQYD23btoC1uW/iPPXT10XdcWWIgRKiNiuNk4ZX11ol72yjjZyeMwLON2DA
+# ckF4wzrNWVlU0X0nyVe7SS9q6RkbguiaeCrPQRrcUhjMh70jH/HUSH/IHdwz/KI6
+# OBRKb9AIKjh2gBL+eQyi0vy/uX/h7bzwLUWO0APBDISwjoQZylIlRArddTQKB9WJ
+# dq7V/UzidUXxqPnPLjHEyFpPTmiA00R3p7WwUmK32Q3lYQ8npZuCp/vDsuiVg1ma
+# csLLaI/UYp8o5Rth2/XqxNAUYMEecQCqIRtNX2S1/gspIksSDW1UZQKzDCBF2+yG
+# Y5Vn5/L/n7MMOimN3No84B92xM6E+yHmxKuutABB6yFNGfbJ1tkldXm5rEgiTav+
+# t2isQhlhQjGwnOTBP7ATIrn0P2SoC+GIsOg1xmI9rdIi/ID1V1PgZUq9fM9fbA+4
+# odRrgrgbqwVTjOul8+4bXDJ2f/F+0mJ5jBLfSbeRXPf2cOVQS7BOccj90esNXfVq
+# XPehGzZtG3eAsB6N2bhzZD7uoCHmVWvz8G18sPhtSxlMKCpS0WtXLOIiXB3n9QOX
+# 4Oe5q1n1KeCkC6JpPlinuzx8JBIvUTA6dl5ieQk1oJM3c4yux5tgJxFsblRNSgl/
+# cBsRZ6twGxWFRZA1eazb5uaIdtRbJLWnodfItTip
 # SIG # End signature block

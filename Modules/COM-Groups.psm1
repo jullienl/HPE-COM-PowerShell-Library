@@ -53,6 +53,11 @@ Function Get-HPECOMGroup {
 
     .PARAMETER ShowApprovalPolicy
     Optional switch parameter that can be used to retrieve the approval policies assigned to the designated group.
+
+    .PARAMETER ShowSecurityStatus
+    Optional switch parameter that can be used to retrieve the security status of the groups, with the number of servers per overall security status, iLO security status and hardware verification status (OK, RISK, NOT_ENABLED, etc.).
+    Can be used with -Name to target a single group.
+    Use Get-HPECOMGroupServerHardwareVerification to review the hardware changes detected on the servers of a group.
     
     .PARAMETER ShowSettings
     Optional parameter that can be used to obtain a list of server settings that are assigned to the designated group. 
@@ -126,6 +131,16 @@ Function Get-HPECOMGroup {
     Return the approval policies assigned to the group 'Team1'.
 
     .EXAMPLE
+    Get-HPECOMGroup -Region eu-central -ShowSecurityStatus
+
+    Return the security status of all groups, including the number of servers per hardware verification status.
+
+    .EXAMPLE
+    Get-HPECOMGroup -Region eu-central -Name AI_Group -ShowSecurityStatus
+
+    Return the security status of the group 'AI_Group'.
+
+    .EXAMPLE
     Get-HPECOMGroup -Region eu-central -Name ESXi_group -ShowActivities
 
     Return activities from the last month for the group 'ESXi_group'.
@@ -194,6 +209,7 @@ Function Get-HPECOMGroup {
         [Parameter (Mandatory, ParameterSetName = 'ShowApprovalPolicy')]
         [Parameter (ParameterSetName = 'ShowActivities')]
         [Parameter (ParameterSetName = 'ShowJobs')]
+        [Parameter (ParameterSetName = 'ShowSecurityStatus')]
         [ValidateNotNullOrEmpty()]
         [String]$Name,
 
@@ -217,6 +233,9 @@ Function Get-HPECOMGroup {
 
         [Parameter (ParameterSetName = 'ShowApprovalPolicy')]
         [Switch]$ShowApprovalPolicy,
+
+        [Parameter (ParameterSetName = 'ShowSecurityStatus')]
+        [Switch]$ShowSecurityStatus,
                 
         [Parameter (ParameterSetName = 'ShowSettings')]
         [Switch]$ShowSettings,
@@ -325,6 +344,10 @@ Function Get-HPECOMGroup {
                 $PSCmdlet.ThrowTerminatingError($_)
            
             }
+        }
+        elseif ($ShowSecurityStatus) {
+            $Uri = Get-COMGroupsUIDoorwayUri
+            $_applyNameFilter = [bool]$Name
         }
         elseif ($Name) {
 
@@ -946,6 +969,27 @@ Function Get-HPECOMGroup {
                 $ReturnData = $allPolicies | Where-Object {
                     $_.policyData.resources | Where-Object { $_.id -eq $CollectionList.id }
                 }
+
+            }
+            elseif ($ShowSecurityStatus) {
+
+                $SecurityList = [System.Collections.ArrayList]::new()
+
+                foreach ($item in $CollectionList) {
+                    [void]$SecurityList.Add([PSCustomObject]@{
+                        name                        = $item.name
+                        deviceType                  = $item.deviceType
+                        groupSecurityStatus         = $item.groupSecurityStatus
+                        overallDeviceSecurityStatus = $item.deviceCounts_.overallDeviceSecurityStatus
+                        iloSecurityStatus           = $item.deviceCounts_.iloSecurity
+                        secureHardwareStatus        = $item.deviceCounts_.secureHardware
+                        id                          = $item.id
+                        region                      = $Region
+                    })
+                }
+
+                $ReturnData = Invoke-RepackageObjectWithType -RawObject $SecurityList -ObjectName "COM.Groups.SecurityStatus"
+                $ReturnData = $ReturnData | Sort-Object name
 
             }
             else {
@@ -4698,6 +4742,638 @@ Function Remove-HPECOMApplianceFromGroup {
     }
 }
 
+Function Get-HPECOMGroupServerHardwareVerification {
+    <#
+    .SYNOPSIS
+    Retrieve the hardware verification status and the hardware changes of the servers in a group.
+
+    .DESCRIPTION
+    This cmdlet returns the hardware verification status of the servers that are members of a group.
+
+    When hardware verification is enabled in the iLO settings of the group (see 'New-HPECOMSettingiLOSettings -HardwareVerification Enabled'), Compute Ops Management records a baseline of the server hardware inventory.
+    When a component is added, removed or modified, the server hardware verification status changes to 'RISK' until the changes are accepted with 'Approve-HPECOMGroupServerHardwareChange'.
+
+    Use -ShowChanges to list the hardware changes detected since the last accepted baseline.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER GroupName
+    Specifies the name of the group.
+
+    .PARAMETER ServerName
+    Optional parameter to specify the name or serial number of a server member of the group.
+
+    .PARAMETER Status
+    Optional parameter to filter servers by hardware verification status:
+    - OK: Hardware verified, no change since the last accepted baseline.
+    - RISK: Hardware changes detected, they must be reviewed and accepted.
+    - NOT_ENABLED: Hardware verification is not enabled.
+    - UNKNOWN: Status cannot be determined.
+
+    .PARAMETER ShowChanges
+    Optional switch parameter to list the hardware changes (added, removed or modified components) detected on the servers since the last accepted baseline.
+    Each change includes the component category (Memory, Storage, Processor, PowerSupply, Chassis, Device, Network), the change type, the component name, location, model and serial number,
+    the list of modified properties, and the old and new component data (oldData and newData properties).
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Get-HPECOMGroupServerHardwareVerification -Region eu-central -GroupName AI_Group
+
+    Return the hardware verification status of all servers in the group 'AI_Group'.
+
+    .EXAMPLE
+    Get-HPECOMGroupServerHardwareVerification -Region eu-central -GroupName AI_Group -Status RISK
+
+    Return the servers of the group 'AI_Group' with hardware changes to review.
+
+    .EXAMPLE
+    Get-HPECOMGroupServerHardwareVerification -Region eu-central -GroupName AI_Group -ShowChanges
+
+    Return the hardware changes detected on the servers of the group 'AI_Group'.
+
+    .EXAMPLE
+    Get-HPECOMGroupServerHardwareVerification -Region eu-central -GroupName AI_Group -ServerName fdz360g10-1 -ShowChanges | Format-List
+
+    Return the details of the hardware changes detected on the server 'fdz360g10-1'.
+
+    .EXAMPLE
+    Get-HPECOMGroup -Region eu-central | Get-HPECOMGroupServerHardwareVerification -Status RISK
+
+    Return the servers with hardware changes to review across all groups of the 'eu-central' region.
+
+    .EXAMPLE
+    Get-HPECOMGroupServerHardwareVerification -Region eu-central -GroupName AI_Group -Status RISK | Approve-HPECOMGroupServerHardwareChange
+
+    Accept the hardware changes of all servers with a 'RISK' hardware verification status in the group 'AI_Group'.
+
+    .INPUTS
+    System.Collections.ArrayList
+        List of groups from 'Get-HPECOMGroup'.
+
+    .OUTPUTS
+    HPEGreenLake.COM.Groups.HardwareVerification [System.Management.Automation.PSCustomObject]
+        One object per server with the hardware verification status, the changed component categories and the last accepted baseline information.
+
+    HPEGreenLake.COM.Groups.HardwareVerification.Changes [System.Management.Automation.PSCustomObject]
+        One object per hardware change when -ShowChanges is used.
+   #>
+
+    [CmdletBinding()]
+    Param(
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [String]$GroupName,
+
+        [Alias('ServerSerialNumber')]
+        [ValidateNotNullOrEmpty()]
+        [String]$ServerName,
+
+        [ValidateSet('OK', 'RISK', 'NOT_ENABLED', 'UNKNOWN')]
+        [String]$Status,
+
+        [Switch]$ShowChanges,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $CategoryNames = @{
+            memoryInventory      = 'Memory'
+            storageInventory     = 'Storage'
+            processorInventory   = 'Processor'
+            powerSupplyInventory = 'PowerSupply'
+            chassisInventory     = 'Chassis'
+            deviceInventory      = 'Device'
+            networkInventory     = 'Network'
+        }
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        try {
+            $Group = Get-HPECOMGroup -Region $Region -Name $GroupName -Verbose:$false
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if (-not $Group) {
+            "[{0}] Group '{1}' cannot be found in the '{2}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $GroupName, $Region | Write-Verbose
+            return
+        }
+
+        if ($Group.deviceType -match '^OVE_APPLIANCE') {
+            "[{0}] Group '{1}' is a OneView appliance group, hardware verification only applies to server groups" -f $MyInvocation.InvocationName.ToString().ToUpper(), $GroupName | Write-Verbose
+            return
+        }
+
+        $Uri = (Get-COMGroupsHardwareVerificationUri) + "/" + $Group.id + "/secure-devices"
+
+        if ($Status) {
+            $Uri = $Uri + "?filter=serverSecureHardwareStatus eq '$Status'"
+        }
+
+        try {
+            [Array]$Records = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+            if ($WhatIf) { return }
+
+            $Members = Get-HPECOMGroup -Region $Region -Name $Group.name -ShowMembers -Verbose:$false
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($ServerName) {
+
+            $Member = $Members | Where-Object { $_.serverName -eq $ServerName -or $_.serialNumber -eq $ServerName } | Select-Object -First 1
+
+            if (-not $Member) {
+                "[{0}] Server '{1}' is not a member of the '{2}' group" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ServerName, $Group.name | Write-Verbose
+                return
+            }
+
+            $Records = @($Records | Where-Object deviceId -eq $Member.id)
+        }
+
+        if (-not $Records) {
+            "[{0}] No hardware verification record found for group '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Group.name | Write-Verbose
+            return
+        }
+
+        $ResultList = [System.Collections.ArrayList]::new()
+
+        foreach ($Record in $Records) {
+
+            $Member = $Members | Where-Object id -eq $Record.deviceId | Select-Object -First 1
+            $_ServerName = if ($Member.serverName) { $Member.serverName } else { $Record.deviceId }
+            $_SerialNumber = if ($Member.serialNumber) { $Member.serialNumber } else { ($Record.deviceId -split '\+')[-1] }
+
+            if (-not $ShowChanges) {
+
+                [void]$ResultList.Add([PSCustomObject]@{
+                    serverName             = $_ServerName
+                    serialNumber           = $_SerialNumber
+                    groupName              = $Group.name
+                    secureHardwareStatus   = $Record.serverSecureHardwareStatus
+                    componentsChanged      = $Record.componentsChanged
+                    baselineLastAcceptedAt = $Record.baselineLastAcceptedAt
+                    baselineAcceptedBy     = $Record.baselineAcceptedBy
+                    deviceId               = $Record.deviceId
+                    id                     = $Record.id
+                    region                 = $Region
+                })
+                continue
+            }
+
+            if ($Record.serverSecureHardwareStatus -ne 'RISK' -and -not $Record.componentsChanged) {
+                "[{0}] Server '{1}': no hardware change detected" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_ServerName | Write-Verbose
+                continue
+            }
+
+            $BaselineUri = (Get-COMGroupsHardwareVerificationUri) + "/" + $Group.id + "/devices/" + $Record.deviceId + "/baseline"
+
+            try {
+                $Baseline = Invoke-HPECOMWebRequest -Method GET -Uri $BaselineUri -Region $Region -Verbose:$VerbosePreference
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            foreach ($Inventory in ($Baseline.PSObject.Properties | Where-Object Name -match 'Inventory$')) {
+
+                $Category = if ($CategoryNames[$Inventory.Name]) { $CategoryNames[$Inventory.Name] } else { $Inventory.Name -replace 'Inventory$' }
+
+                foreach ($ChangeType in 'added', 'removed', 'modified') {
+
+                    $Changes = $Inventory.Value.$ChangeType
+                    if (-not $Changes) { continue }
+
+                    foreach ($Change in $Changes.PSObject.Properties) {
+
+                        $OldData = $Change.Value.oldData
+                        $NewData = $Change.Value.newData
+                        $Ref = if ($NewData) { $NewData } else { $OldData }
+
+                        $ChangedProperties = if ($OldData -and $NewData) {
+                            @($NewData.PSObject.Properties.Name | Where-Object { $_ -notin 'uniqueId', 'secureHardwareStatus' -and "$($OldData.$_)" -ne "$($NewData.$_)" })
+                        }
+
+                        $Location = if ($Ref.location) { $Ref.location }
+                        elseif ($Ref.serviceLabel) { $Ref.serviceLabel }
+                        elseif ($Ref.socket) { $Ref.socket }
+                        elseif ($null -ne $Ref.bayNumber) { "Bay {0}" -f $Ref.bayNumber }
+
+                        [void]$ResultList.Add([PSCustomObject]@{
+                            serverName            = $_ServerName
+                            serialNumber          = $_SerialNumber
+                            groupName             = $Group.name
+                            category              = $Category
+                            changeType            = (Get-Culture).TextInfo.ToTitleCase($ChangeType)
+                            component             = if ($Ref.deviceLocator) { $Ref.deviceLocator } else { $Ref.name }
+                            location              = $Location
+                            model                 = if ($Ref.model) { $Ref.model } else { $Ref.partNumber }
+                            componentSerialNumber = $Ref.serialNumber
+                            changedProperties     = $ChangedProperties
+                            oldData               = $OldData
+                            newData               = $NewData
+                            deviceId              = $Record.deviceId
+                            region                = $Region
+                        })
+                    }
+                }
+            }
+        }
+
+        if ($ResultList.Count -eq 0) {
+            "[{0}] No hardware change found for group '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Group.name | Write-Verbose
+            return
+        }
+
+        if ($ShowChanges) {
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $ResultList -ObjectName "COM.Groups.HardwareVerification.Changes"
+        }
+        else {
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $ResultList -ObjectName "COM.Groups.HardwareVerification"
+            $ReturnData = $ReturnData | Sort-Object serverName
+        }
+
+        return $ReturnData
+    }
+}
+
+Function Approve-HPECOMGroupServerHardwareChange {
+    <#
+    .SYNOPSIS
+    Accept the hardware changes detected on servers of a group.
+
+    .DESCRIPTION
+    This cmdlet accepts the hardware changes detected by hardware verification on servers that are members of a group.
+    The current hardware inventory of the servers becomes the new trusted baseline and their hardware verification status returns to 'OK'.
+
+    Only servers with a 'RISK' hardware verification status can be approved. When no server is specified, the changes of all servers with a 'RISK' status in the group are accepted.
+
+    Review the changes before approving them with 'Get-HPECOMGroupServerHardwareVerification -ShowChanges'.
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER GroupName
+    Specifies the name of the group.
+
+    .PARAMETER ServerName
+    Optional parameter to specify the name(s) or serial number(s) of the server(s) whose hardware changes must be accepted.
+    When omitted, the changes of all servers with a 'RISK' hardware verification status in the group are accepted.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Approve-HPECOMGroupServerHardwareChange -Region eu-central -GroupName AI_Group -ServerName fdz360g10-1
+
+    Accept the hardware changes detected on the server 'fdz360g10-1' of the group 'AI_Group'.
+
+    .EXAMPLE
+    Approve-HPECOMGroupServerHardwareChange -Region eu-central -GroupName AI_Group
+
+    Accept the hardware changes of all servers with a 'RISK' hardware verification status in the group 'AI_Group'.
+
+    .EXAMPLE
+    Get-HPECOMGroupServerHardwareVerification -Region eu-central -GroupName AI_Group -Status RISK | Approve-HPECOMGroupServerHardwareChange
+
+    Retrieve the servers with hardware changes in the group 'AI_Group' and accept their changes.
+
+    .EXAMPLE
+    Get-HPECOMGroup -Region eu-central | Approve-HPECOMGroupServerHardwareChange -WhatIf
+
+    Preview the requests that would accept the hardware changes of all servers with a 'RISK' status across all groups.
+
+    .INPUTS
+    System.Collections.ArrayList
+        List of servers from 'Get-HPECOMGroupServerHardwareVerification' or list of groups from 'Get-HPECOMGroup'.
+
+    .OUTPUTS
+    System.Collections.ArrayList
+        A custom status object or array of objects containing the following PsCustomObject keys:
+        * ServerName - Name of the server
+        * SerialNumber - Serial number of the server
+        * Group - Name of the group
+        * Region - Name of the region
+        * Status - The status of the operation (Failed for http error return; Complete if the changes are accepted; Warning if no action is needed)
+        * Details - More information about the status
+        * Exception - Information about any exceptions generated during the operation.
+   #>
+
+    [CmdletBinding()]
+    Param(
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateScript({
+                # First check if there's an active session with COM regions
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
+                }
+                # Then validate the region
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter (Mandatory, ValueFromPipelineByPropertyName)]
+        [ValidateNotNullOrEmpty()]
+        [String]$GroupName,
+
+        [Parameter (ValueFromPipelineByPropertyName)]
+        [Alias('ServerSerialNumber')]
+        [ValidateNotNullOrEmpty()]
+        [String[]]$ServerName,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+
+        "[{0}] Called from: '{1}'" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $InputList = [System.Collections.ArrayList]::new()
+        $StatusList = [System.Collections.ArrayList]::new()
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: `n{1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        [String[]]$_Names = if ($ServerName) { $ServerName } else { '' }
+
+        foreach ($_Name in $_Names) {
+            # -ShowChanges output has one object per change, so a server can arrive several times
+            if (-not ($InputList | Where-Object { $_.Region -eq $Region -and $_.GroupName -eq $GroupName -and $_.ServerName -eq $_Name })) {
+                [void]$InputList.Add([PSCustomObject]@{ Region = $Region; GroupName = $GroupName; ServerName = $_Name })
+            }
+        }
+    }
+
+    End {
+
+        foreach ($Batch in ($InputList | Group-Object Region, GroupName)) {
+
+            $_Region = $Batch.Group[0].Region
+            $_GroupName = $Batch.Group[0].GroupName
+            $Targets = @($Batch.Group | Where-Object ServerName)
+
+            try {
+                $Group = Get-HPECOMGroup -Region $_Region -Name $_GroupName -Verbose:$false
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            $ErrorMessage = $null
+
+            if (-not $Group) {
+                $ErrorMessage = "Group '{0}': Resource cannot be found in the '{1}' region!" -f $_GroupName, $_Region
+            }
+            elseif ($Group.deviceType -match '^OVE_APPLIANCE') {
+                $ErrorMessage = "Group '{0}' is a OneView appliance group. Hardware verification only applies to server groups!" -f $_GroupName
+            }
+
+            if ($ErrorMessage) {
+
+                "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                if ($WhatIf) {
+                    Write-Warning "$ErrorMessage Cannot display API request."
+                    continue
+                }
+
+                foreach ($Item in $Batch.Group) {
+                    [void]$StatusList.Add([PSCustomObject]@{
+                        ServerName   = if ($Item.ServerName) { $Item.ServerName } else { "[All]" }
+                        SerialNumber = $null
+                        Group        = $_GroupName
+                        Region       = $_Region
+                        Status       = "Warning"
+                        Details      = $ErrorMessage
+                        Exception    = $null
+                    })
+                }
+                continue
+            }
+
+            try {
+                $Members = Get-HPECOMGroup -Region $_Region -Name $Group.name -ShowMembers -Verbose:$false
+                [Array]$Records = Invoke-HPECOMWebRequest -Method GET -Uri ((Get-COMGroupsHardwareVerificationUri) + "/" + $Group.id + "/secure-devices") -Region $_Region -Verbose:$VerbosePreference
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            $Tracking = [System.Collections.ArrayList]::new()
+
+            if (-not $Targets) {
+
+                $RiskRecords = @($Records | Where-Object serverSecureHardwareStatus -eq 'RISK')
+
+                if (-not $RiskRecords) {
+
+                    $ErrorMessage = "Group '{0}': No server with hardware changes to accept was found. No action needed!" -f $Group.name
+                    "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                    if ($WhatIf) {
+                        Write-Warning "$ErrorMessage Cannot display API request."
+                    }
+                    else {
+                        [void]$StatusList.Add([PSCustomObject]@{
+                            ServerName   = "[All]"
+                            SerialNumber = $null
+                            Group        = $Group.name
+                            Region       = $_Region
+                            Status       = "Warning"
+                            Details      = $ErrorMessage
+                            Exception    = $null
+                        })
+                    }
+                    continue
+                }
+
+                foreach ($Record in $RiskRecords) {
+
+                    $Member = $Members | Where-Object id -eq $Record.deviceId | Select-Object -First 1
+
+                    $objStatus = [PSCustomObject]@{
+                        ServerName   = if ($Member.serverName) { $Member.serverName } else { $Record.deviceId }
+                        SerialNumber = if ($Member.serialNumber) { $Member.serialNumber } else { ($Record.deviceId -split '\+')[-1] }
+                        Group        = $Group.name
+                        Region       = $_Region
+                        Status       = $null
+                        Details      = $null
+                        Exception    = $null
+                    }
+
+                    [void]$Tracking.Add([PSCustomObject]@{ Status = $objStatus; Record = $Record })
+                    if (-not $WhatIf) { [void]$StatusList.Add($objStatus) }
+                }
+            }
+            else {
+
+                foreach ($Target in $Targets) {
+
+                    $objStatus = [PSCustomObject]@{
+                        ServerName   = $Target.ServerName
+                        SerialNumber = $null
+                        Group        = $Group.name
+                        Region       = $_Region
+                        Status       = $null
+                        Details      = $null
+                        Exception    = $null
+                    }
+
+                    $Member = $Members | Where-Object { $_.serverName -eq $Target.ServerName -or $_.serialNumber -eq $Target.ServerName } | Select-Object -First 1
+                    $Record = if ($Member) { $Records | Where-Object deviceId -eq $Member.id | Select-Object -First 1 }
+                    $ErrorMessage = $null
+
+                    if (-not $Member) {
+                        $ErrorMessage = "Server '{0}': Resource is not a member of the '{1}' group!" -f $Target.ServerName, $Group.name
+                    }
+                    else {
+                        $objStatus.ServerName = $Member.serverName
+                        $objStatus.SerialNumber = $Member.serialNumber
+
+                        if (-not $Record -or $Record.serverSecureHardwareStatus -eq 'NOT_ENABLED') {
+                            $ErrorMessage = "Server '{0}': Hardware verification is not enabled on this server!" -f $Member.serverName
+                        }
+                        elseif ($Record.serverSecureHardwareStatus -ne 'RISK') {
+                            $ErrorMessage = "Server '{0}': No hardware changes to accept (hardware verification status is '{1}'). No action needed!" -f $Member.serverName, $Record.serverSecureHardwareStatus
+                        }
+                    }
+
+                    if ($ErrorMessage) {
+
+                        "[{0}] {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $ErrorMessage | Write-Verbose
+
+                        if ($WhatIf) {
+                            Write-Warning "$ErrorMessage Cannot display API request."
+                        }
+                        else {
+                            $objStatus.Status = "Warning"
+                            $objStatus.Details = $ErrorMessage
+                        }
+                    }
+                    else {
+                        [void]$Tracking.Add([PSCustomObject]@{ Status = $objStatus; Record = $Record })
+                    }
+
+                    if (-not $WhatIf) { [void]$StatusList.Add($objStatus) }
+                }
+            }
+
+            if ($Tracking.Count -eq 0) { continue }
+
+            $Uri = (Get-COMGroupsHardwareVerificationUri) + "/" + $Group.id + "/baseline"
+
+            $Payload = ConvertTo-Json -Depth 5 @{
+                items = @($Tracking | ForEach-Object { @{ id = $_.Record.id } })
+                data  = @{ serverSecureHardwareStatus = 'OK' }
+            }
+
+            try {
+                $Response = Invoke-HPECOMWebRequest -Region $_Region -Uri $Uri -Method PATCH -Body $Payload -ContentType "application/json" -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+
+                if (-not $WhatIf) {
+
+                    foreach ($Item in $Tracking) {
+
+                        $_Error = $Response.errors | Where-Object { $_.deviceId -eq $Item.Record.deviceId -or $_.id -eq $Item.Record.id } | Select-Object -First 1
+
+                        if ($_Error) {
+                            $Item.Status.Status = "Failed"
+                            $Item.Status.Details = if ($_Error.message) { $_Error.message } else { "Hardware changes cannot be accepted!" }
+                            $Item.Status.Exception = $_Error
+                        }
+                        else {
+                            $Item.Status.Status = "Complete"
+                            $Item.Status.Details = "Hardware changes successfully accepted. The current hardware inventory is now the trusted baseline."
+                        }
+                    }
+                }
+            }
+            catch {
+
+                if (-not $WhatIf) {
+
+                    foreach ($Item in $Tracking) {
+                        $Item.Status.Status = "Failed"
+                        $Item.Status.Details = if ($_.Exception.Message) { $_.Exception.Message } else { "Hardware changes cannot be accepted!" }
+                        $Item.Status.Exception = $Global:HPECOMInvokeReturnData
+                    }
+                }
+            }
+        }
+
+        if ($StatusList.Count -gt 0) {
+            $StatusList = Invoke-RepackageObjectWithType -RawObject $StatusList -ObjectName "COM.Groups.HardwareChange.Status"
+            Return $StatusList
+        }
+    }
+}
+
 
 
 # Private functions (not exported)
@@ -4886,249 +5562,220 @@ function Invoke-RepackageObjectWithType {
 
 
 # Export only public functions and aliases
-Export-ModuleMember -Function 'Get-HPECOMGroup', 'New-HPECOMGroup', 'Remove-HPECOMGroup', 'Set-HPECOMGroup', 'Add-HPECOMServerToGroup', 'Remove-HPECOMServerFromGroup', 'Add-HPECOMApplianceToGroup', 'Remove-HPECOMApplianceFromGroup' -Alias *
+Export-ModuleMember -Function 'Get-HPECOMGroup', 'New-HPECOMGroup', 'Remove-HPECOMGroup', 'Set-HPECOMGroup', 'Add-HPECOMServerToGroup', 'Remove-HPECOMServerFromGroup', 'Add-HPECOMApplianceToGroup', 'Remove-HPECOMApplianceFromGroup', 'Get-HPECOMGroupServerHardwareVerification', 'Approve-HPECOMGroupServerHardwareChange' -Alias *
 
 # SIG # Begin signature block
-# MIItTgYJKoZIhvcNAQcCoIItPzCCLTsCAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIn2wYJKoZIhvcNAQcCoIInzDCCJ8gCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDXDiabrBJNFf4c
-# 6DyuztChqYBFQrknkWHgdw8GNz6/1aCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
-# jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
-# DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
-# EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
-# dmljZXMwHhcNMjEwNTI1MDAwMDAwWhcNMjgxMjMxMjM1OTU5WjBWMQswCQYDVQQG
-# EwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS0wKwYDVQQDEyRTZWN0aWdv
-# IFB1YmxpYyBDb2RlIFNpZ25pbmcgUm9vdCBSNDYwggIiMA0GCSqGSIb3DQEBAQUA
-# A4ICDwAwggIKAoICAQCN55QSIgQkdC7/FiMCkoq2rjaFrEfUI5ErPtx94jGgUW+s
-# hJHjUoq14pbe0IdjJImK/+8Skzt9u7aKvb0Ffyeba2XTpQxpsbxJOZrxbW6q5KCD
-# J9qaDStQ6Utbs7hkNqR+Sj2pcaths3OzPAsM79szV+W+NDfjlxtd/R8SPYIDdub7
-# P2bSlDFp+m2zNKzBenjcklDyZMeqLQSrw2rq4C+np9xu1+j/2iGrQL+57g2extme
-# me/G3h+pDHazJyCh1rr9gOcB0u/rgimVcI3/uxXP/tEPNqIuTzKQdEZrRzUTdwUz
-# T2MuuC3hv2WnBGsY2HH6zAjybYmZELGt2z4s5KoYsMYHAXVn3m3pY2MeNn9pib6q
-# RT5uWl+PoVvLnTCGMOgDs0DGDQ84zWeoU4j6uDBl+m/H5x2xg3RpPqzEaDux5mcz
-# mrYI4IAFSEDu9oJkRqj1c7AGlfJsZZ+/VVscnFcax3hGfHCqlBuCF6yH6bbJDoEc
-# QNYWFyn8XJwYK+pF9e+91WdPKF4F7pBMeufG9ND8+s0+MkYTIDaKBOq3qgdGnA2T
-# OglmmVhcKaO5DKYwODzQRjY1fJy67sPV+Qp2+n4FG0DKkjXp1XrRtX8ArqmQqsV/
-# AZwQsRb8zG4Y3G9i/qZQp7h7uJ0VP/4gDHXIIloTlRmQAOka1cKG8eOO7F/05QID
-# AQABo4IBEjCCAQ4wHwYDVR0jBBgwFoAUoBEKIz6W8Qfs4q8p74Klf9AwpLQwHQYD
-# VR0OBBYEFDLrkpr/NZZILyhAQnAgNpFcF4XmMA4GA1UdDwEB/wQEAwIBhjAPBgNV
-# HRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMDMBsGA1UdIAQUMBIwBgYE
-# VR0gADAIBgZngQwBBAEwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybC5jb21v
-# ZG9jYS5jb20vQUFBQ2VydGlmaWNhdGVTZXJ2aWNlcy5jcmwwNAYIKwYBBQUHAQEE
-# KDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5jb21vZG9jYS5jb20wDQYJKoZI
-# hvcNAQEMBQADggEBABK/oe+LdJqYRLhpRrWrJAoMpIpnuDqBv0WKfVIHqI0fTiGF
-# OaNrXi0ghr8QuK55O1PNtPvYRL4G2VxjZ9RAFodEhnIq1jIV9RKDwvnhXRFAZ/ZC
-# J3LFI+ICOBpMIOLbAffNRk8monxmwFE2tokCVMf8WPtsAO7+mKYulaEMUykfb9gZ
-# pk+e96wJ6l2CxouvgKe9gUhShDHaMuwV5KZMPWw5c9QLhTkg4IUaaOGnSDip0TYl
-# d8GNGRbFiExmfS9jzpjoad+sPKhdnckcW67Y8y90z7h+9teDnRGWYpquRRPaf9xH
-# +9/DUp/mBlXpnYzyOmJRvOwkDynUWICE5EV7WtgwggYaMIIEAqADAgECAhBiHW0M
-# UgGeO5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYD
-# VQQKEw9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENv
-# ZGUgU2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5
-# NTlaMFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzAp
-# BgNVBAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0G
-# CSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjI
-# ztNsfvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NV
-# DgFigOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/3
-# 6F09fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05Zw
-# mRmTnAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm
-# +qxp4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUe
-# dyz8rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz4
-# 4MPZ1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBM
-# dlyh2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQY
-# MBaAFDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritU
-# pimqF6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNV
-# HSUEDDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsG
-# A1UdHwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1
-# YmxpY0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsG
-# AQUFBzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2Rl
-# U2lnbmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0
-# aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURh
-# w1aVcdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0Zd
-# OaWTsyNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajj
-# cw5+w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNc
-# WbWDRF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalO
-# hOfCipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJs
-# zkyeiaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z7
-# 6mKnzAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5J
-# KdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHH
-# j95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2
-# Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/
-# L9Uo2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkq
-# hkiG9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1p
-# dGVkMSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2
-# MB4XDTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMx
-# DjAMBgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJw
-# cmlzZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
-# ZSBDb21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qw
-# cmuCQyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyu
-# cpC7tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ip
-# z4+uJGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4Edtvu
-# muGI4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28Flg
-# kSt9f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOy
-# ecaVpJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3p
-# eg1ku0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7
-# XOBa5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJd
-# isrV7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXR
-# dJNADjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtR
-# u0aQcdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQY
-# MBaAFA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vm
-# oYtOnZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAK
-# BggrBgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUF
-# BwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIw
-# QDA+oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29k
-# ZVNpZ25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjho
-# dHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NB
-# UjM2LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJ
-# KoZIhvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs86
-# 5wyoO3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU
-# 9e6+TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH
-# 6GOfU6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGa
-# ei8nSr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/u
-# CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
-# v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
-# VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
-# BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
-# Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
-# BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
-# NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgkKmArb/T+usjBvOLp43hixT3WKPE0r/N/BpJSNJGYPEwDQYJKoZIhvcNAQEB
-# BQAEggIA21it5PBdVDSAa84YR15WRSDKqgbhMCKura9klbdwO/YbwPgHNUls7bFk
-# lSslP5vzKFFkmpY3PI/cthqOFeFKOGFkKhSe3pBERCcPj/lDspznwkQIg0AMOJsz
-# YMS1Ukr6Z/R7bGjykhlByt+8De1nBtuyQzsa8xO7tB6ZQJTpMrwcK1aki1qXfrjY
-# eKD4Cen2pWBWQcsIkhaLwr+N5Tns3Sda8YSflJ9mnUiBPW1Y4swDFfSDr76DkWaG
-# yaR1uoyapOjteE+YYEYGh9kfGLZpxLoar4+TvyeocCDwK9Vh3G9ItVENjfCmhGtz
-# qzBzX6JbM9cpvBz9Oshb41rV09BgdYSoucaKZBUFrQVVcRVgcuUuMCwtguonP39r
-# GgRC1Lygpb9Me89AEVmIBjwW8luy/IPGJi9dsJbBZtPtlH2fempGBWSpSXb8Gchk
-# vENed4Ptlhd582gx6dnY5CpKwpPtbEFyLrdGThCWr9hP38aKXNs2Gs3BHObZXCrL
-# WJGowAWOSIK3YkVwbxlk7MzOmVtM0mWQn9qdKNUj/sED3LQfRtLeJzfw+cX4pNVr
-# Y07OoR6SHlECAqzAtyGbMjktlySSdgnH4y+j8r5OU8gNgpYZy1Te08SIti2yCRid
-# +JYJgqcHPBN7JtShE8h+/m65wFo0IvIbPj1wSebfiuOju9QEt+GhgheYMIIXlAYK
-# KwYBBAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEw
-# DQYJYIZIAWUDBAICBQAEMChKDBwZGuwwrdMhVWRM+TTOancVJ3T4jibKnygbxXc+
-# eShKzUftTmCDbY5A4bBIoAIRAJa7V2H0oJ5vCSxHU5MZAcwYDzIwMjYwNDE1MDkw
-# ODU0WqCCEzowggbtMIIE1aADAgECAhAMIENJ+dD3WfuYLeQIG4h7MA0GCSqGSIb3
-# DQEBDAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFB
-# MD8GA1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5
-# NiBTSEEyNTYgMjAyNSBDQTEwHhcNMjUwNjA0MDAwMDAwWhcNMzYwOTAzMjM1OTU5
-# WjBjMQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNV
-# BAMTMkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIg
-# MjAyNSAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA2zlS+4t0t+XJ
-# DVHY+vNJxpv794sM3O4UQycmKRXmYLs+YRfztyl8QJ7n/UqxNTKWmjdFDWGv43+a
-# 2oiJ41yxOe0sLoFx8F1az2JRTZc7dhAxbne+byd5bf2SEZlCruGxxWSqbpUY6dAG
-# RCCyBOaiFaoXhkn+L15efcomDSrTnA5Vgd9pvMO+7bM+tSW4JzAiIbO2mIPyCEdK
-# YscmPl+YBuenSP7NJw9icL1tWpn61uM6WyUNv4RcyBAz+NvJbNf5kTM7F46cvBwp
-# 0lZYisZR985y5sYj4e4yUBbPBxyrT5aNMZ++5tis8GDmHCpqyVLQ4eLHwpim5iwR
-# 49TREfETtlEFORWTkJ2hOO1zzVAWs6jtdep12VtFZoQOhIwdUfPHSsAw39xFVevF
-# EFf2u+DVr1sOV7JACY+xcG8hWIeqPGVUwkiyBRUTgA7HeAxJb0iQl4GDBC6ZBA4w
-# GN/ahMxF4fuJsOs1zwkPBSnXmHkm18HwHgIPKk287dMIchZyjm7zGcCYZ4bisoUY
-# WL9oTga9JCfFMTc9yl26XDB0zl9rdSwviOmaYSlaRanF84oxAYnqgBy6Z89ykPgW
-# nb7SRi31NyP359Whok+36fkyxTPjSrCWvMK7pzbRg8tfIRlUnxl7G5bIrkPqMbD9
-# zJoB79MHFgLr5ljU7rrcLwy+cEfpzFMCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQC
-# MAAwHQYDVR0OBBYEFFWeuednyJEQSbQ2Uo15tyTFPy34MB8GA1UdIwQYMBaAFO9v
-# U0rp5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAK
-# BggrBgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5
-# NlNIQTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwz
-# LmRpZ2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQw
-# OTZTSEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgB
-# hv1sBwEwDQYJKoZIhvcNAQEMBQADggIBABt+CySH2AlqxUHnUWnZJI7rpdAqo0Pc
-# ikyV48Ltk5QWFgxpHP9WtjR3lskEAOk3TszmuNyMid7VuxHlQJl4KcdTr5cQ2YLy
-# +l560peBgM7kA4HCJqGqdQdzjXyrlg3YCdfnjs9w/7BO8xUmlAaq/D+PTZZO+Mnx
-# a3/IoyYsF+L9gWX4VJxZLljVs5JKmpSonnysMYv7CaqkQpBDmJWU2F68mLLZXfU0
-# wXbDy9QQTskgcHviyQDeB1l6jl/WwOQiSNTNafYQUR2ZsJ5rPJu1NPzO1htKwdiU
-# jWenHwq5BRK1BR7+D+TwG97UHX4V0W+JvFZp8z3d3G5sA7Pt9qO5/6AWZ+0yf8nN
-# 58D+HAAShHmny25t6W7qF6VSRZCIpGr8hbAjfbBhO4MY8G2U9zwVKp6SljuKknxd
-# 2buihO33dioCGsB6trX++xQKf4QlYSggFvD9ZWSG4ysJPYOx+hbsBTEONFtr99x6
-# OgJnnyVkDoudIn+gmV+Bq+a2G++BLU5AXOVclExpuoUQXUZF5p3sUrd21QjF9Ra0
-# x4RD02gS4XwgzN+tvuY+tjhPICwXmH3ERL+fPIoxZT0XgwVP+17UqUbi5Zpe4Yda
-# dG5WjCTBvtmlM4JVovGYRvyAyfmYJJx0/0T+qK05wRJpg4q81vOKuCQPaE9H99JC
-# VvfCDBm4KjrEMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG
-# 9w0BAQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkw
-# FwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVz
-# dGVkIFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQsw
-# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
-# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
-# MjUgQ0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+
-# PEbAHKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxe
-# Lho8I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2D
-# Z0Mal5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJB
-# YgzWIjk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7G
-# b5IBZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS
-# 3hpLgIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7C
-# coKCz6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUm
-# s+wV/FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN
-# +nM8M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqE
-# G1NqzJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhG
-# NKlYzyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQI
-# MAYBAf8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQY
-# MBaAFOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUE
-# DDAKBggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6
-# Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMu
-# ZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDww
-# OjA4oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3Rl
-# ZFJvb3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0G
-# CSqGSIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/D
-# m1wGc/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO4
-# 1P5F448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFS
-# goR8n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSL
-# ANEBfHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJ
-# DMdTSlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cva
-# iIo2p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+
-# U0yy+GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6
-# bTEm4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+
-# Pu0VrFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhL
-# ULy7Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3
-# XDCCBY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAw
-# ZTELMAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQ
-# d3d3LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBS
-# b290IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UE
-# BhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2lj
-# ZXJ0LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjAN
-# BgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUu
-# ySE98orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8
-# Ug9SH8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0M
-# G+4g1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldX
-# n1RYjgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVq
-# GDgDEI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFE
-# mjNAvwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6
-# SPDgohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXf
-# SwQAzH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b23
-# 5kOkGLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ
-# 6zHFynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRp
-# L5gdLfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0O
-# BBYEFOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1R
-# i6enIZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYB
-# BQUHMAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0
-# cDovL2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENB
-# LmNydDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20v
-# RGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADAN
-# BgkqhkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVe
-# qRq7IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3vot
-# Vs/59PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum
-# 6fI0POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJ
-# aISfb8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/
-# ErhULSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0w
-# aTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQD
-# EzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1
-# NiAyMDI1IENBMQIQDCBDSfnQ91n7mC3kCBuIezANBglghkgBZQMEAgIFAKCB4TAa
-# BgkqhkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MDQx
-# NTA5MDg1NFowKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQUcrz9oBB/STSwBxxhD+bX
-# llAAmHcwNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgMvPjsb2i17JtTx0bjN29j4uE
-# dqF4ntYSzTyqep7/NcIwPwYJKoZIhvcNAQkEMTIEMJmX4HOCZoEBSA4maam3Zujy
-# xU+0GKj1UJhKrb1nYKISxZP9+0qxIO5+1WXFg2fFfzANBgkqhkiG9w0BAQEFAASC
-# AgApMzK/c9fZNv3H3kIFj2kQYFPk44VIwjJ1XF9yScKShOZkecWGc9euGGudPrpQ
-# e+l0/D/nKoPAAqzJLoUhjQBjWgZtpWkfh9gZYRMjcj3iw+THGgdiPCKkJdIA2tVm
-# 42FOscsDjMvUZo+nMj59JCs849hS436ptmpy3IUYd0d/u9GsOfO7Uw54ctoRzXPO
-# xAlIz+LTcwLN4N06wuZregKs/omcu6OWNtsPDWSFY3ntYwZaDfGv2tP+XlnggZi8
-# LIkSElf4fOnUtdfD2q3iJXsVjNm6Ur536wcZebOTmK9cwf/yR0ax9DF/RdwqjWU5
-# wp12MdBySvuVNObTehJ0AETkdBuQsURSSHt57r2j/joJpvJsaJlc1MAitjAlggCO
-# wqq+RUwVFkk+ZfqzsffFWikUGBYyODvce06/isQPCpQ5OcBSwJhNhvYbA6O/bmEg
-# gvFREQdVvgF3+ggJTeZ188PyosS6qxQe8lHpFXiejcwvqa9wWQCii6PEHwxAWbPI
-# A+meeTSzq8sVfZyxDXsHxEUYv3ZE4FOqC9OBsqGSwSAj1yM+HjRqoV+Emj0KBrCq
-# Vftcb4NW3pWmChrOtulT8ra121i+m4lxAuTEu2fkncGsWb+wKAkFBwAs+uFbiPMP
-# kIYlp1lHSb6R1eC3j3RPBDigl/Wy31EmliJdWHCNm9hV/Q==
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCC94HeOTqMdWbe7
+# m7WGsU5+JeWN8X3vCejjVDxT+gVfAaCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
+# O5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYDVQQK
+# Ew9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENvZGUg
+# U2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTla
+# MFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNV
+# BAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0GCSqG
+# SIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjIztNs
+# fvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NVDgFi
+# gOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/36F09
+# fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05ZwmRmT
+# nAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm+qxp
+# 4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUedyz8
+# rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz44MPZ
+# 1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBMdlyh
+# 2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQYMBaA
+# FDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritUpimq
+# F6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUE
+# DDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsGA1Ud
+# HwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1Ymxp
+# Y0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsGAQUF
+# BzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2ln
+# bmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0aWdv
+# LmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURhw1aV
+# cdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0ZdOaWT
+# syNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajjcw5+
+# w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNcWbWD
+# RF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalOhOfC
+# ipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJszkye
+# iaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z76mKn
+# zAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGv
+# spbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHHj95E
+# jza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2Bev6
+# SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/L9Uo
+# 2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkqhkiG
+# 9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVk
+# MSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2MB4X
+# DTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMxDjAM
+# BgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
+# ZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlzZSBD
+# b21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qwcmuC
+# QyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyucpC7
+# tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ipz4+u
+# JGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4EdtvumuGI
+# 4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28FlgkSt9
+# f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOyecaV
+# pJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3peg1k
+# u0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7XOBa
+# 5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJdisrV
+# 7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXRdJNA
+# DjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtRu0aQ
+# cdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQYMBaA
+# FA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vmoYtO
+# nZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAKBggr
+# BgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUFBwIB
+# FhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIwQDA+
+# oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29kZVNp
+# Z25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjhodHRw
+# Oi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NBUjM2
+# LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZI
+# hvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs865wyo
+# O3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU9e6+
+# TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH6GOf
+# U6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGaei8n
+# Sr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/uCIaQ
+# v5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xEv65B
+# oUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAyaVpbA
+# Ytaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPjnZ+o
+# A+rbZZyGZkz3xbUYKTGCGq4wghqqAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMgQ29k
+# ZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUDBAIB
+# BQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGCNwIB
+# BDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQg
+# 7osh97S8JVQfZKtthACDG+knxXriNZOEU9dSSZsA67wwDQYJKoZIhvcNAQEBBQAE
+# ggIAfzjsadPv7isXMKQLiMG/4WrxwxH0bHE3eBeBbpp4FpaRscrzL/1lGxWkwMqn
+# OtsDx67Tq/v4zJYpHX8MUN1rKWVNuaIs6WQFDp1sukcGexlyoirQxmYtHIJ2R39i
+# fO9F15q2ArvyA6VEoGwjiau8NvPRbdwqMOJ7Crgp6hAhoe6sJL0b0tYcEL4dnBpb
+# Zzx0jwPkqH8HL6zYj7/9gJWlBLocQLoMrVgqqVkp6pF60agS4/p4z2uIz87AMGXK
+# JfAO+9i5rn9k6V21ycOpcovwAsBA5jENLwJdAlI0/mn3Amq+gUWNh+RE7qv/bmjp
+# CO5oeiyGTu74VK+0cOOmWOUc6/QigLjj+adG2HIYk80riTtJ5amHaT09Aqlt10Fg
+# TptWYI6kq0NY9UFmT6P7CfHZGMAdIuhvBf4ZWro9TC21g05GEjKki76EpDtCw3YD
+# dOiQrVQsFeOykxZ6q/19LJ1KdLhadxktv8j88pBiGNTF2zwhb0HoTEhdzGc67MH3
+# ySIYgbd6lB3naJAIiCRtxowrJ3/B5vsgkizOykAWYE6DLiDyX8tbOD8mc1Hy2UQ1
+# d9OeFCoVdS4t9CwozehBZ+yip+av6rzJ9w88s8AVlMfZ2L+hgRXxZJ/kGGl5zpv6
+# bzqfqoX0UOlhJM1xvmKsu8P9A09gZUgPEoljpCHfLVNEXwyhgheYMIIXlAYKKwYB
+# BAGCNwMDATGCF4QwgheABgkqhkiG9w0BBwKgghdxMIIXbQIBAzEPMA0GCWCGSAFl
+# AwQCAgUAMIGIBgsqhkiG9w0BCRABBKB5BHcwdQIBAQYJYIZIAYb9bAcBMEEwDQYJ
+# YIZIAWUDBAICBQAEMP2JhlsKpFcj7vnlPZwibEOIblJF1LggfOvRUJvaW4X8+joc
+# oXwGv5WFNWGQYAGeQgIRAN5ZKRB9veYAexIT9IO2q3sYDzIwMjYxMTI2MTc1MDEz
+# WqCCEzowggbtMIIE1aADAgECAhAOHrsyK1yKdT4SPyHO0PLZMA0GCSqGSIb3DQEB
+# DAUAMGkxCzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8G
+# A1UEAxM4RGlnaUNlcnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBT
+# SEEyNTYgMjAyNSBDQTEwHhcNMjYwODA1MDAwMDAwWhcNMzcxMTA0MjM1OTU5WjBj
+# MQswCQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xOzA5BgNVBAMT
+# MkRpZ2lDZXJ0IFNIQTM4NCBSU0E0MDk2IFRpbWVzdGFtcCBSZXNwb25kZXIgMjAy
+# NiAxMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAxs29k1Tm4JzaUbG7
+# JguLFMReom4s+59qCkx6qSHA6RS7nuwbD5Qz4y8ZadGvKnui6kXmZ3g9hVF9H6Vo
+# N0BbHLBQ7Qs+CWSdmHqYaWNHOdCzNClMFEFTV8AybOTCPE/xxUuNW0nnyyylklWP
+# 6fmUzeitJj7LaDqcZa1n5SKyCqr+wwyEuAWC92E+9aKmM9ZH26cOk3jlc6Jdu6S3
+# 8z8x37qD+p15GmR8/t7W7ux2qIssqm7jazSbupnVD8j5lD6cyCrnYtGHuou7bH3c
+# 59FbRSMOoL0sDZz01J87b1q76Q/K6jUuKu7UCl7gQbjJUmLaGuI/5NhUZO8VpZDK
+# ulpyHjV25hYxsWDMK5OT2Us6MHFj5vdBJSnd0fhXeqq6AVBp8y4aoDbYYPrEYnTd
+# TlG+7h9WcXI0yMHUPteIZxqTJgwx3ZkzL2kmd6eQvnm6IKwp/sQ1d+TeMIoJ/wMp
+# 7f/9WnChuzENvW5j4LUFkYVzNrjlXIgsgxE3RQnRobStayuM2BNp/PgsLPDwJ7AQ
+# iuSCkYL5ikuCzqtwk+DlO0znAkHEflxU77rvjetcC6k6Chvc+PLixXNIeSPR8BJA
+# hLO9REVLzlyI0VqiWiPSvBuAdLD4uelqJQV520azq+BjFfcNknHtQcmMYORqPSeB
+# OFlkW9pMDvmnJR2Wxl5xps4nQUsCAwEAAaOCAZUwggGRMAwGA1UdEwEB/wQCMAAw
+# HQYDVR0OBBYEFItvUpXVe5ErYgmfWkEHh1ALIYySMB8GA1UdIwQYMBaAFO9vU0rp
+# 5AZ8esrikFb2L9RJ7MtOMA4GA1UdDwEB/wQEAwIHgDAWBgNVHSUBAf8EDDAKBggr
+# BgEFBQcDCDCBlQYIKwYBBQUHAQEEgYgwgYUwJAYIKwYBBQUHMAGGGGh0dHA6Ly9v
+# Y3NwLmRpZ2ljZXJ0LmNvbTBdBggrBgEFBQcwAoZRaHR0cDovL2NhY2VydHMuZGln
+# aWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5NlNI
+# QTI1NjIwMjVDQTEuY3J0MF8GA1UdHwRYMFYwVKBSoFCGTmh0dHA6Ly9jcmwzLmRp
+# Z2ljZXJ0LmNvbS9EaWdpQ2VydFRydXN0ZWRHNFRpbWVTdGFtcGluZ1JTQTQwOTZT
+# SEEyNTYyMDI1Q0ExLmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1s
+# BwEwDQYJKoZIhvcNAQEMBQADggIBACC0vXEC9hZ5PZUAUQc/KivNH8O14Lxm+aeo
+# c3T49xrKkw1+0/4kURRUckQECHNW5AMx6vAvmRcLAxQhPCkFoklPXxTNVhq+ocyI
+# dTty6p3DHlPoXhWOORdfCH9WHFPSTpkVEcuEna/rOq5MGHd/B8b8tW9VyMBOYK6o
+# yM3w/ZOpPOzOJd6uLsEg8AKPh04h6VBwqsxcUhRwy6igtAOpxkC9Z71A4cbJU0Vz
+# +4Z143C80QIbErFdOhvbx/rgvS/0c9XmZg50Q3DATk1YY2UJyNv/PDOGZ6phyjRu
+# snKbvdfKwXReK1GoYNxyObiXmLSKumcP29O0QgBP3Hjt4h/eDqhmJ4BgFYUsuuqi
+# P6zhy0Kvk/1DXS3s+Cwb8zE7Gy73c9Y86y7biFQKiQtbEvZNbX/3B7UUbUrkimyZ
+# crndmssumsdwmVR4uQK6WJUbd/5iK2LvgYpMzrF3jLV7+LQ6wlmP8pgXRGWT89Dm
+# QnJyHWFydmpPMuOowEvh0DmNZgBtJKB3fS6zuxr4TlbyDLTqYH6RO/+0G+WnzDIe
+# HwMsdtphazYRWh/9S7DbMgUei0q7UWZ5vSvSaNNdz41pGVgSGTtPaJQVOpv2bleG
+# wEUW0h8sy/WJQ+BnBMvZoGavXYJY+x8iJL3pj7hBXvLZxwOk0itFgZLEkUM+eAH0
+# fJERQFwgMIIGtDCCBJygAwIBAgIQDcesVwX/IZkuQEMiDDpJhjANBgkqhkiG9w0B
+# AQsFADBiMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYD
+# VQQLExB3d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVk
+# IFJvb3QgRzQwHhcNMjUwNTA3MDAwMDAwWhcNMzgwMTE0MjM1OTU5WjBpMQswCQYD
+# VQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERpZ2lD
+# ZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIwMjUg
+# Q0ExMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAtHgx0wqYQXK+PEbA
+# HKx126NGaHS0URedTa2NDZS1mZaDLFTtQ2oRjzUXMmxCqvkbsDpz4aH+qbxeLho8
+# I6jY3xL1IusLopuW2qftJYJaDNs1+JH7Z+QdSKWM06qchUP+AbdJgMQB3h2DZ0Ma
+# l5kYp77jYMVQXSZH++0trj6Ao+xh/AS7sQRuQL37QXbDhAktVJMQbzIBHYJBYgzW
+# Ijk8eDrYhXDEpKk7RdoX0M980EpLtlrNyHw0Xm+nt5pnYJU3Gmq6bNMI1I7Gb5IB
+# ZK4ivbVCiZv7PNBYqHEpNVWC2ZQ8BbfnFRQVESYOszFI2Wv82wnJRfN20VRS3hpL
+# gIR4hjzL0hpoYGk81coWJ+KdPvMvaB0WkE/2qHxJ0ucS638ZxqU14lDnki7CcoKC
+# z6eum5A19WZQHkqUJfdkDjHkccpL6uoG8pbF0LJAQQZxst7VvwDDjAmSFTUms+wV
+# /FbWBqi7fTJnjq3hj0XbQcd8hjj/q8d6ylgxCZSKi17yVp2NL+cnT6Toy+rN+nM8
+# M7LnLqCrO2JP3oW//1sfuZDKiDEb1AQ8es9Xr/u6bDTnYCTKIsDq1BtmXUqEG1Nq
+# zJKS4kOmxkYp2WyODi7vQTCBZtVFJfVZ3j7OgWmnhFr4yUozZtqgPrHRVHhGNKlY
+# zyjlroPxul+bgIspzOwbtmsgY1MCAwEAAaOCAV0wggFZMBIGA1UdEwEB/wQIMAYB
+# Af8CAQAwHQYDVR0OBBYEFO9vU0rp5AZ8esrikFb2L9RJ7MtOMB8GA1UdIwQYMBaA
+# FOzX44LScV1kTN8uZz/nupiuHA9PMA4GA1UdDwEB/wQEAwIBhjATBgNVHSUEDDAK
+# BggrBgEFBQcDCDB3BggrBgEFBQcBAQRrMGkwJAYIKwYBBQUHMAGGGGh0dHA6Ly9v
+# Y3NwLmRpZ2ljZXJ0LmNvbTBBBggrBgEFBQcwAoY1aHR0cDovL2NhY2VydHMuZGln
+# aWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJvb3RHNC5jcnQwQwYDVR0fBDwwOjA4
+# oDagNIYyaHR0cDovL2NybDMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZFJv
+# b3RHNC5jcmwwIAYDVR0gBBkwFzAIBgZngQwBBAIwCwYJYIZIAYb9bAcBMA0GCSqG
+# SIb3DQEBCwUAA4ICAQAXzvsWgBz+Bz0RdnEwvb4LyLU0pn/N0IfFiBowf0/Dm1wG
+# c/Do7oVMY2mhXZXjDNJQa8j00DNqhCT3t+s8G0iP5kvN2n7Jd2E4/iEIUBO41P5F
+# 448rSYJ59Ib61eoalhnd6ywFLerycvZTAz40y8S4F3/a+Z1jEMK/DMm/axFSgoR8
+# n6c3nuZB9BfBwAQYK9FHaoq2e26MHvVY9gCDA/JYsq7pGdogP8HRtrYfctSLANEB
+# fHU16r3J05qX3kId+ZOczgj5kjatVB+NdADVZKON/gnZruMvNYY2o1f4MXRJDMdT
+# SlOLh0HCn2cQLwQCqjFbqrXuvTPSegOOzr4EWj7PtspIHBldNE2K9i697cvaiIo2
+# p61Ed2p8xMJb82Yosn0z4y25xUbI7GIN/TpVfHIqQ6Ku/qjTY6hc3hsXMrS+U0yy
+# +GWqAXam4ToWd2UQ1KYT70kZjE4YtL8Pbzg0c1ugMZyZZd/BdHLiRu7hAWE6bTEm
+# 4XYRkA6Tl4KSFLFk43esaUeqGkH/wyW4N7OigizwJWeukcyIPbAvjSabnf7+Pu0V
+# rFgoiovRDiyx3zEdmcif/sYQsfch28bZeUz2rtY/9TCA6TD8dC3JE3rYkrhLULy7
+# Dc90G6e8BlqmyIjlgp2+VqsS9/wQD7yFylIz0scmbKvFoW2jNrbM1pD2T7m3XDCC
+# BY0wggR1oAMCAQICEA6bGI750C3n79tQ4ghAGFowDQYJKoZIhvcNAQEMBQAwZTEL
+# MAkGA1UEBhMCVVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3
+# LmRpZ2ljZXJ0LmNvbTEkMCIGA1UEAxMbRGlnaUNlcnQgQXNzdXJlZCBJRCBSb290
+# IENBMB4XDTIyMDgwMTAwMDAwMFoXDTMxMTEwOTIzNTk1OVowYjELMAkGA1UEBhMC
+# VVMxFTATBgNVBAoTDERpZ2lDZXJ0IEluYzEZMBcGA1UECxMQd3d3LmRpZ2ljZXJ0
+# LmNvbTEhMB8GA1UEAxMYRGlnaUNlcnQgVHJ1c3RlZCBSb290IEc0MIICIjANBgkq
+# hkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAv+aQc2jeu+RdSjwwIjBpM+zCpyUuySE9
+# 8orYWcLhKac9WKt2ms2uexuEDcQwH/MbpDgW61bGl20dq7J58soR0uRf1gU8Ug9S
+# H8aeFaV+vp+pVxZZVXKvaJNwwrK6dZlqczKU0RBEEC7fgvMHhOZ0O21x4i0MG+4g
+# 1ckgHWMpLc7sXk7Ik/ghYZs06wXGXuxbGrzryc/NrDRAX7F6Zu53yEioZldXn1RY
+# jgwrt0+nMNlW7sp7XeOtyU9e5TXnMcvak17cjo+A2raRmECQecN4x7axxLVqGDgD
+# EI3Y1DekLgV9iPWCPhCRcKtVgkEy19sEcypukQF8IUzUvK4bA3VdeGbZOjFEmjNA
+# vwjXWkmkwuapoGfdpCe8oU85tRFYF/ckXEaPZPfBaYh2mHY9WV1CdoeJl2l6SPDg
+# ohIbZpp0yt5LHucOY67m1O+SkjqePdwA5EUlibaaRBkrfsCUtNJhbesz2cXfSwQA
+# zH0clcOP9yGyshG3u3/y1YxwLEFgqrFjGESVGnZifvaAsPvoZKYz0YkH4b235kOk
+# GLimdwHhD5QMIR2yVCkliWzlDlJRR3S+Jqy2QXXeeqxfjT/JvNNBERJb5RBQ6zHF
+# ynIWIgnffEx1P2PsIV/EIFFrb7GrhotPwtZFX50g/KEexcCPorF+CiaZ9eRpL5gd
+# LfXZqbId5RsCAwEAAaOCATowggE2MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYE
+# FOzX44LScV1kTN8uZz/nupiuHA9PMB8GA1UdIwQYMBaAFEXroq/0ksuCMS1Ri6en
+# IZ3zbcgPMA4GA1UdDwEB/wQEAwIBhjB5BggrBgEFBQcBAQRtMGswJAYIKwYBBQUH
+# MAGGGGh0dHA6Ly9vY3NwLmRpZ2ljZXJ0LmNvbTBDBggrBgEFBQcwAoY3aHR0cDov
+# L2NhY2VydHMuZGlnaWNlcnQuY29tL0RpZ2lDZXJ0QXNzdXJlZElEUm9vdENBLmNy
+# dDBFBgNVHR8EPjA8MDqgOKA2hjRodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGln
+# aUNlcnRBc3N1cmVkSURSb290Q0EuY3JsMBEGA1UdIAQKMAgwBgYEVR0gADANBgkq
+# hkiG9w0BAQwFAAOCAQEAcKC/Q1xV5zhfoKN0Gz22Ftf3v1cHvZqsoYcs7IVeqRq7
+# IviHGmlUIu2kiHdtvRoU9BNKei8ttzjv9P+Aufih9/Jy3iS8UgPITtAq3votVs/5
+# 9PesMHqai7Je1M/RQ0SbQyHrlnKhSLSZy51PpwYDE3cnRNTnf+hZqPC/Lwum6fI0
+# POz3A8eHqNJMQBk1RmppVLC4oVaO7KTVPeix3P0c2PR3WlxUjG/voVA9/HYJaISf
+# b8rbII01YBwCA8sgsKxYoA5AY8WYIsGyWfVVa88nq2x2zm8jLfR+cWojayL/ErhU
+# LSd+2DrZ8LaHlv1b0VysGMNNn3O3AamfV6peKOK5lDGCA4wwggOIAgEBMH0waTEL
+# MAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYDVQQDEzhE
+# aWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNIQTI1NiAy
+# MDI1IENBMQIQDh67MitcinU+Ej8hztDy2TANBglghkgBZQMEAgIFAKCB4TAaBgkq
+# hkiG9w0BCQMxDQYLKoZIhvcNAQkQAQQwHAYJKoZIhvcNAQkFMQ8XDTI2MTEyNjE3
+# NTAxM1owKwYLKoZIhvcNAQkQAgwxHDAaMBgwFgQU6ainI7SFBPXg4UOLZz7Oh88s
+# UJswNwYLKoZIhvcNAQkQAi8xKDAmMCQwIgQgcR3XexwucbJh11WNaZwAd8l9EgMw
+# mmCO3BBWNMFQUHswPwYJKoZIhvcNAQkEMTIEMN1sGw/QLs2OJ4IXLLKmKM/2B81/
+# fhnL5jFFuM52RONLDTMHAOb1ZeppvLYEkmMZeTANBgkqhkiG9w0BAQEFAASCAgAL
+# +dO2l4bPhyeZRhsyPs2yHeNiostNpk2SCHPp5lhpiu53Cr8c2UVT6bC0lmwOrr3z
+# /DK++RqYGYjmTfAjknI6zKrCVz6+WPQavCzBCraE/b0Od67S0OqXDWrQ+p84xhgP
+# m1b25bETw92XxZJ6yzcOaS3h7gYUeyFBIBPX3yhqO8TWsLrSZ1+rYMbzJD9mTEkq
+# ldgi8s7uPZ/Aajim3DUScIbn2ar/IIZbbT3L5ZhBsxJ15cvSoifz5v0A6QBEcDfZ
+# tcbf8x7Hjg6LTMhktIdQhRqkua3Lv4vl7/N7BRFBiX9RBos8wlJbzdncA8YrP+3P
+# aBDtqH0GURFFTSoCbEfqTpJOgwOlcVk62/CZeOwY35Y8A1RbVE0q2gW3J7AtS29E
+# 23x/5vZuNQqTjywMjulV1ItTaalgpZnjAm28+7VN5hOeBHIAkEGShs5XcFiXduGE
+# 0Wxr4/XoaLOPj/B96SLNG8YganRwyUprmVjov6CSR7SIafEXKdTDXs2OqqJUSPX6
+# CMN24oEX/XOj4Q4JL0Usu/QbHyL6Egc7tYtvqONo2ImaYoyCMiN59sc1LDMvnIy2
+# xRAmwyMpnQhdRFIAVlij7VV/OWb1RJQlictJ30pA9XWtJYkoZZPH1YMoZQA4IYW+
+# th0P7WFby4tr0f1bXppGS8nEYd1DguzEIAg1pn905A==
 # SIG # End signature block
