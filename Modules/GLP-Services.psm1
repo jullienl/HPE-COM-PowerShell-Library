@@ -1935,6 +1935,11 @@ Function Get-HPEGLAPIcredential {
     .PARAMETER Name
     Specifies the name of the API client credential to retrieve.
 
+    .PARAMETER AllUsers
+    Returns the personal API clients of all users of the workspace, with their owner, status and creation date. Requires workspace administrator permissions.
+    Use this to audit the API clients of the workspace, for example to find the temporary credentials left by sessions of this library that were not closed with 'Disconnect-HPEGL'.
+    Remove-HPEGLAPICredential can only remove your own API clients.
+
     .PARAMETER WhatIf
     Displays the raw REST API call that would be made to GLP instead of sending the request. 
     This option is useful for understanding the inner workings of the native REST API calls used by GLP.
@@ -1948,14 +1953,26 @@ Function Get-HPEGLAPIcredential {
     Get-HPEGLAPICredential -Name "Grafana-COM-AP_NorthEast"
 
     Returns the API credential for the service instance named "Grafana-COM-AP_NorthEast".
+
+    .EXAMPLE
+    Get-HPEGLAPICredential -AllUsers
+
+    Returns the personal API clients of all users of the workspace.
+
+    .EXAMPLE
+    Get-HPEGLAPICredential -AllUsers | Where-Object { $_.name -match 'COM_PS_Library_Temp_Credential' -and $_.createdAt -lt (Get-Date).AddDays(-30) }
+
+    Returns the temporary API clients created by this library more than 30 days ago, for all users of the workspace.
     #>
 
     [CmdletBinding(DefaultParameterSetName = 'Default')]
     Param( 
 
-        [Parameter (ParameterSetName = 'Default')]
         [ValidateNotNullOrEmpty()]
         [String]$Name,  
+
+        [Parameter (Mandatory, ParameterSetName = 'AllUsers')]
+        [Switch]$AllUsers,
 
         [Switch]$WhatIf
        
@@ -1981,6 +1998,66 @@ Function Get-HPEGLAPIcredential {
         "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
        
         $ReturnData = @()
+
+        if ($AllUsers) {
+
+            $AllUsersUri = (Get-PersonalAPIClientsUri) + "?limit=200"
+            $Items = [System.Collections.ArrayList]::new()
+            $Next = $null
+
+            try {
+                # Cursor pagination ('next' token), not handled by the wrapper
+                do {
+                    $PageUri = if ($Next) { "$AllUsersUri&next=$([uri]::EscapeDataString($Next))" } else { $AllUsersUri }
+                    $Response = Invoke-HPEGLWebRequest -Method Get -Uri $PageUri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+                    if ($WhatIf) { return }
+                    foreach ($Entry in $Response.items) {
+                        if ($Entry.id -notin $Items.id) { [void]$Items.Add($Entry) }
+                    }
+                    $Next = $Response.next
+                } while ($Next)
+            }
+            catch {
+                $PSCmdlet.ThrowTerminatingError($_)
+            }
+
+            if ($Name) {
+                $Items = @($Items | Where-Object name -eq $Name)
+            }
+
+            if (-not $Items) {
+                return
+            }
+
+            foreach ($item in $Items) {
+
+                if ($item.application_instance_id -eq "00000000-0000-0000-0000-000000000000") {
+                    $ServiceName = "HPE GreenLake"
+                    $ServiceRegion = "N/A"
+                }
+                else {
+                    $Service = $Services | Where-Object application_instance_id -eq $item.application_instance_id
+                    $ServiceName = $Service | ForEach-Object name
+                    $ServiceRegion = $Service | ForEach-Object region
+                }
+
+                $ReturnData += [PSCustomObject]@{
+                    name                    = $item.name
+                    username                = $item.username
+                    status                  = $item.status
+                    application_name        = $ServiceName
+                    region                  = $ServiceRegion
+                    application_instance_id = $item.application_instance_id
+                    client_id               = $item.id
+                    createdAt               = if ($item.createdAt) { [datetime]$item.createdAt }
+                    updatedAt               = if ($item.updatedAt) { [datetime]$item.updatedAt }
+                }
+            }
+
+            $ReturnData = Invoke-RepackageObjectWithType -RawObject $ReturnData -ObjectName "Service.API.Credential.AllUsers"
+
+            return $ReturnData | Sort-Object username, name
+        }
 
         try {
             [array]$Collection = Invoke-HPEGLWebRequest -Method Get -Uri $Uri -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
@@ -3199,8 +3276,8 @@ Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceScopeFilter',
 # SIG # Begin signature block
 # MIIqQAYJKoZIhvcNAQcCoIIqMTCCKi0CAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCDU4udYYBHUzq8Z
-# mNDcgT9Vtm6LWa2M6CuS4iC4PYFUSKCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCBzKIwy8tg9euNo
+# Mh4Sv8l1Nphrda1SSeHhJSI5+HKxDKCCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
 # O5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYDVQQK
 # Ew9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENvZGUg
 # U2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTla
@@ -3272,23 +3349,23 @@ Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceScopeFilter',
 # ZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUDBAIB
 # BQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGCNwIB
 # BDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQg
-# BYgTeDXyrqykz9R+VfjWFJvFwWiPPUTQZ+YeoV6GZhIwDQYJKoZIhvcNAQEBBQAE
-# ggIAioPvqU/w3HqfEAh0NFYPZtU4pWXnFiyjhp+sSFEtAmrOm7dimaXF5ktnhMZi
-# XnacarDkhOSkyvq8xcdOoV0sNX8nzX46VVTLDyNeO8l/i9ZcJbCfgQ90lBwrAr9x
-# Wmta8Yuy+EZKOwRg//ysjhbVUsqMDWCOxthNJZnd0ni82flLKPnJ/J6GwcR4nhj8
-# IZ5PCDj8IhcioFEa1H+6JNqOlX2KStcHtL3uH8ved5xWph5CssvXuovuwG/cpawM
-# GWCNCiCtPUOtLIECjh67S95gww3oJj0qq4XVp2CFqJMmNdmTeBEvrDXFnIaiFEXd
-# HP5UnZoEY5VbwWX5FEnwNT+s8sGorzhVWqR5McHMLWG9CPw39ki43RC2/MA3stJx
-# +zXJQzrMUTFu7YIrAPMlkCznT5JOyTG3S3zzXWvioXgI3h4nK6PcYteBUUeXV3iq
-# yMaFI/BqnB5Qf4N9hTKVUbrrnjXvRBGiM8u6LY8j8ie1VHRsnKJlrYgaYPHb0zeS
-# E0qNXBlyPpSuiVwB8I77cKs5qYHBHZ24u90a9DOp99vecZIjuo3vYmE1ztRVWKzj
-# y2o+fox7UOuZRFvqn4McUUrt+OElMW+/llqCw2uc8DAETrZN1KSokURKLOJvwiUU
-# F7GsideVrdGTCmDfFPd6y5kvCiDJ/z1Ac6hjX22lCQ63YG2hghn9MIIZ+QYKKwYB
+# KVW+Uw0idq8ysQcJ8Say6FNtYNu+NkIr8j/vcZ892EQwDQYJKoZIhvcNAQEBBQAE
+# ggIAfcDMTIYtv1XoPGHIKVZJADMvesHpYKQ//tYbKrmYttVv7hP8RLQwBzISR0XW
+# jhLrjAFr4cCB+3w+nWOkRXSgZfNajFTSMqtFjP7wvPbvCLJvnLysQ/0OIYCSVB7f
+# JANoOfLgg1133fC0HPTw4NQXN/ucdfijb7ubyjueRDG83WRsQm+xI6TXAWHjtUI/
+# i31GQkMQ5rdUJ1Onm/iqUgyTIU8FUKG9vjBMsrCssl/JqB2zrzAWZretGCQOB4uM
+# J8eEQumlRj3ho9ju8h4nnZxBX+bk2tQiDT4Uv9twaScCDQLdjeZ6JkrpNmhzz9A1
+# 5ZJvBOBcFeDNtGuiTcUdjaOsUyoSFEHr7mczi8zou/fL8255x4K0Np9r+8kVThcG
+# Lb3E9yvicUzXYmYQkp2HkbWTixIFykzExIXFExv0+AVcrY+jKj/eZ1NhS6G0m40H
+# nXOENNz0gco9EanY3QYPIj36nROhUO5kTugOuG2CUiZU0BeNRUwO9ORP32wNwsZ1
+# nxRibopNK4wISbn89K3p1hUI3Z94lxQdQcnrt1iIwWRb6+4UCXiQ88RtmwFhU4Uo
+# az4v2WOcP4vtTwDxCUVMtJEv8rE7/t4gtaQ2NbmsrCrzV3Yn7brBzX4FccVLbLSK
+# XbMyFvZT0XJ8i/Q9QLRfsshtGP/npAXsoX/vPPBRkvsQ7cmhghn9MIIZ+QYKKwYB
 # BAGCNwMDATGCGekwghnlBgkqhkiG9w0BBwKgghnWMIIZ0gIBAzEPMA0GCWCGSAFl
 # AwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjECAQEw
-# QTANBglghkgBZQMEAgIFAAQwhVGHc0uCrMlbSSEtVi0Jkhf60orAKrHnfe5IKh/V
-# Eh0/6Q3NkRjyFvLaE8UmRqiOAhUA2Gw6Dz8wZ9XpYrf0fbIdUxJTMmQYDzIwMjYx
-# MTA0MDgyNDUxWqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0ZXIg
+# QTANBglghkgBZQMEAgIFAAQwrDGZhkxrJ10/PUUEtUpfMXmiL/JwVVmwvpP9jtgw
+# 0rqWC2VHzsPXrJFWUTvySiXYAhUAwOwwx5sj/8ecaw1EPMMd2ta8NMoYDzIwMjYx
+# MTI2MTc1NTE3WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0ZXIg
 # TG9uZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1NlY3Rp
 # Z28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzN6CCFBcwggbiMIIEyqAD
 # AgECAhEA507yVbBQT/rbpt/3/IujFTANBgkqhkiG9w0BAQwFADBVMQswCQYDVQQG
@@ -3401,9 +3478,9 @@ Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceScopeFilter',
 # kzCCBI8CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1p
 # dGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0
 # MQIRAOdO8lWwUE/626bf9/yLoxUwDQYJYIZIAWUDBAICBQCgggH6MBoGCSqGSIb3
-# DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYxMTA0MDgyNDUx
-# WjA/BgkqhkiG9w0BCQQxMgQwQe40X9X4kJVqXcvYHWNTN5BJuAEymVgBUhEWKx/K
-# yNn0/5kgNSeQcvcSuu3CjY/4MIIBewYLKoZIhvcNAQkQAgwxggFqMIIBZjCCAWIw
+# DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYxMTI2MTc1NTE3
+# WjA/BgkqhkiG9w0BCQQxMgQwAj+yw30ycwXM5haCfjFpQP/Ajxq5lcQ0qgkYKeOq
+# eCOCewABaW998XurUhlcnUjSMIIBewYLKoZIhvcNAQkQAgwxggFqMIIBZjCCAWIw
 # FgQU6XgYqSjaFQqf4b+czHqruaAO7qwwgYgEFGXDKGlvfU5QLP0Dx8IGlxjK+/dP
 # MHAwW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQx
 # LjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYC
@@ -3411,16 +3488,16 @@ Export-ModuleMember -Function 'Get-HPEGLService', 'Get-HPEGLServiceScopeFilter',
 # jqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNV
 # BAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsx
 # LjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkC
-# EDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAEggIACydrjBewql75aYdv
-# kEc+CcoqbQ4KwvqomB2LieOrPFEQBqDU0TkVwKs1P9PmGM+gELxQobxGrgm+G9UR
-# CXHR4IVqj7CJT2lAwVDpmNBrwpnm6Od+op87Nfb4rRM3dd2y4BcED+Mhfei3zwlO
-# Fiz4Rv9hjkhXHsIepARMipDSt1XxCfAdyHwrLnkUUnRJlDQbqrwQC8CqRGuGslaT
-# MN0hB68U3NI0jQGW+rbJgPm0cH+xqRp/v7YMcp6Cx4RoVNV2/p9JvaMebJtEXu68
-# hrM0HsSti2/m8r0pbbJLheQemfunJP1CF+sMNYJYcEunAi2lt0pRQuHzLKLeGLg8
-# qdfk43G0Ssv+brGsKXOswynefeIrF2lcMLAu2I+pLwUBIRtVdDfiaF7zf57m+yPj
-# tFUIZiMQosUsDQ9Kiy7W+PyVwGtl6qoBCtwUUwCOnjLkDNvgST4GA4+GPcgvlgw/
-# 8esiecvPP7iVXXypWcbMP4/2GLVIsrBbsg3p7lgLX9BjfmzmHgBloeMZGdznk1Mj
-# wnzQFLes9qh6f6H8BlEA7UeGxRsRfTKYm0lpMgOke5nBO6YxVifgss8cbd5TyFjN
-# SB8POXZORv44fL3FSzYGVPxjZ5embmbFkBNquRXOyFXEIKr+paAdnJKgm8i2aiqi
-# xnTdshEXhstKlzPS0+eCEKsHhyM=
+# EDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAEggIAYBWUxpjVrCQrc4Bm
+# 0QRbWkP8yupEBfLzRtjYLPWWCO34ts0c/UksFrHhD5HhWZ72BIjBYQDpmhiyPIZj
+# hs0ajaD4ehgvw4r8stZd9OHBY8oT38pQ1/vdcFwedkeq9tmdxsjtm/8Xvyb1oFJ/
+# m8Ky8gxtSeshQPXcmvKksEArOQeDhZjWhurY7G9t54XsYKR6LrD1sHbeDh147dng
+# t9ubRc6uBLbHgN2gXQE/7isPilmReMYukrlO62CG3hOWks8ffaByMVHtSfIEMoqb
+# htKaasEE+sZ4gNmiEzfIiE2bcAiC8NBGIzMXUYExqoA2o404MhxM2zjAjgrxhi5M
+# FIRAAoxwwNAb5dDycOk76nmLcEj0jb1n+GxLLZ40g76t+D6dj5VZ63UlmfcaqEYb
+# osujCrw0X3mmfL5Rk1celbRrR+AXKoui60oSRqYjatKRFk75GtafV/hHtr6jOO7E
+# 4sCE6KHR0kccmoA4pvV2mskbKQdZvfmu9z/LFJdE1PZpmpM3GSw05TruxNhrCcjl
+# yP3GeWnUxs/NsVeW1YrWt0NWmW5uySp040pBVluaEBN75rm1F2JAdbEgUVKasyby
+# +APuHsogaDBZyqeyDfRtObtvq9msygqWRMUIbPW6/9DAEb2MAcosJH6OHNQl501n
+# NCp0M8F0c46VlUrssmVBXgzKOhw=
 # SIG # End signature block

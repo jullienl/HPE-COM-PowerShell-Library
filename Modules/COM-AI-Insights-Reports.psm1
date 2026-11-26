@@ -2613,6 +2613,400 @@ To resolve:
     }
 }
 
+Function Get-HPECOMFirmwareAnalysisReport {
+    <#
+    .SYNOPSIS
+    Retrieve the firmware analysis report of the servers, including the security bulletins and customer advisories resolved by the latest baselines.
+
+    .DESCRIPTION
+    This cmdlet returns the "Latest baseline firmware analysis report" of a Compute Ops Management region, the report shown in the
+    Compute Ops Management console under AI Insights > Firmware analysis.
+
+    For each server generation, Compute Ops Management compares the firmware of every server with the latest firmware baseline (SPP)
+    and reports which servers and components need an update, and which security bulletins and customer advisories the update resolves.
+
+    The analysis is maintained by Compute Ops Management and cannot be triggered manually. It is re-evaluated automatically when:
+    - The inventory of a server changes
+    - A customer advisory or security bulletin document is updated
+    - Support for a new baseline is added to Compute Ops Management
+
+    Without any switch, the cmdlet returns the report summary, one object per server generation. Use one of the switches below to
+    get the details shown in the console tabs:
+    - -ShowServersToUpdate: servers that are not compliant with the latest baseline
+    - -ShowComponentsToUpdate: firmware components to update, with the number of servers concerned
+    - -ShowAdvisories: security bulletins and customer advisories resolved by updating to the latest baseline
+    - -ShowServersUpToDate: servers already compliant with the latest baseline
+    - -ShowServersNotAnalyzed: servers that could not be analyzed, with the reason (for example, server not connected)
+
+    .PARAMETER Region
+    Specifies the region code of a Compute Ops Management instance provisioned in the workspace (e.g., 'us-west', 'eu-central', etc.).
+    This mandatory parameter can be retrieved using 'Get-HPEGLService -Name "Compute Ops Management" -ShowProvisioned' or 'Get-HPEGLRegion -ShowProvisioned'.
+
+    Auto-completion (Tab key) is supported for this parameter, providing a list of region codes provisioned in your workspace.
+
+    .PARAMETER ShowServersToUpdate
+    Returns the servers that need a firmware update to match the latest baseline, with the number of components to update,
+    critical updates, resolved advisories, reboot requirement and total download size.
+
+    .PARAMETER ShowComponentsToUpdate
+    Returns the firmware components to update, with their category, baseline version, update category, reboot requirement,
+    the number of servers to update and the number of advisories resolved.
+
+    .PARAMETER ShowAdvisories
+    Returns the security bulletins and customer advisories resolved by the components of the latest baseline, with their severity,
+    type, title, the number of servers affected and a link to the HPE support document.
+
+    .PARAMETER ShowServersUpToDate
+    Returns the servers whose firmware already matches the latest baseline.
+
+    .PARAMETER ShowServersNotAnalyzed
+    Returns the servers that could not be analyzed, with the reason reported by Compute Ops Management.
+
+    .PARAMETER ServerName
+    Optional filter on the server name or serial number. Wildcards are supported.
+    Can be used with -ShowServersToUpdate, -ShowServersUpToDate and -ShowServersNotAnalyzed.
+
+    .PARAMETER Severity
+    Optional filter on the severity of the advisories (Critical, High, Medium, Low). Can be used with -ShowAdvisories.
+
+    .PARAMETER Type
+    Optional filter on the type of the advisories ('Security Bulletin', 'Customer Advisory'). Can be used with -ShowAdvisories.
+
+    .PARAMETER UpdateCategory
+    Optional filter on the update category of the components (Critical, Recommended, Optional). Can be used with -ShowComponentsToUpdate.
+
+    .PARAMETER Generation
+    Optional filter on the server generation of the baseline, for example 10 (Gen10 and Gen10 Plus), 11 or 12.
+
+    .PARAMETER WhatIf
+    Shows the raw REST API call that would be made to COM instead of sending the request. This option is useful for understanding the inner workings of the native REST API calls used by COM.
+
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central
+
+    Returns the firmware analysis summary for each server generation: baseline, number of servers analyzed, servers to update,
+    components to update and advisories resolved.
+
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowAdvisories
+
+    Returns the security bulletins and customer advisories that are resolved by updating the servers to the latest baselines.
+
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowAdvisories -Severity Critical, High -Type 'Security Bulletin'
+
+    Returns only the critical and high severity security bulletins resolved by the latest baselines.
+
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowAdvisories | Select-Object severity, title, advisoryLink
+
+    Lists the resolved advisories with the link to each HPE support document.
+
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowServersToUpdate
+
+    Returns the servers that need a firmware update, with the number of components to update and advisories resolved for each server.
+
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowServersToUpdate | Where-Object advisoriesResolved -gt 0 | Update-HPECOMServerFirmware -FirmwareBaselineReleaseVersion 2026.09.00.00 -WhatIf
+
+    Previews a firmware update to baseline 2026.09.00.00 for every server whose update resolves at least one advisory or security bulletin.
+
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowComponentsToUpdate -UpdateCategory Critical -Generation 11
+
+    Returns the Gen11 firmware components with a critical update in the latest Gen11 baseline.
+
+    .EXAMPLE
+    Get-HPECOMFirmwareAnalysisReport -Region eu-central -ShowServersNotAnalyzed
+
+    Returns the servers excluded from the analysis and the reason, for example servers that are not connected.
+
+    .EXAMPLE
+    'eu-central', 'us-west' | ForEach-Object { Get-HPECOMFirmwareAnalysisReport -Region $_ -ShowAdvisories }
+
+    Returns the resolved advisories of the eu-central and us-west regions.
+
+    .INPUTS
+    None. You cannot pipe objects to this cmdlet.
+
+    .OUTPUTS
+    HPEGreenLake.COM.FirmwareAnalysis [System.Management.Automation.PSCustomObject]
+        Report summary per server generation: generation, baseline, baselineName, reportUpdated, totalServers, analyzed, notAnalyzed,
+        serversToUpdate, componentsToUpdate, advisoriesResolved, serversUpToDate, serversNotAnalyzed, sppId, region.
+
+    HPEGreenLake.COM.FirmwareAnalysis.Servers [System.Management.Automation.PSCustomObject]
+        With -ShowServersToUpdate or -ShowServersUpToDate: name, serialNumber, model, group, location, rebootRequired, criticalUpdates,
+        componentsToUpdate, advisoriesResolved, downloadSize, baseline, id, sppId, region.
+
+    HPEGreenLake.COM.FirmwareAnalysis.Components [System.Management.Automation.PSCustomObject]
+        With -ShowComponentsToUpdate: name, componentCategory, baselineVersion, updateCategory, rebootRequired, serversToUpdate,
+        advisoriesResolved, componentId, region.
+
+    HPEGreenLake.COM.FirmwareAnalysis.Advisories [System.Management.Automation.PSCustomObject]
+        With -ShowAdvisories: severity, type, title, serversAffected, status, documentId, advisoryLink, advisoryId, region.
+
+    HPEGreenLake.COM.FirmwareAnalysis.ServersNotAnalyzed [System.Management.Automation.PSCustomObject]
+        With -ShowServersNotAnalyzed: name, serialNumber, reason, generation, baseline, id, region.
+    #>
+
+    [CmdletBinding(DefaultParameterSetName = 'Overview')]
+    Param(
+        [Parameter (Mandatory)]
+        [ValidateScript({
+                if (-not $Global:HPEGreenLakeSession) {
+                    Throw "No active HPE GreenLake session found.`n`nCAUSE:`nYou have not authenticated to HPE GreenLake yet, or your previous session has been disconnected.`n`nACTION REQUIRED:`nRun 'Connect-HPEGL' to establish an authenticated session.`n`nExample:`n    Connect-HPEGL`n    Connect-HPEGL -Credential (Get-Credential)`n    Connect-HPEGL -Workspace `"MyWorkspace`"`n`nAfter connecting, you will be able to use the cmdlets of the HPECOMCmdlets module."
+                }
+                if (-not $Global:HPECOMRegions -or $Global:HPECOMRegions.Count -eq 0) {
+                    Throw "Compute Ops Management is not provisioned in this workspace!`n`nCAUSE:`nNo provisioned Compute Ops Management region was found.`n`nACTION REQUIRED:`nVerify the Compute Ops Management service is provisioned using:`n    Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned`n`nIf not provisioned, you can provision it using 'New-HPEGLService'."
+                }
+                if (($_ -in $Global:HPECOMRegions.region)) {
+                    $true
+                }
+                else {
+                    Throw "The COM region '$_' is not provisioned in this workspace! Please specify a valid region code (e.g., 'us-west', 'eu-central'). `nYou can retrieve the region code using: Get-HPEGLService -Name 'Compute Ops Management' -ShowProvisioned. `nYou can also use the Tab key for auto-completion to see the list of provisioned region codes."
+                }
+            })]
+        [ArgumentCompleter({
+                param($commandName, $parameterName, $wordToComplete, $commandAst, $fakeBoundParameters)
+                $Global:HPECOMRegions.region | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+                    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+                }
+            })]
+        [String]$Region,
+
+        [Parameter (Mandatory, ParameterSetName = 'ServersToUpdate')]
+        [Switch]$ShowServersToUpdate,
+
+        [Parameter (Mandatory, ParameterSetName = 'ComponentsToUpdate')]
+        [Switch]$ShowComponentsToUpdate,
+
+        [Parameter (Mandatory, ParameterSetName = 'Advisories')]
+        [Switch]$ShowAdvisories,
+
+        [Parameter (Mandatory, ParameterSetName = 'ServersUpToDate')]
+        [Switch]$ShowServersUpToDate,
+
+        [Parameter (Mandatory, ParameterSetName = 'ServersNotAnalyzed')]
+        [Switch]$ShowServersNotAnalyzed,
+
+        [Parameter (ParameterSetName = 'ServersToUpdate')]
+        [Parameter (ParameterSetName = 'ServersUpToDate')]
+        [Parameter (ParameterSetName = 'ServersNotAnalyzed')]
+        [ValidateNotNullOrEmpty()]
+        [String]$ServerName,
+
+        [Parameter (ParameterSetName = 'Advisories')]
+        [ValidateSet('Critical', 'High', 'Medium', 'Low')]
+        [String[]]$Severity,
+
+        [Parameter (ParameterSetName = 'Advisories')]
+        [ValidateSet('Security Bulletin', 'Customer Advisory')]
+        [String[]]$Type,
+
+        [Parameter (ParameterSetName = 'ComponentsToUpdate')]
+        [ValidateSet('Critical', 'Recommended', 'Optional')]
+        [String[]]$UpdateCategory,
+
+        [ValidateRange(8, 99)]
+        [Int]$Generation,
+
+        [Switch]$WhatIf
+    )
+
+    Begin {
+
+        $Caller = (Get-PSCallStack)[1].Command
+        "[{0}] Called from: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Caller | Write-Verbose
+
+        $SeverityRank = @{ 'Critical' = 0; 'High' = 1; 'Medium' = 2; 'Low' = 3 }
+        $UpdateCategoryRank = @{ 'Critical' = 0; 'Recommended' = 1; 'Optional' = 2 }
+    }
+
+    Process {
+
+        "[{0}] Bound PS Parameters: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($PSBoundParameters | out-string) | Write-Verbose
+
+        $IsOverview = $PSCmdlet.ParameterSetName -eq 'Overview'
+
+        # The details endpoints must be filtered by the baselines of the summary, as the console does, to exclude servers that were not analyzed.
+        try {
+            [Array]$Overview = Invoke-HPECOMWebRequest -Method GET -Uri (Get-COMFirmwareAnalysisOverviewUri) -Region $Region -SkipPaginationParameters -WhatIfBoolean ($WhatIf -and $IsOverview) -Verbose:$VerbosePreference
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($WhatIf -and $IsOverview) { return }
+
+        $BundleMap = @{}
+        try {
+            foreach ($Bundle in @(Get-HPECOMFirmwareBaseline -Region $Region -Verbose:$false)) { $BundleMap[$Bundle.id] = $Bundle }
+        }
+        catch {
+            "[{0}] Firmware baselines cannot be retrieved: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), $_.Exception.Message | Write-Verbose
+        }
+
+        # The report label can lag behind the baseline, so the generation of the baseline itself is preferred.
+        foreach ($Item in @($Overview)) {
+            $BundleGen = "$($BundleMap[$Item.sppId].bundleGeneration)" -replace '^BUNDLE_GEN_', ''
+            $Gen = if ($BundleGen) { $BundleGen } else { "$($Item.bundleGeneration)" -replace '^GEN_', '' }
+            $Item | Add-Member -NotePropertyName _generation -NotePropertyValue $Gen -Force
+        }
+
+        if ($Generation) {
+            $Overview = @($Overview | Where-Object { $_._generation -eq "$Generation" })
+        }
+
+        if (-not $Overview) {
+            "[{0}] No firmware analysis data found in the '{1}' region" -f $MyInvocation.InvocationName.ToString().ToUpper(), $Region | Write-Verbose
+            return
+        }
+
+        $SppIds = @($Overview.sppId | Where-Object { $_ } | Sort-Object -Unique)
+        "[{0}] Baselines in the firmware analysis report: {1}" -f $MyInvocation.InvocationName.ToString().ToUpper(), ($SppIds -join ', ') | Write-Verbose
+
+        $ReturnList = [System.Collections.ArrayList]::new()
+
+        if ($IsOverview -or $ShowServersNotAnalyzed) {
+
+            foreach ($Item in $Overview) {
+                $Bundle = $BundleMap[$Item.sppId]
+                $Gen = $Item._generation
+
+                if ($IsOverview) {
+                    [void]$ReturnList.Add([PSCustomObject]@{
+                            generation         = $Gen
+                            baseline           = $Bundle.releaseVersion
+                            baselineName       = $Bundle.name
+                            reportUpdated      = $Item.reportUpdated
+                            totalServers       = $Item.analysisResults.totalServers
+                            analyzed           = $Item.analysisResults.analyzed
+                            notAnalyzed        = $Item.analysisResults.notAnalyzed
+                            serversToUpdate    = $Item.analysisResults.serversToUpdate
+                            componentsToUpdate = $Item.analysisResults.componentsToUpdate
+                            advisoriesResolved = $Item.analysisResults.advisoriesResolved
+                            serversUpToDate    = $Item.analysisResults.serversUpToDate
+                            serversNotAnalyzed = $Item.analysisResults.serversNotAnalyzed
+                            sppId              = $Item.sppId
+                            region             = $Region
+                        })
+                }
+                else {
+                    foreach ($Server in @($Item.analysisResults.serversNotAnalyzed | Where-Object { $_ })) {
+                        $Serial = ($Server.serverId -split '\+')[-1]
+                        if ($ServerName -and $Server.displayName -notlike $ServerName -and $Serial -notlike $ServerName) { continue }
+                        [void]$ReturnList.Add([PSCustomObject]@{
+                                name         = $Server.displayName
+                                serialNumber = $Serial
+                                reason       = $Server.failedReason
+                                generation   = $Gen
+                                baseline     = $Bundle.releaseVersion
+                                id           = $Server.serverId
+                                region       = $Region
+                            })
+                    }
+                }
+            }
+
+            if ($ReturnList.Count -eq 0) { return }
+
+            if ($IsOverview) {
+                return Invoke-RepackageObjectWithType -RawObject ($ReturnList | Sort-Object generation, baseline) -ObjectName "COM.FirmwareAnalysis"
+            }
+            return Invoke-RepackageObjectWithType -RawObject ($ReturnList | Sort-Object name) -ObjectName "COM.FirmwareAnalysis.ServersNotAnalyzed"
+        }
+
+        $Endpoint = switch ($PSCmdlet.ParameterSetName) {
+            'ServersToUpdate' { 'servers-to-update' }
+            'ComponentsToUpdate' { 'components-to-update' }
+            'Advisories' { 'customer-advisories' }
+            'ServersUpToDate' { 'servers-up-to-date' }
+        }
+        $Filter = '(' + (($SppIds | ForEach-Object { "sppId eq '$_'" }) -join ' or ') + ')'
+        $Uri = "{0}/{1}?filter={2}" -f (Get-COMFirmwareAnalysisUIDoorwayUri), $Endpoint, $Filter
+
+        try {
+            [Array]$CollectionList = Invoke-HPECOMWebRequest -Method GET -Uri $Uri -Region $Region -WhatIfBoolean $WhatIf -Verbose:$VerbosePreference
+        }
+        catch {
+            $PSCmdlet.ThrowTerminatingError($_)
+        }
+
+        if ($WhatIf -or -not $CollectionList) { return }
+
+        switch ($PSCmdlet.ParameterSetName) {
+
+            'ComponentsToUpdate' {
+                foreach ($Item in $CollectionList) {
+                    if ($UpdateCategory -and $Item.updateCategory -notin $UpdateCategory) { continue }
+                    [void]$ReturnList.Add([PSCustomObject]@{
+                            name               = $Item.name
+                            componentCategory  = $Item.componentCategory
+                            baselineVersion    = $Item.baselineVersion
+                            updateCategory     = $Item.updateCategory
+                            rebootRequired     = $Item.rebootRequired
+                            serversToUpdate    = $Item.serversToUpdate
+                            advisoriesResolved = $Item.advisoriesResolved
+                            componentId        = $Item.componentId
+                            region             = $Region
+                        })
+                }
+                if ($ReturnList.Count -eq 0) { return }
+                $Sorted = $ReturnList | Sort-Object { if ($UpdateCategoryRank.ContainsKey("$($_.updateCategory)")) { $UpdateCategoryRank["$($_.updateCategory)"] } else { 9 } }, name
+                return Invoke-RepackageObjectWithType -RawObject $Sorted -ObjectName "COM.FirmwareAnalysis.Components"
+            }
+
+            'Advisories' {
+                foreach ($Item in $CollectionList) {
+                    if ($Severity -and $Item.severity -notin $Severity) { continue }
+                    if ($Type -and $Item.type -notin $Type) { continue }
+                    [void]$ReturnList.Add([PSCustomObject]@{
+                            severity        = $Item.severity
+                            type            = $Item.type
+                            title           = $Item.title
+                            serversAffected = $Item.serversAffected
+                            status          = $Item.status
+                            documentId      = ($Item.advisoryId -split '-')[0]
+                            advisoryLink    = $Item.advisoryLink
+                            advisoryId      = $Item.advisoryId
+                            region          = $Region
+                        })
+                }
+                if ($ReturnList.Count -eq 0) { return }
+                $Sorted = $ReturnList | Sort-Object { if ($SeverityRank.ContainsKey("$($_.severity)")) { $SeverityRank["$($_.severity)"] } else { 9 } }, title
+                return Invoke-RepackageObjectWithType -RawObject $Sorted -ObjectName "COM.FirmwareAnalysis.Advisories"
+            }
+
+            default {
+                foreach ($Item in $CollectionList) {
+                    $Serial = ($Item.id -split '\+')[-1]
+                    if ($ServerName -and $Item.name -notlike $ServerName -and $Serial -notlike $ServerName) { continue }
+                    $Detail = $Item.serverFirmwareComplianceDetail_
+                    [void]$ReturnList.Add([PSCustomObject]@{
+                            name               = $Item.name
+                            serialNumber       = $Serial
+                            model              = $Item.hardware.model
+                            group              = $Item.group_.name
+                            location           = $Item.locationInfo_.displayName_
+                            rebootRequired     = $Detail.details.rebootRequired
+                            criticalUpdates    = $Detail.summary.totalCriticalUpdates
+                            componentsToUpdate = $Detail.summary.totalComponentsToUpdate
+                            advisoriesResolved = $Detail.summary.totalAdvisoriesResolved
+                            downloadSize       = $Detail.details.totalDownloadSize
+                            baseline           = $BundleMap[$Detail.sppId].releaseVersion
+                            id                 = $Item.id
+                            sppId              = $Detail.sppId
+                            region             = $Region
+                        })
+                }
+                if ($ReturnList.Count -eq 0) { return }
+                return Invoke-RepackageObjectWithType -RawObject ($ReturnList | Sort-Object name) -ObjectName "COM.FirmwareAnalysis.Servers"
+            }
+        }
+    }
+}
+
 
 # Private functions (not exported)
 function New-ErrorRecord {
@@ -2805,263 +3199,221 @@ function Invoke-RepackageObjectWithType {
 
 
 # Export only public functions and aliases
-Export-ModuleMember -Function 'Get-HPECOMReport', 'New-HPECOMServerInventory', 'Get-HPECOMServerInventory', 'Get-HPECOMSustainabilityInsights', 'Get-HPECOMServerUtilizationInsights' -Alias *
+Export-ModuleMember -Function 'Get-HPECOMReport', 'New-HPECOMServerInventory', 'Get-HPECOMServerInventory', 'Get-HPECOMSustainabilityInsights', 'Get-HPECOMServerUtilizationInsights', 'Get-HPECOMFirmwareAnalysisReport' -Alias *
 
 
 # SIG # Begin signature block
-# MIIvswYJKoZIhvcNAQcCoIIvpDCCL6ACAQExDzANBglghkgBZQMEAgEFADB5Bgor
+# MIIn2gYJKoZIhvcNAQcCoIInyzCCJ8cCAQExDzANBglghkgBZQMEAgEFADB5Bgor
 # BgEEAYI3AgEEoGswaTA0BgorBgEEAYI3AgEeMCYCAwEAAAQQH8w7YFlLCE63JNLG
-# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAntvl8chQLyxMA
-# sVrOZJqd+dwNIubR9daswEdPS6ZsGqCCEfYwggVvMIIEV6ADAgECAhBI/JO0YFWU
-# jTanyYqJ1pQWMA0GCSqGSIb3DQEBDAUAMHsxCzAJBgNVBAYTAkdCMRswGQYDVQQI
-# DBJHcmVhdGVyIE1hbmNoZXN0ZXIxEDAOBgNVBAcMB1NhbGZvcmQxGjAYBgNVBAoM
-# EUNvbW9kbyBDQSBMaW1pdGVkMSEwHwYDVQQDDBhBQUEgQ2VydGlmaWNhdGUgU2Vy
-# dmljZXMwHhcNMjEwNTI1MDAwMDAwWhcNMjgxMjMxMjM1OTU5WjBWMQswCQYDVQQG
-# EwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS0wKwYDVQQDEyRTZWN0aWdv
-# IFB1YmxpYyBDb2RlIFNpZ25pbmcgUm9vdCBSNDYwggIiMA0GCSqGSIb3DQEBAQUA
-# A4ICDwAwggIKAoICAQCN55QSIgQkdC7/FiMCkoq2rjaFrEfUI5ErPtx94jGgUW+s
-# hJHjUoq14pbe0IdjJImK/+8Skzt9u7aKvb0Ffyeba2XTpQxpsbxJOZrxbW6q5KCD
-# J9qaDStQ6Utbs7hkNqR+Sj2pcaths3OzPAsM79szV+W+NDfjlxtd/R8SPYIDdub7
-# P2bSlDFp+m2zNKzBenjcklDyZMeqLQSrw2rq4C+np9xu1+j/2iGrQL+57g2extme
-# me/G3h+pDHazJyCh1rr9gOcB0u/rgimVcI3/uxXP/tEPNqIuTzKQdEZrRzUTdwUz
-# T2MuuC3hv2WnBGsY2HH6zAjybYmZELGt2z4s5KoYsMYHAXVn3m3pY2MeNn9pib6q
-# RT5uWl+PoVvLnTCGMOgDs0DGDQ84zWeoU4j6uDBl+m/H5x2xg3RpPqzEaDux5mcz
-# mrYI4IAFSEDu9oJkRqj1c7AGlfJsZZ+/VVscnFcax3hGfHCqlBuCF6yH6bbJDoEc
-# QNYWFyn8XJwYK+pF9e+91WdPKF4F7pBMeufG9ND8+s0+MkYTIDaKBOq3qgdGnA2T
-# OglmmVhcKaO5DKYwODzQRjY1fJy67sPV+Qp2+n4FG0DKkjXp1XrRtX8ArqmQqsV/
-# AZwQsRb8zG4Y3G9i/qZQp7h7uJ0VP/4gDHXIIloTlRmQAOka1cKG8eOO7F/05QID
-# AQABo4IBEjCCAQ4wHwYDVR0jBBgwFoAUoBEKIz6W8Qfs4q8p74Klf9AwpLQwHQYD
-# VR0OBBYEFDLrkpr/NZZILyhAQnAgNpFcF4XmMA4GA1UdDwEB/wQEAwIBhjAPBgNV
-# HRMBAf8EBTADAQH/MBMGA1UdJQQMMAoGCCsGAQUFBwMDMBsGA1UdIAQUMBIwBgYE
-# VR0gADAIBgZngQwBBAEwQwYDVR0fBDwwOjA4oDagNIYyaHR0cDovL2NybC5jb21v
-# ZG9jYS5jb20vQUFBQ2VydGlmaWNhdGVTZXJ2aWNlcy5jcmwwNAYIKwYBBQUHAQEE
-# KDAmMCQGCCsGAQUFBzABhhhodHRwOi8vb2NzcC5jb21vZG9jYS5jb20wDQYJKoZI
-# hvcNAQEMBQADggEBABK/oe+LdJqYRLhpRrWrJAoMpIpnuDqBv0WKfVIHqI0fTiGF
-# OaNrXi0ghr8QuK55O1PNtPvYRL4G2VxjZ9RAFodEhnIq1jIV9RKDwvnhXRFAZ/ZC
-# J3LFI+ICOBpMIOLbAffNRk8monxmwFE2tokCVMf8WPtsAO7+mKYulaEMUykfb9gZ
-# pk+e96wJ6l2CxouvgKe9gUhShDHaMuwV5KZMPWw5c9QLhTkg4IUaaOGnSDip0TYl
-# d8GNGRbFiExmfS9jzpjoad+sPKhdnckcW67Y8y90z7h+9teDnRGWYpquRRPaf9xH
-# +9/DUp/mBlXpnYzyOmJRvOwkDynUWICE5EV7WtgwggYaMIIEAqADAgECAhBiHW0M
-# UgGeO5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYD
-# VQQKEw9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENv
-# ZGUgU2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5
-# NTlaMFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzAp
-# BgNVBAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0G
-# CSqGSIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjI
-# ztNsfvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NV
-# DgFigOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/3
-# 6F09fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05Zw
-# mRmTnAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm
-# +qxp4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUe
-# dyz8rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz4
-# 4MPZ1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBM
-# dlyh2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQY
-# MBaAFDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritU
-# pimqF6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNV
-# HSUEDDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsG
-# A1UdHwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1
-# YmxpY0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsG
-# AQUFBzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2Rl
-# U2lnbmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0
-# aWdvLmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURh
-# w1aVcdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0Zd
-# OaWTsyNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajj
-# cw5+w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNc
-# WbWDRF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalO
-# hOfCipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJs
-# zkyeiaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z7
-# 6mKnzAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5J
-# KdGvspbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHH
-# j95Ejza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2
-# Bev6SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/
-# L9Uo2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkq
-# hkiG9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1p
-# dGVkMSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2
-# MB4XDTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMx
-# DjAMBgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJw
-# cmlzZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
-# ZSBDb21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qw
-# cmuCQyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyu
-# cpC7tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ip
-# z4+uJGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4Edtvu
-# muGI4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28Flg
-# kSt9f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOy
-# ecaVpJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3p
-# eg1ku0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7
-# XOBa5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJd
-# isrV7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXR
-# dJNADjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtR
-# u0aQcdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQY
-# MBaAFA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vm
-# oYtOnZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAK
-# BggrBgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUF
-# BwIBFhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIw
-# QDA+oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29k
-# ZVNpZ25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjho
-# dHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NB
-# UjM2LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJ
-# KoZIhvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs86
-# 5wyoO3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU
-# 9e6+TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH
-# 6GOfU6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGa
-# ei8nSr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/u
-# CIaQv5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xE
-# v65BoUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAya
-# VpbAYtaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPj
-# nZ+oA+rbZZyGZkz3xbUYKTGCHRMwgh0PAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAW
-# BgNVBAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMg
-# Q29kZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUD
-# BAIBBQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGC
-# NwIBBDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQx
-# IgQgwi5Dub4XCMaTML8+WW2rGUAVavLZ7F5+ZLsYSck2QcYwDQYJKoZIhvcNAQEB
-# BQAEggIABVRlUcsGbm3hF5LdH4hsAYQKKal5ujzOdh793AJBOa/4a2V0FOL1H+zQ
-# wol8VqyXuET9MiIiBypse5NtHaH+giB5TaK6q7R2PR3t+dSkKXF96Rzlj3sk1Hye
-# HmCZiWSSocEN8o+2exMKbyNSyk9RcbW7gWq+4PH9gXtk6lub2QHhSZdTo3BYdcqZ
-# xYbQpKrIYzFwAAitylYMhV9Ly6r/5a4lF/W76BJUg8wA2Mc3u920Rp/aV9cgaVKQ
-# G/jLPpxrf/6pZ7UsNMczbWyRErqkL0twTSbud6/0W1haECD16eH+ctx9jiEsSU/N
-# iYZTaSmYApUs/uGZnjs9jpTCAdk7caTMZtIzvPVRMhqGeOulanEaAuKEX+gum9Dk
-# eiSvzrZKvw3JM2czAIk4roSzXs26rEbelFSk6FzJNsH/qApDyjCgdJIckMego2vO
-# /WjzXuuf4dA/nbo7FOGehRf8Aok5oh0/aYZpah+kP4n90ampobkykbdnKoxzbrsy
-# Oj3fWLiFGn0Og8WF81gLNBxTUWyypvg9dVNWhMn54CG/wSnF8sGWW1YpngSNSVmq
-# zb8ndLiG7aFJ+rni+lrYKY6pK7H5kACXT7CDQozYcwFBrRisf+b8teOzfK5gEP+O
-# sd7OhNFC93Y7a720OIzMcfAonRWMLMZSEkP+nyT3XxTpqYzcQ9uhghn9MIIZ+QYK
-# KwYBBAGCNwMDATGCGekwghnlBgkqhkiG9w0BBwKgghnWMIIZ0gIBAzEPMA0GCWCG
-# SAFlAwQCAgUAMIIBCAYLKoZIhvcNAQkQAQSggfgEgfUwgfICAQEGCisGAQQBsjEC
-# AQEwQTANBglghkgBZQMEAgIFAAQwhSblhOJaSCB5VCxSNHp1fv1XTWzMdvT3tevN
-# xufhdh4AyrBI71pbjBXpUu7fZIn6AhUArgVzgVMU61/naIB2dE5AuVIH61MYDzIw
-# MjYwNjI2MTM0MTU2WqB2pHQwcjELMAkGA1UEBhMCR0IxFzAVBgNVBAgTDkdyZWF0
-# ZXIgTG9uZG9uMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxMDAuBgNVBAMTJ1Nl
-# Y3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgU2lnbmVyIFIzN6CCFBcwggbiMIIE
-# yqADAgECAhEA507yVbBQT/rbpt/3/IujFTANBgkqhkiG9w0BAQwFADBVMQswCQYD
-# VQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMSwwKgYDVQQDEyNTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTAeFw0yNjAzMjUwMDAwMDBa
-# Fw0zNzA2MjQyMzU5NTlaMHIxCzAJBgNVBAYTAkdCMRcwFQYDVQQIEw5HcmVhdGVy
-# IExvbmRvbjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTAwLgYDVQQDEydTZWN0
-# aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFNpZ25lciBSMzcwggIiMA0GCSqGSIb3
-# DQEBAQUAA4ICDwAwggIKAoICAQCy/8NtS9xQ2UUtBRF32bj7VK3n4m50Uqjk/zTc
-# iSziYV40H1LKah0/oEklYG42E4VCP3DvsBUB6DmpCkDZ0jCnZBPIEevaH15ZJOQw
-# FWP2ZXr5YjlJpb68Nlbs+ElNvKx32/1YHde3qqUSLybjulxPLz6T85+HOIqK7M1B
-# ep8LspyhEP/q6nw5kGxTSrGvufmeH+JF8CnVBcVMFA40FlIYh0cDJVFhhfTfdWgL
-# y/vWuLMQoKkf3s/FvByf16r0rtbyHm/iemwxSioJL9zyZDDKUNAbHXl0dhXo2VxU
-# V2NcPXWXuoKsjL+6cfk6Vm2DHnxAlFdFsaBDIF1JOkSnC6PeLlBznZn2buF3vIIY
-# Jcq6N/zeFRCk4/HXDz7zgRsRRMdUB+rhyk5FoZaBjw0nLq3GZ3fClLUx5es5pUAx
-# zNODMBn7JkFYip2BAGBPER5eV0ROhk6tGTG+fUiMiV+vgjg1YnP5FvnYWyEtWeQD
-# /B2hp3vz0RvtdkM0p3igyadzrfpOBq5ppVk/YsuhTQkP99ivneHAGfi5e7lmxJ+m
-# eoBPrRLuzMmb81rzzbESjJHMsn5RVtc6Ucs7rcMqQC13PUIO7BbGBETV2ufCmV6l
-# PTp3P7XJOvmnUCRTPbVvMTpxP/z+SOHg4/OCBhiqs4FA9+4oQvlkk9w32NGASli9
-# GWrm5wIDAQABo4IBjjCCAYowHwYDVR0jBBgwFoAUOnSlDGfGQlDC/bX8x7spNIL0
-# erkwHQYDVR0OBBYEFGEQ6XoSr1HEhdTyz6R0D1DNIK/4MA4GA1UdDwEB/wQEAwIG
-# wDAMBgNVHRMBAf8EAjAAMBYGA1UdJQEB/wQMMAoGCCsGAQUFBwMIMEoGA1UdIARD
-# MEEwCAYGZ4EMAQQCMDUGDCsGAQQBsjEBAgEDCDAlMCMGCCsGAQUFBwIBFhdodHRw
-# czovL3NlY3RpZ28uY29tL0NQUzBKBgNVHR8EQzBBMD+gPaA7hjlodHRwOi8vY3Js
-# LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcmww
-# egYIKwYBBQUHAQEEbjBsMEUGCCsGAQUFBzAChjlodHRwOi8vY3J0LnNlY3RpZ28u
-# Y29tL1NlY3RpZ29QdWJsaWNUaW1lU3RhbXBpbmdDQVI0MS5jcnQwIwYIKwYBBQUH
-# MAGGF2h0dHA6Ly9vY3NwLnNlY3RpZ28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAD
-# 6j2N0azN+hl6k6bKB5/U6VuSOs93ZBb3Pczy9VtBIKu4947Z5GwL0aFngIxl+GSu
-# LFrJgPruBCRvKJEJsm7kv+LQ1COVCEG9tZ+IRtr4ocUoa53lgdFaENlS0N4wgkZk
-# bQEPv+x+1lSjYh+T4JeL9mUznT7Erc6Sp5dWLka5sMP/m3GZi6oJPdPcsCKWagH7
-# m2H2xDGIyHJC5PdH9phvi/KmhkktiSVTNNqVeV5bWdX2zhRE6UTfz0IcMoCL996l
-# FIydXxOCE4MNDHDM0as4lnTiT/KHMccO6l8c9TnUVgmpci9ar1IABZ2U1XUkYjGG
-# Sn9MC3EHDP9V39VuBVvZ33/BEV/EWSRrf07T7jFplKX+gQr/UOqPGMlE7ZJ72UaU
-# kNJy7bVl3bcLKzdpjIHzLkf/4MVa1V7w8wqCv5W4gOnRGTlud5UMARbRM8BPxR/C
-# XYXoMmIOD8pmTk2axgRL4LG8XtuchISdCHRmtacAmLGq5XSYSVTHTXADlO48iDKh
-# 3HM2r98LSF6f0sG12d8V9Jn7C3wDUieOxuKj4MdWrW+hiJU2kF87v6eH00HgCFFc
-# 2V0+CvfOCMn7juzS41jLaINcBlKWQ/fKb/uDLfWOW73z1I2lFY7Xj8tQ1XYtK5eR
-# EjWItM8jpl1cbQOc88btR+0XS2TmboE/141+va2PWzCCBqcwggSPoAMCAQICEQCQ
-# rAhyIP3Fp8RrXMcN9z0GMA0GCSqGSIb3DQEBDAUAMFcxCzAJBgNVBAYTAkdCMRgw
-# FgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGlj
-# IFRpbWUgU3RhbXBpbmcgUm9vdCBSNDYwHhcNMjYwMzI1MDAwMDAwWhcNNDEwMzI0
-# MjM1OTU5WjBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVk
-# MSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENBIFI0MTCC
-# AiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK7kSqIBrYIcYvlmLVuaA8zw
-# 1RfBhkn4G1CoemzjcYtML6yNUvKmwGH7y6/5MuSC1UYP/+9KYDSqvMQt/1hEKHYx
-# MAD9oZpBkoaDQFEKbOJHelsKe+BaO0ZcENTKfePcraVkA7wrGAW2XHA5gQCQv4IK
-# ori/3PNOXxnDMOk8yIMgVrlMeTxqfWJ4XkjT1xc2s9DD7URHWWJOFobTPoWs6mrD
-# FlaY9FlAHDYTfbzvxQHVsvRmn3W+5ZmCwyk02I8KgGPT/UX4sTz41GiR+ppwUjQX
-# a1+2tEHZbsdAKUtH3OPEVtZvlt7atx4h83IdRR8oYi8wjY3OjFKXFecWpQbzzsPx
-# bUKPwMWiTrzwkrFa8dH/1pDKRJt371W62PfqKPayCr/XbnBOlRn8CALSmHnRtGzu
-# AWtTJpcT3BKw6oy8IIL6wSbu938F6ZIbRNIc1dKbIJtr4ULN6R5ZfTdNEhwXctqp
-# 3RHDbg4fuOl6LjNoaFwjud92EEDhzxFJzE1jqN4csceZIwxOT1aqfsfh0uFQE/lg
-# TBuBs3i6/WL2W1OceWLy3XEdXRK1f0EWCuea6dNfX2RRdjUfk5EltFnJkN2+bWhn
-# K14OPRKcyjOv5hKZ0iV4NRNd1+hjtva1rPyzb5Bs7EvFxqEQhgZbOq7qH3nm0rBw
-# A0dxniBOYCFPdu246JCxAgMBAAGjggFuMIIBajAfBgNVHSMEGDAWgBT2d2rdP/0B
-# E/8WoWyCAi/QCj0UJTAdBgNVHQ4EFgQUOnSlDGfGQlDC/bX8x7spNIL0erkwDgYD
-# VR0PAQH/BAQDAgGGMBIGA1UdEwEB/wQIMAYBAf8CAQAwEwYDVR0lBAwwCgYIKwYB
-# BQUHAwgwIwYDVR0gBBwwGjAIBgZngQwBBAIwDgYMKwYBBAGyMQECAQMIMEwGA1Ud
-# HwRFMEMwQaA/oD2GO2h0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1Ymxp
-# Y1RpbWVTdGFtcGluZ1Jvb3RSNDYuY3JsMHwGCCsGAQUFBwEBBHAwbjBHBggrBgEF
-# BQcwAoY7aHR0cDovL2NydC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljVGltZVN0
-# YW1waW5nUm9vdFI0Ni5wN2MwIwYIKwYBBQUHMAGGF2h0dHA6Ly9vY3NwLnNlY3Rp
-# Z28uY29tMA0GCSqGSIb3DQEBDAUAA4ICAQAy3lJHZvGeA2b43yhzoarvobHVzbfl
-# +RfuPDwej0wCQkYAN6scTt2GwFe22qbOCv/tllqFlLKQZE+E9jVyuPTbyQHwrM7R
-# 0oLapAEDC1+CowsqSRf/ptira5Pfd4PoHICnb9coPQtyZmHSQp5y9IGvqWf1qNfq
-# 7V2fHZ8DvEQrLUzeoGF9BJRYu2OzacW3QQtUum3NOVf0gPRwv6I4991uhncJ6VP4
-# lcpUpHZKB7R3hiIUC09mR9KjzPVnXHvL9n2bAwiUECfK5Zezhiw27F2tgi39DETf
-# U8M4n0N6xLgFzsf05M5GURX8C9+IX9V6kpmmKtrUzMti4LD66gtmf+mSm934K81N
-# L6YQeMEk1rpYrWPypcW76Mir6wb1AgseLIHqn/GkeuQm7zOTDf3f5WoX14qVNjZW
-# NHF3JxkutV6ZnhinfCLfdv5bnwKWUfceqOajCVntI6uCbHxjBg6SCsexc5AfIGno
-# 7gVFvwifT4XONPsSUaJ71XsJ+EvciVUVnjOO4qxm0fWJTd8a7jP8mc4ZPqwJvQFt
-# Op7+6G+kUJAF0fnE8YgD8uttBReNTa1YmAeFMiqc38e8fI4eLm0zjM/eeGCHasno
-# qqrbGwcF41iz9HXzFDwN4iD5z3QShp6HRiU3UpTwDJiiXcr0z6pjl7PyzJ3/tmWt
-# GehV7CAfc/WlyzCCBoIwggRqoAMCAQICEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZI
-# hvcNAQEMBQAwgYgxCzAJBgNVBAYTAlVTMRMwEQYDVQQIEwpOZXcgSmVyc2V5MRQw
-# EgYDVQQHEwtKZXJzZXkgQ2l0eTEeMBwGA1UEChMVVGhlIFVTRVJUUlVTVCBOZXR3
-# b3JrMS4wLAYDVQQDEyVVU0VSVHJ1c3QgUlNBIENlcnRpZmljYXRpb24gQXV0aG9y
-# aXR5MB4XDTIxMDMyMjAwMDAwMFoXDTM4MDExODIzNTk1OVowVzELMAkGA1UEBhMC
-# R0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQ
-# dWJsaWMgVGltZSBTdGFtcGluZyBSb290IFI0NjCCAiIwDQYJKoZIhvcNAQEBBQAD
-# ggIPADCCAgoCggIBAIid2LlFZ50d3ei5JoGaVFTAfEkFm8xaFQ/ZlBBEtEFAgXcU
-# manU5HYsyAhTXiDQkiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZzEbOOp6YiTx63ywT
-# on434aXVydmhx7Dx4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4f92sKKjbxqohUSfj
-# k1mJlAjthgF7Hjx4vvyVDQGsd5KarLW5d73E3ThobSkob2SL48LpUR/O627pDchx
-# ll+bTSv1gASn/hp6IuHJorEu6EopoB1CNFp/+HpTXeNARXUmdRMKbnXWflq+/g36
-# NJXB35ZvxQw6zid61qmrlD/IbKJA6COw/8lFSPQwBP1ityZdwuCysCKZ9ZjczMqb
-# UcLFyq6KdOpuzVDR3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOcNzDpQsmwGQ6Stw8t
-# TCqPumhLRPb7YkzM8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqYubNeKolzqUbCqhSq
-# mr/UdUeb49zYHr7ALL8bAJyPDmubNqMtuaobKASBqP84uhqcRY/pjnYd+V5/dcu9
-# ieERjiRKKsxCG1t6tG9oj7liwPddXEcYGOUiWLm742st50jGwTzxbMpepmOP1mLn
-# JskvZaN5e45NuzAHteORlsSuDt5t4BBRCJL+5EZnnw0ezntk9R8QJyAkL6/bAgMB
-# AAGjggEWMIIBEjAfBgNVHSMEGDAWgBRTeb9aqitKz1SA4dibwJ3ysgNmyzAdBgNV
-# HQ4EFgQU9ndq3T/9ARP/FqFsggIv0Ao9FCUwDgYDVR0PAQH/BAQDAgGGMA8GA1Ud
-# EwEB/wQFMAMBAf8wEwYDVR0lBAwwCgYIKwYBBQUHAwgwEQYDVR0gBAowCDAGBgRV
-# HSAAMFAGA1UdHwRJMEcwRaBDoEGGP2h0dHA6Ly9jcmwudXNlcnRydXN0LmNvbS9V
-# U0VSVHJ1c3RSU0FDZXJ0aWZpY2F0aW9uQXV0aG9yaXR5LmNybDA1BggrBgEFBQcB
-# AQQpMCcwJQYIKwYBBQUHMAGGGWh0dHA6Ly9vY3NwLnVzZXJ0cnVzdC5jb20wDQYJ
-# KoZIhvcNAQEMBQADggIBAA6+ZUHtaES45aHF1BGH5Lc7JYzrftrIF5Ht2PFDxKKF
-# Oct/awAEWgHQMVHol9ZLSyd/pYMbaC0IZ+XBW9xhdkkmUV/KbUOiL7g98M/yzRyq
-# UOZ1/IY7Ay0YbMniIibJrPcgFp73WDnRDKtVutShPSZQZAdtFwXnuiWl8eFARK3P
-# mLqEm9UsVX+55DbVIz33Mbhba0HUTEYv3yJ1fwKGxPBsP/MgTECimh7eXomvMm0/
-# GPxX2uhwCcs/YLxDnBdVVlxvDjHjO1cuwbOpkiJGHmLXXVNbsdXUC2xBrq9fLrfe
-# 8IBsA4hopwsCj8hTuwKXJlSTrZcPRVSccP5i9U28gZ7OMzoJGlxZ5384OKm0r568
-# Mo9TYrqzKeKZgFo0fj2/0iHbj55hc20jfxvK3mQi+H7xpbzxZOFGm/yVQkpo+ffv
-# 5gdhp+hv1GDsvJOtJinJmgGbBFZIThbqI+MHvAmMmkfb3fTxmSkop2mSJL1Y2x/9
-# 55S29Gu0gSJIkc3z30vU/iXrMpWx2tS7UVfVP+5tKuzGtgkP7d/doqDrLF1u6Ci3
-# TpjAZdeLLlRQZm867eVeXED58LXd1Dk6UvaAhvmWYXoiLz4JA5gPBcz7J311uahx
-# CweNxE+xxxR3kT0WKzASo5G/PyDez6NHdIUKBeE3jDPs2ACc6CkJ1Sji4PKWVT0/
-# MYIEkzCCBI8CAQEwajBVMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBM
-# aW1pdGVkMSwwKgYDVQQDEyNTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIENB
-# IFI0MQIRAOdO8lWwUE/626bf9/yLoxUwDQYJYIZIAWUDBAICBQCgggH6MBoGCSqG
-# SIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYwNjI2MTM0
-# MTU2WjA/BgkqhkiG9w0BCQQxMgQwjl6Ot71AqTPZisFa/WC9/FJZK5Pju0dRemUY
-# pzYFO2xiezzK4CTcJADuJe8PhrX7MIIBewYLKoZIhvcNAQkQAgwxggFqMIIBZjCC
-# AWIwFgQU6XgYqSjaFQqf4b+czHqruaAO7qwwgYgEFGXDKGlvfU5QLP0Dx8IGlxjK
-# +/dPMHAwW6RZMFcxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0
-# ZWQxLjAsBgNVBAMTJVNlY3RpZ28gUHVibGljIFRpbWUgU3RhbXBpbmcgUm9vdCBS
-# NDYCEQCQrAhyIP3Fp8RrXMcN9z0GMIG8BBSFPWMtk4KCYXzQkDXEkd6SwULaxzCB
-# ozCBjqSBizCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDAS
-# BgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdv
-# cmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3Jp
-# dHkCEDbCsL18Gzrno7PdNsvJdWgwDQYJKoZIhvcNAQEBBQAEggIATEqrvIbAzN7A
-# jdldgboMI/7H0U+PeI0e+trzcb8s0MYfuM52GGPkepUCG440km+EhtLfni7RIt1s
-# k2WkDfmQziWh8jBnopfDhx/6LVSaW/uGfrOFkD3u6I9315mTpAPQmKVzRYbSOBFZ
-# QYLgU+xEe1clQV2t+Ny4M1jvBskCf9yKXFI8d8XPcqcSDFttmmlGt8dDRiIM7qrH
-# 3ofwF8lt/lh7SRxrkNH8ZH7UiWfif126tJJklytPVyV7Fn8Z2wJa9yiLonh+Ey/t
-# srsHrGkz3VHH94wsozdGxAgZ0A4VSLc4sTjiu9lQx2VyodtqLaFF7QaPn1DT234t
-# YqBnHyBP4gufCDJ/VPqTK2kFs/Ly1ar/JmFkQdFTlrNSDH9Z3w0T8rlBNaJDPFE9
-# aZJrGvO+fWFXGWF+HjAJozu4SZdXv8h5VfhbXlWSrXXwOzQxAgm7q44l8AN4zWi2
-# jcFE5jGsayLhCRbmQp9xvrh4XzHJlzfVZFHTaKFVgI5USULrc1WNxTug898bQ8+8
-# sMJpT2JGyxk1ZKWOfBMppNQ/TjLP75GCCSa4ksDZuGDymiNZ92mu995QC4unwLwv
-# RZSGKCKZ+fxheG6AscqNSac0+LnpZOi5uBee4tV+R0r5OJjd7KgwNHxTUFUsSQAM
-# djbHeAsIdAEwjgS3dDH3tuJef1/mCcM=
+# KX7zUQIBAAIBAAIBAAIBAAIBADAxMA0GCWCGSAFlAwQCAQUABCAK0n8oKhrZb+7R
+# O88jUTVPkU1NNBlaskpJLSWb6LPNe6CCDIMwggYaMIIEAqADAgECAhBiHW0MUgGe
+# O5B5FSCJIRwKMA0GCSqGSIb3DQEBDAUAMFYxCzAJBgNVBAYTAkdCMRgwFgYDVQQK
+# Ew9TZWN0aWdvIExpbWl0ZWQxLTArBgNVBAMTJFNlY3RpZ28gUHVibGljIENvZGUg
+# U2lnbmluZyBSb290IFI0NjAeFw0yMTAzMjIwMDAwMDBaFw0zNjAzMjEyMzU5NTla
+# MFQxCzAJBgNVBAYTAkdCMRgwFgYDVQQKEw9TZWN0aWdvIExpbWl0ZWQxKzApBgNV
+# BAMTIlNlY3RpZ28gUHVibGljIENvZGUgU2lnbmluZyBDQSBSMzYwggGiMA0GCSqG
+# SIb3DQEBAQUAA4IBjwAwggGKAoIBgQCbK51T+jU/jmAGQ2rAz/V/9shTUxjIztNs
+# fvxYB5UXeWUzCxEeAEZGbEN4QMgCsJLZUKhWThj/yPqy0iSZhXkZ6Pg2A2NVDgFi
+# gOMYzB2OKhdqfWGVoYW3haT29PSTahYkwmMv0b/83nbeECbiMXhSOtbam+/36F09
+# fy1tsB8je/RV0mIk8XL/tfCK6cPuYHE215wzrK0h1SWHTxPbPuYkRdkP05ZwmRmT
+# nAO5/arnY83jeNzhP06ShdnRqtZlV59+8yv+KIhE5ILMqgOZYAENHNX9SJDm+qxp
+# 4VqpB3MV/h53yl41aHU5pledi9lCBbH9JeIkNFICiVHNkRmq4TpxtwfvjsUedyz8
+# rNyfQJy/aOs5b4s+ac7IH60B+Ja7TVM+EKv1WuTGwcLmoU3FpOFMbmPj8pz44MPZ
+# 1f9+YEQIQty/NQd/2yGgW+ufflcZ/ZE9o1M7a5Jnqf2i2/uMSWymR8r2oQBMdlyh
+# 2n5HirY4jKnFH/9gRvd+QOfdRrJZb1sCAwEAAaOCAWQwggFgMB8GA1UdIwQYMBaA
+# FDLrkpr/NZZILyhAQnAgNpFcF4XmMB0GA1UdDgQWBBQPKssghyi47G9IritUpimq
+# F6TNDDAOBgNVHQ8BAf8EBAMCAYYwEgYDVR0TAQH/BAgwBgEB/wIBADATBgNVHSUE
+# DDAKBggrBgEFBQcDAzAbBgNVHSAEFDASMAYGBFUdIAAwCAYGZ4EMAQQBMEsGA1Ud
+# HwREMEIwQKA+oDyGOmh0dHA6Ly9jcmwuc2VjdGlnby5jb20vU2VjdGlnb1B1Ymxp
+# Y0NvZGVTaWduaW5nUm9vdFI0Ni5jcmwwewYIKwYBBQUHAQEEbzBtMEYGCCsGAQUF
+# BzAChjpodHRwOi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2ln
+# bmluZ1Jvb3RSNDYucDdjMCMGCCsGAQUFBzABhhdodHRwOi8vb2NzcC5zZWN0aWdv
+# LmNvbTANBgkqhkiG9w0BAQwFAAOCAgEABv+C4XdjNm57oRUgmxP/BP6YdURhw1aV
+# cdGRP4Wh60BAscjW4HL9hcpkOTz5jUug2oeunbYAowbFC2AKK+cMcXIBD0ZdOaWT
+# syNyBBsMLHqafvIhrCymlaS98+QpoBCyKppP0OcxYEdU0hpsaqBBIZOtBajjcw5+
+# w/KeFvPYfLF/ldYpmlG+vd0xqlqd099iChnyIMvY5HexjO2AmtsbpVn0OhNcWbWD
+# RF/3sBp6fWXhz7DcML4iTAWS+MVXeNLj1lJziVKEoroGs9Mlizg0bUMbOalOhOfC
+# ipnx8CaLZeVme5yELg09Jlo8BMe80jO37PU8ejfkP9/uPak7VLwELKxAMcJszkye
+# iaerlphwoKx1uHRzNyE6bxuSKcutisqmKL5OTunAvtONEoteSiabkPVSZ2z76mKn
+# zAfZxCl/3dq3dUNw4rg3sTCggkHSRqTqlLMS7gjrhTqBmzu1L90Y1KWN/Y5JKdGv
+# spbOrTfOXyXvmPL6E52z1NZJ6ctuMFBQZH3pwWvqURR8AgQdULUvrxjUYbHHj95E
+# jza63zdrEcxWLDX6xWls/GDnVNueKjWUH3fTv1Y8Wdho698YADR7TNx8X8z2Bev6
+# SivBBOHY+uqiirZtg0y9ShQoPzmCcn63Syatatvx157YK9hlcPmVoa1oDE5/L9Uo
+# 2bC5a4CH2RwwggZhMIIEyaADAgECAhEAyDHh+zCQwUNyJV9S6gqqvTANBgkqhkiG
+# 9w0BAQwFADBUMQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVk
+# MSswKQYDVQQDEyJTZWN0aWdvIFB1YmxpYyBDb2RlIFNpZ25pbmcgQ0EgUjM2MB4X
+# DTI1MDUyMDAwMDAwMFoXDTI4MDUxOTIzNTk1OVowdzELMAkGA1UEBhMCVVMxDjAM
+# BgNVBAgMBVRleGFzMSswKQYDVQQKDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlz
+# ZSBDb21wYW55MSswKQYDVQQDDCJIZXdsZXR0IFBhY2thcmQgRW50ZXJwcmlzZSBD
+# b21wYW55MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA37AD03qwcmuC
+# QyxRB2VBM7SfUf0SmpQb8iaPvGmxw5uoDBY3gdC/3Xq/rfM3ndCn03hNdGyucpC7
+# tD4zmel6yYqxyXDVr45Jd2cz9jFXoYTOMcuDV6I6CvU/EnbFxWhv0VCp+2Ipz4+u
+# JGI6aVlMpFpLbgPjhp9ogd/89HEyi1FkSFoarnvxxaXm93S81k7FD/4EdtvumuGI
+# 4V8p39GfbCiMuHku8BzSQ2g86gWFnOaVhY6h4XWvEmE8LPYkU/STrej28FlgkSt9
+# f/Jg6+dvRKm92uN2Z760Eql9+DTWkGmGe4YrIyD25XDa07sS9tIpVWzLrGOyecaV
+# pJwVVBqCadXDgkgTYKw/UlS+cEqsviT6wREGl4aX/GbeNO6Y4oDTTYkabW3peg1k
+# u0v90oDqzoTaWEE5ly2UajvXIgzpFLLXqpR6GYkv/y3ZJV0chBqRtAObebH7XOBa
+# 5a2kqMBw0gkIZBJHd8+PCPH/U7eJkeKXtGGj2uTudcGjZgOjVcFYdCRnufJdisrV
+# 7bj0Hzghcv3QyRXL3rRjcNb4ccKNnSgF/8cmiTVpvFHTfUKsYdkbM6wsbjXRdJNA
+# DjGOYRms7tKsii3/oXO+2S1Um7yomBZQ2+wVRCY6MrRX1onDKid5t5AyWFtRu0aQ
+# cdBmHG6JeDiQ3Hrb2g9kZhuFkgABVBkCAwEAAaOCAYkwggGFMB8GA1UdIwQYMBaA
+# FA8qyyCHKLjsb0iuK1SmKaoXpM0MMB0GA1UdDgQWBBQH4rUE0gsy8LW2G3vmoYtO
+# nZ8zEjAOBgNVHQ8BAf8EBAMCB4AwDAYDVR0TAQH/BAIwADATBgNVHSUEDDAKBggr
+# BgEFBQcDAzBKBgNVHSAEQzBBMDUGDCsGAQQBsjEBAgEDAjAlMCMGCCsGAQUFBwIB
+# FhdodHRwczovL3NlY3RpZ28uY29tL0NQUzAIBgZngQwBBAEwSQYDVR0fBEIwQDA+
+# oDygOoY4aHR0cDovL2NybC5zZWN0aWdvLmNvbS9TZWN0aWdvUHVibGljQ29kZVNp
+# Z25pbmdDQVIzNi5jcmwweQYIKwYBBQUHAQEEbTBrMEQGCCsGAQUFBzAChjhodHRw
+# Oi8vY3J0LnNlY3RpZ28uY29tL1NlY3RpZ29QdWJsaWNDb2RlU2lnbmluZ0NBUjM2
+# LmNydDAjBggrBgEFBQcwAYYXaHR0cDovL29jc3Auc2VjdGlnby5jb20wDQYJKoZI
+# hvcNAQEMBQADggGBAIax+Yaj5EciDlztft4iAfD2CtIWEF0cxR+UbbvJEs865wyo
+# O3ZQoujr0FJ+P5fjDKLbamHrEWmyoD2YC4lzecmnFOnY0y4uJ9zBY8B6X6TU9e6+
+# TfZtlXd44YffXYAfoLX+uYjVJcZOaMuXF61+CFpjLJjepsD8m1gdj5QUz2sH6GOf
+# U6mEm8SHvKpgPMV/yhEKqgjlenY6Ao49RkxnDuvRlMP8SFPB+8bxiLegEdGaei8n
+# Sr/j5YeDZFevUJ696T4W45QGrwAhBBpbKDz6CzlImC1b2C8Bp02XBAsOQs/uCIaQ
+# v5XxUmVxmb85tDJkd7QfqHo2z1T2NYMkvXUcSClYRuVxxC/frpqcrxS9O9xEv65B
+# oUztAJSXsTdfpUjWeNOnhq8lrwa2XAD3fbagNF6ElsBiNDSbwHCG/iY4kAyaVpbA
+# Ytaa6TfzdI/I0EaCX5xYRW56ccI2AnbaEVKz9gVjzi8hBLALlRhrs1uMFtPjnZ+o
+# A+rbZZyGZkz3xbUYKTGCGq0wghqpAgEBMGkwVDELMAkGA1UEBhMCR0IxGDAWBgNV
+# BAoTD1NlY3RpZ28gTGltaXRlZDErMCkGA1UEAxMiU2VjdGlnbyBQdWJsaWMgQ29k
+# ZSBTaWduaW5nIENBIFIzNgIRAMgx4fswkMFDciVfUuoKqr0wDQYJYIZIAWUDBAIB
+# BQCgfDAQBgorBgEEAYI3AgEMMQIwADAZBgkqhkiG9w0BCQMxDAYKKwYBBAGCNwIB
+# BDAcBgorBgEEAYI3AgELMQ4wDAYKKwYBBAGCNwIBFTAvBgkqhkiG9w0BCQQxIgQg
+# shkOYSf67Cf2ZQKqvCvyRz1YrdIJrj0qHtBVfoKdDhswDQYJKoZIhvcNAQEBBQAE
+# ggIAGlOhXPuar17KSWVMBRlu/URY5RE3wxiX1FW+EE6xxdpe8ArgCZaqeoPCgyJm
+# BSVSDcO6kjMC0BbhU495uu+F7Au1n9DftGwI2uODs2QC+nqDX6vlBjmsuWPotJak
+# +b4m7g1NAZ2c7HMgX2gXJ5wPKWvnNG3g/WH9lA6l0zrVAZaU1o2LPiX/XU1asArI
+# q/ZqGGPAQq0HYLf4bUr9yNAWDMAmJD9FsQhD8Y6QDKEX4rHFVxFe0B4WoBzgoTd5
+# oEY+fo7gOkPxn2MsXQozaRUdG3B+oeXbs03fxcbPOyWQ89e+gaLmRCWA2N/xUv36
+# fSr7/9rzX9akbXKB1kRKxERHqaw64bEt39qwH6jl1mKcdtxNXr3p1L+wyZ37XJPC
+# mSqz7E0aJ+Bq4cYPK640QESvcG3zlZEhhYyFB4kpAOBLzH6neuOApQDtrH42NHCf
+# ae02DGJYHV0wduKFfc33pSTIUlsPHDVl2Ab/U/bsLlSxUyxf5MHkL6BPjvLk6n+J
+# 9vKzHKj+EmEI8P3o/YdJuyn4s9xM9ZOIXv4Kib9TBodpNXB8JZvRp66eTRzcLP1a
+# pmrRlZwwmJ6Ulelv6I4hXB0kR+xMlil2hbyF4WS5E8+/m+ROuAWiVU5qupDxeuru
+# 3dgnQiWpOorFLe8qwOD+JGg7+7fPJ31Tk7wUSn6fEJlIvbShgheXMIIXkwYKKwYB
+# BAGCNwMDATGCF4Mwghd/BgkqhkiG9w0BBwKgghdwMIIXbAIBAzEPMA0GCWCGSAFl
+# AwQCAgUAMIGHBgsqhkiG9w0BCRABBKB4BHYwdAIBAQYJYIZIAYb9bAcBMEEwDQYJ
+# YIZIAWUDBAICBQAEMCrH+WRapXdyoSOXOcVaI3pGzPyzAX/jJukdgidhwPUWjgTB
+# G/M8BVyRnTbIN3f0rwIQbiSjQnOayN5NQU9aILlC0xgPMjAyNjExMjYxNzQ4MTFa
+# oIITOjCCBu0wggTVoAMCAQICEA4euzIrXIp1PhI/Ic7Q8tkwDQYJKoZIhvcNAQEM
+# BQAwaTELMAkGA1UEBhMCVVMxFzAVBgNVBAoTDkRpZ2lDZXJ0LCBJbmMuMUEwPwYD
+# VQQDEzhEaWdpQ2VydCBUcnVzdGVkIEc0IFRpbWVTdGFtcGluZyBSU0E0MDk2IFNI
+# QTI1NiAyMDI1IENBMTAeFw0yNjA4MDUwMDAwMDBaFw0zNzExMDQyMzU5NTlaMGMx
+# CzAJBgNVBAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjE7MDkGA1UEAxMy
+# RGlnaUNlcnQgU0hBMzg0IFJTQTQwOTYgVGltZXN0YW1wIFJlc3BvbmRlciAyMDI2
+# IDEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQDGzb2TVObgnNpRsbsm
+# C4sUxF6ibiz7n2oKTHqpIcDpFLue7BsPlDPjLxlp0a8qe6LqReZneD2FUX0fpWg3
+# QFscsFDtCz4JZJ2YephpY0c50LM0KUwUQVNXwDJs5MI8T/HFS41bSefLLKWSVY/p
+# +ZTN6K0mPstoOpxlrWflIrIKqv7DDIS4BYL3YT71oqYz1kfbpw6TeOVzol27pLfz
+# PzHfuoP6nXkaZHz+3tbu7HaoiyyqbuNrNJu6mdUPyPmUPpzIKudi0Ye6i7tsfdzn
+# 0VtFIw6gvSwNnPTUnztvWrvpD8rqNS4q7tQKXuBBuMlSYtoa4j/k2FRk7xWlkMq6
+# WnIeNXbmFjGxYMwrk5PZSzowcWPm90ElKd3R+Fd6qroBUGnzLhqgNthg+sRidN1O
+# Ub7uH1ZxcjTIwdQ+14hnGpMmDDHdmTMvaSZ3p5C+ebogrCn+xDV35N4wign/Aynt
+# //1acKG7MQ29bmPgtQWRhXM2uOVciCyDETdFCdGhtK1rK4zYE2n8+Cws8PAnsBCK
+# 5IKRgvmKS4LOq3CT4OU7TOcCQcR+XFTvuu+N61wLqToKG9z48uLFc0h5I9HwEkCE
+# s71ERUvOXIjRWqJaI9K8G4B0sPi56WolBXnbRrOr4GMV9w2Sce1ByYxg5Go9J4E4
+# WWRb2kwO+aclHZbGXnGmzidBSwIDAQABo4IBlTCCAZEwDAYDVR0TAQH/BAIwADAd
+# BgNVHQ4EFgQUi29SldV7kStiCZ9aQQeHUAshjJIwHwYDVR0jBBgwFoAU729TSunk
+# Bnx6yuKQVvYv1Ensy04wDgYDVR0PAQH/BAQDAgeAMBYGA1UdJQEB/wQMMAoGCCsG
+# AQUFBwMIMIGVBggrBgEFBQcBAQSBiDCBhTAkBggrBgEFBQcwAYYYaHR0cDovL29j
+# c3AuZGlnaWNlcnQuY29tMF0GCCsGAQUFBzAChlFodHRwOi8vY2FjZXJ0cy5kaWdp
+# Y2VydC5jb20vRGlnaUNlcnRUcnVzdGVkRzRUaW1lU3RhbXBpbmdSU0E0MDk2U0hB
+# MjU2MjAyNUNBMS5jcnQwXwYDVR0fBFgwVjBUoFKgUIZOaHR0cDovL2NybDMuZGln
+# aWNlcnQuY29tL0RpZ2lDZXJ0VHJ1c3RlZEc0VGltZVN0YW1waW5nUlNBNDA5NlNI
+# QTI1NjIwMjVDQTEuY3JsMCAGA1UdIAQZMBcwCAYGZ4EMAQQCMAsGCWCGSAGG/WwH
+# ATANBgkqhkiG9w0BAQwFAAOCAgEAILS9cQL2Fnk9lQBRBz8qK80fw7XgvGb5p6hz
+# dPj3GsqTDX7T/iRRFFRyRAQIc1bkAzHq8C+ZFwsDFCE8KQWiSU9fFM1WGr6hzIh1
+# O3LqncMeU+heFY45F18If1YcU9JOmRURy4Sdr+s6rkwYd38Hxvy1b1XIwE5grqjI
+# zfD9k6k87M4l3q4uwSDwAo+HTiHpUHCqzFxSFHDLqKC0A6nGQL1nvUDhxslTRXP7
+# hnXjcLzRAhsSsV06G9vH+uC9L/Rz1eZmDnRDcMBOTVhjZQnI2/88M4ZnqmHKNG6y
+# cpu918rBdF4rUahg3HI5uJeYtIq6Zw/b07RCAE/ceO3iH94OqGYngGAVhSy66qI/
+# rOHLQq+T/UNdLez4LBvzMTsbLvdz1jzrLtuIVAqJC1sS9k1tf/cHtRRtSuSKbJly
+# ud2ayy6ax3CZVHi5ArpYlRt3/mIrYu+BikzOsXeMtXv4tDrCWY/ymBdEZZPz0OZC
+# cnIdYXJ2ak8y46jAS+HQOY1mAG0koHd9LrO7GvhOVvIMtOpgfpE7/7Qb5afMMh4f
+# Ayx22mFrNhFaH/1LsNsyBR6LSrtRZnm9K9Jo013PjWkZWBIZO09olBU6m/ZuV4bA
+# RRbSHyzL9YlD4GcEy9mgZq9dglj7HyIkvemPuEFe8tnHA6TSK0WBksSRQz54AfR8
+# kRFAXCAwgga0MIIEnKADAgECAhANx6xXBf8hmS5AQyIMOkmGMA0GCSqGSIb3DQEB
+# CwUAMGIxCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNV
+# BAsTEHd3dy5kaWdpY2VydC5jb20xITAfBgNVBAMTGERpZ2lDZXJ0IFRydXN0ZWQg
+# Um9vdCBHNDAeFw0yNTA1MDcwMDAwMDBaFw0zODAxMTQyMzU5NTlaMGkxCzAJBgNV
+# BAYTAlVTMRcwFQYDVQQKEw5EaWdpQ2VydCwgSW5jLjFBMD8GA1UEAxM4RGlnaUNl
+# cnQgVHJ1c3RlZCBHNCBUaW1lU3RhbXBpbmcgUlNBNDA5NiBTSEEyNTYgMjAyNSBD
+# QTEwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC0eDHTCphBcr48RsAc
+# rHXbo0ZodLRRF51NrY0NlLWZloMsVO1DahGPNRcybEKq+RuwOnPhof6pvF4uGjwj
+# qNjfEvUi6wuim5bap+0lgloM2zX4kftn5B1IpYzTqpyFQ/4Bt0mAxAHeHYNnQxqX
+# mRinvuNgxVBdJkf77S2uPoCj7GH8BLuxBG5AvftBdsOECS1UkxBvMgEdgkFiDNYi
+# OTx4OtiFcMSkqTtF2hfQz3zQSku2Ws3IfDReb6e3mmdglTcaarps0wjUjsZvkgFk
+# riK9tUKJm/s80FiocSk1VYLZlDwFt+cVFBURJg6zMUjZa/zbCclF83bRVFLeGkuA
+# hHiGPMvSGmhgaTzVyhYn4p0+8y9oHRaQT/aofEnS5xLrfxnGpTXiUOeSLsJygoLP
+# p66bkDX1ZlAeSpQl92QOMeRxykvq6gbylsXQskBBBnGy3tW/AMOMCZIVNSaz7BX8
+# VtYGqLt9MmeOreGPRdtBx3yGOP+rx3rKWDEJlIqLXvJWnY0v5ydPpOjL6s36czwz
+# sucuoKs7Yk/ehb//Wx+5kMqIMRvUBDx6z1ev+7psNOdgJMoiwOrUG2ZdSoQbU2rM
+# kpLiQ6bGRinZbI4OLu9BMIFm1UUl9VnePs6BaaeEWvjJSjNm2qA+sdFUeEY0qVjP
+# KOWug/G6X5uAiynM7Bu2ayBjUwIDAQABo4IBXTCCAVkwEgYDVR0TAQH/BAgwBgEB
+# /wIBADAdBgNVHQ4EFgQU729TSunkBnx6yuKQVvYv1Ensy04wHwYDVR0jBBgwFoAU
+# 7NfjgtJxXWRM3y5nP+e6mK4cD08wDgYDVR0PAQH/BAQDAgGGMBMGA1UdJQQMMAoG
+# CCsGAQUFBwMIMHcGCCsGAQUFBwEBBGswaTAkBggrBgEFBQcwAYYYaHR0cDovL29j
+# c3AuZGlnaWNlcnQuY29tMEEGCCsGAQUFBzAChjVodHRwOi8vY2FjZXJ0cy5kaWdp
+# Y2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9vdEc0LmNydDBDBgNVHR8EPDA6MDig
+# NqA0hjJodHRwOi8vY3JsMy5kaWdpY2VydC5jb20vRGlnaUNlcnRUcnVzdGVkUm9v
+# dEc0LmNybDAgBgNVHSAEGTAXMAgGBmeBDAEEAjALBglghkgBhv1sBwEwDQYJKoZI
+# hvcNAQELBQADggIBABfO+xaAHP4HPRF2cTC9vgvItTSmf83Qh8WIGjB/T8ObXAZz
+# 8OjuhUxjaaFdleMM0lBryPTQM2qEJPe36zwbSI/mS83afsl3YTj+IQhQE7jU/kXj
+# jytJgnn0hvrV6hqWGd3rLAUt6vJy9lMDPjTLxLgXf9r5nWMQwr8Myb9rEVKChHyf
+# pzee5kH0F8HABBgr0UdqirZ7bowe9Vj2AIMD8liyrukZ2iA/wdG2th9y1IsA0QF8
+# dTXqvcnTmpfeQh35k5zOCPmSNq1UH410ANVko43+Cdmu4y81hjajV/gxdEkMx1NK
+# U4uHQcKfZxAvBAKqMVuqte69M9J6A47OvgRaPs+2ykgcGV00TYr2Lr3ty9qIijan
+# rUR3anzEwlvzZiiyfTPjLbnFRsjsYg39OlV8cipDoq7+qNNjqFzeGxcytL5TTLL4
+# ZaoBdqbhOhZ3ZRDUphPvSRmMThi0vw9vODRzW6AxnJll38F0cuJG7uEBYTptMSbh
+# dhGQDpOXgpIUsWTjd6xpR6oaQf/DJbg3s6KCLPAlZ66RzIg9sC+NJpud/v4+7RWs
+# WCiKi9EOLLHfMR2ZyJ/+xhCx9yHbxtl5TPau1j/1MIDpMPx0LckTetiSuEtQvLsN
+# z3Qbp7wGWqbIiOWCnb5WqxL3/BAPvIXKUjPSxyZsq8WhbaM2tszWkPZPubdcMIIF
+# jTCCBHWgAwIBAgIQDpsYjvnQLefv21DiCEAYWjANBgkqhkiG9w0BAQwFADBlMQsw
+# CQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cu
+# ZGlnaWNlcnQuY29tMSQwIgYDVQQDExtEaWdpQ2VydCBBc3N1cmVkIElEIFJvb3Qg
+# Q0EwHhcNMjIwODAxMDAwMDAwWhcNMzExMTA5MjM1OTU5WjBiMQswCQYDVQQGEwJV
+# UzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQu
+# Y29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0GCSqG
+# SIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7JIT3y
+# ithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxSD1If
+# xp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb7iDV
+# ySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1efVFiO
+# DCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoYOAMQ
+# jdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSaM0C/
+# CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI8OCi
+# EhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9LBADM
+# fRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfmQ6QY
+# uKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDrMcXK
+# chYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15GkvmB0t
+# 9dmpsh3lGwIDAQABo4IBOjCCATYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU
+# 7NfjgtJxXWRM3y5nP+e6mK4cD08wHwYDVR0jBBgwFoAUReuir/SSy4IxLVGLp6ch
+# nfNtyA8wDgYDVR0PAQH/BAQDAgGGMHkGCCsGAQUFBwEBBG0wazAkBggrBgEFBQcw
+# AYYYaHR0cDovL29jc3AuZGlnaWNlcnQuY29tMEMGCCsGAQUFBzAChjdodHRwOi8v
+# Y2FjZXJ0cy5kaWdpY2VydC5jb20vRGlnaUNlcnRBc3N1cmVkSURSb290Q0EuY3J0
+# MEUGA1UdHwQ+MDwwOqA4oDaGNGh0dHA6Ly9jcmwzLmRpZ2ljZXJ0LmNvbS9EaWdp
+# Q2VydEFzc3VyZWRJRFJvb3RDQS5jcmwwEQYDVR0gBAowCDAGBgRVHSAAMA0GCSqG
+# SIb3DQEBDAUAA4IBAQBwoL9DXFXnOF+go3QbPbYW1/e/Vwe9mqyhhyzshV6pGrsi
+# +IcaaVQi7aSId229GhT0E0p6Ly23OO/0/4C5+KH38nLeJLxSA8hO0Cre+i1Wz/n0
+# 96wwepqLsl7Uz9FDRJtDIeuWcqFItJnLnU+nBgMTdydE1Od/6Fmo8L8vC6bp8jQ8
+# 7PcDx4eo0kxAGTVGamlUsLihVo7spNU96LHc/RzY9HdaXFSMb++hUD38dglohJ9v
+# ytsgjTVgHAIDyyCwrFigDkBjxZgiwbJZ9VVrzyerbHbObyMt9H5xaiNrIv8SuFQt
+# J37YOtnwtoeW/VvRXKwYw02fc7cBqZ9Xql4o4rmUMYIDjDCCA4gCAQEwfTBpMQsw
+# CQYDVQQGEwJVUzEXMBUGA1UEChMORGlnaUNlcnQsIEluYy4xQTA/BgNVBAMTOERp
+# Z2lDZXJ0IFRydXN0ZWQgRzQgVGltZVN0YW1waW5nIFJTQTQwOTYgU0hBMjU2IDIw
+# MjUgQ0ExAhAOHrsyK1yKdT4SPyHO0PLZMA0GCWCGSAFlAwQCAgUAoIHhMBoGCSqG
+# SIb3DQEJAzENBgsqhkiG9w0BCRABBDAcBgkqhkiG9w0BCQUxDxcNMjYxMTI2MTc0
+# ODExWjArBgsqhkiG9w0BCRACDDEcMBowGDAWBBTpqKcjtIUE9eDhQ4tnPs6HzyxQ
+# mzA3BgsqhkiG9w0BCRACLzEoMCYwJDAiBCBxHdd7HC5xsmHXVY1pnAB3yX0SAzCa
+# YI7cEFY0wVBQezA/BgkqhkiG9w0BCQQxMgQwCIwk5p7LRVUhV8nA8jnfUjCeqQQt
+# CBaHQZnnAsxcvczmKNmQtukCY5OH9pu5qas8MA0GCSqGSIb3DQEBAQUABIICACMW
+# +MCLgq1JTuKWf7mwpu05V532MNR3kt8hC0+U249lIA7EsksDtgZF3tBiW64JHFVs
+# 0ow5DYVL7EFic/EMtMUkVOz679SJNd94EOuJTIB2Mxndrv/grPawdQV/rIvG0bzs
+# 4tcvh3juhbxjy02vhCHE/S49WQln5r/1APyTYE+RQPl5JOYAF5gs45sLmrlZeJHP
+# aeNjQCL/tzAEuGBJt8HqNVRmtYDno20drz/sBK58Ji/jBToeg6voLVc20ji4qvb8
+# dmfYQ1DZoMec5VuQUU3nhkPyMk1cs+5WO92DBKWfIZ0++bCPC9McOv7ZX6OD4vSM
+# Xfd4R74ocu33fk3K4IlTi2ljkOrKK3XA1pd/8hZeXCv17scIOEQq12ZrbUKA3MSF
+# v8e06swB/3b461CSV3lXv+qeKgAwVGgHB/TELpCJsL9JB6GgUQHHNFDpS0QSbxpj
+# 4exgNyNH1jMW00HEPKFen6N1dGTUKhqHtaiyEWUdnTx2txyPYCwHmv4x/marMbY2
+# zBPVuDRHMX0ZWitEwmzDXcUipRiJzNw1qRh1+iKCWMeaIhsJ4PlDA0MFUGW8260U
+# peZYDKW6IF0G7xePGlhKEB9AXF/JQcG0H9GMXdlWGpCnX+4a/rw2Dpn2g2qKK+Ft
+# 16XhaTceCivEb0up/vzqvqHgEjnrjJlXa3ziUayp
 # SIG # End signature block
