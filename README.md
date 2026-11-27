@@ -56,8 +56,8 @@ This library is actively maintained with continuous updates to support new HPE G
 - 🧪 **[Hands-On Lab: HPE Compute Ops Management Zero-Touch Automation](https://hpelabs.github.io/PowerShell-COM-Zero-Touch/)** - A self-paced, guided lab that takes you through the full server lifecycle with the module - installing HPECOMCmdlets, connecting to HPE GreenLake (credentials or SAML SSO), creating a workspace, provisioning COM, onboarding a server, building settings and groups, checking compliance, scheduling firmware updates, exploring inventory/health/sustainability insights, iLO SSO access, and cleanup
 - 🚀 **[HPE Compute Ops Management Zero Touch Automation Example](https://github.com/jullienl/HPE-COM-PowerShell-Library/blob/main/Examples/COM-Zero-Touch-Automation.ps1)** - Learn best practices with a complete automation example covering the entire infrastructure deployment lifecycle showcasing workspace creation, zero-touch server onboarding, configuration, firmware updates, and teardown
 - 🔌 **[Bulk iLO Onboarding to Compute Ops Management](https://github.com/jullienl/HPE-Compute-Ops-Management/blob/main/PowerShell/Onboarding/Prepare-and-Connect-iLOs-to-COM-v2.ps1)** - Production-grade, idempotent script to onboard HPE Gen10 and later servers at scale from a CSV file, automating GreenLake authentication, iLO DNS/SNTP configuration, firmware-compliance updates, activation-key generation, COM connection (direct, web proxy, or Secure Gateway), location and tag assignment, and CSV status reporting, with a `-Check` pre-flight mode
-- 🛡️ **[Discover and Onboard iLOs via Secure Gateway](https://github.com/jullienl/HPE-Compute-Ops-Management/blob/main/PowerShell/Onboarding/Discover-and-Onboard-iLOs-via-SecureGateway.ps1)** *(v1.0.29+)* - Secure-Gateway-native onboarding script that discovers every iLO behind an HPE Secure Gateway and onboards them in a single batch job - no CSV of IP addresses and no local firmware staging required (the gateway discovers the iLOs and updates their firmware server-side). Automates GreenLake authentication, COM instance / Secure Gateway / subscription / location validation, optional iLO DNS/NTP, subscription, location, tags and service-delivery contact, shared **or** per-iLO credentials (CSV), with a `-Check` pre-flight triage table and CSV status reporting
-- 🎯 **[Configuring SAML SSO with HPE GreenLake for the Top 3 Identity Providers](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)** - Step-by-step guide to setting up SAML SSO with Microsoft Entra ID, Okta, and Ping Identity, then signing in from HPECOMCmdlets using passwordless (push/TOTP) or password-based (`-Credential`, v1.0.29+) authentication
+- 🛡️ **[Discover and Onboard iLOs via Secure Gateway](https://github.com/jullienl/HPE-Compute-Ops-Management/blob/main/PowerShell/Onboarding/Discover-and-Onboard-iLOs-via-SecureGateway.ps1)** *(v1.0.26+)* - Secure-Gateway-native onboarding script that discovers every iLO behind an HPE Secure Gateway and onboards them in a single batch job - no CSV of IP addresses and no local firmware staging required (the gateway discovers the iLOs and updates their firmware server-side). Automates GreenLake authentication, COM instance / Secure Gateway / subscription / location validation, optional iLO DNS/NTP, subscription, location, tags and service-delivery contact, shared **or** per-iLO credentials (CSV), with a `-Check` pre-flight triage table and CSV status reporting
+- 🎯 **[Configuring SAML SSO with HPE GreenLake for the Top 3 Identity Providers](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)** - Step-by-step guide to setting up SAML SSO with Microsoft Entra ID, Okta, and Ping Identity, then signing in from HPECOMCmdlets using passwordless (push/TOTP) or password-based (`-Credential`, v1.0.26+) authentication
 
 ---
 
@@ -72,7 +72,7 @@ Get up and running in 4 steps:
 
 2. **Connect with your credentials**
     ```powershell
-    # Connect with SSO password-based (Okta, Entra ID, PingID - federation auto-detected) with or without MFA (push/TOTP) [v1.0.29+]
+    # Connect with SSO password-based (Okta, Entra ID, PingID - federation auto-detected) with or without MFA (push/TOTP) [v1.0.26+]
     Connect-HPEGL -Credential (Get-Credential -UserName "user@company.com") -Workspace "MyWorkspace"
 
     # Connect with SSO passwordless (Okta, Entra ID, PingID - push, or TOTP where supported)
@@ -214,9 +214,9 @@ Get-Command -Module HPECOMCmdlets
 
 ### SAML and OIDC Single Sign-On (SSO) - Passwordless and Password-based
 
-  **New in v1.0.29**: OpenID Connect (OIDC) federation is now supported for Okta, Microsoft Entra ID and PingIdentity, in addition to SAML 2.0. The federation protocol configured in HPE GreenLake is detected automatically; the same `-PasswordlessSSOEmail` and `-Credential` parameters work for both.
+  **New in v1.0.27**: OpenID Connect (OIDC) federation is now supported for Okta, Microsoft Entra ID and PingIdentity, in addition to SAML 2.0. The federation protocol configured in HPE GreenLake is detected automatically; the same `-PasswordlessSSOEmail` and `-Credential` parameters work for both.
 
-  **New in v1.0.29**: Password-based SSO via `-Credential` is now supported alongside the existing passwordless flow. Use `-PasswordlessSSOEmail` for push/TOTP authentication, or `-Credential` with your federated email address for password-based authentication. Federation is detected automatically.
+  **New in v1.0.26**: Password-based SSO via `-Credential` is now supported alongside the existing passwordless flow. Use `-PasswordlessSSOEmail` for push/TOTP authentication, or `-Credential` with your federated email address for password-based authentication. Federation is detected automatically.
         
   - **Supported Identity Providers**:
 
@@ -343,7 +343,7 @@ Get-Command -Module HPECOMCmdlets
   - **Configuration Guide**:  
 
     > 📘 **[Complete SAML SSO Setup Guide](https://jullienl.github.io/Configuring-SAML-SSO-with-HPE-GreenLake-and-Passwordless-Authentication-for-HPECOMCmdlets)**  
-    > Step-by-step tutorial for configuring SAML SSO with Okta, Microsoft Entra ID, and PingIdentity, then signing in from HPECOMCmdlets using passwordless (push/TOTP) or password-based (`-Credential`, v1.0.29+) authentication. Includes screenshots, troubleshooting tips, and best practices.
+    > Step-by-step tutorial for configuring SAML SSO with Okta, Microsoft Entra ID, and PingIdentity, then signing in from HPECOMCmdlets using passwordless (push/TOTP) or password-based (`-Credential`, v1.0.26+) authentication. Includes screenshots, troubleshooting tips, and best practices.
 
     Additional Resources:
       - 📖 [HPE GreenLake Cloud User Guide](https://support.hpe.com/hpesc/public/docDisplay?docId=a00120892en_us) - Official HPE documentation for workspace and authentication configuration
@@ -492,7 +492,7 @@ Quick jump: [Example 1](#example-1-direct-authentication-with-username-and-passw
 
 > **Note:** For password-based SSO (Okta, Entra ID, PingIdentity), use `-Credential` with your federated email address. Federation is detected automatically - no additional parameters are needed.
 
-> **New in v1.0.29:** Password-based SSO authentication is now supported for Okta, Microsoft Entra ID, and PingIdentity via `-Credential`. The `-SSOEmail` parameter has been renamed to `-PasswordlessSSOEmail` (the `-SSOEmail` alias remains fully functional for backward compatibility).
+> **New in v1.0.26:** Password-based SSO authentication is now supported for Okta, Microsoft Entra ID, and PingIdentity via `-Credential`. The `-SSOEmail` parameter has been renamed to `-PasswordlessSSOEmail` (the `-SSOEmail` alias remains fully functional for backward compatibility).
 
 > **Important:** `-PasswordlessSSOEmail` is strictly for passwordless IdP accounts (push/TOTP only). If your IdP requires a password, use `-Credential` - using `-PasswordlessSSOEmail` for a password-based account returns an error and never prompts interactively.
 
@@ -700,7 +700,7 @@ All session-scoped variables (`HPEGreenLakeSession`, `HPECOMInvokeReturnData`, `
 
 The library offers two complementary ways to connect server iLOs to Compute Ops Management. They are not competing - pick the one that matches your environment:
 
-| | `Connect-HPEGLDeviceComputeiLOtoCOM` | `Connect-HPECOMSecureGatewayDiscoveredServer` *(v1.0.29+)* |
+| | `Connect-HPEGLDeviceComputeiLOtoCOM` | `Connect-HPECOMSecureGatewayDiscoveredServer` *(v1.0.26+)* |
 |---|---|---|
 | **Best for** | Any connection type (direct / web proxy / Secure Gateway), migrations, fine-grained control | Bulk onboarding of every iLO **behind an HPE Secure Gateway** |
 | **Input** | Known iLO IP(s) + credential | Discovery results piped from `Get-HPECOMSecureGatewayServerDiscovery` |
@@ -846,7 +846,7 @@ For questions about:
 
 ## Common Issues and Solutions
 
-> **Note on `-PasswordlessSSOEmail`**: As of v1.0.29 the `-SSOEmail` parameter was renamed to `-PasswordlessSSOEmail` to distinguish the fully passwordless flow (push/TOTP) from the new password-based SSO flow (`-Credential`). The original `-SSOEmail` name is retained as a backward-compatible alias, so existing scripts continue to work unchanged.
+> **Note on `-PasswordlessSSOEmail`**: As of v1.0.26 the `-SSOEmail` parameter was renamed to `-PasswordlessSSOEmail` to distinguish the fully passwordless flow (push/TOTP) from the new password-based SSO flow (`-Credential`). The original `-SSOEmail` name is retained as a backward-compatible alias, so existing scripts continue to work unchanged.
 
 ### "Maximum of 7 personal API clients exceeded"
 
